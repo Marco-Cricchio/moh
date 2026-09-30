@@ -240,9 +240,19 @@ import {
   type KnownCompatEndpoint,
   type ConnectionTestResult,
   type ConnectionTester,
+  type ProviderTestFailure,
   type OnboardingIo,
   type ProviderAddOptions,
 } from "./provider-onboarding";
+export {
+  // #1092: the bounded, secret-free failure trail for connection tests —
+  // clients pass the user's moh home through `minimalConnectionTest`.
+  noteProviderTestFailure,
+  providerTestFailuresFile,
+  PROVIDER_TEST_FAILURES_FILE,
+  PROVIDER_TEST_MAX_ENTRIES,
+  type ProviderTestFailureEntry,
+} from "./provider-test-trace";
 export { PROVIDER_PROFILES, providerProfile, providerEndpointChoices, providerRequiresBaseUrlInput, isProviderProfile, type ProviderProfile, type ProviderProfileId } from "./provider-profiles";
 export { catalogEntryFor, pricingForModel, pricingForPlan, modelSupportsImages, endpointModelCatalog, knownCompatEndpointMetadata, subscriptionModelCatalog, type BillingPlan, type CatalogModel, type ModelPricing, type ModelPricingTier, type KnownCompatEndpointMetadata } from "./model-catalog";
 export { billingPlanResolver, estimateModelCost, PRICING_SNAPSHOT, type ModelCostEstimate } from "./pricing";
@@ -917,6 +927,7 @@ export {
   type KnownCompatEndpoint,
   type ConnectionTestResult,
   type ConnectionTester,
+  type ProviderTestFailure,
   type OnboardingIo,
   type ProviderAddOptions,
   isSubscriptionKind,

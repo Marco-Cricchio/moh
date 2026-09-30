@@ -17,6 +17,14 @@ moh provider add
 
 The wizard presents a documented endpoint and default model for every built-in profile. Where a provider requires an account- or region-specific URL, it asks for the concrete endpoint instead of guessing. API keys are resolved from the provider's documented environment variable as well as `MOH_ENDPOINT_<NAME>_API_KEY`; values entered in the wizard are stored in `~/.moh/config`, never in moh.json.
 
+The mandatory connection test sends one small probe to the endpoint.
+When it fails, the overlay shows the provider's actionable error fields
+in full — status, message, the offending parameter (`error.param`), error
+type and request id, followed by the sanitized response body — and every
+failed attempt is persisted to `~/.moh/provider-test-failures.log`
+(bounded, never carrying credentials), so a failure stays diagnosable
+after the wizard is gone.
+
 The wizard first asks **API key or subscription**. A subscription login
 (Claude Pro/Max, ChatGPT Plus/Pro, personal Google) runs the provider's
 OAuth flow and stores its tokens in `~/.moh/config` — never in

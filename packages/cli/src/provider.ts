@@ -23,6 +23,7 @@ import {
   setUserEndpointModel,
   writeMohConfig,
   type ConnectionTester,
+  minimalConnectionTest,
   type OnboardingIo,
   type ProviderAddOptions,
   type LoginOptions,
@@ -123,7 +124,11 @@ export async function providerCommand(opts: ProviderCommandOptions): Promise<num
       await addProviderToFile(io, join(opts.cwd, "moh.json"), {
         authFile,
         ...(opts.subscriptionLogin ? { subscriptionLogin: opts.subscriptionLogin } : {}),
-        ...(opts.tester ? { tester: opts.tester } : {}),
+        // #1092: the real tester persists failed attempts to the dotdir
+        // trace, so a failed `moh provider add` stays diagnosable.
+        ...(opts.tester
+          ? { tester: opts.tester }
+          : { tester: (profile) => minimalConnectionTest(profile, fetch, AbortSignal.timeout(20_000), process.env, authFile, opts.home ? join(opts.home, ".moh") : undefined) }),
       });
       return 0;
     } catch (err) {

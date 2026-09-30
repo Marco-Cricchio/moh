@@ -18,6 +18,7 @@ import { openaiNativeAuthContext } from "./auth/resolve";
 import { OAUTH_BUILTIN_BASE_URLS, isOAuthBuiltinKind } from "./wire";
 import { catalogEntryFor, knownCompatEndpointMetadata, subscriptionModelCatalog } from "./model-catalog";
 import { tosWizardLine } from "./tos-cards";
+import { noteProviderTestFailure } from "./provider-test-trace";
 import { CHATGPT_CODEX_BASE_URL, CHATGPT_CODEX_ORIGINATOR } from "./auth/openai";
 
 /** Provider types usable with no custom code. */
@@ -95,7 +96,30 @@ export interface OnboardingIo {
   openUrl?(url: string): Promise<boolean>;
 }
 
-export type ConnectionTestResult = { ok: true; modelId: string } | { ok: false; error: string };
+export type ConnectionTestResult =
+  | { ok: true; modelId: string }
+  | { ok: false; error: string; detail?: ProviderTestFailure };
+
+/**
+ * Structured failure details (#1092): the actionable fields a provider's
+ * error payload carries, kept whole instead of lost to a 200-char
+ * snippet. `error` on the result stays the one-line summary; `detail`
+ * holds the same facts plus the sanitized body for the full view.
+ */
+export interface ProviderTestFailure {
+  status?: number;
+  statusText?: string;
+  /** The provider's own `error.message`, or the sanitized body head. */
+  message?: string;
+  /** `error.type` or `error.code`, when the payload names one. */
+  type?: string;
+  /** `error.param` — the field the provider complained about. */
+  param?: string;
+  /** `x-request-id` response header or the payload's request id. */
+  requestId?: string;
+  /** Sanitized response body (control chars cleaned, bounded). */
+  body?: string;
+}
 export type ConnectionTester = (profile: EndpointProfile) => Promise<ConnectionTestResult>;
 
 export class OnboardingAborted extends Error {
@@ -352,6 +376,19 @@ export async function addProviderToFile(
   return { profile, config: withDefault };
 }
 
+/** Output budget for the probe request (#1092): generous enough that a
+ * minimal response fits (a one-token budget made OpenAI reject the probe
+ * with an output-limit 400), bounded so a chatty or reasoning model can
+ * never run the bill up. An output-limit failure still fails the test —
+ * the budget never grows on retry. */
+export const PROBE_MAX_OUTPUT_TOKENS = 256;
+
+/** Joins a configured base URL with the probe path: a trailing slash on
+ * the base must not double the separator in the request path (#1092). */
+export function joinBaseUrl(base: string, path: string): string {
+  return `${base.replace(/\/+$/, "")}${path}`;
+}
+
 /**
  * Minimal real connection test: one tiny non-streaming request against
  * the provider's chat endpoint. Any 2xx response passes.
@@ -362,6 +399,29 @@ export async function minimalConnectionTest(
   signal: AbortSignal = AbortSignal.timeout(20_000),
   env: Record<string, string | undefined> = process.env,
   authFile: string = userConfigFile(),
+  /** #1092: when the user's moh home is supplied, every failed attempt
+   * is persisted to `~/.moh/provider-test-failures.log` — bounded,
+   * secret-free, fail-silent. Onboarding is pre-session by design, so
+   * this dotdir store is the durable trail in every path (first run,
+   * wizard rerun, CLI), active session or not. */
+  home?: string,
+): Promise<ConnectionTestResult> {
+  const tested = await runConnectionTest(profile, fetchImpl, signal, env, authFile);
+  if (home && !tested.ok) {
+    // The profile kept for persistence drops credential fields so no
+    // secret can reach the trace file even if the entry shape grows.
+    const { apiKey: _apiKey, auth: _auth, ...redacted } = profile;
+    noteProviderTestFailure({ home, profile: redacted, result: tested });
+  }
+  return tested;
+}
+
+async function runConnectionTest(
+  profile: EndpointProfile,
+  fetchImpl: typeof fetch,
+  signal: AbortSignal,
+  env: Record<string, string | undefined>,
+  authFile: string,
 ): Promise<ConnectionTestResult> {
   const modelId = profile.defaultModel;
   if (!modelId) return { ok: false, error: "no default model configured" };
@@ -409,7 +469,7 @@ export async function minimalConnectionTest(
       // several invariants with 400s — input must be a message-item
       // list, store must be false, stream must be true. The ping streams
       // and drains the SSE body (any 2xx passes).
-      const res = await fetchImpl(`${nativeContext.baseUrl ?? CHATGPT_CODEX_BASE_URL}/responses`, {
+      const res = await fetchImpl(joinBaseUrl(nativeContext.baseUrl ?? CHATGPT_CODEX_BASE_URL, "/responses"), {
         method: "POST",
         signal,
         headers: {
@@ -441,7 +501,7 @@ export async function minimalConnectionTest(
     }
     const auth: Record<string, string> = apiKey ? { authorization: `Bearer ${apiKey}` } : {};
     if (profile.type === "anthropic") {
-      const res = await fetchImpl(`${profile.baseUrl ?? "https://api.anthropic.com"}/v1/messages`, {
+      const res = await fetchImpl(joinBaseUrl(profile.baseUrl ?? "https://api.anthropic.com", "/v1/messages"), {
         method: "POST",
         signal,
         headers: {
@@ -451,20 +511,20 @@ export async function minimalConnectionTest(
           ...(subscription ? { authorization: `Bearer ${apiKey}`, ...ANTHROPIC_OAUTH_BETA } : { "x-api-key": apiKey ?? "" }),
           "anthropic-version": "2023-06-01",
         },
-        body: JSON.stringify({ model: modelId, max_tokens: 1, messages: [{ role: "user", content: "ping" }] }),
+        body: JSON.stringify({ model: modelId, max_tokens: PROBE_MAX_OUTPUT_TOKENS, messages: [{ role: "user", content: "ping" }] }),
       });
       return verdict(res, modelId);
     }
     if (profile.type === "google") {
       const base = profile.baseUrl ?? "https://generativelanguage.googleapis.com/v1beta";
-      const res = await fetchImpl(`${base}/models/${modelId}:generateContent`, {
+      const res = await fetchImpl(joinBaseUrl(base, `/models/${modelId}:generateContent`), {
         method: "POST",
         signal,
         headers: {
           "content-type": "application/json",
           "x-goog-api-key": apiKey ?? "",
         },
-        body: JSON.stringify({ contents: [{ parts: [{ text: "ping" }] }], generationConfig: { maxOutputTokens: 1 } }),
+        body: JSON.stringify({ contents: [{ parts: [{ text: "ping" }] }], generationConfig: { maxOutputTokens: PROBE_MAX_OUTPUT_TOKENS } }),
       });
       return verdict(res, modelId);
     }
@@ -475,18 +535,18 @@ export async function minimalConnectionTest(
       const base = profile.baseUrl ?? (profile.name === "opencode-go" ? OPENCODE_ENDPOINTS.go.baseUrl : OPENCODE_ENDPOINTS.zen.baseUrl);
       const wire = catalogEntryFor("opencode", modelId, base)?.wire;
       const url =
-        wire === "anthropic-messages" ? `${base}/messages`
-        : wire === "google" ? `${base}/models/gemini`
-        : wire === "openai-chat" ? `${base}/chat/completions`
-        : `${base}/responses`;
+        wire === "anthropic-messages" ? joinBaseUrl(base, "/messages")
+        : wire === "google" ? joinBaseUrl(base, "/models/gemini")
+        : wire === "openai-chat" ? joinBaseUrl(base, "/chat/completions")
+        : joinBaseUrl(base, "/responses");
       const body =
         wire === "anthropic-messages"
-          ? { model: modelId, max_tokens: 1, messages: [{ role: "user", content: "ping" }] }
+          ? { model: modelId, max_tokens: PROBE_MAX_OUTPUT_TOKENS, messages: [{ role: "user", content: "ping" }] }
           : wire === "google"
-            ? { model: modelId, contents: [{ parts: [{ text: "ping" }] }], generationConfig: { maxOutputTokens: 1 } }
+            ? { model: modelId, contents: [{ parts: [{ text: "ping" }] }], generationConfig: { maxOutputTokens: PROBE_MAX_OUTPUT_TOKENS } }
             : wire === "openai-chat"
-              ? { model: modelId, max_tokens: 1, messages: [{ role: "user", content: "ping" }] }
-              : { model: modelId, input: "ping", max_output_tokens: 1 };
+              ? { model: modelId, max_tokens: PROBE_MAX_OUTPUT_TOKENS, messages: [{ role: "user", content: "ping" }] }
+              : { model: modelId, input: "ping", max_output_tokens: PROBE_MAX_OUTPUT_TOKENS };
       // The anthropic-wire endpoint ignores Bearer entirely (verified
       // against the live backend: "Missing API key" with Bearer,
       // "Invalid API key" with x-api-key) — the key rides x-api-key with
@@ -510,7 +570,7 @@ export async function minimalConnectionTest(
     }
     if (profile.type === "openai" || profile.type === "openai-compat" || isOAuthBuiltinKind(profile.type) || isProviderProfile(profile.type)) {
       const base = profile.baseUrl ?? providerProfile(profile.type)?.baseUrl ?? (isOAuthBuiltinKind(profile.type) ? OAUTH_BUILTIN_BASE_URLS[profile.type] : "https://api.openai.com/v1");
-      const res = await fetchImpl(`${base}/chat/completions`, {
+      const res = await fetchImpl(joinBaseUrl(base, "/chat/completions"), {
         method: "POST",
         signal,
         headers: { "content-type": "application/json", ...auth },
@@ -518,7 +578,7 @@ export async function minimalConnectionTest(
         // Keep that field for other compatible backends, which may require it.
         body: JSON.stringify({
           model: modelId,
-          ...(profile.type === "openai" ? { max_completion_tokens: 1 } : { max_tokens: 1 }),
+          ...(profile.type === "openai" ? { max_completion_tokens: PROBE_MAX_OUTPUT_TOKENS } : { max_tokens: PROBE_MAX_OUTPUT_TOKENS }),
           messages: [{ role: "user", content: "ping" }],
         }),
       });
@@ -533,6 +593,55 @@ export async function minimalConnectionTest(
 async function verdict(res: Response, modelId: string): Promise<ConnectionTestResult> {
   if (res.ok) return { ok: true, modelId };
   const body = await res.text().catch(() => "");
-  const snippet = body.slice(0, 200);
-  return { ok: false, error: `HTTP ${res.status} ${res.statusText}${snippet ? `: ${snippet}` : ""}` };
+  const failure = parseProviderFailure(res, body);
+  const parts = [
+    `HTTP ${res.status} ${res.statusText}`,
+    failure.message ?? sanitizeFailureBody(body),
+    failure.param ? `(param: ${failure.param})` : "",
+    failure.type ? `[${failure.type}]` : "",
+    failure.requestId ? `(request id: ${failure.requestId})` : "",
+  ].filter(Boolean);
+  return { ok: false, error: parts.join(" "), detail: failure };
+}
+
+/** Body excerpt kept on the failure detail: control chars cleaned,
+ * whitespace collapsed, bounded — readable, never a wall of JSON. */
+export const PROVIDER_TEST_BODY_CHARS = 1000;
+
+function sanitizeFailureBody(body: string): string {
+  if (!body) return "";
+  // eslint-disable-next-line no-control-regex
+  const cleaned = body.replace(/[\u0000-\u001f\u007f]+/g, " ").trim();
+  return cleaned.length > PROVIDER_TEST_BODY_CHARS ? `${cleaned.slice(0, PROVIDER_TEST_BODY_CHARS - 1)}…` : cleaned;
+}
+
+/** Pulls the actionable fields out of a provider error payload. A
+ * malformed, empty or non-JSON body is handled safely: the fields stay
+ * absent and the sanitized body head remains the record (#1092). */
+function parseProviderFailure(res: Response, body: string): ProviderTestFailure {
+  const failure: ProviderTestFailure = {
+    status: res.status,
+    statusText: res.statusText,
+    ...(res.headers.get("x-request-id") ? { requestId: res.headers.get("x-request-id")! } : {}),
+  };
+  const sanitized = sanitizeFailureBody(body);
+  if (sanitized) failure.body = sanitized;
+  try {
+    const parsed = JSON.parse(body) as {
+      error?: { message?: unknown; type?: unknown; code?: unknown; param?: unknown; request_id?: unknown };
+      message?: unknown;
+      request_id?: unknown;
+    };
+    const err = parsed?.error;
+    if (typeof err?.message === "string") failure.message = err.message;
+    if (typeof err?.param === "string") failure.param = err.param;
+    if (typeof err?.type === "string") failure.type = err.type;
+    else if (typeof err?.code === "string") failure.type = err.code;
+    if (typeof err?.request_id === "string" && !failure.requestId) failure.requestId = err.request_id;
+    else if (typeof parsed?.request_id === "string" && !failure.requestId) failure.requestId = parsed.request_id;
+    if (!failure.message && typeof parsed?.message === "string") failure.message = parsed.message;
+  } catch {
+    // Non-JSON body: the sanitized head in `failure.body` is the record.
+  }
+  return failure;
 }
