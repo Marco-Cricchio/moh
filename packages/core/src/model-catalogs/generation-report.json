@@ -1,17 +1,17 @@
 {
   "schemaVersion": 1,
-  "version": "0.53.0",
-  "generatedAt": "2026-09-29T21:36:58.890Z",
+  "version": "0.53.1",
+  "generatedAt": "2026-09-30T08:50:00.326Z",
   "sources": [
     {
       "name": "models.dev",
       "url": "https://models.dev/api.json",
-      "fetchedAt": "2026-09-29T21:36:58.329Z"
+      "fetchedAt": "2026-09-30T08:49:59.755Z"
     },
     {
       "name": "openrouter",
       "url": "https://openrouter.ai/api/v1/models",
-      "fetchedAt": "2026-09-29T21:36:58.651Z"
+      "fetchedAt": "2026-09-30T08:50:00.151Z"
     }
   ],
   "totals": {
@@ -21,7 +21,7 @@
     "baseModel": 13,
     "ambiguous": 5,
     "absent": 33,
-    "rowsWithOverrides": 116
+    "rowsWithOverrides": 122
   },
   "files": [
     {
@@ -805,13 +805,13 @@
       "provider": "opencode-go",
       "id": "glm-5.3",
       "modelsDev": 1000000,
-      "openRouter": 1310720
+      "openRouter": 1048576
     },
     {
       "provider": "opencode-go",
       "id": "glm-5.3-flash",
       "modelsDev": 1000000,
-      "openRouter": 1310720
+      "openRouter": 1048576
     },
     {
       "provider": "opencode-go",
@@ -877,13 +877,13 @@
       "provider": "opencode-zen",
       "id": "glm-5.3",
       "modelsDev": 1000000,
-      "openRouter": 1310720
+      "openRouter": 1048576
     },
     {
       "provider": "opencode-zen",
       "id": "glm-5.3-flash",
       "modelsDev": 1000000,
-      "openRouter": 1310720
+      "openRouter": 1048576
     },
     {
       "provider": "opencode-zen",
@@ -907,173 +907,18 @@
       "provider": "zai",
       "id": "glm-5.3",
       "modelsDev": 1000000,
-      "openRouter": 1310720
+      "openRouter": 1048576
     },
     {
       "provider": "zai",
       "id": "glm-5.3-flash",
       "modelsDev": 1000000,
-      "openRouter": 1310720
+      "openRouter": 1048576
     }
   ],
   "contextWindowShrinks": [],
   "changes": {
-    "pricing": [
-      {
-        "provider": "openrouter",
-        "id": "deepseek/deepseek-v4-flash",
-        "from": {
-          "input": 0.08848,
-          "output": 0.17696,
-          "cacheRead": 0.017696
-        },
-        "to": {
-          "input": 0.0763,
-          "output": 0.1526,
-          "cacheRead": 0.01526
-        }
-      },
-      {
-        "provider": "openrouter",
-        "id": "deepseek/deepseek-v4-pro",
-        "from": {
-          "input": 0.953172,
-          "output": 1.906344,
-          "cacheRead": 0.079431
-        },
-        "to": {
-          "input": 0.915936,
-          "output": 1.831872,
-          "cacheRead": 0.076328
-        }
-      },
-      {
-        "provider": "openrouter",
-        "id": "deepseek/deepseek-v4-pro-0813",
-        "from": {
-          "input": 0.48,
-          "output": 4.2,
-          "cacheRead": 0.384
-        },
-        "to": {
-          "input": 0.3942,
-          "output": 3.49,
-          "cacheRead": 0.3153
-        }
-      },
-      {
-        "provider": "openrouter",
-        "id": "google/gemma-4-26b-a4b-it",
-        "from": {
-          "input": 0.09,
-          "output": 0.3,
-          "cacheRead": 0.05
-        },
-        "to": {
-          "input": 0.0765,
-          "output": 0.255,
-          "cacheRead": 0.0425
-        }
-      },
-      {
-        "provider": "openrouter",
-        "id": "qwen/qwen3.8-27b",
-        "from": {
-          "input": 0.0407,
-          "output": 4.4,
-          "cacheRead": 0.0326
-        },
-        "to": {
-          "input": 0.0249,
-          "output": 4.4,
-          "cacheRead": 0.0199
-        }
-      },
-      {
-        "provider": "openrouter",
-        "id": "tencent/hy3",
-        "from": {
-          "input": 0.132,
-          "output": 0.528,
-          "cacheRead": 0.033
-        },
-        "to": {
-          "input": 0.0825,
-          "output": 0.33,
-          "cacheRead": 0.020625
-        }
-      },
-      {
-        "provider": "openrouter",
-        "id": "z-ai/glm-4.6v",
-        "from": {
-          "input": 0.3,
-          "output": 0.9,
-          "cacheRead": 0.05
-        },
-        "to": {
-          "input": 0.3,
-          "output": 0.9,
-          "cacheRead": 0.055
-        }
-      },
-      {
-        "provider": "openrouter",
-        "id": "z-ai/glm-5.1",
-        "from": {
-          "input": 1.4,
-          "output": 4.4,
-          "cacheRead": 0.26
-        },
-        "to": {
-          "input": 0.9646,
-          "output": 3.0316,
-          "cacheRead": 0.17914
-        }
-      },
-      {
-        "provider": "openrouter",
-        "id": "z-ai/glm-5.2",
-        "from": {
-          "input": 0.1949,
-          "output": 4.4,
-          "cacheRead": 0.1559
-        },
-        "to": {
-          "input": 0.2807,
-          "output": 3.99,
-          "cacheRead": 0.2245
-        }
-      },
-      {
-        "provider": "openrouter",
-        "id": "~moonshotai/kimi-latest",
-        "from": {
-          "input": 0.4,
-          "output": 10,
-          "cacheRead": 0.4
-        },
-        "to": {
-          "input": 0.4,
-          "output": 9,
-          "cacheRead": 0.4
-        }
-      },
-      {
-        "provider": "openrouter",
-        "id": "~z-ai/glm-latest",
-        "from": {
-          "input": 0.19,
-          "output": 4,
-          "cacheRead": 0.19
-        },
-        "to": {
-          "input": 0.1428,
-          "output": 2.992,
-          "cacheRead": 0.1955
-        }
-      }
-    ],
+    "pricing": [],
     "contextWindow": [],
     "reasoning": []
   },

@@ -837,9 +837,9 @@
       }
     },
     "deepseek/deepseek-v4-flash-0731": {
-      "author": "moh migration (#959)",
-      "date": "2026-09-24",
-      "reason": "labels and row identity are moh-owned (ADR-0046): never aggregator-supplied",
+      "author": "moh (v0.53.1)",
+      "date": "2026-09-30",
+      "reason": "OpenRouter now lists a 1048576-token context window for this model; the catalog value of 1310720 was incorrect and the provider listing is the source of truth (#1004).",
       "api": "openai-completions",
       "baseUrl": "https://openrouter.ai/api/v1",
       "name": "DeepSeek: DeepSeek V4 Flash 0731",
@@ -856,7 +856,8 @@
         "supportsDeveloperRole": false,
         "thinkingFormat": "openrouter",
         "requiresReasoningContentOnAssistantMessages": true
-      }
+      },
+      "contextWindow": 1048576
     },
     "deepseek/deepseek-v4-flash-0731:batch": {
       "author": "moh migration (#959)",
@@ -5679,9 +5680,9 @@
       }
     },
     "z-ai/glm-5.3": {
-      "author": "moh migration (#959)",
-      "date": "2026-09-24",
-      "reason": "labels and row identity are moh-owned (ADR-0046): never aggregator-supplied",
+      "author": "moh (v0.53.1)",
+      "date": "2026-09-30",
+      "reason": "OpenRouter now lists a 1048576-token context window for this model; the catalog value of 1310720 was incorrect and the provider listing is the source of truth (#1004).",
       "api": "openai-completions",
       "baseUrl": "https://openrouter.ai/api/v1",
       "name": "Z.ai: GLM 5.3",
@@ -5697,12 +5698,13 @@
       "compat": {
         "supportsDeveloperRole": false,
         "thinkingFormat": "openrouter"
-      }
+      },
+      "contextWindow": 1048576
     },
     "z-ai/glm-5.3-flash": {
-      "author": "moh migration (#959)",
-      "date": "2026-09-24",
-      "reason": "labels and row identity are moh-owned (ADR-0046): never aggregator-supplied",
+      "author": "moh (v0.53.1)",
+      "date": "2026-09-30",
+      "reason": "OpenRouter now lists a 1048576-token context window for this model; the catalog value of 1310720 was incorrect and the provider listing is the source of truth (#1004).",
       "api": "openai-completions",
       "baseUrl": "https://openrouter.ai/api/v1",
       "name": "Z.ai: GLM 5.3 Flash",
@@ -5718,7 +5720,8 @@
       "compat": {
         "supportsDeveloperRole": false,
         "thinkingFormat": "openrouter"
-      }
+      },
+      "contextWindow": 1048576
     },
     "z-ai/glm-5.3-flash:batch": {
       "author": "moh migration (#959)",
@@ -5834,9 +5837,9 @@
       }
     },
     "~deepseek/deepseek-v4-flash-latest": {
-      "author": "moh migration (#959)",
-      "date": "2026-09-24",
-      "reason": "labels and row identity are moh-owned (ADR-0046): never aggregator-supplied",
+      "author": "moh (v0.53.1)",
+      "date": "2026-09-30",
+      "reason": "OpenRouter now lists a 1048576-token context window for this model; the catalog value of 1310720 was incorrect and the provider listing is the source of truth (#1004).",
       "api": "openai-completions",
       "baseUrl": "https://openrouter.ai/api/v1",
       "name": "DeepSeek V4 Flash Latest",
@@ -5853,7 +5856,8 @@
         "supportsDeveloperRole": false,
         "thinkingFormat": "openrouter",
         "requiresReasoningContentOnAssistantMessages": true
-      }
+      },
+      "contextWindow": 1048576
     },
     "~google/gemini-flash-latest": {
       "author": "moh migration (#959)",
@@ -5995,9 +5999,9 @@
       }
     },
     "~z-ai/glm-flash-latest": {
-      "author": "moh migration (#959)",
-      "date": "2026-09-24",
-      "reason": "labels and row identity are moh-owned (ADR-0046): never aggregator-supplied",
+      "author": "moh (v0.53.1)",
+      "date": "2026-09-30",
+      "reason": "OpenRouter now lists a 1048576-token context window for this model; the catalog value of 1310720 was incorrect and the provider listing is the source of truth (#1004).",
       "api": "openai-completions",
       "baseUrl": "https://openrouter.ai/api/v1",
       "name": "Z.ai: GLM Flash Latest",
@@ -6013,12 +6017,13 @@
       "compat": {
         "supportsDeveloperRole": false,
         "thinkingFormat": "openrouter"
-      }
+      },
+      "contextWindow": 1048576
     },
     "~z-ai/glm-latest": {
-      "author": "moh migration (#959)",
-      "date": "2026-09-24",
-      "reason": "labels and row identity are moh-owned (ADR-0046): never aggregator-supplied",
+      "author": "moh (v0.53.1)",
+      "date": "2026-09-30",
+      "reason": "OpenRouter now lists a 1048576-token context window for this model; the catalog value of 1310720 was incorrect and the provider listing is the source of truth (#1004).",
       "api": "openai-completions",
       "baseUrl": "https://openrouter.ai/api/v1",
       "name": "Z.ai: GLM Latest",
@@ -6034,7 +6039,8 @@
       "compat": {
         "supportsDeveloperRole": false,
         "thinkingFormat": "openrouter"
-      }
+      },
+      "contextWindow": 1048576
     }
   }
 }

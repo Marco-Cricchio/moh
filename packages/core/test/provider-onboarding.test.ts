@@ -217,6 +217,41 @@ describe("minimalConnectionTest", () => {
     if (!bad.ok) expect(bad.error).toContain("401");
   });
 
+  test("OpenAI API-key ping uses max_completion_tokens, including for uncatalogued models", async () => {
+    const fetchSpy = (async (url: unknown, init?: RequestInit) => {
+      expect(String(url)).toBe("https://api.openai.com/v1/chat/completions");
+      expect((init?.headers as Record<string, string>).authorization).toBe("Bearer fixture-key");
+      const body = JSON.parse(String(init?.body));
+      if ("max_tokens" in body) {
+        return new Response(JSON.stringify({ error: {
+          message: "Unsupported parameter: 'max_tokens' is not supported with this model. Use 'max_completion_tokens' instead.",
+          type: "invalid_request_error", param: "max_tokens",
+        } }), { status: 400 });
+      }
+      expect(body).toEqual({
+        model: "gpt-6-astra", max_completion_tokens: 1,
+        messages: [{ role: "user", content: "ping" }],
+      });
+      return new Response("{}", { status: 200 });
+    }) as typeof fetch;
+    const result = await minimalConnectionTest(
+      { name: "openai", type: "openai", apiKey: "fixture-key", defaultModel: "gpt-6-astra" },
+      fetchSpy, AbortSignal.timeout(500), {},
+    );
+    expect(result).toEqual({ ok: true, modelId: "gpt-6-astra" });
+  });
+
+  test("generic OpenAI-compatible ping retains max_tokens", async () => {
+    const fetchSpy = (async (_url: unknown, init?: RequestInit) => {
+      expect(JSON.parse(String(init?.body))).toEqual({
+        model: "qwen3", max_tokens: 1,
+        messages: [{ role: "user", content: "ping" }],
+      });
+      return new Response("{}", { status: 200 });
+    }) as typeof fetch;
+    expect(await minimalConnectionTest(profile, fetchSpy)).toEqual({ ok: true, modelId: "qwen3" });
+  });
+
   test("network failure surfaces the error message", async () => {
     const result = await minimalConnectionTest(
       { ...profile, baseUrl: "http://localhost:1/v1" },

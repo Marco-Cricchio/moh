@@ -7,6 +7,36 @@ matching section here at tag time.
 
 ## [Unreleased]
 
+## [0.53.1] - 2026-09-30
+
+### Fixed
+
+- **OpenAI onboarding uses the completion-token limit** (#1086, PR #1086):
+  the API-key connection check sent `max_tokens: 1`, which current OpenAI
+  models reject with `Unsupported parameter: max_tokens`. The built-in
+  OpenAI path now sends `max_completion_tokens: 1`; other OpenAI-compatible
+  providers keep their existing `max_tokens` payload.
+- **OpenRouter's corrected context windows are reflected in the catalog**
+  (#1004): OpenRouter now lists six models at 1,048,576 tokens, not the
+  catalog's 1,310,720 — DeepSeek V4 Flash 0731, GLM 5.3 and GLM 5.3 Flash,
+  plus their three `latest` aliases. The provider listing confirms the lower
+  value; each sidecar now records the explicit correction and its rationale,
+  so the guard remains active. No unrelated window is changed.
+
+### Changed
+
+- **The model catalog was regenerated** (release step): 17 prices moved;
+  the six context-window corrections above were applied, with no reasoning
+  flag changes, generation issues or other shrink. `PRICING_SNAPSHOT.version`
+  follows the manifest, which declares 0.53.1.
+
+### Internal
+
+- **The project license is AGPL-3.0-or-later**: the project license and
+  publishable package metadata now reflect AGPL-3.0-or-later. Third-party
+  materials, including bundled skills, retain their original licenses and
+  notices; no DCO or CLA was introduced.
+
 ## [0.53.0] - 2026-09-29
 
 ### Added
@@ -1524,7 +1554,8 @@ matching section here at tag time.
   passed; a regression test pins the resolved path under
   `<home>/.moh/projects`.
 
-[Unreleased]: https://github.com/Marco-Cricchio/moh/compare/v0.53.0...develop
+[Unreleased]: https://github.com/Marco-Cricchio/moh/compare/v0.53.1...develop
+[0.53.1]: https://github.com/Marco-Cricchio/moh/compare/v0.53.0...v0.53.1
 [0.53.0]: https://github.com/Marco-Cricchio/moh/compare/v0.52.2...v0.53.0
 [0.52.2]: https://github.com/Marco-Cricchio/moh/compare/v0.52.1...v0.52.2
 [0.52.1]: https://github.com/Marco-Cricchio/moh/compare/v0.52.0...v0.52.1
