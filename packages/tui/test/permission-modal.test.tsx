@@ -81,6 +81,30 @@ describe("permission modal (issue #33)", () => {
     i.unmount();
   });
 
+  test.each([
+    ["bash", { command: `printf '%s' ${"complete-command-".repeat(30)}FINAL_ARGUMENT` }],
+    ["custom", { payload: `${"complete-argument-".repeat(30)}FINAL_ARGUMENT` }],
+  ])("shows all %s arguments across wrapped lines without ellipses", async (tool, args) => {
+    const gate = new PermissionGate();
+    const pending = gate.ask(tool, args);
+    const i = render(<PermissionModal gate={gate} mode="dev" />);
+    try {
+      await sleep(30);
+      const frame = stripAnsi(i.lastFrame() ?? "");
+      const compact = frame.replace(/[\s│]/g, "");
+      const detail = tool === "bash" ? `command: ${(args as { command: string }).command}` : JSON.stringify(args);
+      expect(compact).toContain(detail.replace(/\s/g, ""));
+      expect(frame).not.toContain("…");
+      expect(compact).toContain("FINAL_ARGUMENT");
+      expect(frame).toContain("yes");
+      expect(frame).toContain("no");
+    } finally {
+      gate.resolve("no");
+      await pending;
+      i.unmount();
+    }
+  });
+
   test("strips terminal controls from approval details and rule previews", async () => {
     const gate = new PermissionGate();
     const pending = gate.ask("bash", { command: "echo safe\u001b[2K" });
