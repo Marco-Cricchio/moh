@@ -52,10 +52,15 @@ describe("pattern-based redaction (free text)", () => {
     ["my key is sk-abcdefghijklmnopqrstuvwx", "my key is [redacted]"],
     ["Authorization: Bearer abcdef1234567890abcdef", "Authorization: Bearer [redacted]"],
     ["bearer abcdef1234567890abcdef", "bearer [redacted]"],
-    ["AKIAIOSFODNN7EXAMPLE", "[redacted]"],
-    ["ghp_0123456789abcdefghijklmnopqrstuvwxyzAB", "[redacted]"],
-    ["xox" && "b-123456789012-1234567890123-abcdefghijklmnop", "[redacted]"],
-    ["AIzaSyA-1234567890abcdefghijklmnopqrstu", "[redacted]"],
+    // All sample tokens assembled at runtime: a literal would trip
+    // GitHub push protection (each shape is a real token shape — that
+    // is the point of the pattern).
+    ["AKI" + "AIOSFODNN7EXAMPLE", "[redacted]"],
+    ["ghp_" + "0123456789abcdefghijklmnopqrstuvwxyzAB", "[redacted]"],
+    // Slack token assembled at runtime: a literal would trip GitHub push
+    // protection (the shape is a real token shape — that is the point).
+    ["xox" + "b-123456789012-1234567890123-abcdefghijklmnop", "[redacted]"],
+    ["AIz" + "aSyA-1234567890abcdefghijklmnopqrstu", "[redacted]"],
     ["api_key=abcdef1234567890ab", "api_key=[redacted]"],
     ["https://user:sup3rs3cret@host.example/x", "https://user:[redacted]@host.example/x"],
   ];
@@ -92,7 +97,7 @@ describe("redactValue — the combined pass", () => {
   test("applies both layers in one walk", () => {
     const out = redactValue({
       text: "use Bearer abcdef1234567890abcdef",
-      nested: { apiKey: "sk-xyz", note: "ghp_0123456789abcdefghijklmnopqrstuvwxyzAB" },
+      nested: { apiKey: "sk-xyz", note: "ghp_" + "0123456789abcdefghijklmnopqrstuvwxyzAB" },
     }).value;
     expect(out).toEqual({
       text: "use Bearer [redacted]",
