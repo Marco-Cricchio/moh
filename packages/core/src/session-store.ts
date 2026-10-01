@@ -16,6 +16,7 @@ import { basename, dirname, isAbsolute, join } from "node:path";
 import { randomUUID } from "node:crypto";
 import { declaredId, identitySlug, legacyProjectSlug, resolveProjectIdentity, identityFileFor } from "./project-identity";
 import { readUserConfigFile, userConfigFile } from "./user-config";
+import { redactValue, noteSecretRedactionMisses } from "./redact";
 import type { AgentEvent, Message } from "./types";
 import { CANCELLED_TOOL_OUTPUT, SCHEMA_VERSION } from "./types";
 import { renderMentionAttachment } from "./mentions";
@@ -365,7 +366,10 @@ export class SessionStore {
     // `session_resumed`, legacy hand-crafted appends) get stamped here:
     // fresh ULID, parent = the file's head (bridged via `line:N` on a
     // legacy tail — read-only, never written as an id).
-    const line = JSON.stringify(event.id === undefined ? stampEvent(event, this.#file) : event) + "\n";
+    // ADR-0058: every payload passes the unconditional secret-redaction
+    // pass before it hits disk. Persistence-only: the caller's event
+    // object is never mutated, so the in-memory context stays untouched.
+    const line = redactedLine(event, this.#file);
     appendFileSync(this.#file, line);
     this.#expectedSize += Buffer.byteLength(line);
   }
@@ -410,6 +414,38 @@ export class SessionStore {
 
 function readWholeFile(file: string): string {
   return readFileSync(file, "utf8");
+}
+
+/**
+ * ADR-0058: the single serialization point every session-file writer
+ * goes through. Stamps unstamped events (fresh ULID, file head as
+ * parent), runs the unconditional secret-redaction pass over the result
+ * and serializes one JSON line. The input object is never mutated — the
+ * pass is persistence-only. Lookalike shapes that passed unmasked leave
+ * a content-free, deduplicated line in the miss-report file in the
+ * session's own moh home; the write itself never blocks on that report.
+ */
+function redactedLine(event: AgentEvent, file: string): string {
+  const stamped = event.id === undefined ? stampEvent(event, file) : event;
+  const { value, misses } = redactValue(stamped);
+  if (misses.length > 0) noteSecretRedactionMisses(mohHomeFor(file), misses);
+  return JSON.stringify(value) + "\n";
+}
+
+/**
+ * The moh home that owns a session file: `<home>/.moh/projects/<slug>`
+ * (or the trash mirror). Resolved from the path, never the process cwd —
+ * tests inject homes. Falls back to the real home for paths that do not
+ * sit under a `.moh` directory.
+ */
+function mohHomeFor(file: string): string {
+  let dir = dirname(file);
+  for (let i = 0; i < 4 && basename(dir) !== ".moh"; i += 1) {
+    const parent = dirname(dir);
+    if (parent === dir) return homedir();
+    dir = parent;
+  }
+  return basename(dir) === ".moh" ? dirname(dir) : homedir();
 }
 
 /** The on-path compaction projection replay builds its context from
@@ -859,7 +895,7 @@ export function renameSession(file: string, name: string): void {
     throw new Error(`renameSession: not a session file: ${basename(file)}`);
   }
   const trimmed = name.trim();
-  appendFileSync(file, JSON.stringify(stampEvent({ type: "session_renamed", name: trimmed }, file)) + "\n");
+  appendFileSync(file, redactedLine({ type: "session_renamed", name: trimmed }, file));
 }
 
 /**
@@ -876,7 +912,7 @@ export function setSessionPinned(file: string, pinned: boolean): void {
   if (!isSessionFile(basename(file))) {
     throw new Error(`setSessionPinned: not a session file: ${basename(file)}`);
   }
-  appendFileSync(file, JSON.stringify(stampEvent({ type: "session_pinned", pinned }, file)) + "\n");
+  appendFileSync(file, redactedLine({ type: "session_pinned", pinned }, file));
 }
 
 /**
@@ -992,7 +1028,7 @@ function validateWriterTarget(file: string, fn: string, to: string): void {
 export function switchBranch(file: string, to: string): string {
   validateWriterTarget(file, "switchBranch", to);
   const stamped = stampEvent({ type: "branch_switched", to }, file);
-  appendFileSync(file, JSON.stringify(stamped) + "\n");
+  appendFileSync(file, redactedLine(stamped, file));
   return stamped.id!;
 }
 
@@ -1023,7 +1059,7 @@ export function bookmarkNode(file: string, to: string, name?: string): string {
         ? { type: "tree_bookmarked", to, name: "" }
         : { type: "tree_bookmarked", to, name: trimmed };
   const stamped = stampEvent(event, file);
-  appendFileSync(file, JSON.stringify(stamped) + "\n");
+  appendFileSync(file, redactedLine(stamped, file));
   return stamped.id!;
 }
 
