@@ -579,8 +579,8 @@ export class AgentSession {
     // parent's for the turn-start decision point (its switch then lands in
     // the child's own log, because the seam below is *this* session's
     // switchModel).
-    const borrowedBeforeTurn: Pick<ExtensionRuntime, "dispatchBeforeTurn"> | undefined =
-      typeof config.toolHooks?.dispatchBeforeTurn === "function" ? config.toolHooks as Pick<ExtensionRuntime, "dispatchBeforeTurn"> : undefined;
+    const borrowedBeforeTurn: Pick<ExtensionRuntime, "dispatchBeforeTurn" | "dispatchModelError"> | undefined =
+      typeof config.toolHooks?.dispatchBeforeTurn === "function" ? config.toolHooks as Pick<ExtensionRuntime, "dispatchBeforeTurn" | "dispatchModelError"> : undefined;
     const beforeTurnSeam = this.#extensions ?? borrowedBeforeTurn;
     const dispatchBeforeTurn = beforeTurnSeam
       ? (ctx: Parameters<ExtensionRuntime["dispatchBeforeTurn"]>[0]) =>
@@ -614,6 +614,23 @@ export class AgentSession {
                       this.#onConfirmTurn!(request),
                   }
                 : {}),
+            },
+          }
+        : {}),
+      // ADR-0059: the retry-on-model-error seam — same registry and fit
+      // guards as the manual switch, applied mid-turn only to recover a
+      // call that failed with a non-Route error.
+      ...(beforeTurnSeam
+        ? {
+            modelRetry: {
+              dispatch: (ctx: { model: string; errorKind: string; message: string }) =>
+                this.#scopedDispatch(() =>
+                  beforeTurnSeam.dispatchModelError({
+                    ...ctx,
+                    session: { id: this.#sessionId, owner: this.#extensions !== undefined },
+                  }),
+                ),
+              applyModel: (ref: string) => this.switchModel(ref),
             },
           }
         : {}),

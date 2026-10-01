@@ -167,7 +167,10 @@ export interface SessionConfig {
    */
   toolHooks?: import("./permission-gate").ToolHookChecker &
     Partial<
-      Pick<import("../extensions").ExtensionRuntime, "dispatchBeforeTurn" | "checkToolResultHooks">
+      Pick<
+        import("../extensions").ExtensionRuntime,
+        "dispatchBeforeTurn" | "dispatchModelError" | "checkToolResultHooks"
+      >
     >;
   /**
    * MCP tool sources (#15): merged project + user server declarations.

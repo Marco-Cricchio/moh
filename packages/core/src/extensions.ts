@@ -22,6 +22,8 @@ import {
   type ExtensionSetupContext,
   type BeforeTurnHook,
   type BeforeModelCallHook,
+  type ModelErrorHook,
+  type ModelErrorResult,
   type EventHook,
   type ExtensionEvent,
   type ExtensionEventInput,
@@ -160,6 +162,8 @@ interface HookSet {
   sessionEnd: SessionEndHook[];
   beforeTurn: BeforeTurnHook[];
   beforeModelCall: BeforeModelCallHook[];
+  /** ADR-0059: the retry-on-model-error decision point. */
+  onModelError: ModelErrorHook[];
   onToolCall: ToolCallHook[];
   /** ADR-0034: post-tool inspection, scoped to the declared tool names. */
   onToolResult: { tools: readonly string[]; hook: ToolResultHook }[];
@@ -222,6 +226,7 @@ const EMPTY_HOOKS = (): HookSet => ({
   sessionEnd: [],
   beforeTurn: [],
   beforeModelCall: [],
+  onModelError: [],
   onToolCall: [],
   onToolResult: [],
   onCompaction: [],
@@ -978,6 +983,7 @@ export class ExtensionRuntime {
       onSessionEnd: (h) => instance.hooks.sessionEnd.push(h),
       beforeTurn: (h) => instance.hooks.beforeTurn.push(h),
       beforeModelCall: (h) => instance.hooks.beforeModelCall.push(h),
+      onModelError: (h) => instance.hooks.onModelError.push(h),
       onToolCall: (h) => instance.hooks.onToolCall.push(h),
       onToolResult: (tools, h) => {
         // An empty scope registers nothing: "inspect every result" is
@@ -1379,6 +1385,37 @@ export class ExtensionRuntime {
   async dispatchBeforeModelCall(ctx: Parameters<BeforeModelCallHook>[0]): Promise<AgentEvent[]> {
     await this.#each("beforeModelCall", (h) => h(ctx));
     return this.#drainErrors();
+  }
+
+  /**
+   * ADR-0059: the retry-on-model-error decision point. Fired once per
+   * failed provider call whose error kind the Route does not already
+   * handle. First hook returning `model` wins, in registration order. A
+   * throwing hook is fail-open: one `extension_failed { reason: "hook" }`
+   * and no proposal is recorded — the caller ends the turn as it always
+   * did. A hook that returns no ref contributes nothing.
+   */
+  async dispatchModelError(ctx: Parameters<ModelErrorHook>[0]): Promise<{ model?: string; by?: string; errors: AgentEvent[] }> {
+    for (const instance of this.#instances) {
+      for (const hook of instance.hooks.onModelError) {
+        let out: ModelErrorResult | void;
+        try {
+          out = await hook(ctx);
+        } catch (err) {
+          this.#recordHookError({
+            type: "extension_failed",
+            name: instance.def.name,
+            reason: "hook",
+            message: errMessage(err),
+          });
+          continue;
+        }
+        if (out && typeof out.model === "string" && out.model !== "") {
+          return { model: out.model, by: instance.def.name, errors: this.#drainErrors() };
+        }
+      }
+    }
+    return { errors: this.#drainErrors() };
   }
 
   async dispatchEvent(event: AgentEvent): Promise<AgentEvent[]> {
