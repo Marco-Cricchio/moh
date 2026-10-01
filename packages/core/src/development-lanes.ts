@@ -1,0 +1,207 @@
+import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { homedir } from "node:os";
+import { dirname, join } from "node:path";
+import { randomUUID } from "node:crypto";
+import { projectSessionsDir } from "./session-store";
+
+export type LaneRelation = "independent" | "depends-on" | "integration";
+export type LaneStatus = "active" | "paused" | "ready" | "integrating" | "conflicted" | "landed" | "abandoned";
+
+export interface FeatureGroup {
+  id: string;
+  name: string;
+  targetRef: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface DevelopmentLane {
+  id: string;
+  featureGroupId: string;
+  sessionId: string;
+  worktreePath: string;
+  branchRef: string;
+  baseRef: string;
+  baseRevision: string;
+  targetRef: string;
+  relation: LaneRelation;
+  parentLaneId?: string;
+  status: LaneStatus;
+  createdAt: string;
+  updatedAt: string;
+}
+
+interface LaneState {
+  version: 1;
+  featureGroups: FeatureGroup[];
+  lanes: DevelopmentLane[];
+}
+
+export interface CreateFeatureGroupInput {
+  name: string;
+  targetRef: string;
+}
+
+export interface CreateLaneInput {
+  featureGroupId: string;
+  sessionId: string;
+  worktreePath: string;
+  branchRef: string;
+  baseRef: string;
+  baseRevision: string;
+  targetRef: string;
+  relation: LaneRelation;
+  parentLaneId?: string;
+}
+
+export interface LaneStoreOptions {
+  /** The project root whose user-owned lane state is being managed. */
+  cwd: string;
+  /** Injectable home for tests and alternate clients. */
+  home?: string;
+}
+
+const STATE_FILE = "development-lanes.json";
+
+function now(): string {
+  return new Date().toISOString();
+}
+
+function id(prefix: string): string {
+  return `${prefix}-${randomUUID()}`;
+}
+
+function assertNonEmpty(value: string, field: string): void {
+  if (typeof value !== "string" || value.trim() === "") throw new Error(`${field} must not be empty`);
+}
+
+function readState(file: string): LaneState {
+  if (!existsSync(file)) return { version: 1, featureGroups: [], lanes: [] };
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(readFileSync(file, "utf8"));
+  } catch (error) {
+    throw new Error(`cannot read development lane state: ${error instanceof Error ? error.message : String(error)}`);
+  }
+  if (!parsed || typeof parsed !== "object" || (parsed as { version?: unknown }).version !== 1) {
+    throw new Error("unsupported development lane state version");
+  }
+  const state = parsed as LaneState;
+  if (!Array.isArray(state.featureGroups) || !Array.isArray(state.lanes)) {
+    throw new Error("invalid development lane state");
+  }
+  return state;
+}
+
+function writeState(file: string, state: LaneState): void {
+  const dir = dirname(file);
+  mkdirSync(dir, { recursive: true, mode: 0o700 });
+  const temporary = `${file}.${process.pid}.${randomUUID()}.tmp`;
+  writeFileSync(temporary, `${JSON.stringify(state, null, 2)}\n`, { mode: 0o600 });
+  renameSync(temporary, file);
+}
+
+/** User-owned persistent state for feature groups and isolated development lanes. */
+export class DevelopmentLaneStore {
+  readonly #file: string;
+
+  constructor(options: LaneStoreOptions) {
+    this.#file = join(projectSessionsDir(options.cwd, options.home ?? homedir()), STATE_FILE);
+  }
+
+  get file(): string {
+    return this.#file;
+  }
+
+  listFeatureGroups(): FeatureGroup[] {
+    return readState(this.#file).featureGroups.map((group) => ({ ...group }));
+  }
+
+  listLanes(featureGroupId?: string): DevelopmentLane[] {
+    const lanes = readState(this.#file).lanes;
+    return lanes
+      .filter((lane) => featureGroupId === undefined || lane.featureGroupId === featureGroupId)
+      .map((lane) => ({ ...lane }));
+  }
+
+  createFeatureGroup(input: CreateFeatureGroupInput): FeatureGroup {
+    assertNonEmpty(input.name, "feature group name");
+    assertNonEmpty(input.targetRef, "feature group targetRef");
+    const state = readState(this.#file);
+    const name = input.name.trim();
+    if (state.featureGroups.some((group) => group.name === name)) {
+      throw new Error(`feature group already exists: ${name}`);
+    }
+    const timestamp = now();
+    const group: FeatureGroup = {
+      id: id("feature"),
+      name,
+      targetRef: input.targetRef.trim(),
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    };
+    state.featureGroups.push(group);
+    writeState(this.#file, state);
+    return { ...group };
+  }
+
+  createLane(input: CreateLaneInput): DevelopmentLane {
+    assertNonEmpty(input.featureGroupId, "featureGroupId");
+    assertNonEmpty(input.sessionId, "sessionId");
+    assertNonEmpty(input.worktreePath, "worktreePath");
+    assertNonEmpty(input.branchRef, "branchRef");
+    assertNonEmpty(input.baseRef, "baseRef");
+    assertNonEmpty(input.baseRevision, "baseRevision");
+    assertNonEmpty(input.targetRef, "targetRef");
+    const state = readState(this.#file);
+    const group = state.featureGroups.find((candidate) => candidate.id === input.featureGroupId);
+    if (!group) throw new Error(`unknown feature group: ${input.featureGroupId}`);
+    if (input.relation === "depends-on" && !input.parentLaneId) {
+      throw new Error("dependent lane requires parentLaneId");
+    }
+    if (input.relation !== "depends-on" && input.parentLaneId !== undefined) {
+      throw new Error("parentLaneId is only valid for a dependent lane");
+    }
+    if (input.parentLaneId) {
+      const parent = state.lanes.find((lane) => lane.id === input.parentLaneId);
+      if (!parent) throw new Error(`unknown parent lane: ${input.parentLaneId}`);
+      if (parent.featureGroupId !== input.featureGroupId) throw new Error("parent lane must belong to the same feature group");
+    }
+    if (state.lanes.some((lane) => lane.worktreePath === input.worktreePath && !["landed", "abandoned"].includes(lane.status))) {
+      throw new Error(`worktree is already assigned to an active lane: ${input.worktreePath}`);
+    }
+    if (state.lanes.some((lane) => lane.sessionId === input.sessionId && !["landed", "abandoned"].includes(lane.status))) {
+      throw new Error(`session is already assigned to an active lane: ${input.sessionId}`);
+    }
+    const timestamp = now();
+    const lane: DevelopmentLane = {
+      id: id("lane"),
+      featureGroupId: input.featureGroupId,
+      sessionId: input.sessionId,
+      worktreePath: input.worktreePath,
+      branchRef: input.branchRef,
+      baseRef: input.baseRef,
+      baseRevision: input.baseRevision,
+      targetRef: input.targetRef,
+      relation: input.relation,
+      ...(input.parentLaneId ? { parentLaneId: input.parentLaneId } : {}),
+      status: "active",
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    };
+    state.lanes.push(lane);
+    group.updatedAt = timestamp;
+    writeState(this.#file, state);
+    return { ...lane };
+  }
+
+  setStatus(laneId: string, status: LaneStatus): DevelopmentLane {
+    const state = readState(this.#file);
+    const lane = state.lanes.find((candidate) => candidate.id === laneId);
+    if (!lane) throw new Error(`unknown lane: ${laneId}`);
+    lane.status = status;
+    lane.updatedAt = now();
+    writeState(this.#file, state);
+    return { ...lane };
+  }
+}
