@@ -164,6 +164,26 @@ export {
   type LocalUsageRow,
   type BillingPlanResolver,
 } from "./quota";
+// #1100 (P1 quota telemetry): the observation/episode producers and the
+// read-only projections over the recorded quota events (ADR-0004
+// reopening: `recordQuota` clients project reports into the log).
+export {
+  observationsFromQuotaReport,
+  quotaEventsFromProviderError,
+  quotaRecoveryEvent,
+  commercialDeclarationEvent,
+  declarationInForce,
+  scopeKeyFor,
+  quotaEpisodes,
+  quotaContradictions,
+  summarizeQuota,
+  quotaPressure,
+  type QuotaEpisode,
+  type QuotaContradiction,
+  type QuotaSummary,
+  type QuotaPressureRow,
+  type CommercialDeclarationInput,
+} from "./quota/telemetry";
 // #714: the multi-session telemetry aggregator — the deep module the CLI/TUI
 // usage surfaces project. Read-only metadata projection over session event
 // logs (ADR-0004 reopening: a client-facing config surface, `moh usage`).

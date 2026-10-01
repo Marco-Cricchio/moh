@@ -1091,6 +1091,12 @@ export function projectTranscript(events: ReadonlyArray<AgentEvent>, options: { 
         // Home pin chrome — the transcript has no projection; the Home
         // picker reads the pinned state through the session summaries.
         break;
+      case "quota_observation":
+      case "quota_episode":
+      case "commercial_declaration":
+        // #1100: quota/commercial chrome — metadata only. The transcript
+        // has no projection today; the usage surfaces project them.
+        break;
       default: {
         const exhaustive: never = event;
         throw new Error(`unhandled AgentEvent: ${JSON.stringify(exhaustive)}`);

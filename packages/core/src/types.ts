@@ -598,6 +598,103 @@ type AgentEventBase =
    * visible warning chrome is appended at resume-open. Chrome only.
    */
   | { type: "compaction_dangling" }
+  /**
+   * #1100 (P1 quota telemetry): one quota fact observed at a point in
+   * time — a provider-declared number (quota endpoint, header, or a
+   * rate-limit/exhaustion error), the user's own declaration, or a local
+   * estimate. Every measured field is optional and absent means unknown,
+   * never zero; `window.kind` stays `"unknown"` unless the provider
+   * declared the window's shape. The endpoint identity is the #1099
+   * sanitized shape — no keys, no query strings. Chrome only — never
+   * provider context, never a turn error.
+   */
+  | {
+      type: "quota_observation";
+      endpoint: EndpointIdentity;
+      /** The model ref the observation applies to, when scoped to one. */
+      model?: string;
+      /** Whose capacity the fact describes. A `pool` names a shared pool
+       * through `scopeKey` — two endpoints can share one. */
+      scope: "account" | "workspace" | "endpoint" | "provider" | "model" | "pool";
+      /** Deterministic identity of the observed capacity (endpoint key,
+       * or the pool's name for `pool` scope). Redacted by construction. */
+      scopeKey: string;
+      /** The moh.json endpoint name the observation was recorded for,
+       * when the recorder knew it (redacted, bounded). */
+      endpointName?: string;
+      unit?: "tokens" | "requests" | "credits" | "usd" | "provider-defined";
+      /** The measured window. `kind` is `"unknown"` unless the provider
+       * declared rolling/fixed semantics — moh never assumes one. */
+      window?: { label: string; kind: "rolling" | "fixed" | "unknown"; interval?: string };
+      /** All optional: absent = the provider did not report it, never zero. */
+      limit?: number;
+      remaining?: number;
+      used?: number;
+      percent?: number;
+      /** Reset fact, only when declared: an absolute time and/or a
+       * duration. Absent = unknown/undocumented mechanics. */
+      resetAt?: number;
+      resetMs?: number;
+      /** Where the fact came from. */
+      source: "quota-endpoint" | "provider-error" | "provider-header" | "user-config" | "local-estimate";
+      /** Confidence badge carried over from the quota seam when the
+       * source is a probe (`official` = documented API). */
+      authority?: "official" | "undocumented";
+      /** When the fact was observed and until when it may be trusted. */
+      observedAt: string;
+      validUntil?: string;
+      /** #1099 correlation, when the observation rode a call attempt. */
+      callId?: string;
+      attemptId?: string;
+      /** The ProviderError kind that produced this observation
+       * (`rate_limited` / `quota_exhausted`), when source is an error. */
+      errorKind?: string;
+    }
+  /**
+   * #1100: one normalized quota boundary the loop recorded — a block
+   * (`exhausted` / `rate_limited`, the provider refused or throttled),
+   * or the recovery that followed it inside the same logical call.
+   * Episodes are *boundaries*: the projection pairs them into distinct
+   * episodes with temporal bounds. Chrome only.
+   */
+  | {
+      type: "quota_episode";
+      phase: "exhausted" | "rate_limited" | "recovered";
+      scopeKey: string;
+      endpoint: EndpointIdentity;
+      servingModel?: string;
+      startedAt: string;
+      endedAt?: string;
+      /** Wall-clock spent waiting/backing off between the blocked attempt
+       * and the one that recovered, when the loop saw the recovery. */
+      waitMs?: number;
+      /** Retry-After hint the provider surfaced for the block, in ms. */
+      retryAfterMs?: number;
+      /** The recovery came from a different serving model (fallback). */
+      usedFallback?: boolean;
+      callId?: string;
+      attemptId?: string;
+    }
+  /**
+   * #1100: the user's own commercial declaration for an endpoint —
+   * plan, price, billing period, promotion, overage policy. Explicit and
+   * user-owned: moh never infers a plan from endpoint identity. Every
+   * string is redacted (trimmed, bounded); the declaration is
+   * time-bounded by `validFrom`/`validUntil`. Chrome only.
+   */
+  | {
+      type: "commercial_declaration";
+      /** The moh.json endpoint name the declaration is about. */
+      endpoint: string;
+      plan?: string;
+      price?: number;
+      currency?: string;
+      billingPeriod?: "monthly" | "yearly" | "custom";
+      promotion?: string;
+      overagePolicy?: "blocked" | "metered" | "unknown";
+      validFrom: string;
+      validUntil?: string;
+    }
   /** Subagents (#13): a child session was spawned; `log` is its own JSONL file. */
   | { type: "subagent_spawn"; callId: string; name: string; preset?: string; log: string }
   /** Subagent finished; usage tokens accumulated by the child, where exposed. */

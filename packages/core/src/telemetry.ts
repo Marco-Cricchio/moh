@@ -11,6 +11,7 @@ import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { basename, join } from "node:path";
 import type { AgentEvent } from "./types";
 import { aggregateLocalUsage, type BillingPlanResolver, type LocalUsageRow } from "./quota/local";
+import { quotaContradictions, quotaEpisodes, summarizeQuota, type QuotaObservationEvent, type QuotaSummary } from "./quota/telemetry";
 import { estimateModelCost } from "./pricing";
 import { activePath } from "./session/event-log";
 import { ENCODING } from "./session/ulid";
@@ -141,6 +142,20 @@ function addAttemptSummaries(into: TelemetryAttemptSummary, from: TelemetryAttem
   return into;
 }
 
+/** #1100: additive merge of per-session quota summaries — every counter
+ * sums, never overwrites. */
+function addQuotaSummaries(into: QuotaSummary, from: QuotaSummary): QuotaSummary {
+  into.exhausted += from.exhausted;
+  into.rateLimited += from.rateLimited;
+  into.open += from.open;
+  into.recovered += from.recovered;
+  into.fallbackRecoveries += from.fallbackRecoveries;
+  into.waitMs += from.waitMs;
+  into.observations += from.observations;
+  into.contradictions += from.contradictions;
+  return into;
+}
+
 /** Tool statistics across sessions. */
 export interface TelemetryToolRow {
   tool: string;
@@ -212,6 +227,8 @@ export interface TelemetryReport {
   sessions: TelemetrySessionRow[];
   /** #1099: attempt-chain rollup across the scanned sessions. */
   attempts: TelemetryAttemptSummary;
+  /** #1100: quota rollup — episodes, recoveries, wait, contradictions. */
+  quota: QuotaSummary;
   /** Session files found (including skipped ones). */
   sessionsScanned: number;
   /** Files skipped as corrupt/unreadable — skipped, never fatal. An
@@ -326,6 +343,7 @@ export function aggregateTelemetry(options: {
     route: { fallbacks: [], routeServing: [], turnErrors: {} },
     sessions: [],
     attempts: { attempts: 0, calls: 0, retriedCalls: 0, fallbackMoves: 0, failed: 0, aborted: 0, unknownUsage: 0, durationMs: 0 },
+    quota: { exhausted: 0, rateLimited: 0, open: 0, recovered: 0, fallbackRecoveries: 0, waitMs: 0, observations: 0, contradictions: 0 },
     sessionsScanned: 0,
     sessionsSkipped: 0,
   };
@@ -411,6 +429,13 @@ export function aggregateTelemetry(options: {
 
     // #1099: attempt-chain rollup, one pass per session.
     Object.assign(report.attempts, addAttemptSummaries(report.attempts, summarizeAttempts(attemptChains(events))));
+
+    // #1100: quota rollup — episodes, contradictions, observation count,
+    // summed across sessions (never per-session overwrite).
+    addQuotaSummaries(
+      report.quota,
+      summarizeQuota(quotaEpisodes(events), quotaContradictions(events), events.filter((e) => e.type === "quota_observation").length),
+    );
 
     const rollup = aggregateSession(events, options.planFor);
     rollup.id = basename(name, ".jsonl");

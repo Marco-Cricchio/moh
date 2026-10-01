@@ -27,6 +27,12 @@ import { PRICING_SNAPSHOT } from "../pricing";
 import { newUlid } from "./ulid";
 import { endpointIdentity, ProviderError } from "../types";
 import type { AttemptTelemetry, EndpointIdentity, UsageProvenance } from "../types";
+import { quotaEventsFromProviderError, quotaRecoveryEvent, scopeKeyFor } from "../quota/telemetry";
+
+/** #1100: the ProviderError kinds that are quota-class — the loop records
+ * an observation plus an episode boundary for each failed attempt carrying
+ * one. Every other error kind teaches nothing about quota state. */
+const QUOTA_ERROR_KINDS = new Set(["rate_limited", "quota_exhausted"]);
 
 /**
  * #1099: a detail field is counted only when it is a finite number —
@@ -208,6 +214,7 @@ export class AgentLoop {
   readonly #lastPrompt: () => AssembledPrompt | null;
   readonly #append: (event: AgentEvent) => void;
   readonly #emitLive: ((event: ReasoningStreamEvent) => void) | undefined;
+
   readonly #thinking: (() => { level: ThinkingLevel } | undefined) | undefined;
   readonly #onTurnSettled: ((result: TurnResult) => void) | undefined;
   readonly #onContextRefusal: ((modelRef: string, err: unknown) => void) | undefined;
@@ -229,6 +236,20 @@ export class AgentLoop {
   /** #83: turn rollup inputs — usage at turn start and models that served it. */
   #turnStartUsage: TokenUsage = { inputTokens: 0, outputTokens: 0 };
   #turnModels: string[] = [];
+  /** #1100: still-open quota blocks by scope key, in block order. A
+   * successful settlement closes the blocks its endpoint/model scope
+   * covers (recovery boundary, observed wait, fallback flag); blocks of
+   * other scopes stay open — honest unknown. */
+  #quotaBlocks: {
+    scopeKey: string;
+    endpoint: EndpointIdentity;
+    servingModel?: string;
+    startedAt: string;
+    endedAtMs: number;
+    retryAfterMs?: number;
+    callId: string;
+    attemptId: string;
+  }[] = [];
 
   constructor(options: AgentLoopOptions) {
     this.#provider = options.provider;
@@ -819,9 +840,69 @@ export class AgentLoop {
     this.#reasoning = EMPTY_REASONING_PARTS;
     this.#settleReasoning(call.reasoning, outcome === "ok", outcome === "failed");
     this.#turnModels.push(call.model);
-    this.#appendModelCall(call, this.#attemptTelemetry(call, outcome === "ok" ? "completed" : "failed", outcome === "failed" ? failureFacts(failure) : undefined), {
+    const facts = outcome === "failed" ? failureFacts(failure) : undefined;
+    this.#appendModelCall(call, this.#attemptTelemetry(call, outcome === "ok" ? "completed" : "failed", facts), {
       failed: outcome === "failed",
     });
+    // #1100: quota-class failures record an observation + a block boundary
+    // linked to the attempt; a later successful settlement closes the
+    // blocks its scope covers (recovery, observed wait, fallback flag).
+    const endedAtMs = Date.now();
+    if (outcome === "failed" && facts && QUOTA_ERROR_KINDS.has(facts.errorKind)) {
+      const endpoint = call.endpoint ?? endpointIdentityOf(this.#provider());
+      const scopeKey = scopeKeyFor(endpoint, { model: call.model });
+      // The block's `startedAt` is the failed attempt's settlement — the
+      // moment the refusal became a recorded fact (the attempt's own
+      // start/end live on the #1099 attempt record).
+      const startedAt = new Date(endedAtMs).toISOString();
+      const [observation, boundary] = quotaEventsFromProviderError({
+        endpoint,
+        errorKind: facts.errorKind as "rate_limited" | "quota_exhausted",
+        servingModel: call.model,
+        retryAfterMs: facts.retryAfterMs,
+        observedAt: startedAt,
+        callId: this.#callId,
+        attemptId: call.attemptId,
+      });
+      this.#append(observation);
+      this.#append(boundary);
+      this.#quotaBlocks.push({
+        scopeKey,
+        endpoint,
+        servingModel: call.model,
+        startedAt,
+        endedAtMs,
+        ...(facts.retryAfterMs !== undefined ? { retryAfterMs: facts.retryAfterMs } : {}),
+        callId: this.#callId,
+        attemptId: call.attemptId,
+      });
+    } else if (outcome === "ok" && this.#quotaBlocks.length > 0) {
+      const endpoint = call.endpoint ?? endpointIdentityOf(this.#provider());
+      const modelScope = scopeKeyFor(endpoint, { model: call.model });
+      const endpointScope = scopeKeyFor(endpoint);
+      const closed: { scopeKey: string; endpoint: EndpointIdentity; servingModel?: string; startedAt: string; endedAtMs: number; retryAfterMs?: number; callId: string; attemptId: string }[] = [];
+      this.#quotaBlocks = this.#quotaBlocks.filter((block) => {
+        if (block.scopeKey === modelScope || block.scopeKey === endpointScope) {
+          closed.push(block);
+          return false;
+        }
+        return true;
+      });
+      for (const block of closed) {
+        this.#append(
+          quotaRecoveryEvent({
+            scopeKey: block.scopeKey,
+            endpoint: block.endpoint,
+            servingModel: call.model,
+            blockedStartedAt: block.startedAt,
+            waitMs: Math.max(0, call.startedAt - block.endedAtMs),
+            usedFallback: block.servingModel !== call.model,
+            callId: this.#callId,
+            endedAt: new Date(endedAtMs).toISOString(),
+          }),
+        );
+      }
+    }
   }
 
   /** Appends a settled call's reasoning blocks; `removeFromIteration`
