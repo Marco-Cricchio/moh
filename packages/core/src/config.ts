@@ -76,6 +76,25 @@ export const endpointProfileSchema = z.object({
   /** Auth method (issue #132): absent = api-key, backward compatible. */
   auth: endpointAuthSchema.optional(),
   capabilities: capabilitiesSchema.optional(),
+  /**
+   * #1100: the user's own commercial declaration for this endpoint —
+   * plan, price, billing period, promotion, overage policy, time bounds.
+   * Explicit and user-owned: moh never infers a plan from endpoint
+   * identity, and the declaration is recorded (redacted) as one
+   * `commercial_declaration` chrome event per session.
+   */
+  commercial: z
+    .object({
+      plan: z.string().max(80).optional(),
+      price: z.number().finite().min(0).optional(),
+      currency: z.string().max(8).optional(),
+      billingPeriod: z.enum(["monthly", "yearly", "custom"]).optional(),
+      promotion: z.string().max(80).optional(),
+      overagePolicy: z.enum(["blocked", "metered", "unknown"]).optional(),
+      validFrom: z.string().optional(),
+      validUntil: z.string().optional(),
+    })
+    .optional(),
 });
 
 const skillRouteOverrideSchema = z.object({

@@ -116,12 +116,16 @@ permissions. Within one turn, the ordering is:
 5. Per settled tool call: `onToolResult` — the tool's text output, before it
    is logged and before the model sees it; return `{ withhold: { reason } }`
    to replace it with a refusal (apiVersion 1.4, ADR-0034).
-6. Per event-log entry: `onEvent` — every event, appended order, including
+6. Per failed provider call (errors the Route does not already handle):
+   `onModelError` — return `{ model: "<endpoint>/<model-id>" }` to propose
+   an alternative the core retries the call on, within the same turn
+   (apiVersion 1.10, ADR-0059).
+7. Per event-log entry: `onEvent` — every event, appended order, including
    the `tool_call`/`tool_result` pair your veto produced. Dispatch runs on a
    serial queue, so hooks see events shortly after they are appended.
-7. Per turn end: `afterTurn` — the turn outcome
+8. Per turn end: `afterTurn` — the turn outcome
    (`{ status, reason?, message? }`).
-8. `onSessionEnd` — once, when the client disposes the session.
+9. `onSessionEnd` — once, when the client disposes the session.
 
 A veto outranks user permission rules and applies even in
 yolo mode — extensions can only restrict, never widen. The denial
@@ -504,14 +508,17 @@ extension's note.
 ## Versioning policy
 
 - The host speaks `MOH_EXTENSION_API_VERSION` (`"major.minor"`); the
-  current version is **1.9** (1.1 added `ask` and the two observation
+  current version is **1.10** (1.1 added `ask` and the two observation
   seams; 1.2 added `beforeTurn`; 1.3 added the `extension_control`
   command channel; 1.4 added `onToolResult`, `confirm.onResolved` and
   `onCompaction`; 1.5 added `setPromptNote`; 1.6 added `requestTurn`;
   1.7 added `endpointCooldowns` on the `beforeTurn` context; 1.8 added
   `session` on the `beforeTurn` context and session-attributed events;
   1.9 added `hookTimeoutMs` and `signal` on the `onCompaction` context
-  and the `applied: false` outcome on its `onApplied` callback).
+  and the `applied: false` outcome on its `onApplied` callback; 1.10
+  added the `onModelError` hook, ADR-0059; still 1.10, #1110 added the
+  same `endpointCooldowns` list the `beforeTurn` context already carries
+  to the `onModelError` context).
 - **Additive-only within a major**: new hooks and context fields may be
   added; existing ones never change meaning or disappear. Deprecated APIs
   survive one full major.

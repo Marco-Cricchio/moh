@@ -22,6 +22,8 @@ import {
   type ExtensionSetupContext,
   type BeforeTurnHook,
   type BeforeModelCallHook,
+  type ModelErrorHook,
+  type ModelErrorResult,
   type EventHook,
   type ExtensionEvent,
   type ExtensionEventInput,
@@ -40,6 +42,7 @@ import {
 } from "@moh/extension";
 import type { BeforeTurnResult } from "@moh/extension";
 import type { AgentEvent, ExtensionStatus } from "./types";
+import { redactKeys } from "./redact";
 
 /**
  * ADR-0033: what one `beforeTurn` dispatch produced. `model`/`confirm` are
@@ -159,6 +162,8 @@ interface HookSet {
   sessionEnd: SessionEndHook[];
   beforeTurn: BeforeTurnHook[];
   beforeModelCall: BeforeModelCallHook[];
+  /** ADR-0059: the retry-on-model-error decision point. */
+  onModelError: ModelErrorHook[];
   onToolCall: ToolCallHook[];
   /** ADR-0034: post-tool inspection, scoped to the declared tool names. */
   onToolResult: { tools: readonly string[]; hook: ToolResultHook }[];
@@ -221,6 +226,7 @@ const EMPTY_HOOKS = (): HookSet => ({
   sessionEnd: [],
   beforeTurn: [],
   beforeModelCall: [],
+  onModelError: [],
   onToolCall: [],
   onToolResult: [],
   onCompaction: [],
@@ -268,32 +274,6 @@ export function resolveTurnConfirm(
   }
 }
 
-/**
- * ADR-0032 redaction heuristic: keys whose normalized form (lowercased,
- * `_` and `-` stripped) is EXACTLY one of these have their value replaced
- * before the payload reaches the log. Exact match on purpose — `tokens`
- * and `tokenCount` survive. A safety net, not a guarantee: an extension
- * must never put a credential in a payload in the first place.
- */
-const REDACTED_KEYS = new Set([
-  "apikey",
-  "apitoken",
-  "accesstoken",
-  "refreshtoken",
-  "token",
-  "secret",
-  "clientsecret",
-  "password",
-  "passwd",
-  "authorization",
-  "credentials",
-  "privatekey",
-  "sessionkey",
-]);
-
-/** Nesting depth the redaction walks (deeper values pass through). */
-const REDACT_DEPTH = 6;
-
 /** ADR-0032 cap: extension events per extension, per session, per turn. */
 const MAX_EVENTS_PER_TURN = 50;
 
@@ -307,23 +287,13 @@ const OWNER_BUDGET = "\u0000owner";
 /** ADR-0032 cap: serialized payload size. */
 const MAX_PAYLOAD_BYTES = 8 * 1024;
 
-function normalizeKey(key: string): string {
-  return key.toLowerCase().replace(/[_-]/g, "");
-}
-
-/** Returns a structurally-redacted copy of the payload (ADR-0032). */
-function redactPayload(value: unknown, depth = 0): unknown {
-  if (depth > REDACT_DEPTH) return value;
-  if (Array.isArray(value)) return value.map((v) => redactPayload(v, depth + 1));
-  if (value !== null && typeof value === "object") {
-    const out: Record<string, unknown> = {};
-    for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
-      out[k] = REDACTED_KEYS.has(normalizeKey(k)) ? "[redacted]" : redactPayload(v, depth + 1);
-    }
-    return out;
-  }
-  return value;
-}
+/**
+ * ADR-0032 redaction heuristic, now the shared module (ADR-0058, #1105):
+ * the same key heuristic serves the session log writer — one heuristic,
+ * not several. Still keys-only here: an extension payload is serialized
+ * and byte-capped below, and the pass stays structural by contract.
+ */
+const redactPayload = redactKeys;
 
 /**
  * The canonical path of a module: two spellings of one file (a symlink, a
@@ -1013,6 +983,7 @@ export class ExtensionRuntime {
       onSessionEnd: (h) => instance.hooks.sessionEnd.push(h),
       beforeTurn: (h) => instance.hooks.beforeTurn.push(h),
       beforeModelCall: (h) => instance.hooks.beforeModelCall.push(h),
+      onModelError: (h) => instance.hooks.onModelError.push(h),
       onToolCall: (h) => instance.hooks.onToolCall.push(h),
       onToolResult: (tools, h) => {
         // An empty scope registers nothing: "inspect every result" is
@@ -1414,6 +1385,37 @@ export class ExtensionRuntime {
   async dispatchBeforeModelCall(ctx: Parameters<BeforeModelCallHook>[0]): Promise<AgentEvent[]> {
     await this.#each("beforeModelCall", (h) => h(ctx));
     return this.#drainErrors();
+  }
+
+  /**
+   * ADR-0059: the retry-on-model-error decision point. Fired once per
+   * failed provider call whose error kind the Route does not already
+   * handle. First hook returning `model` wins, in registration order. A
+   * throwing hook is fail-open: one `extension_failed { reason: "hook" }`
+   * and no proposal is recorded — the caller ends the turn as it always
+   * did. A hook that returns no ref contributes nothing.
+   */
+  async dispatchModelError(ctx: Parameters<ModelErrorHook>[0]): Promise<{ model?: string; by?: string; errors: AgentEvent[] }> {
+    for (const instance of this.#instances) {
+      for (const hook of instance.hooks.onModelError) {
+        let out: ModelErrorResult | void;
+        try {
+          out = await hook(ctx);
+        } catch (err) {
+          this.#recordHookError({
+            type: "extension_failed",
+            name: instance.def.name,
+            reason: "hook",
+            message: errMessage(err),
+          });
+          continue;
+        }
+        if (out && typeof out.model === "string" && out.model !== "") {
+          return { model: out.model, by: instance.def.name, errors: this.#drainErrors() };
+        }
+      }
+    }
+    return { errors: this.#drainErrors() };
   }
 
   async dispatchEvent(event: AgentEvent): Promise<AgentEvent[]> {

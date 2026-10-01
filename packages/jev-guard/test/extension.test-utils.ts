@@ -2,6 +2,7 @@
 import type {
   BeforeTurnHook,
   ExtensionSetupContext,
+  ModelErrorHook,
   ToolCallHook,
 } from "@moh/extension";
 
@@ -14,6 +15,8 @@ export interface FakeCtx {
   eventHooks: Array<(e: { event: { type: string; [k: string]: unknown } }) => void>;
   compactionHooks: Array<(ctx: { sections: readonly { id: string }[]; hookTimeoutMs?: number; signal?: AbortSignal }) => unknown>;
   toolResultHooks: Array<(input: { callId: string; name: string; output: string }) => unknown>;
+  /** apiVersion 1.10 (ADR-0059): the retry-on-model-error seam. */
+  modelErrorHooks: ModelErrorHook[];
   mode: "normal" | "auto-accept" | "yolo";
   afterTurnHooks: Array<() => unknown>;
 }
@@ -34,6 +37,7 @@ export function fakeCtx(mode: FakeCtx["mode"] = "normal"): ExtensionSetupContext
     onEvent: (h: (e: { event: { type: string; [k: string]: unknown } }) => void) => (hooks as unknown as FakeCtx).eventHooks.push(h),
     onToolResult: (_tools: readonly string[], h: (input: { callId: string; name: string; output: string }) => unknown) =>
       (hooks as unknown as FakeCtx).toolResultHooks.push(h),
+    onModelError: (h: ModelErrorHook) => (hooks as unknown as FakeCtx).modelErrorHooks.push(h),
     afterTurn: (h: () => unknown) => (hooks as unknown as FakeCtx).afterTurnHooks.push(h),
   };
   const self = hooks as unknown as ExtensionSetupContext & FakeCtx;
@@ -45,6 +49,7 @@ export function fakeCtx(mode: FakeCtx["mode"] = "normal"): ExtensionSetupContext
   self.eventHooks = [];
   self.compactionHooks = [];
   self.toolResultHooks = [];
+  self.modelErrorHooks = [];
   self.mode = mode;
   self.afterTurnHooks = [];
   return self;
@@ -65,6 +70,28 @@ export async function runTurn(
   return merged;
 }
 
+/** Drive the `onModelError` seam through every registered hook, merged. */
+export async function runModelError(
+  ctx: FakeCtx,
+  call: { model: string; errorKind: string; message?: string },
+): Promise<{ model?: string } | undefined> {
+  let merged: { model?: string } | undefined;
+  for (const hook of ctx.modelErrorHooks) {
+    const out = await hook({ model: call.model, errorKind: call.errorKind, ...(call.message !== undefined ? { message: call.message } : { message: "" }) });
+    if (out && typeof out.model === "string") merged = { model: out.model };
+  }
+  return merged;
+}
+
+/** Emit one log event through every registered `onEvent` hook. */
+export function emitEvent(ctx: FakeCtx, event: { type: string } & Record<string, unknown>): void {
+  for (const hook of ctx.eventHooks) hook({ event });
+}
+
 export function routingJudgments(ctx: FakeCtx) {
   return ctx.events.filter((e) => e.name === "jev_judgment");
+}
+
+export function routingEvents(ctx: FakeCtx) {
+  return ctx.events.filter((e) => e.name === "jev_routing");
 }

@@ -7,6 +7,95 @@ matching section here at tag time.
 
 ## [Unreleased]
 
+## [0.55.0] - 2026-10-01
+
+### Added
+
+- **Secrets are redacted from the session log, unconditionally**
+  (ADR-0058, #1105, PRs #1106, #1107): every event payload now passes a
+  redaction pass at the single write seam before it is persisted to the
+  session JSONL. Secret-shaped keys are masked wherever they appear in the
+  structure, and high-confidence secret patterns in free text (`sk-…`,
+  `Bearer …`, `AKIA…`, `ghp_…`, `xoxb-…`, `api_key=`/`token=` parameters
+  and assignments, PEM private key blocks) are replaced with a fixed
+  `[redacted]` placeholder — no hash, no partial masking. There is no
+  config key, flag or consent that disables it: the invariant lives in the
+  log writer itself, on the owner's mandate that no secret is ever written
+  in cleartext. The in-memory context is untouched, so in-session behavior
+  never changes; resume, fork and compaction reconstruct from the
+  already-redacted log, so a model resuming sees `[redacted]` where the
+  original turn saw the secret. Precision beats recall — patterns must not
+  corrupt legitimate code in tool output — and the corpus grows on
+  evidence: a secret-shaped string that passed unmasked leaves one bounded,
+  deduplicated diagnostic line in the user's moh dotdir, never its content.
+  One shared redaction module serves the session store and the narrower
+  seams (extension events, telemetry); existing logs are not rewritten,
+  forward-only. The append hot path keeps a bounded scan, pinned by a
+  performance ceiling test.
+- **Retry-on-model-error seam (`onModelError`)** (ADR-0059, #1109, PR
+  #1112): a provider call that fails with an error the Route does not
+  already handle used to kill the turn — the human watched and recovered by
+  hand. A new extension hook (apiVersion 1.10) is the mid-call decision
+  point: it receives the serving ref, the normalized error kind and the
+  sanitized message, and may propose an alternative `endpoint/model-id` to
+  retry the failed call on. First hook to answer wins; a throwing hook is
+  fail-open. Validation is the switch's own: the proposal goes through
+  `AgentSession.switchModel`, so the #948 context-fit guard and the same
+  registry apply, a fit refusal records one `switch_refused` and no retry,
+  and a success records `model_switched` as any switch does. The retry is
+  mid-turn by design — the failed call produced no serving turn, so
+  re-reading the provider recovers instead of interrupting — and continues
+  the same logical call: same `callId`, next attempt ordinal. One turn
+  gets at most 4 consultations; an amended rule (#1111, PR #1114) refuses
+  no-op proposals (same serving provider, no retry intent, no budget
+  spend) so a lazy hook cannot burn the budget.
+- **Jev routing retries a failed routed model with same-tier candidates**
+  (#1110, PR #1113): the Jev routing extension uses the new seam to retry a
+  failed routed model on up to 4 same-tier candidates — economic,
+  balanced or powerful as labeled — gated by the endpoint cooldown and
+  with owner-only refusal bookkeeping, so a flaky routed model no longer
+  kills the turn when the pool has another option of the same tier.
+- **The spawn line names the child, and the live panel shows more**
+  (#1108, PR #1108): a spawned subagent's tool call rendered `used spawn`
+  in vibe mode and raw argument JSON in dev mode; it now names the child
+  (`spawn subagent · scout`, explicit name else preset) in both, failed or
+  refused spawns keep their error block, malformed args degrade to the
+  bare verb, and the subagent live panel tail grows from 4 to 8 rows.
+- **Performance and task-outcome telemetry** (#1101, PR #1104): the event
+  log records time-to-first-content per model call plus explicit,
+  client-seamed task outcomes (`declareTask`, `recordVerification`,
+  `recordTaskOutcome` on the session API) with bounded, redacted
+  verification summaries. Read-only projections (`performanceByModel`,
+  `taskReport`, `concurrencyReport`, `acceptedTaskFixture`) compute
+  TTFC/latency percentiles, retry-vs-processing time, interrupted-call
+  rate, and cost-per-accepted-task — computed only where acceptance
+  evidence exists; unknown is never imputed and moh never infers success
+  from model output. Documented in the extending chapter and the sessions
+  manual page, with an explicit productivity disclaimer.
+- **Provider billing and request-attempt telemetry** (#1099, PR #1102):
+  every `model_call` now carries a per-attempt audit record — usage detail,
+  endpoint identity and transport facts from a provider seam — plus an
+  attempt-chain projection over session logs, so a retried or
+  fallback-served call is one logical call with several attempts. A single
+  event literal; surface restraint kept (no new TUI panes).
+- **Quota and commercial usage state** (#1100, PR #1103): quota
+  observations, episode boundaries and commercial declarations are
+  recorded with cross-session rollup, declaration matching and redaction
+  hardening, joining the #1099 attempt linkage when they rode a call.
+- **The repository drops internal research artifacts** (#1096): the
+  `research/` directory and its references left the tree; no product or
+  docs surface changed.
+
+### Changed
+
+- **The model catalog was regenerated** (release step): 17 prices moved —
+  several down sharply (`deepseek/deepseek-v4-pro` 0.78 → 0.21,
+  `moonshotai/kimi-k3` 3.0 → 0.67, `z-ai/glm-5.3` 1.4 → 0.22) and a few up
+  (`qwen/qwen3.8-27b` 0.02 → 0.42, `minimax/minimax-m1` 0.4 → 0.55). No
+  context windows or reasoning flags moved; the report carries no issue
+  and no context-window shrink. `PRICING_SNAPSHOT.version` follows the
+  manifest, which declares 0.55.0.
+
 ## [0.54.0] - 2026-09-30
 
 ### Added
@@ -1590,7 +1679,8 @@ matching section here at tag time.
   passed; a regression test pins the resolved path under
   `<home>/.moh/projects`.
 
-[Unreleased]: https://github.com/Marco-Cricchio/moh/compare/v0.54.0...develop
+[Unreleased]: https://github.com/Marco-Cricchio/moh/compare/v0.55.0...develop
+[0.55.0]: https://github.com/Marco-Cricchio/moh/compare/v0.54.0...v0.55.0
 [0.54.0]: https://github.com/Marco-Cricchio/moh/compare/v0.53.2...v0.54.0
 [0.53.2]: https://github.com/Marco-Cricchio/moh/compare/v0.53.1...v0.53.2
 [0.53.1]: https://github.com/Marco-Cricchio/moh/compare/v0.53.0...v0.53.1

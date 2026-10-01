@@ -141,6 +141,22 @@ history resume and fork see; tree stats describe the full topology.
 `--json` emits the same data as JSON. In the TUI, `/session` shows the
 same report for the currently open session in a snapshot modal.
 
+### Performance and task outcomes (#1101)
+
+`aggregateTelemetry` (the library projection behind the usage
+reports) carries two quality-adjusted sections. **Performance** shows, per model: time to
+first content, active provider-processing time with retry/wait time
+kept separate, p50/p95 latency, and the interrupted-call rate. These
+are measured latency numbers — moh does not claim that tokens or
+throughput measure developer productivity. **Task outcomes** exist only
+where a client recorded them through explicit seams (`declareTask`,
+`recordVerification`, `recordTaskOutcome` on the session API): a task
+without a recorded verdict counts as `unknown` — absence of a signal is
+never success or failure, and cost-per-accepted-task is computed only
+when acceptance evidence exists, never imputed. Verification summaries
+are redacted and bounded at the seam: no prompt text, completions,
+source content or credentials enter the log.
+
 ## Delete and the trash
 
 Deleting a session (home screen: `d` on a selected session row, `y`
@@ -159,6 +175,29 @@ project directory (refusing a collision with a live session — nothing
 is ever silently overwritten). A deleted session simply stops appearing
 in the home picker and listings; if it was the pertinent suggestion, the
 banner vanishes on refresh.
+
+## Secret redaction
+
+No secret is ever written to a session log in cleartext. Before an event
+reaches disk, the writer runs an unconditional redaction pass over it
+(ADR-0058): secret-shaped keys (`apiKey`, `token`, `password`,
+`authorization`, …) are masked wherever they appear, and high-confidence
+secret shapes in free text — provider keys (`sk-…`, `ghp_…`, `xoxb-…`,
+`AKIA…`, Google keys), `Bearer` headers, `api_key=`/`token=` assignments,
+credentials embedded in URLs, PEM private-key blocks — become the fixed
+placeholder `[redacted]`.
+
+There is **no opt-out**: no config key, flag or consent can disable the
+pass — it is an invariant of the log writer, like append-only. The pass
+applies at persistence only: the live conversation is untouched, but a
+resumed, forked or compacted session reconstructs from the log, so it
+sees `[redacted]` where the original turn saw the secret. Sessions
+written by older moh versions were not redacted — the guarantee is
+forward-only, existing logs are never rewritten. A string that *looks*
+like a secret but passed the patterns unmasked leaves a content-free,
+deduplicated line (a shape, never content) in
+`~/.moh/secret-redaction-misses.log` — the evidence file each new
+pattern is written from.
 
 ## Handoff between machines
 

@@ -3,6 +3,8 @@ import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 import type { AgentEvent, ExtensionStatus, Message, Provider, ReasoningStreamEvent, SendOptions, SkillPrompt, Tool, TurnResult } from "../types";
 import { SCHEMA_VERSION } from "../types";
+import { normalizeTaskId, taskDeclaredEvent, taskOutcomeEvent, taskVerificationEvent } from "../task/telemetry";
+import { newUlid } from "./ulid";
 import { substituteSkillArgs } from "../skill-args";
 import { localTipAt, fileTailId, resolveEventRef } from "../session-store";
 import { activePath, pathTo, resolveHead } from "./event-log";
@@ -20,6 +22,8 @@ import { PromptComposer, type AssembledPrompt, type SkillIndexEntry } from "../p
 import { discoverSkills } from "../skills";
 import { ExtensionRuntime } from "../extensions";
 import { EventLog } from "./event-log";
+import { commercialDeclarationEvent, observationsFromQuotaReport } from "../quota/telemetry";
+import { endpointIdentity } from "../types";
 import { PermissionGate, type ToolHookChecker } from "./permission-gate";
 import { ToolRunner, type ToolResultHookChecker } from "./tool-runner";
 import { TurnQueue } from "./turn-queue";
@@ -164,6 +168,8 @@ export class AgentSession {
    * no replay divergence.
    */
   #declaredWindows = new DeclaredWindows();
+  /** #1101: task ids declared in this session (or its resumed log). */
+  #declaredTasks = new Set<string>();
   /** Session handoff (#434): the raw post-turn artifact runner. */
   #handoff: HandoffRunner | null = null;
   /** A successful bash `git push` occurred in the active turn (#437). */
@@ -573,8 +579,8 @@ export class AgentSession {
     // parent's for the turn-start decision point (its switch then lands in
     // the child's own log, because the seam below is *this* session's
     // switchModel).
-    const borrowedBeforeTurn: Pick<ExtensionRuntime, "dispatchBeforeTurn"> | undefined =
-      typeof config.toolHooks?.dispatchBeforeTurn === "function" ? config.toolHooks as Pick<ExtensionRuntime, "dispatchBeforeTurn"> : undefined;
+    const borrowedBeforeTurn: Pick<ExtensionRuntime, "dispatchBeforeTurn" | "dispatchModelError"> | undefined =
+      typeof config.toolHooks?.dispatchBeforeTurn === "function" ? config.toolHooks as Pick<ExtensionRuntime, "dispatchBeforeTurn" | "dispatchModelError"> : undefined;
     const beforeTurnSeam = this.#extensions ?? borrowedBeforeTurn;
     const dispatchBeforeTurn = beforeTurnSeam
       ? (ctx: Parameters<ExtensionRuntime["dispatchBeforeTurn"]>[0]) =>
@@ -608,6 +614,27 @@ export class AgentSession {
                       this.#onConfirmTurn!(request),
                   }
                 : {}),
+            },
+          }
+        : {}),
+      // ADR-0059: the retry-on-model-error seam — same registry and fit
+      // guards as the manual switch, applied mid-turn only to recover a
+      // call that failed with a non-Route error.
+      ...(beforeTurnSeam
+        ? {
+            modelRetry: {
+              dispatch: (ctx: { model: string; errorKind: string; message: string }) =>
+                this.#scopedDispatch(() =>
+                  beforeTurnSeam.dispatchModelError({
+                    ...ctx,
+                    // #1110: the same #852 cooldown list the per-turn
+                    // switch reads — a proposed alternative must not name
+                    // a stop the route already knows cannot serve.
+                    endpointCooldowns: this.endpointCooldowns,
+                    session: { id: this.#sessionId, owner: this.#extensions !== undefined },
+                  }),
+                ),
+              applyModel: (ref: string) => this.switchModel(ref),
             },
           }
         : {}),
@@ -724,6 +751,11 @@ export class AgentSession {
       // declared windows — reopening re-derives the very same numbers, so
       // compaction and the fit guard compute here what they computed then.
       this.#declaredWindows = DeclaredWindows.fromEvents(resumeEvents);
+      // #1101: a resumed session keeps accepting verifications and
+      // outcomes for the tasks its log declared.
+      for (const event of resumeEvents) {
+        if (event.type === "task_declared") this.#declaredTasks.add(event.taskId);
+      }
       // #578 (d6): a compaction pointer that does not resolve on the
       // active path (corruption, truncation) restarts context from the
       // path start — surfaced as visible warning chrome, never silent.
@@ -871,6 +903,16 @@ export class AgentSession {
       this.#append({ type: "browser_unavailable", reason: message });
     }
     if (!withNotes) return;
+    // #1100: the endpoints' user-owned commercial declarations, recorded
+    // once per session open (resume skips — the log already carries them).
+    // An invalid declaration (a `validUntil` before `validFrom`) is one
+    // visible note, never a session error.
+    for (const profile of this.#endpoints) {
+      if (!profile.commercial) continue;
+      const outcome = commercialDeclarationEvent(profile.name, profile.commercial);
+      if ("event" in outcome) this.#append(outcome.event);
+      else this.#append({ type: "session_note", text: outcome.error });
+    }
     for (const note of this.#startupNotes) {
       this.#append({ type: "session_note", text: note });
     }
@@ -975,6 +1017,108 @@ export class AgentSession {
     return typeof route.health === "function"
       ? route.health().map(({ ref, kind }) => ({ ref, kind }))
       : [];
+  }
+
+  /**
+   * #1100: records one quota probe as `quota_observation` events — the
+   * recording half of the #499 seam (`getQuota` produces the report, this
+   * persists it). `endpointName` must be one of the session's endpoint
+   * profiles; the endpoint identity is built through the #1099 sanitizer,
+   * so no key or query string can enter. Unknown endpoint: a visible note,
+   * never an error. The probe's `authority` badge rides along.
+   */
+  recordQuota(
+    endpointName: string,
+    report: import("../quota/types").QuotaReport,
+    options: { model?: string; scope?: "account" | "workspace" | "endpoint" | "provider" | "model" | "pool"; pool?: string; unit?: "tokens" | "requests" | "credits" | "usd" | "provider-defined" } = {},
+  ): void {
+    const profile = this.#endpoints.find((e) => e.name === endpointName);
+    if (!profile) {
+      this.#append({ type: "session_note", text: `quota observation refused: unknown endpoint "${endpointName}"` });
+      return;
+    }
+    const endpoint = endpointIdentity(profile.type, profile.baseUrl);
+    for (const observation of observationsFromQuotaReport(report, {
+      endpoint,
+      endpointName: profile.name,
+      ...(options.model ? { model: options.model } : {}),
+      ...(options.scope ? { scope: options.scope } : {}),
+      ...(options.unit ? { unit: options.unit } : {}),
+    })) {
+      this.#append(observation);
+    }
+  }
+
+  /**
+   * #1101: declares a task/work unit — the recording seam for explicit
+   * task-outcome telemetry. `taskId` is user-declared; without one a
+   * generated correlation id (no content) is used. `reopens` links a
+   * revision to the original task's id (which need not exist in this
+   * session's log — cross-session reopen chains are a projection's job).
+   * A blank explicit id is refused with a visible note, never invented
+   * around. Returns the recorded task id.
+   */
+  declareTask(taskId?: string, options: { reopens?: string } = {}): string {
+    const id = taskId !== undefined ? normalizeTaskId(taskId) : newUlid();
+    if (!id) {
+      this.#append({ type: "session_note", text: "task declaration refused: the task id was empty" });
+      return "";
+    }
+    const reopens = options.reopens !== undefined ? normalizeTaskId(options.reopens) : undefined;
+    if (options.reopens !== undefined && !reopens) {
+      this.#append({ type: "session_note", text: "task declaration refused: the reopens id was empty" });
+      return "";
+    }
+    this.#append(taskDeclaredEvent({ taskId: id, ...(reopens ? { reopens } : {}) }));
+    this.#declaredTasks.add(id);
+    return id;
+  }
+
+  /**
+   * #1101: records one verification run (test/typecheck/build/lint or
+   * equivalent) against a declared task. Explicit, never inferred; the
+   * summary is redacted and bounded at the seam. A verification for an
+   * undeclared task is refused with a visible note — an outcome must
+   * always have a declared task to correlate to.
+   */
+  recordVerification(
+    taskId: string,
+    verification: {
+      category: import("../task/telemetry").VerificationCategory;
+      ok: boolean;
+      exitStatus?: number;
+      durationMs?: number;
+      summary?: string;
+    },
+  ): void {
+    const id = normalizeTaskId(taskId);
+    if (!id || !this.#declaredTasks.has(id)) {
+      this.#append({ type: "session_note", text: `verification refused: task "${taskId}" was never declared in this session` });
+      return;
+    }
+    this.#append(taskVerificationEvent({ taskId: id, verificationId: newUlid(), ...verification }));
+  }
+
+  /**
+   * #1101: records the explicit user verdict on a declared task. Only
+   * this seam creates an outcome — absence stays `unknown` in every
+   * projection. An outcome for an undeclared task is refused with a
+   * visible note.
+   */
+  recordTaskOutcome(taskId: string, outcome: import("../task/telemetry").TaskOutcome): void {
+    const id = normalizeTaskId(taskId);
+    if (!id || !this.#declaredTasks.has(id)) {
+      this.#append({ type: "session_note", text: `task outcome refused: task "${taskId}" was never declared in this session` });
+      return;
+    }
+    this.#append(taskOutcomeEvent({ taskId: id, outcome }));
+  }
+
+  /** #1101: task ids declared in this session — replayed from the log on
+   * construction, so a resumed session keeps accepting verifications and
+   * outcomes for tasks its log declared. */
+  get declaredTasks(): readonly string[] {
+    return [...this.#declaredTasks];
   }
 
   /** The provider type of the active endpoint (#166): feeds /model's

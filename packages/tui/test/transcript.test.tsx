@@ -619,6 +619,71 @@ describe("subagent block (#320)", () => {
     expect(sub?.lines.join(" ")).toContain("worker");
     expect(sub?.state).toBe("ok");
   });
+
+  test("the spawn tool_call line names the subagent, not 'used spawn' (owner UX)", () => {
+    const events: AgentEvent[] = [
+      { type: "session_start", schemaVersion: 1, promptVersion: "abcdef123456" },
+      { type: "tool_call", callId: "t1", name: "spawn", args: { preset: "research", task: "find it" } },
+    ];
+    const line = projectTranscript(events, { mode: "vibe" }).find((b) => b.kind === "moh")?.lines[0] ?? "";
+    expect(line).toContain("spawn subagent");
+    expect(line).toContain("research");
+  });
+
+  test("a spawn with an explicit child name shows the name over the preset", () => {
+    const events: AgentEvent[] = [
+      { type: "session_start", schemaVersion: 1, promptVersion: "abcdef123456" },
+      { type: "tool_call", callId: "t1", name: "spawn", args: { preset: "research", name: "scout", task: "find it" } },
+    ];
+    const line = projectTranscript(events, { mode: "vibe" }).find((b) => b.kind === "moh")?.lines[0] ?? "";
+    expect(line).toContain("scout");
+    expect(line).not.toContain("research");
+  });
+
+  test("a failed or refused spawn keeps its error visible in vibe too", () => {
+    const events: AgentEvent[] = [
+      { type: "session_start", schemaVersion: 1, promptVersion: "abcdef123456" },
+      { type: "tool_call", callId: "t1", name: "spawn", args: { preset: "research", task: "find it" } },
+      { type: "tool_result", callId: "t1", ok: false, output: "spawn aborted while waiting for a slot" },
+    ];
+    const block = projectTranscript(events, { mode: "vibe" }).find((b) => b.kind === "error");
+    expect(block?.state).toBe("fail");
+    expect(block?.lines[0]).toContain("aborted");
+  });
+
+  test("malformed spawn args degrade to the bare verb, never a crash or raw junk", () => {
+    const events: AgentEvent[] = [
+      { type: "session_start", schemaVersion: 1, promptVersion: "abcdef123456" },
+      { type: "tool_call", callId: "t1", name: "spawn", args: { name: 42, preset: ["x"], task: "y" } },
+      { type: "tool_call", callId: "t2", name: "spawn", args: "not-an-object" },
+    ];
+    const blocks = projectTranscript(events, { mode: "vibe" }).filter((b) => b.kind === "moh");
+    expect(blocks.map((b) => b.lines[0])).toEqual(["spawn subagent", "spawn subagent"]);
+  });
+
+  test("a child name carrying terminal controls is sanitized before render", () => {
+    const events: AgentEvent[] = [
+      { type: "session_start", schemaVersion: 1, promptVersion: "abcdef123456" },
+      { type: "tool_call", callId: "t1", name: "spawn", args: { name: "bad\x1b[31mname", task: "y" } },
+    ];
+    const line = projectTranscript(events, { mode: "vibe" }).find((b) => b.kind === "moh")?.lines[0] ?? "";
+    expect(line).not.toContain("\x1b");
+    expect(line).toContain("bad");
+  });
+
+  test("dev mode shows 'spawn <child-name>' as the block head, both modes agree on the name", () => {
+    const events: AgentEvent[] = [
+      { type: "session_start", schemaVersion: 1, promptVersion: "abcdef123456" },
+      { type: "tool_call", callId: "t1", name: "spawn", args: { preset: "research", name: "scout", task: "find it" } },
+    ];
+    const dev = projectTranscript(events, { mode: "dev" }).find((b) => b.kind === "tool");
+    expect(dev?.type).toBe("spawn");
+    expect(dev?.detail).toBe("scout");
+    const bare = projectTranscript([
+      { type: "tool_call", callId: "t2", name: "spawn", args: { task: "y" } },
+    ], { mode: "dev" }).find((b) => b.kind === "tool");
+    expect(bare?.detail).toBe("subagent");
+  });
 });
 
 describe("synthetic user_message (ADR-0037)", () => {

@@ -110,10 +110,129 @@ export class ProviderError extends Error {
      * come from text `message` no longer holds.
      */
     readonly declaredWindow?: number,
+    /**
+     * #1099: sanitized transport facts of the failed attempt, when the
+     * normalized error carries them — the HTTP status the provider
+     * answered with and, when the provider surfaced it, the Retry-After
+     * hint in ms. Both are optional, additive and safe to serialize:
+     * no header dump, no body, no credential ever rides here.
+     */
+    readonly details?: { httpStatus?: number; retryAfterMs?: number },
   ) {
     super(message);
     this.name = "ProviderError";
   }
+}
+
+/**
+ * #1099: provenance of one call's usage numbers — where the numbers came
+ * from. `"provider"` means the provider itself reported them;
+ * `"client-estimated"` is reserved for a client that substitutes its own
+ * estimate (moh's core never estimates tokens; the P1 quota surface uses
+ * it); `"unavailable"` means the provider did not (the zeros that remain
+ * are the event's neutral shape, never evidence of consumption or of its
+ * absence). Absent on events that predate #1099 or carry no usage at all.
+ */
+export type UsageProvenance = "provider" | "client-estimated" | "unavailable";
+
+/**
+ * #1099: provider-reported usage detail beyond the aggregate input/output
+ * pair. Cache tokens are a subset of what providers count inside input —
+ * they are recorded beside `inputTokens`, never added to it, so aggregate
+ * usage cannot double-count. Every field is optional: absent means the
+ * provider did not report it — never zero.
+ */
+export interface UsageDetail {
+  cacheReadTokens?: number;
+  cacheWriteTokens?: number;
+  reasoningTokens?: number;
+}
+
+/**
+ * #1099: sanitized identity of the endpoint that served (or refused) one
+ * attempt — the endpoint kind and its base URL without query string,
+ * fragment or credentials. Built only through `endpointIdentity`.
+ */
+export interface EndpointIdentity {
+  kind: string;
+  baseUrl?: string;
+}
+
+/**
+ * #1099: the one sanitizer for endpoint identity. Strips query strings,
+ * fragments and userinfo; a baseUrl that fails to parse is dropped
+ * entirely (the kind alone still identifies the endpoint class). Never
+ * accepts or emits keys, authorization values or paths with credentials.
+ */
+export function endpointIdentity(kind: string, baseUrl: string | undefined): EndpointIdentity {
+  if (!baseUrl) return { kind };
+  try {
+    const url = new URL(baseUrl);
+    url.search = "";
+    url.hash = "";
+    url.username = "";
+    url.password = "";
+    return { kind, baseUrl: url.toString().replace(/\/$/, "") };
+  } catch {
+    return { kind };
+  }
+}
+
+/**
+ * #1099: the per-attempt audit record riding a `model_call` event — one
+ * logical model-call attempt with stable correlation ids, timing, sanitized
+ * endpoint identity and the normalized outcome. Attempts of one logical
+ * call (same `callId` — retries and fallback restarts inside one agent-loop
+ * iteration) share `turnId`/`callId` and differ in `attemptId` and
+ * `retryIndex`; a fallback move is visible through `servingModel` and
+ * `chainIndex`. Chrome only — never provider context.
+ */
+export interface AttemptTelemetry {
+  /** The logical call this attempt belongs to (one agent-loop iteration). */
+  callId: string;
+  /** This attempt — unique across the session. */
+  attemptId: string;
+  /** The turn this attempt served (one `user_message` → `done` run). */
+  turnId: string;
+  /** 0-based attempt ordinal within the logical call (a retry or fallback
+   * restart increments it; the first attempt is 0). */
+  retryIndex: number;
+  /** The attempt's model's position in the serving chain (0 when the
+   * provider is not a route). */
+  chainIndex: number;
+  /** The user's standing choice (#974) and the ref that served the call. */
+  selectedModel: string;
+  servingModel: string;
+  /** Sanitized endpoint identity — no keys, no query strings. */
+  endpoint: EndpointIdentity;
+  /** The wire the call spoke (absent for providers that do not declare one). */
+  wire?: string;
+  /** Explicit wall-clock boundaries and the monotonic difference. */
+  startedAt: string;
+  endedAt: string;
+  durationMs: number;
+  /** `completed` finalized a provider message; `failed` threw (or was
+   * superseded by a retry/fallback stop); `aborted` was cancelled. */
+  outcome: "completed" | "failed" | "aborted";
+  /** ProviderError kind, when the attempt failed. */
+  errorKind?: string;
+  /** HTTP status where safe (sanitized number, never headers/body). */
+  httpStatus?: number;
+  /** Retry-After hint the provider surfaced, in ms. The route's own
+   * backoff between attempts is not a field: it is the wall-clock gap
+   * between one attempt's `endedAt` and the next attempt's `startedAt`
+   * sharing the same `callId` — reconstructable from the chain. */
+  retryAfterMs?: number;
+  /** Whether the attempt consumed provider usage (a usage event was seen
+   * for it). A failed attempt that consumed usage still bills. */
+  consumedUsage: boolean;
+  /** #1101: time to first content — ms from the attempt's start to its
+   * first streamed text delta ("useful content": reasoning deltas do not
+   * count). Absent when the attempt produced no text (a tool-only call,
+   * a failure) — unknown, never zero. */
+  ttfcMs?: number;
+  /** Release-pinned pricing/catalog revision (ADR-0046 manifest). */
+  pricingVersion: string;
 }
 
 /** #240/#253: provider reasoning stream lifecycle — neutral, SDK-free.
@@ -133,13 +252,25 @@ export type ReasoningStreamEvent =
 export type StreamEvent =
   | { type: "text_delta"; text: string }
   | { type: "tool_calls"; calls: { callId: string; name: string; args: unknown }[] }
-  | { type: "usage"; inputTokens: number; outputTokens: number }
+  | { type: "usage"; inputTokens: number; outputTokens: number;
+      /** #1099: provider-reported detail beside the aggregate pair —
+       * absent when the provider did not report it (never zero-filled). */
+      cacheReadTokens?: number;
+      cacheWriteTokens?: number;
+      reasoningTokens?: number;
+      /** #1099: where these numbers came from; `"unavailable"` when the
+       * provider reported nothing (zeros are the neutral shape). */
+      provenance?: UsageProvenance }
   | { type: "finish"; reason: FinishReason }
   /** #83: providers announce the model serving this call at stream start.
    * #240: the announcement may carry the effective thinking level the
    * provider actually sent (after per-wire capability mapping) — the
    * loop audits it on the `model_call` event. */
-  | { type: "model_call_start"; model: string; thinkingLevel?: ThinkingLevel }
+  | { type: "model_call_start"; model: string; thinkingLevel?: ThinkingLevel;
+      /** #1099: sanitized endpoint identity and wire of the stream that
+       * announced itself — no keys, no query strings. */
+      endpoint?: EndpointIdentity;
+      wire?: string }
   | ReasoningStreamEvent
   /** ADR-0012: the route engine announces a fallback stop: the active
    * target failed with `reason` (a ProviderError kind, e.g.
@@ -310,7 +441,19 @@ type AgentEventBase =
   | { type: "model_call"; model: string; usage: TokenUsage; thinkingLevel?: ThinkingLevel; /** #243: the call did not finalize a provider message (interrupted,
    * failed, or superseded by a retry/fallback stop). Its reasoning stays
    * displayable, but replay must not treat its partial content as a valid
-   * assistant message. */ failed?: true }
+   * assistant message. */ failed?: true;
+    /** #1099: provider-reported usage detail beside the aggregate pair —
+     * absent when the provider did not report it (never zero-filled); cache
+     * tokens are a subset of input, never added to it. */
+    cacheReadTokens?: number;
+    cacheWriteTokens?: number;
+    reasoningTokens?: number;
+    /** #1099: where the usage numbers came from (`"unavailable"` when the
+     * provider reported nothing). */
+    usageProvenance?: UsageProvenance;
+    /** #1099: the per-attempt audit record (correlation, timing, sanitized
+     * identity, outcome). Chrome only — absent on pre-#1099 events. */
+    attempt?: AttemptTelemetry }
   /** #240: completed provider reasoning of one model call — persisted in
    * the log (Principle 2), replayed into the assistant message context
    * with its opaque continuation artifacts. Emitted before the call's
@@ -460,6 +603,103 @@ type AgentEventBase =
    * visible warning chrome is appended at resume-open. Chrome only.
    */
   | { type: "compaction_dangling" }
+  /**
+   * #1100 (P1 quota telemetry): one quota fact observed at a point in
+   * time — a provider-declared number (quota endpoint, header, or a
+   * rate-limit/exhaustion error), the user's own declaration, or a local
+   * estimate. Every measured field is optional and absent means unknown,
+   * never zero; `window.kind` stays `"unknown"` unless the provider
+   * declared the window's shape. The endpoint identity is the #1099
+   * sanitized shape — no keys, no query strings. Chrome only — never
+   * provider context, never a turn error.
+   */
+  | {
+      type: "quota_observation";
+      endpoint: EndpointIdentity;
+      /** The model ref the observation applies to, when scoped to one. */
+      model?: string;
+      /** Whose capacity the fact describes. A `pool` names a shared pool
+       * through `scopeKey` — two endpoints can share one. */
+      scope: "account" | "workspace" | "endpoint" | "provider" | "model" | "pool";
+      /** Deterministic identity of the observed capacity (endpoint key,
+       * or the pool's name for `pool` scope). Redacted by construction. */
+      scopeKey: string;
+      /** The moh.json endpoint name the observation was recorded for,
+       * when the recorder knew it (redacted, bounded). */
+      endpointName?: string;
+      unit?: "tokens" | "requests" | "credits" | "usd" | "provider-defined";
+      /** The measured window. `kind` is `"unknown"` unless the provider
+       * declared rolling/fixed semantics — moh never assumes one. */
+      window?: { label: string; kind: "rolling" | "fixed" | "unknown"; interval?: string };
+      /** All optional: absent = the provider did not report it, never zero. */
+      limit?: number;
+      remaining?: number;
+      used?: number;
+      percent?: number;
+      /** Reset fact, only when declared: an absolute time and/or a
+       * duration. Absent = unknown/undocumented mechanics. */
+      resetAt?: number;
+      resetMs?: number;
+      /** Where the fact came from. */
+      source: "quota-endpoint" | "provider-error" | "provider-header" | "user-config" | "local-estimate";
+      /** Confidence badge carried over from the quota seam when the
+       * source is a probe (`official` = documented API). */
+      authority?: "official" | "undocumented";
+      /** When the fact was observed and until when it may be trusted. */
+      observedAt: string;
+      validUntil?: string;
+      /** #1099 correlation, when the observation rode a call attempt. */
+      callId?: string;
+      attemptId?: string;
+      /** The ProviderError kind that produced this observation
+       * (`rate_limited` / `quota_exhausted`), when source is an error. */
+      errorKind?: string;
+    }
+  /**
+   * #1100: one normalized quota boundary the loop recorded — a block
+   * (`exhausted` / `rate_limited`, the provider refused or throttled),
+   * or the recovery that followed it inside the same logical call.
+   * Episodes are *boundaries*: the projection pairs them into distinct
+   * episodes with temporal bounds. Chrome only.
+   */
+  | {
+      type: "quota_episode";
+      phase: "exhausted" | "rate_limited" | "recovered";
+      scopeKey: string;
+      endpoint: EndpointIdentity;
+      servingModel?: string;
+      startedAt: string;
+      endedAt?: string;
+      /** Wall-clock spent waiting/backing off between the blocked attempt
+       * and the one that recovered, when the loop saw the recovery. */
+      waitMs?: number;
+      /** Retry-After hint the provider surfaced for the block, in ms. */
+      retryAfterMs?: number;
+      /** The recovery came from a different serving model (fallback). */
+      usedFallback?: boolean;
+      callId?: string;
+      attemptId?: string;
+    }
+  /**
+   * #1100: the user's own commercial declaration for an endpoint —
+   * plan, price, billing period, promotion, overage policy. Explicit and
+   * user-owned: moh never infers a plan from endpoint identity. Every
+   * string is redacted (trimmed, bounded); the declaration is
+   * time-bounded by `validFrom`/`validUntil`. Chrome only.
+   */
+  | {
+      type: "commercial_declaration";
+      /** The moh.json endpoint name the declaration is about. */
+      endpoint: string;
+      plan?: string;
+      price?: number;
+      currency?: string;
+      billingPeriod?: "monthly" | "yearly" | "custom";
+      promotion?: string;
+      overagePolicy?: "blocked" | "metered" | "unknown";
+      validFrom: string;
+      validUntil?: string;
+    }
   /** Subagents (#13): a child session was spawned; `log` is its own JSONL file. */
   | { type: "subagent_spawn"; callId: string; name: string; preset?: string; log: string }
   /** Subagent finished; usage tokens accumulated by the child, where exposed. */
@@ -474,6 +714,56 @@ type AgentEventBase =
        * transcript block and replay show a preview without re-reading the
        * child log. Absent when the child produced no output. */
       preview?: string;
+    }
+  /**
+   * #1101 (P2 task-outcome telemetry): the user (or a client on the
+   * user's behalf) declared a task/work unit. The id is user-declared or
+   * generated — it never carries prompt text, file paths of the work, or
+   * content. A `reopens` id links a reworked task to its original
+   * (revision/reopen relation). Chrome only.
+   */
+  | {
+      type: "task_declared";
+      /** Correlation id: user-declared or generated. No content rides it. */
+      taskId: string;
+      /** The original task this one reopens (revision relation). */
+      reopens?: string;
+      declaredAt: string;
+    }
+  /**
+   * #1101: one verification run a client recorded against a declared
+   * task — a test/typecheck/build/lint (or equivalent) command's result.
+   * Explicit, never inferred: only a client seam creates one. The
+   * diagnostics are bounded, redacted *metadata* (a one-line summary) —
+   * never full tool output. Repeated verifications are separate events;
+   * the projection reads the latest at any point in time. Chrome only.
+   */
+  | {
+      type: "task_verification";
+      taskId: string;
+      verificationId: string;
+      category: "test" | "typecheck" | "build" | "lint" | "other";
+      ok: boolean;
+      /** Process exit status, when known — absent = unknown, never zero. */
+      exitStatus?: number;
+      durationMs?: number;
+      /** Optional bounded, redacted one-line summary (≤ 240 chars after
+       * the seam's redaction) — never full output, never file contents. */
+      summary?: string;
+      recordedAt: string;
+    }
+  /**
+   * #1101: the explicit user verdict on a declared task: accepted,
+   * rejected, or revision-needed. `unresolved` records an explicit
+   * close-without-verdict; absence of any outcome event stays `unknown`
+   * in every projection — no signal is never success or failure.
+   * Chrome only.
+   */
+  | {
+      type: "task_outcome";
+      taskId: string;
+      outcome: "accepted" | "rejected" | "revision-needed" | "unresolved";
+      decidedAt: string;
     };
 
 /**

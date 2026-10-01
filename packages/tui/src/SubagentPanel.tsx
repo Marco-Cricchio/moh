@@ -33,9 +33,10 @@ export function SubagentPanel({
 }) {
   const theme = useTheme();
   // A useful live peek needs enough context to make the child’s progress
-  // legible. It keeps up to five truncate-only tail rows; on settlement the
-  // caller still reduces it to the one-line final acknowledgement.
-  const maxLines = Math.max(1, Math.min(5, PANEL_TAIL_LINES, rows ?? PANEL_TAIL_LINES));
+  // legible (owner feedback: at least 8 rows). It keeps up to eight
+  // truncate-only tail rows; on settlement the caller still reduces it to
+  // the one-line final acknowledgement.
+  const maxLines = Math.max(1, Math.min(PANEL_TAIL_LINES, rows ?? PANEL_TAIL_LINES));
   // A settled peek is deliberately a one-line acknowledgement only. The
   // permanent subagent transcript block owns the result/preview; keeping
   // old live deltas here duplicates information and wastes vertical space.
