@@ -56,6 +56,10 @@ describe("trackSubagents", () => {
   test("empty log → no subagents", () => {
     expect(trackSubagents([])).toEqual([]);
   });
+
+  test("the live panel tail window is at least 8 rows (owner UX)", () => {
+    expect(PANEL_TAIL_LINES).toBeGreaterThanOrEqual(8);
+  });
 });
 
 const runningSub: TrackedSubagent = {

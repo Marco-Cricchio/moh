@@ -118,6 +118,9 @@ const TOOL_ACTION: Record<string, string> = {
   fetch: "fetched a page",
   todo: "updated the plan",
   bash: "ran a command",
+  // Owner UX: the spawn line names the child it started — preset or
+  // explicit name, never the bare "used spawn".
+  spawn: "spawn subagent",
 };
 
 /** The file-ish detail vibe shows (a path or pattern, not a command line). */
@@ -127,6 +130,12 @@ const vibeDetail = (name: string, args: unknown): string => {
   // Search tools: the pattern says what was looked for, the path is noise.
   if (name === "glob" || name === "grep") {
     if (typeof rec.pattern === "string") return sanitizeForDisplay(rec.pattern).split("\n")[0]!;
+  }
+  // Spawn: the child's name (explicit, else the preset) is what the user
+  // needs on the line — not the task text (owner UX).
+  if (name === "spawn") {
+    const label = typeof rec.name === "string" && rec.name !== "" ? rec.name : typeof rec.preset === "string" && rec.preset !== "" ? rec.preset : "";
+    return label ? sanitizeForDisplay(label).split("\n")[0]! : "";
   }
   const path = rec.path ?? rec.file;
   if (typeof path === "string") return sanitizeForDisplay(path).split("\n")[0]!;
@@ -185,6 +194,12 @@ const bashDetail = (command: string): string => {
 const detailOf = (args: unknown, toolName?: string): string => {
   if (!args || typeof args !== "object") return "";
   const rec = args as Record<string, unknown>;
+  // Spawn (owner UX): the child's name — explicit, else the preset — is the
+  // detail in every mode, instead of the whole args JSON.
+  if (toolName === "spawn") {
+    const label = typeof rec.name === "string" && rec.name !== "" ? rec.name : typeof rec.preset === "string" && rec.preset !== "" ? rec.preset : "";
+    return label ? sanitizeLine(label).split("\n")[0]! : "subagent";
+  }
   for (const key of ["command", "path", "file", "pattern", "query", "url"]) {
     if (typeof rec[key] === "string") return key === "command" && toolName === "bash"
       ? bashDetail(rec[key])
