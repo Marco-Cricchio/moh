@@ -1,6 +1,6 @@
 # ADR-0059: The retry-on-model-error seam
 
-Status: accepted · Date: 2026-10-01 · Issue: #1109 · Related: ADR-0033 (beforeTurn), ADR-0031 (restrict-only), ADR-0049 (declared windows), ADR-0050 (selected/serving), #948 (context-fit guard)
+Status: accepted · Date: 2026-10-01 · Issue: #1109 · Amended: #1111 (no-op proposals are refused, spend no budget) · Related: ADR-0033 (beforeTurn), ADR-0031 (restrict-only), ADR-0049 (declared windows), ADR-0050 (selected/serving), #948 (context-fit guard)
 
 ## Context
 
@@ -61,6 +61,23 @@ consultations. A proposed ref that fails the same way spends budget; an
 exhausted budget ends the turn exactly as a consultation without an
 answer. This keeps a misbehaving extension from turning one error into an
 unbounded loop of paid calls.
+
+**A no-op proposal is refused (#1111).** `switchModel` treats a ref that
+resolves to the currently serving provider — the bare endpoint name while
+its model serves, or an alias of the same endpoint/model — as a silent
+no-op (`{ ok: true }`, no `model_switched`). Left unguarded, such a
+proposal passes both the literal-ref check and the application: the
+session re-reads the same failing provider and pays for the retry. The
+seam therefore compares the *applied* model (post-resolution) with the
+provider that was serving the failed call, captured before the
+application, and treats a match as a refused proposal: no retry, and the
+consultation is free — it spends none of the turn's budget. The no-op
+stays silent: it appends no chrome record. A switch that moved nothing
+has nothing to announce, and the failed `model_call` that triggered the
+consultation already names the ref in question — "a non-answer is
+absence, never authority" cuts the other way here: the absence of a
+retry *is* the answer, and duplicating it in chrome would only multiply
+records for a proposal that changed nothing.
 
 **Silence is the past.** With no routing extension active, no hook
 answering, or a refused proposal, the turn ends with the original error —
