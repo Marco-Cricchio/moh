@@ -59,13 +59,13 @@ describe("ai-sdk reasoning translation (#240)", () => {
     ]);
     const events = await h.run([{ role: "user", parts: [{ kind: "text", text: "hi" }] }]);
     expect(events).toEqual([
-      { type: "model_call_start", model: "t/m" },
+      { type: "model_call_start", model: "t/m", endpoint: { kind: "openai" }, wire: "openai-chat" },
       { type: "reasoning_start" },
       { type: "reasoning_delta", text: "step one. " },
       { type: "reasoning_delta", text: "step two." },
       { type: "reasoning_end", continuation: { anthropic: { signature: "sig-9" } } },
       { type: "text_delta", text: "answer" },
-      { type: "usage", inputTokens: 1, outputTokens: 2 },
+      { type: "usage", inputTokens: 1, outputTokens: 2, provenance: "provider" },
       { type: "finish", reason: "stop" },
     ]);
   });
@@ -89,7 +89,7 @@ describe("ai-sdk thinking-level mapping (#240)", () => {
   it("anthropic: native levels map to effort; off disables; the announcement audits the effective level", async () => {
     const h = harness([finish()], "anthropic");
     const events = await h.run([{ role: "user", parts: [{ kind: "text", text: "hi" }] }], { thinking: { level: "high" } });
-    expect(events[0]).toEqual({ type: "model_call_start", model: "t/m", thinkingLevel: "high" });
+    expect(events[0]).toEqual({ type: "model_call_start", model: "t/m", thinkingLevel: "high", endpoint: { kind: "anthropic" }, wire: "anthropic-messages" });
     expect(h.calls[0]!.providerOptions).toEqual({ anthropic: { effort: "high" } });
 
     const h2 = harness([finish()], "anthropic");
@@ -111,7 +111,7 @@ describe("ai-sdk thinking-level mapping (#240)", () => {
     const h2 = harness([finish()], "google");
     const events = await h2.run([{ role: "user", parts: [{ kind: "text", text: "hi" }] }], { thinking: { level: "max" } });
     expect(h2.calls[0]!.providerOptions).toBeUndefined();
-    expect(events[0]).toEqual({ type: "model_call_start", model: "t/m" });
+    expect(events[0]).toEqual({ type: "model_call_start", model: "t/m", endpoint: { kind: "google" }, wire: "google" });
   });
 
   it("no thinking option sends no providerOptions at all", async () => {

@@ -110,10 +110,124 @@ export class ProviderError extends Error {
      * come from text `message` no longer holds.
      */
     readonly declaredWindow?: number,
+    /**
+     * #1099: sanitized transport facts of the failed attempt, when the
+     * normalized error carries them — the HTTP status the provider
+     * answered with and, when the provider surfaced it, the Retry-After
+     * hint in ms. Both are optional, additive and safe to serialize:
+     * no header dump, no body, no credential ever rides here.
+     */
+    readonly details?: { httpStatus?: number; retryAfterMs?: number },
   ) {
     super(message);
     this.name = "ProviderError";
   }
+}
+
+/**
+ * #1099: provenance of one call's usage numbers — where the numbers came
+ * from. `"provider"` means the provider itself reported them;
+ * `"client-estimated"` is reserved for a client that substitutes its own
+ * estimate (moh's core never estimates tokens; the P1 quota surface uses
+ * it); `"unavailable"` means the provider did not (the zeros that remain
+ * are the event's neutral shape, never evidence of consumption or of its
+ * absence). Absent on events that predate #1099 or carry no usage at all.
+ */
+export type UsageProvenance = "provider" | "client-estimated" | "unavailable";
+
+/**
+ * #1099: provider-reported usage detail beyond the aggregate input/output
+ * pair. Cache tokens are a subset of what providers count inside input —
+ * they are recorded beside `inputTokens`, never added to it, so aggregate
+ * usage cannot double-count. Every field is optional: absent means the
+ * provider did not report it — never zero.
+ */
+export interface UsageDetail {
+  cacheReadTokens?: number;
+  cacheWriteTokens?: number;
+  reasoningTokens?: number;
+}
+
+/**
+ * #1099: sanitized identity of the endpoint that served (or refused) one
+ * attempt — the endpoint kind and its base URL without query string,
+ * fragment or credentials. Built only through `endpointIdentity`.
+ */
+export interface EndpointIdentity {
+  kind: string;
+  baseUrl?: string;
+}
+
+/**
+ * #1099: the one sanitizer for endpoint identity. Strips query strings,
+ * fragments and userinfo; a baseUrl that fails to parse is dropped
+ * entirely (the kind alone still identifies the endpoint class). Never
+ * accepts or emits keys, authorization values or paths with credentials.
+ */
+export function endpointIdentity(kind: string, baseUrl: string | undefined): EndpointIdentity {
+  if (!baseUrl) return { kind };
+  try {
+    const url = new URL(baseUrl);
+    url.search = "";
+    url.hash = "";
+    url.username = "";
+    url.password = "";
+    return { kind, baseUrl: url.toString().replace(/\/$/, "") };
+  } catch {
+    return { kind };
+  }
+}
+
+/**
+ * #1099: the per-attempt audit record riding a `model_call` event — one
+ * logical model-call attempt with stable correlation ids, timing, sanitized
+ * endpoint identity and the normalized outcome. Attempts of one logical
+ * call (same `callId` — retries and fallback restarts inside one agent-loop
+ * iteration) share `turnId`/`callId` and differ in `attemptId` and
+ * `retryIndex`; a fallback move is visible through `servingModel` and
+ * `chainIndex`. Chrome only — never provider context.
+ */
+export interface AttemptTelemetry {
+  /** The logical call this attempt belongs to (one agent-loop iteration). */
+  callId: string;
+  /** This attempt — unique across the session. */
+  attemptId: string;
+  /** The turn this attempt served (one `user_message` → `done` run). */
+  turnId: string;
+  /** 0-based attempt ordinal within the logical call (a retry or fallback
+   * restart increments it; the first attempt is 0). */
+  retryIndex: number;
+  /** The attempt's model's position in the serving chain (0 when the
+   * provider is not a route). */
+  chainIndex: number;
+  /** The user's standing choice (#974) and the ref that served the call. */
+  selectedModel: string;
+  servingModel: string;
+  /** Sanitized endpoint identity — no keys, no query strings. */
+  endpoint: EndpointIdentity;
+  /** The wire the call spoke (absent for providers that do not declare one). */
+  wire?: string;
+  /** Explicit wall-clock boundaries and the monotonic difference. */
+  startedAt: string;
+  endedAt: string;
+  durationMs: number;
+  /** `completed` finalized a provider message; `failed` threw (or was
+   * superseded by a retry/fallback stop); `aborted` was cancelled. */
+  outcome: "completed" | "failed" | "aborted";
+  /** ProviderError kind, when the attempt failed. */
+  errorKind?: string;
+  /** HTTP status where safe (sanitized number, never headers/body). */
+  httpStatus?: number;
+  /** Retry-After hint the provider surfaced, in ms. The route's own
+   * backoff between attempts is not a field: it is the wall-clock gap
+   * between one attempt's `endedAt` and the next attempt's `startedAt`
+   * sharing the same `callId` — reconstructable from the chain. */
+  retryAfterMs?: number;
+  /** Whether the attempt consumed provider usage (a usage event was seen
+   * for it). A failed attempt that consumed usage still bills. */
+  consumedUsage: boolean;
+  /** Release-pinned pricing/catalog revision (ADR-0046 manifest). */
+  pricingVersion: string;
 }
 
 /** #240/#253: provider reasoning stream lifecycle — neutral, SDK-free.
@@ -133,13 +247,25 @@ export type ReasoningStreamEvent =
 export type StreamEvent =
   | { type: "text_delta"; text: string }
   | { type: "tool_calls"; calls: { callId: string; name: string; args: unknown }[] }
-  | { type: "usage"; inputTokens: number; outputTokens: number }
+  | { type: "usage"; inputTokens: number; outputTokens: number;
+      /** #1099: provider-reported detail beside the aggregate pair —
+       * absent when the provider did not report it (never zero-filled). */
+      cacheReadTokens?: number;
+      cacheWriteTokens?: number;
+      reasoningTokens?: number;
+      /** #1099: where these numbers came from; `"unavailable"` when the
+       * provider reported nothing (zeros are the neutral shape). */
+      provenance?: UsageProvenance }
   | { type: "finish"; reason: FinishReason }
   /** #83: providers announce the model serving this call at stream start.
    * #240: the announcement may carry the effective thinking level the
    * provider actually sent (after per-wire capability mapping) — the
    * loop audits it on the `model_call` event. */
-  | { type: "model_call_start"; model: string; thinkingLevel?: ThinkingLevel }
+  | { type: "model_call_start"; model: string; thinkingLevel?: ThinkingLevel;
+      /** #1099: sanitized endpoint identity and wire of the stream that
+       * announced itself — no keys, no query strings. */
+      endpoint?: EndpointIdentity;
+      wire?: string }
   | ReasoningStreamEvent
   /** ADR-0012: the route engine announces a fallback stop: the active
    * target failed with `reason` (a ProviderError kind, e.g.
@@ -310,7 +436,19 @@ type AgentEventBase =
   | { type: "model_call"; model: string; usage: TokenUsage; thinkingLevel?: ThinkingLevel; /** #243: the call did not finalize a provider message (interrupted,
    * failed, or superseded by a retry/fallback stop). Its reasoning stays
    * displayable, but replay must not treat its partial content as a valid
-   * assistant message. */ failed?: true }
+   * assistant message. */ failed?: true;
+    /** #1099: provider-reported usage detail beside the aggregate pair —
+     * absent when the provider did not report it (never zero-filled); cache
+     * tokens are a subset of input, never added to it. */
+    cacheReadTokens?: number;
+    cacheWriteTokens?: number;
+    reasoningTokens?: number;
+    /** #1099: where the usage numbers came from (`"unavailable"` when the
+     * provider reported nothing). */
+    usageProvenance?: UsageProvenance;
+    /** #1099: the per-attempt audit record (correlation, timing, sanitized
+     * identity, outcome). Chrome only — absent on pre-#1099 events. */
+    attempt?: AttemptTelemetry }
   /** #240: completed provider reasoning of one model call — persisted in
    * the log (Principle 2), replayed into the assistant message context
    * with its opaque continuation artifacts. Emitted before the call's

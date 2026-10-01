@@ -159,6 +159,24 @@ its own reasons — `rate-limited`, a spent quota — from one that failed
 transiently — `transient`, a 5xx or a network error that survived `fetch`'s
 single retry; anything else the server answered stays `http-status`.
 
+Each `model_call` also carries a per-attempt audit record (#1099): stable
+`callId`/`attemptId`/`turnId` correlation, `retryIndex` within the logical
+call and `chainIndex` on the serving chain, explicit start/end timestamps
+and duration, the selected/serving model pair, a sanitized endpoint
+identity (kind + base URL — no keys, no query strings), the wire, the
+outcome (`completed`/`failed`/`aborted`) with the normalized error kind
+and — where safe — the HTTP status and Retry-After hint, and the
+provider-reported usage detail (`cacheReadTokens`, `cacheWriteTokens`,
+`reasoningTokens`) with its provenance: `"provider"` when the provider
+reported the numbers, `"unavailable"` when it did not — missing usage is
+never read as zero, and cache tokens sit beside the aggregate
+`inputTokens`, never added to them. `attemptChains()` and
+`summarizeAttempts()` (core-internal projections — the defining module is
+the import path until a client surface reads them, per the ADR-0004
+keep-criterion) project reconstructable
+per-call chains — retries, fallback moves, unknown-usage attempts — from a
+session's events without reading any prompt text.
+
 ```ts
 async function watch() {
   for await (const event of session.events) {

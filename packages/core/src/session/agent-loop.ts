@@ -20,8 +20,31 @@ import type { TurnConfirmOutcome } from "@moh/extension";
 import { resolveTurnConfirm, type BeforeTurnDispatch, type ExtensionRuntime } from "../extensions";
 import { assembleMentions, renderMentionAttachment, type MentionAttachment } from "../mentions";
 import { EMPTY_REASONING_PARTS, foldReasoningParts, type ReasoningParts } from "../reasoning-parts";
-import { servingModelOf } from "../model-pair";
+import { servingModelOf, selectedModelOf } from "../model-pair";
 import { declaredWindowOf } from "../declared-window";
+import { normalizeProviderError } from "../provider-errors";
+import { PRICING_SNAPSHOT } from "../pricing";
+import { newUlid } from "./ulid";
+import { endpointIdentity, ProviderError } from "../types";
+import type { AttemptTelemetry, EndpointIdentity, UsageProvenance } from "../types";
+
+/**
+ * #1099: a detail field is counted only when it is a finite number —
+ * anything else a provider yields is unreported, never garbage in the log.
+ */
+function finiteNumber(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+}
+
+/** #1099: best-effort sanitized endpoint identity for providers that do
+ * not announce one on `model_call_start` — the endpoint prefix of the
+ * ref, the instance's baseUrl when it carries one. Same sanitizer as the
+ * announced shape, so the log holds one identity format. */
+function endpointIdentityOf(provider: Provider): EndpointIdentity {
+  const slash = provider.name.indexOf("/");
+  const kind = slash === -1 ? provider.name : provider.name.slice(0, slash);
+  return endpointIdentity(kind || "unknown", (provider as { baseUrl?: string }).baseUrl);
+}
 
 /** The extension surface AgentLoop needs — satisfied by ExtensionRuntime. */
 export type LoopExtensions = Pick<ExtensionRuntime, "dispatchBeforeModelCall">;
@@ -133,6 +156,37 @@ function refusalKind(err: unknown): string | undefined {
 }
 
 
+/** #1099: the failure facts an attempt record can carry — either the plain
+ * subset (when only the kind is known: fallback stops, empty completions)
+ * or a normalized ProviderError (kind + sanitized transport details). */
+type AttemptFailure = { errorKind: string; httpStatus?: number; retryAfterMs?: number } | ProviderError;
+
+function failureFacts(failure: AttemptFailure | undefined): { errorKind: string; httpStatus?: number; retryAfterMs?: number } | undefined {
+  if (!failure) return undefined;
+  return failure instanceof ProviderError
+    ? { errorKind: failure.kind, ...(failure.details?.httpStatus !== undefined ? { httpStatus: failure.details.httpStatus } : {}), ...(failure.details?.retryAfterMs !== undefined ? { retryAfterMs: failure.details.retryAfterMs } : {}) }
+    : failure;
+}
+
+/** #1099: the open model-call buffer — attempt audit fields captured at
+ * open, usage detail folded in as it streams, settled on the event. */
+type PendingCall = {
+  model: string;
+  usage: TokenUsage;
+  thinkingLevel?: ThinkingLevel;
+  reasoning: { text: string; continuation?: Record<string, unknown> }[];
+  attemptId: string;
+  retryIndex: number;
+  startedAt: number;
+  endpoint?: EndpointIdentity;
+  wire?: string;
+  consumedUsage: boolean;
+  cacheReadTokens?: number;
+  cacheWriteTokens?: number;
+  reasoningTokens?: number;
+  usageProvenance?: UsageProvenance;
+};
+
 /**
  * One agent turn (#92): model calls, streaming deltas, `model_call`
  * buffering and turn usage rollup (#83), the max-iterations cap, the
@@ -164,12 +218,14 @@ export class AgentLoop {
   /** #83: the model call currently streaming (announced by `model_call_start`).
    * #240: also buffers the call's completed reasoning (persisted with the
    * call) and the effective thinking level the provider announced. */
-  #pendingCall: {
-    model: string;
-    usage: TokenUsage;
-    thinkingLevel?: ThinkingLevel;
-    reasoning: { text: string; continuation?: Record<string, unknown> }[];
-  } | null = null;
+  #pendingCall: PendingCall | null = null;
+  /** #1099: correlation ids — one per turn, one per logical call (one
+   * agent-loop iteration; retries and fallback restarts of the same
+   * iteration are attempts of one logical call). */
+  #turnId = "";
+  #callId = "";
+  /** #1099: attempt ordinal within the current logical call. */
+  #attemptIndex = 0;
   /** #83: turn rollup inputs — usage at turn start and models that served it. */
   #turnStartUsage: TokenUsage = { inputTokens: 0, outputTokens: 0 };
   #turnModels: string[] = [];
@@ -217,11 +273,92 @@ export class AgentLoop {
     // A second announcement before the prior call produced `finish` means
     // retry/fallback, not a finalized provider message.
     if (this.#pendingCall) this.#flushFailedModelCall();
+    // #1099: a new logical call gets a fresh correlation id; retries and
+    // fallback restarts within the same iteration keep it and increment
+    // the attempt ordinal.
+    if (!this.#callId) this.#callId = newUlid();
     this.#pendingCall = {
       model: event.model,
       usage: { inputTokens: 0, outputTokens: 0 },
       ...(event.thinkingLevel ? { thinkingLevel: event.thinkingLevel } : {}),
       reasoning: [],
+      attemptId: newUlid(),
+      retryIndex: this.#attemptIndex++,
+      startedAt: Date.now(),
+      ...(event.endpoint ? { endpoint: event.endpoint } : {}),
+      ...(event.wire ? { wire: event.wire } : {}),
+      consumedUsage: false,
+    };
+  }
+
+  /** #1099: folds one usage stream event into the open attempt — detail
+   * fields sum (absent stays absent, never zero-filled), `"provider"`
+   * provenance sticks once anything provider-reported arrives and is never
+   * downgraded by a later unavailable event, and the attempt counts as
+   * having consumed usage only when the provider actually reported
+   * consumption (tokens or detail) — unavailable zeros never do. */
+  #consumeUsage(event: Extract<StreamEvent, { type: "usage" }>): void {
+    this.#usage.inputTokens += event.inputTokens;
+    this.#usage.outputTokens += event.outputTokens;
+    if (this.#pendingCall) {
+      this.#pendingCall.usage.inputTokens += event.inputTokens;
+      this.#pendingCall.usage.outputTokens += event.outputTokens;
+      const cacheRead = finiteNumber(event.cacheReadTokens);
+      const cacheWrite = finiteNumber(event.cacheWriteTokens);
+      const reasoning = finiteNumber(event.reasoningTokens);
+      // #1099: malformed detail fields (non-finite numbers, wrong types)
+      // are treated as unreported — never summed as garbage.
+      if (cacheRead !== undefined) this.#pendingCall.cacheReadTokens = (this.#pendingCall.cacheReadTokens ?? 0) + cacheRead;
+      if (cacheWrite !== undefined) this.#pendingCall.cacheWriteTokens = (this.#pendingCall.cacheWriteTokens ?? 0) + cacheWrite;
+      if (reasoning !== undefined) this.#pendingCall.reasoningTokens = (this.#pendingCall.reasoningTokens ?? 0) + reasoning;
+      const reported =
+        finiteNumber(event.inputTokens)! > 0 ||
+        finiteNumber(event.outputTokens)! > 0 ||
+        cacheRead !== undefined ||
+        cacheWrite !== undefined ||
+        reasoning !== undefined;
+      if (reported || event.provenance === "provider") {
+        this.#pendingCall.usageProvenance = "provider";
+        this.#pendingCall.consumedUsage = true;
+      } else if (this.#pendingCall.usageProvenance === undefined) {
+        this.#pendingCall.usageProvenance = event.provenance ?? "unavailable";
+      }
+    }
+  }
+
+  /** #1099: builds the attempt record of a settled pending call — timing,
+   * sanitized identity, outcome and normalized failure facts. The chain
+   * index comes from the provider's own chain when it is a route (0
+   * otherwise). */
+  #attemptTelemetry(
+    call: PendingCall,
+    outcome: AttemptTelemetry["outcome"],
+    failure?: { errorKind: string; httpStatus?: number; retryAfterMs?: number }): AttemptTelemetry {
+    const endedAt = Date.now();
+    const provider = this.#provider();
+    const chain = (provider as { chain?: readonly string[] }).chain;
+    return {
+      callId: this.#callId,
+      attemptId: call.attemptId,
+      turnId: this.#turnId,
+      retryIndex: call.retryIndex,
+      // #1099: position on the serving chain; a serving model the chain
+      // does not name (custom/re-registered provider mid-flight) records
+      // -1 — unknown, never conflated with the primary stop (0).
+      chainIndex: Array.isArray(chain) ? chain.indexOf(call.model) : 0,
+      selectedModel: selectedModelOf(provider),
+      servingModel: call.model,
+      endpoint: call.endpoint ?? endpointIdentityOf(provider),
+      ...(call.wire ? { wire: call.wire } : {}),
+      startedAt: new Date(call.startedAt).toISOString(),
+      endedAt: new Date(endedAt).toISOString(),
+      durationMs: Math.max(0, endedAt - call.startedAt),
+      outcome,
+      ...(failure?.errorKind !== undefined ? { errorKind: failure.errorKind } : {}),
+      ...(failure?.httpStatus !== undefined ? { httpStatus: failure.httpStatus } : {}),
+      ...(failure?.retryAfterMs !== undefined ? { retryAfterMs: failure.retryAfterMs } : {}),
+      consumedUsage: call.consumedUsage,
+      pricingVersion: PRICING_SNAPSHOT.version,
     };
   }
 
@@ -291,6 +428,11 @@ export class AgentLoop {
     // (AgentSession.switchModel) takes effect from the next turn, never
     // mid-stream.
     const provider = this.#provider();
+    // #1099: one correlation id per turn; logical-call ids and attempt
+    // ordinals reset per call below.
+    this.#turnId = newUlid();
+    this.#callId = "";
+    this.#attemptIndex = 0;
     // #363: a Route may probe its selected target once at a user-turn
     // boundary. Follow-up calls after tools keep the serving target.
     if ("beginTurn" in provider && typeof provider.beginTurn === "function") provider.beginTurn();
@@ -357,6 +499,9 @@ export class AgentLoop {
       if (iterations >= this.#maxIterations) {
         this.#messages.push({ role: "user", parts: [{ kind: "text", text: WRAP_UP }] });
         this.#assemblePrompt();
+        // #1099: the wrap-up is its own logical call.
+        this.#callId = "";
+        this.#attemptIndex = 0;
         let wrapText = "";
         let wrapFinished = false;
         this.#iterationReasoning = [];
@@ -372,16 +517,11 @@ export class AgentLoop {
               this.#consumeReasoningEvent(event);
             } else if (event.type === "fallback") {
               this.#append(event);
-              this.#flushFailedModelCall();
+              this.#flushFailedModelCall({ errorKind: event.reason });
             } else if (event.type === "route_serving") {
               this.#append(event);
             } else if (event.type === "usage") {
-              this.#usage.inputTokens += event.inputTokens;
-              this.#usage.outputTokens += event.outputTokens;
-              if (this.#pendingCall) {
-                this.#pendingCall.usage.inputTokens += event.inputTokens;
-                this.#pendingCall.usage.outputTokens += event.outputTokens;
-              }
+              this.#consumeUsage(event);
             } else if (event.type === "finish") {
               wrapFinished = true;
             }
@@ -394,7 +534,7 @@ export class AgentLoop {
           // wrapper still ends the turn as the cap error, but the window
           // the provider declared is learned here too.
           const refusing = this.#refusingRef();
-          this.#flushFailedModelCall();
+          this.#flushFailedModelCall(normalizeProviderError(err));
           if (refusalKind(err) === "context_length" || declaredWindowOf(err) !== undefined) {
             this.#onContextRefusal?.(refusing, err);
           }
@@ -417,6 +557,10 @@ export class AgentLoop {
       assistantText = "";
       this.#iterationReasoning = [];
       finishReason = null;
+      // #1099: each iteration is one logical call — attempts of a retry or
+      // fallback restart inside it share the id, the ordinal increments.
+      this.#callId = "";
+      this.#attemptIndex = 0;
       this.#assemblePrompt(); // reassembled every call
       const lastPrompt = this.#lastPrompt();
       if (this.#extensions && lastPrompt) {
@@ -465,19 +609,14 @@ export class AgentLoop {
             // Detailed durable fallback record; route_serving below is the
             // user-visible transition once a fallback actually succeeds.
             this.#append(event);
-            this.#flushFailedModelCall();
+            this.#flushFailedModelCall({ errorKind: event.reason });
           } else if (event.type === "route_serving") {
             this.#append(event);
           } else if (event.type === "usage") {
             // #853: zero tokens is the shape of an empty completion, never
             // evidence of a real call.
             if (event.inputTokens > 0 || event.outputTokens > 0) sawUsage = true;
-            this.#usage.inputTokens += event.inputTokens;
-            this.#usage.outputTokens += event.outputTokens;
-            if (this.#pendingCall) {
-              this.#pendingCall.usage.inputTokens += event.inputTokens;
-              this.#pendingCall.usage.outputTokens += event.outputTokens;
-            }
+            this.#consumeUsage(event);
           } else if (event.type === "finish") {
             finishReason = event.reason;
           }
@@ -488,7 +627,7 @@ export class AgentLoop {
         // state) and model_call audit before the error lands. Opaque
         // continuation is not checkpointed without a finalized message.
         const refusing = this.#refusingRef();
-        this.#flushFailedModelCall();
+        this.#flushFailedModelCall(normalizeProviderError(err));
         const reason = refusalKind(err) ?? "provider_failure";
         const message = err instanceof Error ? err.message : String(err);
         this.#append({ type: "error", reason, message });
@@ -515,7 +654,7 @@ export class AgentLoop {
       // #853: an empty completion on a bare provider is a failed call —
       // classified error, failed model_call record, never a silent done.
       if (!sawText && !sawToolCalls && !sawUsage) {
-        this.#flushFailedModelCall();
+        this.#flushFailedModelCall({ errorKind: "empty_completion" });
         // ADR-0050: name the model that served this call — for a route that
         // is the serving stop, not the selected reference.
         const message = `${servingModelOf(provider)} returned an empty completion (no content, no tool calls, no usage)`;
@@ -611,7 +750,9 @@ export class AgentLoop {
     this.#reasoning = EMPTY_REASONING_PARTS;
     if (!call) return;
     this.#settleReasoning(call.reasoning, false, true);
-    this.#append({ type: "model_call", model: call.model, usage: { ...call.usage }, failed: true });
+    // #1099: an interrupted call is an aborted attempt — reconstructable
+    // in the chain, never counted as a provider failure.
+    this.#appendModelCall(call, this.#attemptTelemetry(call, "aborted"), { failed: true });
   }
 
   /** #240: the neutral per-call stream options; undefined when no thinking
@@ -624,28 +765,62 @@ export class AgentLoop {
   /** Records a failed call for audit/display without treating its reasoning
    * or opaque metadata as completed provider context. The failed marker on
    * the `model_call` also lets replay drop same-target retry attempts whose
-   * partial content is not a valid provider message (#243). */
-  #flushFailedModelCall(): void {
-    this.#settleCall("failed");
+   * partial content is not a valid provider message (#243). #1099: the
+   * failure's normalized facts (kind, sanitized transport details) ride the
+   * attempt record — pass `normalizeProviderError(err)`, or a plain
+   * `{ errorKind }` when only the kind is known (fallback, empty completion). */
+  #flushFailedModelCall(failure?: AttemptFailure): void {
+    this.#settleCall("failed", failure);
+  }
+
+  /** The one `model_call` event literal (#83/#1099): every settlement —
+   * completed, failed, aborted — renders through here, so the aggregate
+   * usage, the provider-reported detail with its provenance and the
+   * attempt audit record cannot diverge between the paths. */
+  #appendModelCall(
+    call: {
+      model: string;
+      usage: TokenUsage;
+      thinkingLevel?: ThinkingLevel;
+      cacheReadTokens?: number;
+      cacheWriteTokens?: number;
+      reasoningTokens?: number;
+      consumedUsage: boolean;
+      usageProvenance?: UsageProvenance;
+    },
+    attempt: AttemptTelemetry,
+    options: { failed?: boolean },
+  ): void {
+    this.#append({
+      type: "model_call",
+      model: call.model,
+      usage: { ...call.usage },
+      ...(call.thinkingLevel ? { thinkingLevel: call.thinkingLevel } : {}),
+      ...(options.failed ? { failed: true } : {}),
+      ...(call.cacheReadTokens !== undefined ? { cacheReadTokens: call.cacheReadTokens } : {}),
+      ...(call.cacheWriteTokens !== undefined ? { cacheWriteTokens: call.cacheWriteTokens } : {}),
+      ...(call.reasoningTokens !== undefined ? { reasoningTokens: call.reasoningTokens } : {}),
+      usageProvenance: call.consumedUsage ? (call.usageProvenance ?? "provider") : "unavailable",
+      attempt,
+    });
   }
 
   /** The single call-settlement seam (#243): "ok" checkpoints reasoning with
    * continuation and records the serving model; "failed" keeps displayable
    * reasoning text without continuation, marked failed for replay. Shared
-   * reasoning bookkeeping lives here so the paths cannot diverge. */
-  #settleCall(outcome: "ok" | "failed"): void {
+   * reasoning bookkeeping lives here so the paths cannot diverge.
+   * #1099: the settled `model_call` carries the attempt audit record
+   * (correlation, timing, sanitized identity, outcome) and the provider-
+   * reported usage detail with its provenance. */
+  #settleCall(outcome: "ok" | "failed", failure?: AttemptFailure): void {
     const call = this.#pendingCall;
     if (!call) return;
     this.#pendingCall = null;
     this.#reasoning = EMPTY_REASONING_PARTS;
     this.#settleReasoning(call.reasoning, outcome === "ok", outcome === "failed");
     this.#turnModels.push(call.model);
-    this.#append({
-      type: "model_call",
-      model: call.model,
-      usage: { ...call.usage },
-      ...(call.thinkingLevel ? { thinkingLevel: call.thinkingLevel } : {}),
-      ...(outcome === "failed" ? { failed: true } : {}),
+    this.#appendModelCall(call, this.#attemptTelemetry(call, outcome === "ok" ? "completed" : "failed", outcome === "failed" ? failureFacts(failure) : undefined), {
+      failed: outcome === "failed",
     });
   }
 

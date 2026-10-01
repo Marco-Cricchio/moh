@@ -23,6 +23,7 @@ import { normalizeProviderError } from "../provider-errors";
 import { FORMAT_EXPRESSIBLE_LEVELS } from "../thinking-preferences";
 import type { RouteTarget } from "../route";
 import type { Message, StreamEvent, StreamOptions, ThinkingFormat, ThinkingLevel, ToolSpec } from "../types";
+import { endpointIdentity } from "../types";
 
 /** #240/#256: the effective thinking level a wire can actually send.
  * A config-declared format (#256) overrides the wire-derived mapping —
@@ -316,6 +317,10 @@ export function aiSdkStreamFor(
           type: "model_call_start",
           model: `${target.endpoint.name}/${target.modelId}`,
           ...(thinking ? { thinkingLevel: thinking.effective } : {}),
+          // #1099: sanitized endpoint identity and wire, stamped on every
+          // announcement so each attempt records who served it.
+          endpoint: endpointIdentity(target.endpoint.kind, transport?.baseUrl ?? target.endpoint.baseUrl),
+          wire,
         };
         const { system, messages: aiMessages } = toAiMessages(messages);
         const aiTools = toAiTools(tools);
@@ -364,17 +369,29 @@ export function aiSdkStreamFor(
             }
             case "error":
               throw normalizeProviderError(part.error ?? part, signal);
-            case "finish":
+            case "finish": {
+              // #1099: provider-reported usage detail beside the aggregate
+              // pair. `cachedInputTokens`/`reasoningTokens` ride as separate
+              // fields (cache is a subset of input — never added to it);
+              // `"provider"` provenance says the numbers came from the
+              // provider itself.
+              const totalUsage = part.totalUsage as
+                | { inputTokens?: number; outputTokens?: number; cachedInputTokens?: number; reasoningTokens?: number }
+                | undefined;
               yield {
                 type: "usage",
-                inputTokens: part.totalUsage?.inputTokens ?? 0,
-                outputTokens: part.totalUsage?.outputTokens ?? 0,
+                inputTokens: totalUsage?.inputTokens ?? 0,
+                outputTokens: totalUsage?.outputTokens ?? 0,
+                ...(totalUsage?.cachedInputTokens !== undefined ? { cacheReadTokens: totalUsage.cachedInputTokens } : {}),
+                ...(totalUsage?.reasoningTokens !== undefined ? { reasoningTokens: totalUsage.reasoningTokens } : {}),
+                provenance: "provider",
               };
               yield {
                 type: "finish",
                 reason: part.finishReason === "tool-calls" ? "tool_calls" : "stop",
               };
               break;
+            }
             default:
               break;
           }

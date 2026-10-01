@@ -19,10 +19,126 @@ import { projectSessionsDir } from "./session-store";
 /** Per-model usage across sessions (failed calls excluded), with the
  * thinking levels the model actually served (when audited on the call).
  * Extends `LocalUsageRow` for shape parity with the quota rollup; the
- * optional `lastCallAt` field is never populated here. */
+ * optional `lastCallAt` field is never populated here.
+ * #1099: provider-reported cache/reasoning detail is summed beside the
+ * aggregate input/output pair — cache tokens are a subset of what the
+ * provider counts as input, so they are never added to it. */
 export interface TelemetryModelRow extends LocalUsageRow {
   /** Audited thinking level → call count; absent when no call carried one. */
   thinkingLevels?: Record<string, number>;
+  /** #1099: provider-reported cache-read tokens (subset of input). Absent
+   * when no call reported any. */
+  cacheReadTokens?: number;
+  /** #1099: provider-reported cache-write tokens. Absent when unreported. */
+  cacheWriteTokens?: number;
+  /** #1099: provider-reported reasoning tokens. Absent when unreported. */
+  reasoningTokens?: number;
+  /** #1099: completed calls whose usage the provider did not report —
+   * unknown, never zero (#1099 field provenance). Pre-#1099 events carry
+   * no provenance and are not counted here (compatibility: nothing is
+   * invented for older logs). */
+  callsWithoutUsage?: number;
+}
+
+/** #1099: one logical call's reconstructable attempt chain, read from the
+ * `attempt` audit records on `model_call` events. Older events (no record)
+ * are invisible here — the chain covers what the log actually recorded. */
+export interface AttemptChain {
+  callId: string;
+  turnId: string;
+  attempts: {
+    attemptId: string;
+    retryIndex: number;
+    chainIndex: number;
+    servingModel: string;
+    outcome: "completed" | "failed" | "aborted";
+    errorKind?: string;
+    durationMs: number;
+    consumedUsage: boolean;
+  }[];
+}
+
+/** #1099: cross-session attempt-chain rollup — retries, fallback moves and
+ * unknown-usage attempts, counted from the chains (no prompt text read). */
+export interface TelemetryAttemptSummary {
+  attempts: number;
+  /** Distinct logical calls (one or more attempts each). */
+  calls: number;
+  /** Calls that needed more than one attempt (retry and/or fallback). */
+  retriedCalls: number;
+  /** Attempts whose chain index moved backwards→forwards relative to the
+   * previous attempt of the same call — fallback activations. */
+  fallbackMoves: number;
+  failed: number;
+  aborted: number;
+  /** Attempts whose usage the provider never reported. */
+  unknownUsage: number;
+  /** Sum of the attempts' wall-clock durations. */
+  durationMs: number;
+}
+
+/** #1099: reconstructs the attempt chains of a session's events, in log
+ * order, grouped by `callId`. Read-only projection — no prompt text. */
+export function attemptChains(events: readonly AgentEvent[]): AttemptChain[] {
+  const chains = new Map<string, AttemptChain>();
+  for (const event of events) {
+    if (event.type !== "model_call" || !event.attempt) continue;
+    const a = event.attempt;
+    const chain = chains.get(a.callId) ?? { callId: a.callId, turnId: a.turnId, attempts: [] };
+    chain.attempts.push({
+      attemptId: a.attemptId,
+      retryIndex: a.retryIndex,
+      chainIndex: a.chainIndex,
+      servingModel: a.servingModel,
+      outcome: a.outcome,
+      ...(a.errorKind !== undefined ? { errorKind: a.errorKind } : {}),
+      durationMs: a.durationMs,
+      consumedUsage: a.consumedUsage,
+    });
+    chains.set(a.callId, chain);
+  }
+  return [...chains.values()];
+}
+
+/** #1099: rolls the attempt chains of one session into the summary counters.
+ * A fallback move is a serving-model change between consecutive attempts of
+ * one call (the route walks its chain in order, so any change — including a
+ * wrap-around from the last stop to the first — is a fallback activation);
+ * unknown usage counts only attempts that ran to a verdict, never aborted
+ * ones (an attempt that never finished has no usage verdict at all). */
+export function summarizeAttempts(chains: readonly AttemptChain[]): TelemetryAttemptSummary {
+  const summary: TelemetryAttemptSummary = {
+    attempts: 0, calls: chains.length, retriedCalls: 0, fallbackMoves: 0,
+    failed: 0, aborted: 0, unknownUsage: 0, durationMs: 0,
+  };
+  for (const chain of chains) {
+    if (chain.attempts.length > 1) summary.retriedCalls += 1;
+    let previous: AttemptChain["attempts"][number] | undefined;
+    for (const attempt of chain.attempts) {
+      summary.attempts += 1;
+      summary.durationMs += attempt.durationMs;
+      if (attempt.outcome === "failed") summary.failed += 1;
+      if (attempt.outcome === "aborted") summary.aborted += 1;
+      if (attempt.outcome !== "aborted" && !attempt.consumedUsage) summary.unknownUsage += 1;
+      if (previous !== undefined && attempt.servingModel !== previous.servingModel) summary.fallbackMoves += 1;
+      previous = attempt;
+    }
+  }
+  return summary;
+}
+
+/** #1099: additive merge of per-session attempt summaries — no double
+ * counting: every counter sums. */
+function addAttemptSummaries(into: TelemetryAttemptSummary, from: TelemetryAttemptSummary): TelemetryAttemptSummary {
+  into.attempts += from.attempts;
+  into.calls += from.calls;
+  into.retriedCalls += from.retriedCalls;
+  into.fallbackMoves += from.fallbackMoves;
+  into.failed += from.failed;
+  into.aborted += from.aborted;
+  into.unknownUsage += from.unknownUsage;
+  into.durationMs += from.durationMs;
+  return into;
 }
 
 /** Tool statistics across sessions. */
@@ -94,6 +210,8 @@ export interface TelemetryReport {
   tools: TelemetryToolRow[];
   route: TelemetryRouteHealth;
   sessions: TelemetrySessionRow[];
+  /** #1099: attempt-chain rollup across the scanned sessions. */
+  attempts: TelemetryAttemptSummary;
   /** Session files found (including skipped ones). */
   sessionsScanned: number;
   /** Files skipped as corrupt/unreadable — skipped, never fatal. An
@@ -207,6 +325,7 @@ export function aggregateTelemetry(options: {
     tools: [],
     route: { fallbacks: [], routeServing: [], turnErrors: {} },
     sessions: [],
+    attempts: { attempts: 0, calls: 0, retriedCalls: 0, fallbackMoves: 0, failed: 0, aborted: 0, unknownUsage: 0, durationMs: 0 },
     sessionsScanned: 0,
     sessionsSkipped: 0,
   };
@@ -276,6 +395,22 @@ export function aggregateTelemetry(options: {
       if (row.estimatedCostUsd !== undefined) acc.estimatedCostUsd = (acc.estimatedCostUsd ?? 0) + row.estimatedCostUsd;
       modelRows.set(row.model, acc);
     }
+
+    // #1099: provider-reported usage detail and unknown-usage counts, per
+    // completed call. Cache/reasoning are subsets/beside input — summed
+    // separately, never into the aggregate pair.
+    for (const event of events) {
+      if (event.type !== "model_call" || event.failed) continue;
+      const acc = modelRows.get(event.model);
+      if (!acc) continue;
+      if (event.cacheReadTokens !== undefined) acc.cacheReadTokens = (acc.cacheReadTokens ?? 0) + event.cacheReadTokens;
+      if (event.cacheWriteTokens !== undefined) acc.cacheWriteTokens = (acc.cacheWriteTokens ?? 0) + event.cacheWriteTokens;
+      if (event.reasoningTokens !== undefined) acc.reasoningTokens = (acc.reasoningTokens ?? 0) + event.reasoningTokens;
+      if (event.usageProvenance === "unavailable") acc.callsWithoutUsage = (acc.callsWithoutUsage ?? 0) + 1;
+    }
+
+    // #1099: attempt-chain rollup, one pass per session.
+    Object.assign(report.attempts, addAttemptSummaries(report.attempts, summarizeAttempts(attemptChains(events))));
 
     const rollup = aggregateSession(events, options.planFor);
     rollup.id = basename(name, ".jsonl");
@@ -351,6 +486,11 @@ export function aggregateTelemetry(options: {
       outputTokens: row.outputTokens,
       ...(row.estimatedCostUsd !== undefined ? { estimatedCostUsd: row.estimatedCostUsd } : {}),
       ...(Object.keys(row.thinkingLevels!).length > 0 ? { thinkingLevels: row.thinkingLevels } : {}),
+      // #1099: provider-reported detail beside the aggregate pair.
+      ...(row.cacheReadTokens !== undefined ? { cacheReadTokens: row.cacheReadTokens } : {}),
+      ...(row.cacheWriteTokens !== undefined ? { cacheWriteTokens: row.cacheWriteTokens } : {}),
+      ...(row.reasoningTokens !== undefined ? { reasoningTokens: row.reasoningTokens } : {}),
+      ...(row.callsWithoutUsage !== undefined ? { callsWithoutUsage: row.callsWithoutUsage } : {}),
     }))
     .sort((a, b) => b.inputTokens + b.outputTokens - (a.inputTokens + a.outputTokens));
   report.tools = [...toolRows.values()].sort((a, b) => b.calls - a.calls);

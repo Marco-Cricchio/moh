@@ -178,6 +178,10 @@ export {
   type TelemetrySessionRow,
   type TelemetrySubagentRow,
 } from "./telemetry";
+// #1099: the attempt-chain projection stays internal until a client
+// surface (the `moh usage` rollups, P1) reads it — ADR-0004 keep-criterion.
+// Re-opening it is an explicit decision; tests and internal code import
+// from the defining module.
 
 // #767: the single-session analysis report — `moh sessions analyze` and the
 // TUI `/session` modal project it. Read-only metadata projection (ADR-0004).
