@@ -126,12 +126,14 @@ export class ProviderError extends Error {
 
 /**
  * #1099: provenance of one call's usage numbers — where the numbers came
- * from. `"provider"` means the provider itself reported them; `"unavailable"`
- * means the provider did not (the zeros that remain are the event's neutral
- * shape, never evidence of consumption or of its absence). Absent on events
- * that predate #1099 or carry no usage at all.
+ * from. `"provider"` means the provider itself reported them;
+ * `"client-estimated"` is reserved for a client that substitutes its own
+ * estimate (moh's core never estimates tokens; the P1 quota surface uses
+ * it); `"unavailable"` means the provider did not (the zeros that remain
+ * are the event's neutral shape, never evidence of consumption or of its
+ * absence). Absent on events that predate #1099 or carry no usage at all.
  */
-export type UsageProvenance = "provider" | "unavailable";
+export type UsageProvenance = "provider" | "client-estimated" | "unavailable";
 
 /**
  * #1099: provider-reported usage detail beyond the aggregate input/output
@@ -216,7 +218,10 @@ export interface AttemptTelemetry {
   errorKind?: string;
   /** HTTP status where safe (sanitized number, never headers/body). */
   httpStatus?: number;
-  /** Retry-After hint the provider surfaced, in ms. */
+  /** Retry-After hint the provider surfaced, in ms. The route's own
+   * backoff between attempts is not a field: it is the wall-clock gap
+   * between one attempt's `endedAt` and the next attempt's `startedAt`
+   * sharing the same `callId` — reconstructable from the chain. */
   retryAfterMs?: number;
   /** Whether the attempt consumed provider usage (a usage event was seen
    * for it). A failed attempt that consumed usage still bills. */

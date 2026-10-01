@@ -34,7 +34,9 @@ export interface TelemetryModelRow extends LocalUsageRow {
   /** #1099: provider-reported reasoning tokens. Absent when unreported. */
   reasoningTokens?: number;
   /** #1099: completed calls whose usage the provider did not report —
-   * unknown, never zero (#1099 field provenance). */
+   * unknown, never zero (#1099 field provenance). Pre-#1099 events carry
+   * no provenance and are not counted here (compatibility: nothing is
+   * invented for older logs). */
   callsWithoutUsage?: number;
 }
 
@@ -98,7 +100,12 @@ export function attemptChains(events: readonly AgentEvent[]): AttemptChain[] {
   return [...chains.values()];
 }
 
-/** #1099: rolls the attempt chains of one session into the summary counters. */
+/** #1099: rolls the attempt chains of one session into the summary counters.
+ * A fallback move is a serving-model change between consecutive attempts of
+ * one call (the route walks its chain in order, so any change — including a
+ * wrap-around from the last stop to the first — is a fallback activation);
+ * unknown usage counts only attempts that ran to a verdict, never aborted
+ * ones (an attempt that never finished has no usage verdict at all). */
 export function summarizeAttempts(chains: readonly AttemptChain[]): TelemetryAttemptSummary {
   const summary: TelemetryAttemptSummary = {
     attempts: 0, calls: chains.length, retriedCalls: 0, fallbackMoves: 0,
@@ -106,15 +113,15 @@ export function summarizeAttempts(chains: readonly AttemptChain[]): TelemetryAtt
   };
   for (const chain of chains) {
     if (chain.attempts.length > 1) summary.retriedCalls += 1;
-    let previousChainIndex: number | undefined;
+    let previous: AttemptChain["attempts"][number] | undefined;
     for (const attempt of chain.attempts) {
       summary.attempts += 1;
       summary.durationMs += attempt.durationMs;
       if (attempt.outcome === "failed") summary.failed += 1;
       if (attempt.outcome === "aborted") summary.aborted += 1;
-      if (!attempt.consumedUsage) summary.unknownUsage += 1;
-      if (previousChainIndex !== undefined && attempt.chainIndex > previousChainIndex) summary.fallbackMoves += 1;
-      previousChainIndex = attempt.chainIndex;
+      if (attempt.outcome !== "aborted" && !attempt.consumedUsage) summary.unknownUsage += 1;
+      if (previous !== undefined && attempt.servingModel !== previous.servingModel) summary.fallbackMoves += 1;
+      previous = attempt;
     }
   }
   return summary;

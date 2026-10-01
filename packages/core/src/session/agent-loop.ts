@@ -28,6 +28,14 @@ import { newUlid } from "./ulid";
 import { endpointIdentity, ProviderError } from "../types";
 import type { AttemptTelemetry, EndpointIdentity, UsageProvenance } from "../types";
 
+/**
+ * #1099: a detail field is counted only when it is a finite number —
+ * anything else a provider yields is unreported, never garbage in the log.
+ */
+function finiteNumber(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+}
+
 /** #1099: best-effort sanitized endpoint identity for providers that do
  * not announce one on `model_call_start` — the endpoint prefix of the
  * ref, the instance's baseUrl when it carries one. Same sanitizer as the
@@ -160,6 +168,25 @@ function failureFacts(failure: AttemptFailure | undefined): { errorKind: string;
     : failure;
 }
 
+/** #1099: the open model-call buffer — attempt audit fields captured at
+ * open, usage detail folded in as it streams, settled on the event. */
+type PendingCall = {
+  model: string;
+  usage: TokenUsage;
+  thinkingLevel?: ThinkingLevel;
+  reasoning: { text: string; continuation?: Record<string, unknown> }[];
+  attemptId: string;
+  retryIndex: number;
+  startedAt: number;
+  endpoint?: EndpointIdentity;
+  wire?: string;
+  consumedUsage: boolean;
+  cacheReadTokens?: number;
+  cacheWriteTokens?: number;
+  reasoningTokens?: number;
+  usageProvenance?: UsageProvenance;
+};
+
 /**
  * One agent turn (#92): model calls, streaming deltas, `model_call`
  * buffering and turn usage rollup (#83), the max-iterations cap, the
@@ -191,24 +218,7 @@ export class AgentLoop {
   /** #83: the model call currently streaming (announced by `model_call_start`).
    * #240: also buffers the call's completed reasoning (persisted with the
    * call) and the effective thinking level the provider announced. */
-  #pendingCall: {
-    model: string;
-    usage: TokenUsage;
-    thinkingLevel?: ThinkingLevel;
-    reasoning: { text: string; continuation?: Record<string, unknown> }[];
-    /** #1099: per-attempt audit fields — captured at open, settled on the
-     * `model_call` event. */
-    attemptId: string;
-    retryIndex: number;
-    startedAt: number;
-    endpoint?: EndpointIdentity;
-    wire?: string;
-    consumedUsage: boolean;
-    cacheReadTokens?: number;
-    cacheWriteTokens?: number;
-    reasoningTokens?: number;
-    usageProvenance?: UsageProvenance;
-  } | null = null;
+  #pendingCall: PendingCall | null = null;
   /** #1099: correlation ids — one per turn, one per logical call (one
    * agent-loop iteration; retries and fallback restarts of the same
    * iteration are attempts of one logical call). */
@@ -293,21 +303,20 @@ export class AgentLoop {
     if (this.#pendingCall) {
       this.#pendingCall.usage.inputTokens += event.inputTokens;
       this.#pendingCall.usage.outputTokens += event.outputTokens;
-      if (event.cacheReadTokens !== undefined) {
-        this.#pendingCall.cacheReadTokens = (this.#pendingCall.cacheReadTokens ?? 0) + event.cacheReadTokens;
-      }
-      if (event.cacheWriteTokens !== undefined) {
-        this.#pendingCall.cacheWriteTokens = (this.#pendingCall.cacheWriteTokens ?? 0) + event.cacheWriteTokens;
-      }
-      if (event.reasoningTokens !== undefined) {
-        this.#pendingCall.reasoningTokens = (this.#pendingCall.reasoningTokens ?? 0) + event.reasoningTokens;
-      }
+      const cacheRead = finiteNumber(event.cacheReadTokens);
+      const cacheWrite = finiteNumber(event.cacheWriteTokens);
+      const reasoning = finiteNumber(event.reasoningTokens);
+      // #1099: malformed detail fields (non-finite numbers, wrong types)
+      // are treated as unreported — never summed as garbage.
+      if (cacheRead !== undefined) this.#pendingCall.cacheReadTokens = (this.#pendingCall.cacheReadTokens ?? 0) + cacheRead;
+      if (cacheWrite !== undefined) this.#pendingCall.cacheWriteTokens = (this.#pendingCall.cacheWriteTokens ?? 0) + cacheWrite;
+      if (reasoning !== undefined) this.#pendingCall.reasoningTokens = (this.#pendingCall.reasoningTokens ?? 0) + reasoning;
       const reported =
-        event.inputTokens > 0 ||
-        event.outputTokens > 0 ||
-        event.cacheReadTokens !== undefined ||
-        event.cacheWriteTokens !== undefined ||
-        event.reasoningTokens !== undefined;
+        finiteNumber(event.inputTokens)! > 0 ||
+        finiteNumber(event.outputTokens)! > 0 ||
+        cacheRead !== undefined ||
+        cacheWrite !== undefined ||
+        reasoning !== undefined;
       if (reported || event.provenance === "provider") {
         this.#pendingCall.usageProvenance = "provider";
         this.#pendingCall.consumedUsage = true;
@@ -322,15 +331,7 @@ export class AgentLoop {
    * index comes from the provider's own chain when it is a route (0
    * otherwise). */
   #attemptTelemetry(
-    call: {
-      model: string;
-      attemptId: string;
-      retryIndex: number;
-      startedAt: number;
-      endpoint?: EndpointIdentity;
-      wire?: string;
-      consumedUsage: boolean;
-    },
+    call: PendingCall,
     outcome: AttemptTelemetry["outcome"],
     failure?: { errorKind: string; httpStatus?: number; retryAfterMs?: number }): AttemptTelemetry {
     const endedAt = Date.now();
@@ -341,7 +342,10 @@ export class AgentLoop {
       attemptId: call.attemptId,
       turnId: this.#turnId,
       retryIndex: call.retryIndex,
-      chainIndex: Array.isArray(chain) ? Math.max(0, chain.indexOf(call.model)) : 0,
+      // #1099: position on the serving chain; a serving model the chain
+      // does not name (custom/re-registered provider mid-flight) records
+      // -1 — unknown, never conflated with the primary stop (0).
+      chainIndex: Array.isArray(chain) ? chain.indexOf(call.model) : 0,
       selectedModel: selectedModelOf(provider),
       servingModel: call.model,
       endpoint: call.endpoint ?? endpointIdentityOf(provider),
@@ -746,19 +750,9 @@ export class AgentLoop {
     this.#reasoning = EMPTY_REASONING_PARTS;
     if (!call) return;
     this.#settleReasoning(call.reasoning, false, true);
-    this.#append({
-      type: "model_call",
-      model: call.model,
-      usage: { ...call.usage },
-      failed: true,
-      ...(call.cacheReadTokens !== undefined ? { cacheReadTokens: call.cacheReadTokens } : {}),
-      ...(call.cacheWriteTokens !== undefined ? { cacheWriteTokens: call.cacheWriteTokens } : {}),
-      ...(call.reasoningTokens !== undefined ? { reasoningTokens: call.reasoningTokens } : {}),
-      usageProvenance: call.consumedUsage ? (call.usageProvenance ?? "provider") : "unavailable",
-      // #1099: an interrupted call is an aborted attempt — reconstructable
-      // in the chain, never counted as a provider failure.
-      attempt: this.#attemptTelemetry(call, "aborted"),
-    });
+    // #1099: an interrupted call is an aborted attempt — reconstructable
+    // in the chain, never counted as a provider failure.
+    this.#appendModelCall(call, this.#attemptTelemetry(call, "aborted"), { failed: true });
   }
 
   /** #240: the neutral per-call stream options; undefined when no thinking
@@ -779,6 +773,38 @@ export class AgentLoop {
     this.#settleCall("failed", failure);
   }
 
+  /** The one `model_call` event literal (#83/#1099): every settlement —
+   * completed, failed, aborted — renders through here, so the aggregate
+   * usage, the provider-reported detail with its provenance and the
+   * attempt audit record cannot diverge between the paths. */
+  #appendModelCall(
+    call: {
+      model: string;
+      usage: TokenUsage;
+      thinkingLevel?: ThinkingLevel;
+      cacheReadTokens?: number;
+      cacheWriteTokens?: number;
+      reasoningTokens?: number;
+      consumedUsage: boolean;
+      usageProvenance?: UsageProvenance;
+    },
+    attempt: AttemptTelemetry,
+    options: { failed?: boolean },
+  ): void {
+    this.#append({
+      type: "model_call",
+      model: call.model,
+      usage: { ...call.usage },
+      ...(call.thinkingLevel ? { thinkingLevel: call.thinkingLevel } : {}),
+      ...(options.failed ? { failed: true } : {}),
+      ...(call.cacheReadTokens !== undefined ? { cacheReadTokens: call.cacheReadTokens } : {}),
+      ...(call.cacheWriteTokens !== undefined ? { cacheWriteTokens: call.cacheWriteTokens } : {}),
+      ...(call.reasoningTokens !== undefined ? { reasoningTokens: call.reasoningTokens } : {}),
+      usageProvenance: call.consumedUsage ? (call.usageProvenance ?? "provider") : "unavailable",
+      attempt,
+    });
+  }
+
   /** The single call-settlement seam (#243): "ok" checkpoints reasoning with
    * continuation and records the serving model; "failed" keeps displayable
    * reasoning text without continuation, marked failed for replay. Shared
@@ -793,17 +819,8 @@ export class AgentLoop {
     this.#reasoning = EMPTY_REASONING_PARTS;
     this.#settleReasoning(call.reasoning, outcome === "ok", outcome === "failed");
     this.#turnModels.push(call.model);
-    this.#append({
-      type: "model_call",
-      model: call.model,
-      usage: { ...call.usage },
-      ...(call.thinkingLevel ? { thinkingLevel: call.thinkingLevel } : {}),
-      ...(outcome === "failed" ? { failed: true } : {}),
-      ...(call.cacheReadTokens !== undefined ? { cacheReadTokens: call.cacheReadTokens } : {}),
-      ...(call.cacheWriteTokens !== undefined ? { cacheWriteTokens: call.cacheWriteTokens } : {}),
-      ...(call.reasoningTokens !== undefined ? { reasoningTokens: call.reasoningTokens } : {}),
-      usageProvenance: call.consumedUsage ? (call.usageProvenance ?? "provider") : "unavailable",
-      attempt: this.#attemptTelemetry(call, outcome === "ok" ? "completed" : "failed", outcome === "failed" ? failureFacts(failure) : undefined),
+    this.#appendModelCall(call, this.#attemptTelemetry(call, outcome === "ok" ? "completed" : "failed", outcome === "failed" ? failureFacts(failure) : undefined), {
+      failed: outcome === "failed",
     });
   }
 
