@@ -621,13 +621,16 @@ export function createJevGuardExtension(options: JevGuardOptions): ExtensionDefi
          * flight, per session — the ref a refused/invalid proposal must
          * release the expectation back to. */
         const lastRetryFailed = new Map<string, string>();
-        ctx.afterTurn(() => {
+        /** The one place the wave's footer is released: only a status this
+         * wave still owns may be cleared (the seam's single-writer rule). */
+        const releaseRetryStatus = (): void => {
           if (retryStatus !== null && lastPublished === retryStatus) {
             lastPublished = null;
             ctx.setStatus(null);
           }
           retryStatus = null;
-        });
+        };
+        ctx.afterTurn(releaseRetryStatus);
         if (typeof ctx.onModelError === "function") {
           ctx.onModelError(async (call) => {
             if (!control.isOn("routing")) return;
@@ -645,7 +648,9 @@ export function createJevGuardExtension(options: JevGuardOptions): ExtensionDefi
             // must also disqualify its same-endpoint siblings before the
             // next candidate is picked.
             noteFailure(state, call.model, call.errorKind, now);
-            const candidate = nextCandidate(resolution.assignment, call.model, state, now);
+            // #852: the route's cooled-down stops ride the failure context
+            // (same list the per-turn switch honors) — never proposed.
+            const candidate = nextCandidate(resolution.assignment, call.model, state, now, call.endpointCooldowns ?? []);
             if (candidate === undefined) {
               // Nothing viable left: the router steps back — once per
               // turn (the turn then ends the historical way, and the next
@@ -656,11 +661,7 @@ export function createJevGuardExtension(options: JevGuardOptions): ExtensionDefi
                 name: "jev_routing",
                 payload: { kind: "model-retry-exhausted", failed: call.model, errorKind: call.errorKind },
               });
-              if (retryStatus !== null && lastPublished === retryStatus) {
-                lastPublished = null;
-                ctx.setStatus(null);
-              }
-              retryStatus = null;
+              releaseRetryStatus();
               return;
             }
             state.attempts += 1;
@@ -677,9 +678,15 @@ export function createJevGuardExtension(options: JevGuardOptions): ExtensionDefi
             // so the pending mark can never be cleared for a child (its
             // `model_switched` never reaches a hook): drop it eagerly,
             // the wave keeps its own accounting.
+            if (lastRetryFailed.size >= 64) lastRetryFailed.clear();
             lastRetryFailed.set(session.id, call.model);
             judge.noteSwitch(candidate, call.model, session);
             if (!session.owner) judge.dropPendingSwitch();
+            // A child's own wave cannot be released through the owner-keyed
+            // onEvent handlers (its switch chrome never reaches a hook), so
+            // release the expectation eagerly: the wave keeps its own
+            // accounting, the child's judge state stays coherent.
+            if (!session.owner) judge.releasePendingTo(call.model);
             return { model: candidate };
           });
         }
@@ -741,7 +748,12 @@ export function createJevGuardExtension(options: JevGuardOptions): ExtensionDefi
             const refused = (event as { to?: unknown }).to;
             // #1110: the refused target is excluded (model-level, short
             // backoff) so the next attempt never re-proposes it.
-            if (typeof refused === "string") noteRefused(retryStates.get(OWNER_SESSION.id) ?? newRetryState(), refused, Date.now());
+            // onEvent dispatch carries no session identity by construction
+            // (the events reach these hooks from the owning session's log),
+            // so the owner key is the only honest one; with no owner state
+            // there is no wave to exclude for — skip, never invent one.
+            const ownerRetry = retryStates.get(OWNER_SESSION.id);
+            if (ownerRetry !== undefined && typeof refused === "string") noteRefused(ownerRetry, refused, Date.now());
             if (!judge.switchPending()) return;
             const failed = lastRetryFailed.get(OWNER_SESSION.id);
             if (failed !== undefined) judge.releasePendingTo(failed);

@@ -91,6 +91,12 @@ describe("model-retry candidates (#1110)", () => {
     expect(nextCandidate(assignment, "a/mid", state, 999_999)).toBe("b/mid");
   });
 
+  test("a candidate in a route cooldown is skipped (#852 gate)", () => {
+    const state = newRetryState();
+    expect(nextCandidate(assignment, "a/mid", state, 0, [{ ref: "b/mid", kind: "quota_exhausted" }])).toBeUndefined();
+    expect(nextCandidate(assignment, "a/mid", state, 0, [{ ref: "other/x", kind: "quota_exhausted" }])).toBe("b/mid");
+  });
+
   test("a model outside the pool has no candidates", () => {
     expect(nextCandidate(assignment, "other/model", newRetryState(), 0)).toBeUndefined();
   });

@@ -25,7 +25,11 @@ import { tierOfModel, type TierAssignment } from "./routing";
 /** Maximum retry candidates one turn gets (#1110). */
 export const MAX_MODEL_RETRY_ATTEMPTS = 4;
 
-/** The error kinds that indict the whole endpoint, not just the model. */
+/** The error kinds that indict the whole endpoint, not just the model —
+ * the core's ProviderError kinds: auth, quota and privacy/provider
+ * settings are properties of the endpoint. `quota_exhausted` is listed
+ * for robustness (the Route owns it today — a failed routed stop inside a
+ * fallback already cooled it) but is unreachable through this seam. */
 export const ENDPOINT_ERROR_KINDS: ReadonlySet<string> = new Set([
   "auth",
   "quota_exhausted",
@@ -39,11 +43,16 @@ const ENDPOINT_BACKOFF_BASE_MS = 300_000;
 /** Any exclusion's backoff is capped: never a permanent ban. */
 const BACKOFF_CAP_MS = 30 * 60_000;
 
+/** The endpoint identity of a ref — the `<endpoint>` prefix of
+ * `<endpoint>/<model-id>` (the whole ref when there is no slash). */
+export function endpointOf(ref: string): string {
+  const slash = ref.indexOf("/");
+  return slash > 0 ? ref.slice(0, slash) : ref;
+}
+
 /** The exclusion key for a ref: endpoint-level kinds blame the endpoint. */
 export function exclusionKeyFor(ref: string, errorKind: string): string {
-  const slash = ref.indexOf("/");
-  const endpoint = slash > 0 ? ref.slice(0, slash) : ref;
-  return ENDPOINT_ERROR_KINDS.has(errorKind) ? `endpoint:${endpoint}` : `model:${ref}`;
+  return ENDPOINT_ERROR_KINDS.has(errorKind) ? `endpoint:${endpointOf(ref)}` : `model:${ref}`;
 }
 
 /** How long an exclusion of this kind stays hot, given its strike count. */
@@ -78,9 +87,7 @@ export function startTurn(state: ModelRetryState): void {
  * skips what this names.
  */
 export function isExcluded(state: ModelRetryState, ref: string, now: number): boolean {
-  const slash = ref.indexOf("/");
-  const endpoint = slash > 0 ? ref.slice(0, slash) : ref;
-  for (const key of [`model:${ref}`, `endpoint:${endpoint}`]) {
+  for (const key of [`model:${ref}`, `endpoint:${endpointOf(ref)}`]) {
     const hit = state.exclusions.get(key);
     if (hit && hit.until > now) return true;
   }
@@ -109,7 +116,14 @@ export function noteFailure(state: ModelRetryState, ref: string, errorKind: stri
  * model says nothing about its endpoint's other models.
  */
 export function noteRefused(state: ModelRetryState, ref: string, now: number): void {
-  noteFailure(state, ref, "invalid_request", now);
+  // Inlined, deliberately not `noteFailure(ref, "invalid_request")`: the
+  // model-level-only invariant must not depend on `invalid_request` never
+  // joining ENDPOINT_ERROR_KINDS. The primitives are the core's
+  // ProviderError kinds; a change there is a change to this policy too.
+  const key = `model:${ref}`;
+  const previous = state.exclusions.get(key);
+  const strikes = previous !== undefined ? previous.strikes + 1 : 1;
+  state.exclusions.set(key, { until: now + backoffFor("invalid_request", strikes), strikes });
 }
 
 /** The budget check: attempts left within this turn. */
@@ -129,12 +143,17 @@ export function nextCandidate(
   failedRef: string,
   state: ModelRetryState,
   now: number,
+  cooldowns: readonly { ref: string; kind?: string }[] = [],
 ): string | undefined {
   const tier = tierOfModel(assignment, failedRef);
   if (tier === undefined) return undefined;
   for (const ref of assignment.members[tier]) {
     if (ref === failedRef) continue;
     if (isExcluded(state, ref, now)) continue;
+    // #852: a candidate the serving route already has in a failure
+    // cooldown is not viable either — the same health gate the per-turn
+    // switch honors.
+    if (cooldowns.some((c) => c.ref === ref)) continue;
     return ref;
   }
   return undefined;
