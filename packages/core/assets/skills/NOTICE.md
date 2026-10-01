@@ -81,7 +81,13 @@ from the upstream `implement` workflow.
   `agents/openai.yaml` sidecars not bundled. Deviations: `wait-what`
   references the project glossary in moh's single-context layout
   (`CONTEXT.md`) first; `retro`'s "Call the Skill tool" phrasing adapted to
-  moh's mechanism (read the SKILL.md from the skills index).
+  moh's mechanism (read the SKILL.md from the skills index); `pr` gained a
+  "Delivering the body (moh deviation)" section — the body must reach `gh`
+  through `--body-file`, because `--body "$(cat <<'EOF' … EOF)"` breaks bash
+  inside `$( … )` on the first apostrophe in the prose (`unexpected EOF while
+  looking for matching`). Pinned by `packages/core/test/workflow.test.ts`
+  ("retains the documented moh deviations"), so an upstream re-port that
+  drops the section fails the suite instead of silently losing it.
 - `gh-manager` is a moh-native skill (#378), influenced by David Lawson's
   gh-manager (https://github.com/ddlaws0n/gh-manager, MIT — Copyright (c) 2026
   David Lawson): the declarative init → plan → apply repository-management

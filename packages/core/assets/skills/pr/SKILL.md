@@ -10,6 +10,28 @@ metadata:
     url: "https://github.com/humanlayer/skills/blob/main/plugins/show-me/skills/show-me/SKILL.md"
 ---
 
+## Delivering the body (moh deviation)
+
+The body goes to `gh` through **`--body-file`**, never through `--body` with a
+command substitution:
+
+```bash
+gh pr create --base develop --title "…" --body-file - <<'EOF'
+## Summary
+…
+EOF
+```
+
+`gh pr create --body "$(cat <<'EOF' … EOF)"` is the tempting shape, and it is
+broken: bash inside `$( … )` still parses the body's own quotes, so a single
+apostrophe anywhere in the prose (`the retry's chrome`, `doesn't`) ends the
+command early with `unexpected EOF while looking for matching` and no PR is
+created. Quoting the heredoc does not help. A temporary file passed to
+`--body-file <path>` is the other correct shape (yolo mode only, since the
+path is outside the project root).
+
+## The template
+
 Use this template for writing the PR body:
 
 ```markdown
