@@ -177,6 +177,11 @@ export {
   type TelemetryRouteServingRow,
   type TelemetrySessionRow,
   type TelemetrySubagentRow,
+  // #1099: attempt-chain projection over session logs (read-only, no prompt text).
+  attemptChains,
+  summarizeAttempts,
+  type AttemptChain,
+  type TelemetryAttemptSummary,
 } from "./telemetry";
 
 // #767: the single-session analysis report — `moh sessions analyze` and the

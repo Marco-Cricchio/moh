@@ -282,10 +282,11 @@ export class AgentLoop {
   }
 
   /** #1099: folds one usage stream event into the open attempt — detail
-   * fields sum (absent stays absent, never zero-filled), provenance sticks
-   * at "provider" once anything provider-reported arrives, and the attempt
-   * counts as having consumed usage even at zero tokens (the provider
-   * answered). */
+   * fields sum (absent stays absent, never zero-filled), `"provider"`
+   * provenance sticks once anything provider-reported arrives and is never
+   * downgraded by a later unavailable event, and the attempt counts as
+   * having consumed usage only when the provider actually reported
+   * consumption (tokens or detail) — unavailable zeros never do. */
   #consumeUsage(event: Extract<StreamEvent, { type: "usage" }>): void {
     this.#usage.inputTokens += event.inputTokens;
     this.#usage.outputTokens += event.outputTokens;
@@ -301,8 +302,18 @@ export class AgentLoop {
       if (event.reasoningTokens !== undefined) {
         this.#pendingCall.reasoningTokens = (this.#pendingCall.reasoningTokens ?? 0) + event.reasoningTokens;
       }
-      this.#pendingCall.usageProvenance = event.provenance ?? "provider";
-      this.#pendingCall.consumedUsage = true;
+      const reported =
+        event.inputTokens > 0 ||
+        event.outputTokens > 0 ||
+        event.cacheReadTokens !== undefined ||
+        event.cacheWriteTokens !== undefined ||
+        event.reasoningTokens !== undefined;
+      if (reported || event.provenance === "provider") {
+        this.#pendingCall.usageProvenance = "provider";
+        this.#pendingCall.consumedUsage = true;
+      } else if (this.#pendingCall.usageProvenance === undefined) {
+        this.#pendingCall.usageProvenance = event.provenance ?? "unavailable";
+      }
     }
   }
 
