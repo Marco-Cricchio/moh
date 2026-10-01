@@ -164,6 +164,26 @@ export {
   type LocalUsageRow,
   type BillingPlanResolver,
 } from "./quota";
+// #1100 (P1 quota telemetry): the observation/episode producers and the
+// read-only projections over the recorded quota events (ADR-0004
+// reopening: `recordQuota` clients project reports into the log).
+export {
+  observationsFromQuotaReport,
+  quotaEventsFromProviderError,
+  quotaRecoveryEvent,
+  commercialDeclarationEvent,
+  declarationInForce,
+  scopeKeyFor,
+  quotaEpisodes,
+  quotaContradictions,
+  summarizeQuota,
+  quotaPressure,
+  type QuotaEpisode,
+  type QuotaContradiction,
+  type QuotaSummary,
+  type QuotaPressureRow,
+  type CommercialDeclarationInput,
+} from "./quota/telemetry";
 // #714: the multi-session telemetry aggregator — the deep module the CLI/TUI
 // usage surfaces project. Read-only metadata projection over session event
 // logs (ADR-0004 reopening: a client-facing config surface, `moh usage`).
@@ -178,6 +198,34 @@ export {
   type TelemetrySessionRow,
   type TelemetrySubagentRow,
 } from "./telemetry";
+// #1101 (P2): the task-outcome producers and the read-only performance /
+// task projections. Explicit client seams only — never model-inferred;
+// `unknown` is the default outcome state.
+export {
+  redactSummary,
+  taskDeclaredEvent,
+  taskVerificationEvent,
+  taskOutcomeEvent,
+  SUMMARY_MAX_CHARS,
+  type VerificationCategory,
+  type TaskOutcome,
+} from "./task/telemetry";
+export {
+  performanceByModel,
+  performanceSamples,
+  concurrencyReport,
+  taskReport,
+  acceptedTaskFixture,
+  type PerformanceModelRow,
+  type ConcurrencyReport,
+  type TaskRow,
+  type TaskReport,
+  type AcceptedTaskFixtureRow,
+} from "./performance/telemetry";
+// #1099: the attempt-chain projection stays internal until a client
+// surface (the `moh usage` rollups, P1) reads it — ADR-0004 keep-criterion.
+// Re-opening it is an explicit decision; tests and internal code import
+// from the defining module.
 
 // #767: the single-session analysis report — `moh sessions analyze` and the
 // TUI `/session` modal project it. Read-only metadata projection (ADR-0004).

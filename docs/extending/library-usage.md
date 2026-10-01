@@ -159,6 +159,78 @@ its own reasons — `rate-limited`, a spent quota — from one that failed
 transiently — `transient`, a 5xx or a network error that survived `fetch`'s
 single retry; anything else the server answered stays `http-status`.
 
+Each `model_call` also carries a per-attempt audit record (#1099): stable
+`callId`/`attemptId`/`turnId` correlation, `retryIndex` within the logical
+call and `chainIndex` on the serving chain, explicit start/end timestamps
+and duration, the selected/serving model pair, a sanitized endpoint
+identity (kind + base URL — no keys, no query strings), the wire, the
+outcome (`completed`/`failed`/`aborted`) with the normalized error kind
+and — where safe — the HTTP status and Retry-After hint, and the
+provider-reported usage detail (`cacheReadTokens`, `cacheWriteTokens`,
+`reasoningTokens`) with its provenance: `"provider"` when the provider
+reported the numbers, `"unavailable"` when it did not — missing usage is
+never read as zero, and cache tokens sit beside the aggregate
+`inputTokens`, never added to them. `attemptChains()` and
+`summarizeAttempts()` (core-internal projections — the defining module is
+the import path until a client surface reads them, per the ADR-0004
+keep-criterion) project reconstructable
+per-call chains — retries, fallback moves, unknown-usage attempts — from a
+session's events without reading any prompt text.
+
+#### Quota and commercial telemetry (#1100)
+
+Three chrome events record provider-declared quota state and the user's
+own commercial assumptions, so a report can distinguish observed
+capacity, provider declarations, and local estimates:
+
+- `quota_observation` — one quota fact at a point in time. It carries the
+  sanitized endpoint identity, whose capacity it describes
+  (`scope`: `account`/`workspace`/`endpoint`/`provider`/`model`/`pool`),
+  a deterministic `scopeKey` (a `pool` scope keys on the pool's identity
+  alone, so two endpoints sharing a pool project together), the unit when
+  known, the measured window (`kind: "unknown"` unless the provider
+  declared rolling/fixed semantics — moh never assumes), optional
+  `limit`/`remaining`/`used`/`percent`, the reset fact only when the
+  provider declared one (`resetAt`/`resetMs` — absent means unknown
+  mechanics), the observation source (`quota-endpoint`,
+  `provider-error`, `provider-header`, `user-config`, `local-estimate`),
+  and the #1099 attempt linkage when it rode a call. Every measured field
+  is optional: absent means the provider did not report it, never zero.
+- `quota_episode` — one normalized boundary: `exhausted`/`rate_limited`
+  when the provider refused or throttled, `recovered` when a later
+  attempt succeeded (with the observed `waitMs` backoff and whether the
+  recovery came from a fallback move).
+- `commercial_declaration` — the user's own declaration for an endpoint
+  (moh.json `endpoints[].commercial`: `plan`, `price`, `currency`,
+  `billingPeriod`, `promotion`, `overagePolicy`, `validFrom`/
+  `validUntil`). Explicit and user-owned — moh never infers a plan from
+  endpoint identity. Strings are redacted on record; an inverted validity
+  window is refused with a visible note.
+
+Producers: `session.recordQuota(endpointName, report, options?)` records
+a #499 `getQuota` report into the log; the loop records quota-class
+failures (`rate_limited`, `quota_exhausted`) and their recoveries on its
+own. Projections (exported from `@moh/core`): `quotaEpisodes()` pairs
+boundaries into distinct episodes with real temporal bounds (a block
+with no recovery stays open — honest unknown); `quotaContradictions()`
+lists overlapping observations of the same scope and window whose
+declared numbers disagree (reported, never resolved); `summarizeQuota()`
+rolls episodes up; `quotaPressure()` answers the period query — pressure,
+first observed block, wait, recovery, overage spend and allowance
+utilization per scope. The overage spend is a labeled local estimate:
+it appears only when the user declared a price and a `usd`-unit
+observation shows `used > limit`. Unknown output example:
+
+```json
+{ "scopeKey": "openai-compat(https://api.example.com/v1)#gw/x",
+  "firstObservedBlock": "2026-10-01T05:07:31.446Z",
+  "recoveryTime": "2026-10-01T05:07:31.447Z",
+  "waitMs": 1 }
+```
+
+A scope never probed and never refused shows nothing — absence, not zero.
+
+
 ```ts
 async function watch() {
   for await (const event of session.events) {
@@ -530,6 +602,80 @@ message content, tool outputs, or reasoning; everything is local; the
 agent loop and the event-log format are untouched; a corrupt or
 unreadable session file is skipped and counted in `sessionsSkipped`,
 never fatal. Exported from `@moh/core` (ADR-0004).
+
+The report also carries the #1101 sections: `performance` (per model:
+TTFC, active provider-processing duration, the reconstructed
+retry/wait time kept strictly separate, p50/p95 latency and the
+interrupted-call rate) and `tasks` (the explicit task-outcome layer —
+verifications, acceptance verdicts, and the cost/tokens/calls rollup
+that exists only where acceptance evidence exists). A client that wants
+the quality-adjusted comparison builds it with `acceptedTaskFixture()`,
+which excludes unknown values rather than imputing them.
+
+## Performance and task-outcome telemetry (#1101)
+
+The quality-adjusted layer is **explicit-seam only**: moh never infers
+success from assistant prose, tool errors or sentiment, and a task
+without a user or verification signal stays `unknown` — absence of a
+signal is never success or failure.
+
+Three chrome events, produced only through the client seams:
+
+- `task_declared` — a task/work unit: a correlation id (user-declared
+  via `session.declareTask("ISSUE-42")` or generated with no content),
+  and the optional `reopens` relation linking a revision to its
+  original task.
+- `task_verification` — one verification run against a declared task
+  (`session.recordVerification(taskId, { category, ok, exitStatus?,
+  durationMs?, summary? })`): the command category
+  (`test`/`typecheck`/`build`/`lint`/`other`), the verdict, and bounded
+  redacted diagnostics *metadata* — the summary is collapsed to one
+  line, capped at 240 chars, and credential-shaped tokens are redacted
+  at the seam. Never full tool output, never file contents.
+- `task_outcome` — the explicit user verdict (`accepted`, `rejected`,
+  `revision-needed`, or the explicit `unresolved`); recorded with
+  `session.recordTaskOutcome(taskId, outcome)`. Undeclared task ids are
+  refused with a visible note.
+
+Performance needs no new producer: the per-attempt audit record of
+#1099 carries the timing, and #1101 adds one field to it — `ttfcMs`,
+the time to first streamed text content (reasoning deltas do not
+count; a call that streamed no text carries no field — unknown, never
+zero). Projections exported from `@moh/core`:
+
+- `performanceByModel(events)` — per model: logical calls,
+  completed/failed/aborted, the per-attempt interrupted rate, active
+  provider-processing duration, the retry/wait time reconstructed from
+  attempt-chain gaps (a fallback move's gap belongs to the chain, not
+  to either model), and p50/p95 shapes for TTFC and latency.
+- `concurrencyReport(intervals)` — the no-double-counting building
+  block for parallel child sessions: a client (or orchestration
+  extension) collects its parent/child call intervals and reads the
+  union (`busyMs`) as the honest wall-clock busy time — `concurrentMs`
+  is exactly what a naive total would double-count. No producer
+  gathers the intervals implicitly: concurrency is derived from
+  explicit intervals and the `subagent_spawn`/`subagent_result`
+  linkage, never assumed.
+- `taskReport(events)` — declared tasks with their verification runs
+  (latest verdict at outcome time: failed-then-passed reads
+  correctly), the contributing model calls (interval-derived, joined
+  with the #1099 correlation ids; child-session calls stay in the
+  child's own log), and the accepted rollup computed ONLY for tasks
+  whose outcome is `accepted` (logical calls; usage and cost over
+  every completed attempt).
+- `acceptedTaskFixture(report, events)` — the comparison fixture per
+  accepted task: serving models (a fallback move attributes both),
+  median latency, verified first-pass success, reopen count, and the
+  cost/tokens/calls rollup. Tasks without acceptance evidence are
+  excluded, never imputed.
+
+Privacy: task ids, durations, counts, model refs — no prompt text, no
+completions, no source content, no credentials, no unbounded
+diagnostics ever enter the log or the projections. And the honesty
+line: these are **measured performance** numbers. moh does not claim
+that output tokens or throughput measure developer productivity; the
+fixture exists so you can compare verified first-pass success, rework
+and cost per accepted task — quality-adjusted, explicitly signaled.
 
 
 ## Moh Project Map — read-only status and query (#614)

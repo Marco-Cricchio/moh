@@ -82,7 +82,7 @@ describe("openrouter chat reasoning (#251)", () => {
     for (const level of ["low", "medium", "high", "xhigh", "max"] as const) {
       const h = harness([chunk({ role: "assistant", content: "ok" }, { finish_reason: "stop", usage: null }), doneEvent]);
       const events = await h.run(userMsg, { thinking: { level } });
-      expect(events[0]).toEqual({ type: "model_call_start", model: "or/openai/gpt-5.6-luna", thinkingLevel: level });
+      expect(events[0]).toEqual({ type: "model_call_start", model: "or/openai/gpt-5.6-luna", thinkingLevel: level, endpoint: { kind: "openrouter" }, wire: "openai-chat" });
       expect(h.calls[0]!.body.reasoning).toEqual({ effort: level, exclude: false });
       expect(h.calls[0]!.body.reasoning_effort).toBeUndefined();
     }
@@ -112,7 +112,7 @@ describe("openrouter chat reasoning (#251)", () => {
     ]);
     const events = await h.run(userMsg, { thinking: { level: "high" } });
     expect(events).toEqual([
-      { type: "model_call_start", model: "or/openai/gpt-5.6-luna", thinkingLevel: "high" },
+      { type: "model_call_start", model: "or/openai/gpt-5.6-luna", thinkingLevel: "high", endpoint: { kind: "openrouter" }, wire: "openai-chat" },
       { type: "reasoning_start" },
       { type: "reasoning_delta", text: "step one. " },
       { type: "reasoning_delta", text: "step two. " },
@@ -131,7 +131,7 @@ describe("openrouter chat reasoning (#251)", () => {
         },
       },
       { type: "text_delta", text: "the answer" },
-      { type: "usage", inputTokens: 3, outputTokens: 5 },
+      { type: "usage", inputTokens: 3, outputTokens: 5 , provenance: "provider" },
       { type: "finish", reason: "stop" },
     ]);
   });
@@ -196,7 +196,7 @@ describe("openrouter chat reasoning (#251)", () => {
     ]);
     const events = await h.run(userMsg);
     expect(events).toEqual([
-      { type: "model_call_start", model: "or/openai/gpt-5.6-luna" },
+      { type: "model_call_start", model: "or/openai/gpt-5.6-luna", endpoint: { kind: "openrouter" }, wire: "openai-chat" },
       { type: "reasoning_start" },
       { type: "reasoning_delta", text: "only thinking" },
       { type: "reasoning_delta", text: ", more" },
@@ -204,7 +204,7 @@ describe("openrouter chat reasoning (#251)", () => {
         { type: "reasoning.text", text: "only thinking" },
         { type: "reasoning.text", text: ", more" },
       ] } } },
-      { type: "usage", inputTokens: 1, outputTokens: 1 },
+      { type: "usage", inputTokens: 1, outputTokens: 1 , provenance: "provider" },
       { type: "finish", reason: "stop" },
     ]);
   });
@@ -218,10 +218,10 @@ describe("openrouter chat reasoning (#251)", () => {
     ]);
     const events = await h.run(userMsg);
     expect(events).toEqual([
-      { type: "model_call_start", model: "or/openai/gpt-5.6-luna" },
+      { type: "model_call_start", model: "or/openai/gpt-5.6-luna", endpoint: { kind: "openrouter" }, wire: "openai-chat" },
       { type: "text_delta", text: "plain " },
       { type: "text_delta", text: "answer" },
-      { type: "usage", inputTokens: 1, outputTokens: 2 },
+      { type: "usage", inputTokens: 1, outputTokens: 2 , provenance: "provider" },
       { type: "finish", reason: "stop" },
     ]);
   });
@@ -286,7 +286,7 @@ describe("openrouter live reasoning streaming (#253)", () => {
     }
     // Order: both deltas before the answer text, metadata complete at end.
     expect(events).toEqual([
-      { type: "model_call_start", model: "or/openai/gpt-5.6-luna", thinkingLevel: "high" },
+      { type: "model_call_start", model: "or/openai/gpt-5.6-luna", thinkingLevel: "high", endpoint: { kind: "openrouter" }, wire: "openai-chat" },
       { type: "reasoning_start" },
       { type: "reasoning_delta", text: "live one. " },
       { type: "reasoning_delta", text: "live two." },
@@ -295,7 +295,7 @@ describe("openrouter live reasoning streaming (#253)", () => {
         { type: "reasoning.text", text: "live two." },
       ] } } },
       { type: "text_delta", text: "the answer" },
-      { type: "usage", inputTokens: 3, outputTokens: 5 },
+      { type: "usage", inputTokens: 3, outputTokens: 5 , provenance: "provider" },
       { type: "finish", reason: "stop" },
     ]);
   });

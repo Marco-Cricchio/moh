@@ -395,6 +395,21 @@ with (model) — (model) could not serve` — and the router judges from the
 serving model on the next turn instead of waiting for a switch that
 already failed.
 
+**When the routed model fails mid-turn.** If a model the router itself
+chose fails at runtime with an error the fallback chain does not already
+cover (a privacy-settings refusal, a content filter, an invalid ref), the
+router answers the retry with the next candidate of the same tier — same
+preference order — up to four attempts within the turn. What failed is
+cooled down with an expiring backoff: an auth, quota or provider-settings
+error cools the whole endpoint (all its models) for longer; a model-level
+error cools only that model, briefly. Nothing is ever banned for good —
+once a cooldown expires the router can pick the model again, and the next
+turn starts from the last healthy model. Every attempt is visible —
+`routing: tentativo N/4…` in the footer plus a `jev · routing · …` line
+per attempt — and if nothing viable remains, the router steps back: the
+turn ends with the error, never a blocking model prompt, and your manual
+`/model` picks are never rerouted this way at all.
+
 `/routing on` works even when the Settings toggle is off — it enables
 routing for that session only, which is the quick way to try it. The state
 lasts for the session it was typed in: reopening a session (or `/reload`)

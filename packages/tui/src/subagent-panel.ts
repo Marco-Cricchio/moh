@@ -73,7 +73,7 @@ export function trackSubagents(events: ReadonlyArray<AgentEvent>): TrackedSubage
 /** Panel tail window: last N *rendered* rows. Assistant deltas are
  * coalesced below, then each is rendered truncate-only, so this is a real
  * visual cap rather than an event-count cap. */
-export const PANEL_TAIL_LINES = 4;
+export const PANEL_TAIL_LINES = 8;
 /** Settled chrome is intentionally ephemeral: its static transcript block
  * remains permanent, but the chip and peek leave after this grace window. */
 export const SETTLED_SUBAGENT_GRACE_MS = 30_000;

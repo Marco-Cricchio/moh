@@ -11,6 +11,9 @@ import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { basename, join } from "node:path";
 import type { AgentEvent } from "./types";
 import { aggregateLocalUsage, type BillingPlanResolver, type LocalUsageRow } from "./quota/local";
+import { quotaContradictions, quotaEpisodes, summarizeQuota, type QuotaObservationEvent, type QuotaSummary } from "./quota/telemetry";
+import { performanceByModel, performanceSamples, taskReport, type PerformanceModelRow, type TaskReport } from "./performance/telemetry";
+import { percentile as percentileOf } from "./performance/telemetry";
 import { estimateModelCost } from "./pricing";
 import { activePath } from "./session/event-log";
 import { ENCODING } from "./session/ulid";
@@ -19,10 +22,140 @@ import { projectSessionsDir } from "./session-store";
 /** Per-model usage across sessions (failed calls excluded), with the
  * thinking levels the model actually served (when audited on the call).
  * Extends `LocalUsageRow` for shape parity with the quota rollup; the
- * optional `lastCallAt` field is never populated here. */
+ * optional `lastCallAt` field is never populated here.
+ * #1099: provider-reported cache/reasoning detail is summed beside the
+ * aggregate input/output pair — cache tokens are a subset of what the
+ * provider counts as input, so they are never added to it. */
 export interface TelemetryModelRow extends LocalUsageRow {
   /** Audited thinking level → call count; absent when no call carried one. */
   thinkingLevels?: Record<string, number>;
+  /** #1099: provider-reported cache-read tokens (subset of input). Absent
+   * when no call reported any. */
+  cacheReadTokens?: number;
+  /** #1099: provider-reported cache-write tokens. Absent when unreported. */
+  cacheWriteTokens?: number;
+  /** #1099: provider-reported reasoning tokens. Absent when unreported. */
+  reasoningTokens?: number;
+  /** #1099: completed calls whose usage the provider did not report —
+   * unknown, never zero (#1099 field provenance). Pre-#1099 events carry
+   * no provenance and are not counted here (compatibility: nothing is
+   * invented for older logs). */
+  callsWithoutUsage?: number;
+}
+
+/** #1099: one logical call's reconstructable attempt chain, read from the
+ * `attempt` audit records on `model_call` events. Older events (no record)
+ * are invisible here — the chain covers what the log actually recorded. */
+export interface AttemptChain {
+  callId: string;
+  turnId: string;
+  attempts: {
+    attemptId: string;
+    retryIndex: number;
+    chainIndex: number;
+    servingModel: string;
+    outcome: "completed" | "failed" | "aborted";
+    errorKind?: string;
+    durationMs: number;
+    consumedUsage: boolean;
+  }[];
+}
+
+/** #1099: cross-session attempt-chain rollup — retries, fallback moves and
+ * unknown-usage attempts, counted from the chains (no prompt text read). */
+export interface TelemetryAttemptSummary {
+  attempts: number;
+  /** Distinct logical calls (one or more attempts each). */
+  calls: number;
+  /** Calls that needed more than one attempt (retry and/or fallback). */
+  retriedCalls: number;
+  /** Attempts whose chain index moved backwards→forwards relative to the
+   * previous attempt of the same call — fallback activations. */
+  fallbackMoves: number;
+  failed: number;
+  aborted: number;
+  /** Attempts whose usage the provider never reported. */
+  unknownUsage: number;
+  /** Sum of the attempts' wall-clock durations. */
+  durationMs: number;
+}
+
+/** #1099: reconstructs the attempt chains of a session's events, in log
+ * order, grouped by `callId`. Read-only projection — no prompt text. */
+export function attemptChains(events: readonly AgentEvent[]): AttemptChain[] {
+  const chains = new Map<string, AttemptChain>();
+  for (const event of events) {
+    if (event.type !== "model_call" || !event.attempt) continue;
+    const a = event.attempt;
+    const chain = chains.get(a.callId) ?? { callId: a.callId, turnId: a.turnId, attempts: [] };
+    chain.attempts.push({
+      attemptId: a.attemptId,
+      retryIndex: a.retryIndex,
+      chainIndex: a.chainIndex,
+      servingModel: a.servingModel,
+      outcome: a.outcome,
+      ...(a.errorKind !== undefined ? { errorKind: a.errorKind } : {}),
+      durationMs: a.durationMs,
+      consumedUsage: a.consumedUsage,
+    });
+    chains.set(a.callId, chain);
+  }
+  return [...chains.values()];
+}
+
+/** #1099: rolls the attempt chains of one session into the summary counters.
+ * A fallback move is a serving-model change between consecutive attempts of
+ * one call (the route walks its chain in order, so any change — including a
+ * wrap-around from the last stop to the first — is a fallback activation);
+ * unknown usage counts only attempts that ran to a verdict, never aborted
+ * ones (an attempt that never finished has no usage verdict at all). */
+export function summarizeAttempts(chains: readonly AttemptChain[]): TelemetryAttemptSummary {
+  const summary: TelemetryAttemptSummary = {
+    attempts: 0, calls: chains.length, retriedCalls: 0, fallbackMoves: 0,
+    failed: 0, aborted: 0, unknownUsage: 0, durationMs: 0,
+  };
+  for (const chain of chains) {
+    if (chain.attempts.length > 1) summary.retriedCalls += 1;
+    let previous: AttemptChain["attempts"][number] | undefined;
+    for (const attempt of chain.attempts) {
+      summary.attempts += 1;
+      summary.durationMs += attempt.durationMs;
+      if (attempt.outcome === "failed") summary.failed += 1;
+      if (attempt.outcome === "aborted") summary.aborted += 1;
+      if (attempt.outcome !== "aborted" && !attempt.consumedUsage) summary.unknownUsage += 1;
+      if (previous !== undefined && attempt.servingModel !== previous.servingModel) summary.fallbackMoves += 1;
+      previous = attempt;
+    }
+  }
+  return summary;
+}
+
+/** #1099: additive merge of per-session attempt summaries — no double
+ * counting: every counter sums. */
+function addAttemptSummaries(into: TelemetryAttemptSummary, from: TelemetryAttemptSummary): TelemetryAttemptSummary {
+  into.attempts += from.attempts;
+  into.calls += from.calls;
+  into.retriedCalls += from.retriedCalls;
+  into.fallbackMoves += from.fallbackMoves;
+  into.failed += from.failed;
+  into.aborted += from.aborted;
+  into.unknownUsage += from.unknownUsage;
+  into.durationMs += from.durationMs;
+  return into;
+}
+
+/** #1100: additive merge of per-session quota summaries — every counter
+ * sums, never overwrites. */
+function addQuotaSummaries(into: QuotaSummary, from: QuotaSummary): QuotaSummary {
+  into.exhausted += from.exhausted;
+  into.rateLimited += from.rateLimited;
+  into.open += from.open;
+  into.recovered += from.recovered;
+  into.fallbackRecoveries += from.fallbackRecoveries;
+  into.waitMs += from.waitMs;
+  into.observations += from.observations;
+  into.contradictions += from.contradictions;
+  return into;
 }
 
 /** Tool statistics across sessions. */
@@ -94,6 +227,18 @@ export interface TelemetryReport {
   tools: TelemetryToolRow[];
   route: TelemetryRouteHealth;
   sessions: TelemetrySessionRow[];
+  /** #1099: attempt-chain rollup across the scanned sessions. */
+  attempts: TelemetryAttemptSummary;
+  /** #1100: quota rollup — episodes, recoveries, wait, contradictions. */
+  quota: QuotaSummary;
+  /** #1101: per-model performance — TTFC, active/wait duration split,
+   * p50/p95 latency, interrupted-call rate. Measured performance, never
+   * a productivity claim. */
+  performance: PerformanceModelRow[];
+  /** #1101: explicit task outcomes — verifications, acceptance, cost per
+   * accepted task (absent without acceptance evidence; unknown by
+   * default). */
+  tasks: TaskReport;
   /** Session files found (including skipped ones). */
   sessionsScanned: number;
   /** Files skipped as corrupt/unreadable — skipped, never fatal. An
@@ -207,6 +352,10 @@ export function aggregateTelemetry(options: {
     tools: [],
     route: { fallbacks: [], routeServing: [], turnErrors: {} },
     sessions: [],
+    attempts: { attempts: 0, calls: 0, retriedCalls: 0, fallbackMoves: 0, failed: 0, aborted: 0, unknownUsage: 0, durationMs: 0 },
+    quota: { exhausted: 0, rateLimited: 0, open: 0, recovered: 0, fallbackRecoveries: 0, waitMs: 0, observations: 0, contradictions: 0 },
+    performance: [],
+    tasks: { tasks: [], accepted: 0, rejected: 0, revisionNeeded: 0, unresolved: 0, unknown: 0 },
     sessionsScanned: 0,
     sessionsSkipped: 0,
   };
@@ -216,6 +365,11 @@ export function aggregateTelemetry(options: {
   const toolRows = new Map<string, TelemetryToolRow>();
   const fallbacks = new Map<string, TelemetryFallbackRow>();
   const routeServing = new Map<string, TelemetryRouteServingRow>();
+  // #1101: per-model performance accumulators, with the raw samples the
+  // percentiles recompute from at report time (and the attempt totals
+  // the per-attempt interrupted rate divides by).
+  const perfRows = new Map<string, PerformanceModelRow & { ttfcSamples: number[]; latencySamples: number[] }>();
+  const attemptsOnModel = new Map<string, number>();
 
   const jsonl = readdirSync(dir)
     .filter((name) => name.endsWith(".jsonl"))
@@ -276,6 +430,61 @@ export function aggregateTelemetry(options: {
       if (row.estimatedCostUsd !== undefined) acc.estimatedCostUsd = (acc.estimatedCostUsd ?? 0) + row.estimatedCostUsd;
       modelRows.set(row.model, acc);
     }
+
+    // #1099: provider-reported usage detail and unknown-usage counts, per
+    // completed call. Cache/reasoning are subsets/beside input — summed
+    // separately, never into the aggregate pair.
+    for (const event of events) {
+      if (event.type !== "model_call" || event.failed) continue;
+      const acc = modelRows.get(event.model);
+      if (!acc) continue;
+      if (event.cacheReadTokens !== undefined) acc.cacheReadTokens = (acc.cacheReadTokens ?? 0) + event.cacheReadTokens;
+      if (event.cacheWriteTokens !== undefined) acc.cacheWriteTokens = (acc.cacheWriteTokens ?? 0) + event.cacheWriteTokens;
+      if (event.reasoningTokens !== undefined) acc.reasoningTokens = (acc.reasoningTokens ?? 0) + event.reasoningTokens;
+      if (event.usageProvenance === "unavailable") acc.callsWithoutUsage = (acc.callsWithoutUsage ?? 0) + 1;
+    }
+
+    // #1099: attempt-chain rollup, one pass per session.
+    Object.assign(report.attempts, addAttemptSummaries(report.attempts, summarizeAttempts(attemptChains(events))));
+
+    // #1100: quota rollup — episodes, contradictions, observation count,
+    // summed across sessions (never per-session overwrite).
+    addQuotaSummaries(
+      report.quota,
+      summarizeQuota(quotaEpisodes(events), quotaContradictions(events), events.filter((e) => e.type === "quota_observation").length),
+    );
+
+    // #1101: performance and task-outcome rollups. Performance rows sum
+    // per model across sessions (durations, outcome counts); percentile
+    // shapes recompute from the merged samples — percentiles never sum,
+    // samples do. Tasks concatenate — a task belongs to the session that
+    // declared it; child sessions keep their own logs (no parent
+    // double-count inside one projection).
+    const samples = performanceSamples(events);
+    for (const row of performanceByModel(events)) {
+      const acc = perfRows.get(row.model);
+      const sessionSamples = samples.get(row.model) ?? { ttfc: [], latency: [] };
+      if (!acc) {
+        perfRows.set(row.model, { ...row, ttfcSamples: [...sessionSamples.ttfc], latencySamples: [...sessionSamples.latency] });
+        continue;
+      }
+      acc.calls += row.calls;
+      acc.completed += row.completed;
+      acc.failed += row.failed;
+      acc.aborted += row.aborted;
+      acc.activeDurationMs += row.activeDurationMs;
+      acc.waitDurationMs += row.waitDurationMs;
+      acc.ttfcSamples.push(...sessionSamples.ttfc);
+      acc.latencySamples.push(...sessionSamples.latency);
+      attemptsOnModel.set(row.model, (attemptsOnModel.get(row.model) ?? 0) + row.completed + row.failed + row.aborted);
+    }
+    const sessionTasks = taskReport(events, options.planFor ? { planFor: options.planFor } : {});
+    report.tasks.tasks.push(...sessionTasks.tasks);
+    report.tasks.accepted += sessionTasks.accepted;
+    report.tasks.rejected += sessionTasks.rejected;
+    report.tasks.revisionNeeded += sessionTasks.revisionNeeded;
+    report.tasks.unresolved += sessionTasks.unresolved;
+    report.tasks.unknown += sessionTasks.unknown;
 
     const rollup = aggregateSession(events, options.planFor);
     rollup.id = basename(name, ".jsonl");
@@ -343,6 +552,34 @@ export function aggregateTelemetry(options: {
     }
   }
 
+  // #1101: finalize the performance rows — recompute the percentile
+  // shapes from the merged samples, then the per-attempt interrupted
+  // rate (aborted attempts over all attempts on the model, summed per
+  // session during the scan below).
+  report.performance = [...perfRows.values()]
+    .map((row) => {
+      const finalized: PerformanceModelRow = {
+        model: row.model,
+        calls: row.calls,
+        completed: row.completed,
+        failed: row.failed,
+        aborted: row.aborted,
+        interruptedRate: row.calls > 0 ? row.aborted / row.calls : 0,
+        activeDurationMs: row.activeDurationMs,
+        waitDurationMs: row.waitDurationMs,
+      };
+      if (row.ttfcSamples.length > 0) {
+        row.ttfcSamples.sort((a, b) => a - b);
+        finalized.ttfc = { p50Ms: percentileOf(row.ttfcSamples, 50)!, p95Ms: percentileOf(row.ttfcSamples, 95)!, samples: row.ttfcSamples.length };
+      }
+      if (row.latencySamples.length > 0) {
+        row.latencySamples.sort((a, b) => a - b);
+        finalized.latency = { p50Ms: percentileOf(row.latencySamples, 50)!, p95Ms: percentileOf(row.latencySamples, 95)! };
+      }
+      return finalized;
+    })
+    .sort((a, b) => b.calls - a.calls || a.model.localeCompare(b.model));
+
   report.models = [...modelRows.values()]
     .map((row) => ({
       model: row.model,
@@ -351,6 +588,11 @@ export function aggregateTelemetry(options: {
       outputTokens: row.outputTokens,
       ...(row.estimatedCostUsd !== undefined ? { estimatedCostUsd: row.estimatedCostUsd } : {}),
       ...(Object.keys(row.thinkingLevels!).length > 0 ? { thinkingLevels: row.thinkingLevels } : {}),
+      // #1099: provider-reported detail beside the aggregate pair.
+      ...(row.cacheReadTokens !== undefined ? { cacheReadTokens: row.cacheReadTokens } : {}),
+      ...(row.cacheWriteTokens !== undefined ? { cacheWriteTokens: row.cacheWriteTokens } : {}),
+      ...(row.reasoningTokens !== undefined ? { reasoningTokens: row.reasoningTokens } : {}),
+      ...(row.callsWithoutUsage !== undefined ? { callsWithoutUsage: row.callsWithoutUsage } : {}),
     }))
     .sort((a, b) => b.inputTokens + b.outputTokens - (a.inputTokens + a.outputTokens));
   report.tools = [...toolRows.values()].sort((a, b) => b.calls - a.calls);
