@@ -6,7 +6,7 @@ import { join } from "node:path";
 function tmpHome(): string {
   return mkdtempSync(join(tmpdir(), "moh-subagents-"));
 }
-import { builtinTools, createSession, MockProvider, type AgentEvent, type Tool } from "../src/index";
+import { builtinTools, createSession, DevelopmentLaneStore, MockProvider, type AgentEvent, type Tool } from "../src/index";
 import { createRoute, Endpoint } from "../src/route";
 import { BUILTIN_AGENT_PRESETS, DEFAULT_SUBAGENT_CONCURRENCY, subagentPreview, type SubagentResult } from "../src/subagents";
 
@@ -71,6 +71,72 @@ describe("subagents (#13)", () => {
     const toolResult = events.find((e) => e.type === "tool_result") as any;
     const parsed = JSON.parse(toolResult.output) as SubagentResult;
     expect(parsed).toEqual({ status: "done", output: "the answer is 42" });
+  });
+
+  test("lane-bound spawn: task `lane: <branch>` runs the child inside the lane worktree", async () => {
+    const home = tmpHome();
+    const cwd = mkdtempSync(join(tmpdir(), "moh-lane-parent-"));
+    const store = new DevelopmentLaneStore({ cwd, home });
+    const group = store.createFeatureGroup({ name: "lanes-it", targetRef: "develop" });
+    store.createLane({
+      featureGroupId: group.id, sessionId: "session-lane", worktreePath: "/tmp/lanes-it-worktree",
+      branchRef: "feature/lanes-it-1", baseRef: "develop", baseRevision: "abc", targetRef: "develop",
+      relation: "independent",
+    });
+
+    let childPrompt: string | undefined;
+    const read = recordingTool("read");
+    const parent = createSession({
+      provider: MockProvider.scripted([
+        { deltas: [], finish: "tool_calls", toolCalls: [{ name: "spawn", args: { preset: "research", task: "lane: feature/lanes-it-1\nread the tree" } }] },
+        { deltas: ["spawned"], finish: "stop" },
+      ]),
+      tools: { ...builtinTools(), read },
+      permissions: { overrides: { tools: { spawn: "allow" } } },
+      subagents: {
+        home,
+        lanes: { cwd },
+        provider: MockProvider.scripted([
+          { deltas: ["did the work"], finish: "stop" },
+        ]),
+      },
+    });
+    const events = tap(parent);
+    // The fake read tool captures which directory the child ran in.
+    (parent as any).tools.read.execute = async () => { childPrompt = "called"; return "ok"; };
+
+    const result = await parent.send("go");
+    expect(result.status).toBe("done");
+
+    const laneCreated = events.find((e) => e.type === "lane_created") as any;
+    expect(laneCreated).toBeDefined();
+    expect(laneCreated.branchRef).toBe("feature/lanes-it-1");
+    expect(laneCreated.worktreePath).toBe("/tmp/lanes-it-worktree");
+    const spawned = events.find((e) => e.type === "subagent_spawn") as any;
+    expect(spawned).toBeDefined();
+  });
+
+  test("lane-bound spawn with an unknown branch fails the spawn without side effects", async () => {
+    const home = tmpHome();
+    const cwd = mkdtempSync(join(tmpdir(), "moh-lane-miss-"));
+    const parent = createSession({
+      provider: MockProvider.scripted([
+        { deltas: [], finish: "tool_calls", toolCalls: [{ name: "spawn", args: { preset: "research", task: "lane: feature/nope\nwork" } }] },
+        { deltas: ["after"], finish: "stop" },
+      ]),
+      tools: builtinTools(),
+      permissions: { overrides: { tools: { spawn: "allow" } } },
+      subagents: { home, lanes: { cwd }, provider: MockProvider.scripted([{ deltas: ["x"], finish: "stop" }]) },
+    });
+    const events = tap(parent);
+
+    const result = await parent.send("go");
+    expect(result.status).toBe("done");
+    const toolResult = events.find((e) => e.type === "tool_result") as any;
+    const parsed = JSON.parse(toolResult.output) as SubagentResult;
+    expect(parsed.status).toBe("error");
+    expect(parsed.error).toContain("no active lane");
+    expect(events.find((e) => e.type === "subagent_spawn")).toBeUndefined();
   });
 
   test("empty model-generated fields do not erase a preset's tools (#323)", async () => {

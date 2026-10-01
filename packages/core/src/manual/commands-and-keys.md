@@ -20,6 +20,7 @@ page is the same content in manual form, plus the manual's own entries
 | ctrl+t | cycle theme (built-ins + personal) |
 | ctrl+y | cycle thinking level |
 | ctrl+s | settings panel |
+| ctrl+n | project notes (free-text, shared across sessions) |
 | ctrl+q | usage quota (provider + local, this session and recent) |
 | ctrl+r | rename the current session |
 | ctrl+g | keep my branch (while the external-growth warning is up): move the head back to your local tip |
@@ -48,6 +49,7 @@ page is the same content in manual form, plus the manual's own entries
 | /compact | force context compaction (same producer as the auto trigger) |
 | /copy | copy the last assistant reply to the clipboard |
 | /jev | Jev use cases: live status, switch one on/off for this session |
+| /lanes | parallel development lanes (feature groups, worktrees) |
 | /mode | switch vibe / dev mode |
 | /model | model picker (r refreshes live model lists) |
 | /reload | hot-reload moh.json + user config |

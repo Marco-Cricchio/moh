@@ -374,6 +374,7 @@ export class AgentSession {
         ...(config.mpm
           ? { mpm: { snapshotFor: (task: string) => this.#mpmOrientation?.planFor(task) ?? null } }
           : {}),
+        ...(subagents.lanes ? { lanes: subagents.lanes } : {}),
       });
       this.#tools = { ...this.#tools, spawn: host.spawnTool() };
     }

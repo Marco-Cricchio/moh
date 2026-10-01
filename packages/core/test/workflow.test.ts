@@ -163,6 +163,28 @@ describe("first-party skill install", () => {
     expect(byName.get("moh-implementation-flow")?.files["SKILL.md"]).toContain("verified vertical slices");
   });
 
+  // Upstream ports carry deliberate moh deviations, each one declared in
+  // NOTICE.md. Pinning them here is what makes the deviations survive an
+  // upstream re-port: the version this port came from is fixed, so a
+  // wholesale re-port would drop the added text silently — the per-case
+  // failure names the skill that lost its deviation. Extend the table when
+  // a new deviation is declared in NOTICE.md.
+  test.each<[skill: string, marker: string]>([
+    // NOTICE.md, "Intentional deviations from upstream".
+    ["grilling", "Routing questions through ask_user"],
+    ["wait-what", "CONTEXT.md"],
+    ["pr", "--body-file"],
+  ])("retains the %s deviation NOTICE.md declares (re-port guard)", (name, marker) => {
+    const source = firstPartySkillSources().find((s) => s.name === name);
+    // Two distinct failures: a missing bundled skill is a different bug from
+    // a re-port that dropped the deviation, and the message must say which.
+    expect({ skill: name, bundled: source !== undefined }).toEqual({ skill: name, bundled: true });
+    expect({ skill: name, carriesDeviation: source?.files["SKILL.md"]?.includes(marker) ?? false }).toEqual({
+      skill: name,
+      carriesDeviation: true,
+    });
+  });
+
   test("install prunes stale moh-owned skills no longer bundled (#74)", () => {
     const home = freshHome();
     // an old install shipped "plan"; the new bundle does not

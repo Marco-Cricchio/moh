@@ -20,6 +20,8 @@ import {
   prepareTrackerRemote,
   resolveTrackerSync,
   readUserProviderConfig,
+  DevelopmentLaneService,
+  readUserConfigFile,
   type AgentSession,
   type AssemblyError,
   type ExtensionStatus,
@@ -62,6 +64,7 @@ import { HandoffActivationModal, type GhVerification } from "./HandoffActivation
 import { SettingsPanel } from "./SettingsPanel";
 import { CommandsPanel } from "./CommandsPanel";
 import { ManualModal } from "./ManualModal";
+import { NotesModal } from "./NotesModal";
 import { ModelPickerModal } from "./ModelPickerModal";
 import { sanitizeForDisplay } from "./render-sanitize";
 import { endpointModelCatalog, aggregateLocalUsage, aggregateTelemetry, analyzeSession, billingPlanResolver, type LocalUsageRow, type SessionAnalysisReport } from "@moh/core";
@@ -72,6 +75,7 @@ import { JevModal } from "./JevModal";
 import { JEV_EXTENSION_NAME, readJevSummary, setJevUseCase, type JevStatusSummary } from "./jev-control";
 import { SessionRenameModal } from "./SessionRenameModal";
 import { SessionModal } from "./SessionModal";
+import { LanesModal } from "./LanesModal";
 import { TreePanel } from "./TreePanel";
 import { sessionTree, type TreeNode } from "@moh/core";
 import { contextWindowForLabel, mergePickCatalog } from "./model-picker";
@@ -134,7 +138,7 @@ export interface AppProps {
   yolo?: boolean;
 }
 
-type Overlay = null | "settings" | "commands" | "manual" | "onboarding" | "handoff-onboarding" | "workflow-offer" | "frontier" | "skill-chooser" | "model" | "skill-updates" | "quota" | "rename" | "cold-wizard" | "tree" | "mpm" | "session" | "jev" | "browser";
+type Overlay = null | "settings" | "commands" | "manual" | "notes" | "onboarding" |"handoff-onboarding" | "workflow-offer" | "frontier" | "skill-chooser" | "model" | "skill-updates" | "quota" | "rename" | "cold-wizard" | "tree" | "mpm" | "session" | "jev" | "browser" | "lanes";
 
 /** #242: one-shot, non-blocking informed-consent copy. Exported so focused
  * tests can verify the full message even when narrow status chrome clips it. */
@@ -827,42 +831,73 @@ function AppShell({
     /** #595: a session assembled in a DIFFERENT cwd (the clone). */
     cwdOverride?: string,
   ) => {
-    const base = {
-      cwd: cwdOverride ?? cwd,
-      home,
-      provider,
-      workflow: configRef.current.workflow.enabled,
-      onPermissionRequest: gate.ask as NonNullable<Parameters<typeof makeSession>[0]["onPermissionRequest"]>,
-      onAskUser: askGate.ask,
-      onConfirmTurn: confirmGate.ask,
-      permissionMode: config.permissionMode,
-      ...(yolo ? { yolo } : {}),
-      ...(handoffOffer ? { handoffOffer } : {}),
-      onHandoffWarning: (message: string) => push(message, "warn"),
+    const finishOpen = (laneCwd?: string, laneNotice?: string) => {
+      const base = {
+        cwd: cwdOverride ?? laneCwd ?? cwd,
+        home,
+        provider,
+        workflow: configRef.current.workflow.enabled,
+        onPermissionRequest: gate.ask as NonNullable<Parameters<typeof makeSession>[0]["onPermissionRequest"]>,
+        onAskUser: askGate.ask,
+        onConfirmTurn: confirmGate.ask,
+        permissionMode: config.permissionMode,
+        ...(yolo ? { yolo } : {}),
+        ...(handoffOffer ? { handoffOffer } : {}),
+        onHandoffWarning: (message: string) => push(message, "warn"),
+      };
+      let made: ReturnType<typeof makeSession>;
+      if (resume) {
+        const store = SessionStore.open(resume.file);
+        made = makeSession({ ...base, store, resumeEvents: store.load() });
+      } else {
+        made = makeSession(base);
+      }
+      if ("error" in made) {
+        push(assemblyErrorToast(made.error));
+        return;
+      }
+      if (laneNotice) push(laneNotice);
+      // Informed consent must precede an initial prompt's first provider
+      // call, not wait for the post-render session effect.
+      showReasoningPersistenceNotice(made.session);
+      setSession(made.session);
+      // T3 #436: a seeded session opens with the handoff as its first
+      // turn — message + turn-scoped skill prompt (ADR-0011 pattern, the
+      // same seam /ask-moh uses; never a replayed event log).
+      if (turnPrompt) {
+        void made.session.send(initialPrompt ?? handoffSeedMessage(lastOffer.current!), { prompt: turnPrompt });
+      } else if (initialPrompt) {
+        void made.session.send(initialPrompt);
+      }
     };
-    let made: ReturnType<typeof makeSession>;
-    if (resume) {
-      const store = SessionStore.open(resume.file);
-      made = makeSession({ ...base, store, resumeEvents: store.load() });
-    } else {
-      made = makeSession(base);
-    }
-    if ("error" in made) {
-      push(assemblyErrorToast(made.error));
-      return;
-    }
-    // Informed consent must precede an initial prompt's first provider
-    // call, not wait for the post-render session effect.
-    showReasoningPersistenceNotice(made.session);
-    setSession(made.session);
-    // T3 #436: a seeded session opens with the handoff as its first
-    // turn — message + turn-scoped skill prompt (ADR-0011 pattern, the
-    // same seam /ask-moh uses; never a replayed event log).
-    if (turnPrompt) {
-      void made.session.send(initialPrompt ?? handoffSeedMessage(lastOffer.current!), { prompt: turnPrompt });
-    } else if (initialPrompt) {
-      void made.session.send(initialPrompt);
-    }
+    if (resume || cwdOverride) return finishOpen();
+    // ADR-0060 (auto-lane): a fresh session provisions (or reuses) its own
+    // lane worktree before assembly — the user just opens sessions; the
+    // lane appears as one notice. Failure degrades to a laneless session.
+    void (async () => {
+      try {
+        const userCfg = readUserConfigFile(userConfigFile(home)) as { lanes?: { auto?: boolean } };
+        // Lazy-lane evidence: another session of this project touched in
+        // the last 10 minutes (another Home window, a moh run) — the
+        // cross-process signal, the same seam Home lists with.
+        const recentSibling = listSessionSummaries(cwd, home).some(
+          (summary) => Date.now() - summary.mtimeMs < 10 * 60 * 1000,
+        );
+        const provisioned = await new DevelopmentLaneService({ cwd, home }).ensureSessionLane({
+          sessionId: `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
+          auto: userCfg.lanes?.auto !== false,
+          task: initialPrompt,
+          ...(recentSibling ? { liveSiblingSessions: 1 } : {}),
+        });
+        if (provisioned.lane) {
+          finishOpen(provisioned.lane.worktreePath, `lane: ${provisioned.lane.branchRef} — isolated worktree`);
+        } else {
+          finishOpen();
+        }
+      } catch {
+        finishOpen();
+      }
+    })();
   };
 
   // #595 cold-directory wizard: scan state, trigger gate, and completion.
@@ -1329,6 +1364,8 @@ function AppShell({
     // branch and /help is the documented fallback (never silently remapped;
     // backspace keeps deleting in the composer).
     if (overlay === null && key.ctrl && input === "h") return setOverlay("manual");
+    // Project notes (ctrl+n) — chat and home alike, no session required.
+    if (overlay === null && key.ctrl && input === "n") return setOverlay("notes");
     if (overlay === null && key.ctrl && input === "f" && workflowOn) return setOverlay("frontier");
     // #499: usage quota modal from chat — instant check before long tasks.
     if (overlay === null && key.ctrl && input === "q" && session) return setOverlay("quota");
@@ -1346,7 +1383,7 @@ function AppShell({
     // discarding the explicit cancel/Just claim decision. The manual modal
     // owns Esc too (#457): page → index, index → close — the App-level
     // handler must not close it out from under the page view.
-    if (overlay !== null && overlay !== "onboarding" && overlay !== "skill-chooser" && overlay !== "manual" && key.escape) {
+    if (overlay !== null && overlay !== "onboarding" && overlay !== "skill-chooser" && overlay !== "manual" && overlay !== "notes" && key.escape) {
       // The theme studio (inside settings) owns Esc while its name prompt or
       // picker is open — a bare Esc there must return to the studio, not
       // tear the whole overlay down to the home/chat screen.
@@ -1465,6 +1502,7 @@ function AppShell({
         onOpenTree: () => setOverlay("tree"),
         onOpenMpm: () => setOverlay("mpm"),
         onOpenSession: () => setOverlay("session"),
+        onOpenLanes: () => setOverlay("lanes"),
         onOpenJev: () => setOverlay("jev"),
         onOpenBrowserSetup: () => setOverlay("browser"),
       })}
@@ -1680,6 +1718,7 @@ function AppShell({
           />
         )}
         {overlay === "manual" && <ManualModal onClose={() => setOverlay(null)} />}
+        {overlay === "notes" && <NotesModal cwd={cwd} home={home ?? homedir()} onClose={() => setOverlay(null)} />}
         {overlay === "rename" && session && (
           <SessionRenameModal
             initialName={[...session.history()].reverse().find((event) => event.type === "session_renamed")?.name ?? ""}
@@ -1704,6 +1743,7 @@ function AppShell({
           ) : (
             <Text> session analysis unavailable: {sessionReport && "error" in sessionReport ? sessionReport.error : "session file unknown"}</Text>
           ))}
+        {overlay === "lanes" && <LanesModal cwd={process.cwd()} onClose={() => setOverlay(null)} />}
         {overlay === "quota" && session && (
           <QuotaModal
             endpoints={session.endpointProfiles}
