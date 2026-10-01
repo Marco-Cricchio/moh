@@ -226,6 +226,11 @@ export interface AttemptTelemetry {
   /** Whether the attempt consumed provider usage (a usage event was seen
    * for it). A failed attempt that consumed usage still bills. */
   consumedUsage: boolean;
+  /** #1101: time to first content — ms from the attempt's start to its
+   * first streamed text delta ("useful content": reasoning deltas do not
+   * count). Absent when the attempt produced no text (a tool-only call,
+   * a failure) — unknown, never zero. */
+  ttfcMs?: number;
   /** Release-pinned pricing/catalog revision (ADR-0046 manifest). */
   pricingVersion: string;
 }
