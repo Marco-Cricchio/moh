@@ -644,24 +644,30 @@ count; a call that streamed no text carries no field — unknown, never
 zero). Projections exported from `@moh/core`:
 
 - `performanceByModel(events)` — per model: logical calls,
-  completed/failed/aborted, interrupted rate, active provider-processing
-  duration, the retry/wait time reconstructed from attempt-chain gaps
-  (a fallback move's gap belongs to the chain, not to either model),
-  and p50/p95 shapes for TTFC and latency.
-- `concurrencyReport(intervals)` — union vs. sum over parent and child
-  call intervals: `busyMs` is the honest wall-clock busy time,
-  `concurrentMs` is exactly what a naive total double-counts across
-  concurrent child sessions.
+  completed/failed/aborted, the per-attempt interrupted rate, active
+  provider-processing duration, the retry/wait time reconstructed from
+  attempt-chain gaps (a fallback move's gap belongs to the chain, not
+  to either model), and p50/p95 shapes for TTFC and latency.
+- `concurrencyReport(intervals)` — the no-double-counting building
+  block for parallel child sessions: a client (or orchestration
+  extension) collects its parent/child call intervals and reads the
+  union (`busyMs`) as the honest wall-clock busy time — `concurrentMs`
+  is exactly what a naive total would double-count. No producer
+  gathers the intervals implicitly: concurrency is derived from
+  explicit intervals and the `subagent_spawn`/`subagent_result`
+  linkage, never assumed.
 - `taskReport(events)` — declared tasks with their verification runs
   (latest verdict at outcome time: failed-then-passed reads
   correctly), the contributing model calls (interval-derived, joined
   with the #1099 correlation ids; child-session calls stay in the
   child's own log), and the accepted rollup computed ONLY for tasks
-  whose outcome is `accepted`.
+  whose outcome is `accepted` (logical calls; usage and cost over
+  every completed attempt).
 - `acceptedTaskFixture(report, events)` — the comparison fixture per
-  accepted task: serving models, median latency, verified first-pass
-  success, reopen count, and the cost/tokens/calls rollup. Tasks
-  without acceptance evidence are excluded, never imputed.
+  accepted task: serving models (a fallback move attributes both),
+  median latency, verified first-pass success, reopen count, and the
+  cost/tokens/calls rollup. Tasks without acceptance evidence are
+  excluded, never imputed.
 
 Privacy: task ids, durations, counts, model refs — no prompt text, no
 completions, no source content, no credentials, no unbounded

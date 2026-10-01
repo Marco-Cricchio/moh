@@ -143,8 +143,8 @@ same report for the currently open session in a snapshot modal.
 
 ### Performance and task outcomes (#1101)
 
-`moh usage` reports (and `aggregateTelemetry`) also carry two
-quality-adjusted sections. **Performance** shows, per model: time to
+`aggregateTelemetry` (the library projection behind the usage
+reports) carries two quality-adjusted sections. **Performance** shows, per model: time to
 first content, active provider-processing time with retry/wait time
 kept separate, p50/p95 latency, and the interrupted-call rate. These
 are measured latency numbers — moh does not claim that tokens or

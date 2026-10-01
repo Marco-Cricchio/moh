@@ -366,8 +366,10 @@ export function aggregateTelemetry(options: {
   const fallbacks = new Map<string, TelemetryFallbackRow>();
   const routeServing = new Map<string, TelemetryRouteServingRow>();
   // #1101: per-model performance accumulators, with the raw samples the
-  // percentiles recompute from at report time.
+  // percentiles recompute from at report time (and the attempt totals
+  // the per-attempt interrupted rate divides by).
   const perfRows = new Map<string, PerformanceModelRow & { ttfcSamples: number[]; latencySamples: number[] }>();
+  const attemptsOnModel = new Map<string, number>();
 
   const jsonl = readdirSync(dir)
     .filter((name) => name.endsWith(".jsonl"))
@@ -474,6 +476,7 @@ export function aggregateTelemetry(options: {
       acc.waitDurationMs += row.waitDurationMs;
       acc.ttfcSamples.push(...sessionSamples.ttfc);
       acc.latencySamples.push(...sessionSamples.latency);
+      attemptsOnModel.set(row.model, (attemptsOnModel.get(row.model) ?? 0) + row.completed + row.failed + row.aborted);
     }
     const sessionTasks = taskReport(events, options.planFor ? { planFor: options.planFor } : {});
     report.tasks.tasks.push(...sessionTasks.tasks);
@@ -550,7 +553,9 @@ export function aggregateTelemetry(options: {
   }
 
   // #1101: finalize the performance rows — recompute the percentile
-  // shapes from the merged samples, then the interrupted rate.
+  // shapes from the merged samples, then the per-attempt interrupted
+  // rate (aborted attempts over all attempts on the model, summed per
+  // session during the scan below).
   report.performance = [...perfRows.values()]
     .map((row) => {
       const finalized: PerformanceModelRow = {

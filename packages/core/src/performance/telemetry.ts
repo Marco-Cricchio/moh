@@ -38,7 +38,10 @@ export function percentile(sorted: readonly number[], p: number): number | undef
 
 export interface PerformanceModelRow {
   model: string;
-  /** Logical calls that ran at least one attempt on this model. */
+  /** The logical calls that ran at least one attempt on this model.
+   * The outcome counts and `activeDurationMs`/`waitDurationMs` are
+   * per-attempt sums; `interruptedRate` is therefore per-attempt too:
+   * aborted attempts over all attempts on the model. */
   calls: number;
   completed: number;
   failed: number;
@@ -146,8 +149,10 @@ export function performanceByModel(events: readonly AgentEvent[]): PerformanceMo
     latencySamples.set(attempt.servingModel, list);
   }
   const result: PerformanceModelRow[] = [];
+  const attemptsOnModel = new Map<string, number>();
+  for (const attempt of records) attemptsOnModel.set(attempt.servingModel, (attemptsOnModel.get(attempt.servingModel) ?? 0) + 1);
   for (const row of rows.values()) {
-    row.interruptedRate = row.calls > 0 ? row.aborted / row.calls : 0;
+    row.interruptedRate = (attemptsOnModel.get(row.model) ?? 0) > 0 ? row.aborted / attemptsOnModel.get(row.model)! : 0;
     const ttfc = ttfcSamples.get(row.model);
     if (ttfc && ttfc.length > 0) {
       ttfc.sort((a, b) => a - b);
@@ -342,11 +347,13 @@ export function taskReport(
     contributing.attemptIds.push(attempt.attemptId);
   }
   // The accepted rollup: only on acceptance evidence, over the task's
-  // contributing calls — their usage and estimated cost.
+  // contributing calls — their usage and estimated cost. `calls` counts
+  // logical calls (one entry per callId, matching `contributingCalls`);
+  // usage and cost sum over every completed attempt those calls made.
   const counters = { accepted: 0, rejected: 0, revisionNeeded: 0, unresolved: 0, unknown: 0 };
   for (const state of declared) {
     if (state.row.outcome !== "accepted") continue;
-    let calls = 0;
+    const calls = state.row.contributingCalls.length;
     let inputTokens = 0;
     let outputTokens = 0;
     let usd = 0;
@@ -354,7 +361,6 @@ export function taskReport(
       if (event.type !== "model_call" || event.failed) continue;
       const attempt = event.attempt;
       if (!attempt || !state.row.contributingCalls.some((c) => c.callId === attempt.callId)) continue;
-      calls += 1;
       inputTokens += event.usage.inputTokens;
       outputTokens += event.usage.outputTokens;
       const slash = event.model.indexOf("/");
@@ -413,13 +419,15 @@ export interface AcceptedTaskFixtureRow {
  * the raw events of the same session(s) — the latency comes from the
  * attempt records the contributing callIds name. */
 export function acceptedTaskFixture(report: TaskReport, events: readonly AgentEvent[]): AcceptedTaskFixtureRow[] {
-  const attemptByCallId = new Map<string, { model: string; durations: number[] }>();
+  const attemptByCallId = new Map<string, { models: Set<string>; durations: number[] }>();
   for (const event of events) {
     if (event.type !== "model_call" || event.failed || !event.attempt) continue;
     const attempt = event.attempt;
-    const entry = attemptByCallId.get(attempt.callId) ?? { model: attempt.servingModel, durations: [] };
+    const entry = attemptByCallId.get(attempt.callId) ?? { models: new Set<string>(), durations: [] };
+    // A fallback move touched two models — both are attribution, never
+    // overwritten (same convention as performanceByModel).
+    entry.models.add(attempt.servingModel);
     if (attempt.outcome === "completed") entry.durations.push(attempt.durationMs);
-    entry.model = attempt.servingModel;
     attemptByCallId.set(attempt.callId, entry);
   }
   // Reopen chains: taskId → the number of reopens between it and the root.
@@ -440,7 +448,7 @@ export function acceptedTaskFixture(report: TaskReport, events: readonly AgentEv
     for (const call of task.contributingCalls) {
       const entry = attemptByCallId.get(call.callId);
       if (!entry) continue;
-      models.add(entry.model);
+      [...entry.models].forEach((m) => models.add(m));
       durations.push(...entry.durations);
     }
     durations.sort((a, b) => a - b);
