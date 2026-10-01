@@ -325,6 +325,10 @@ export function Home({ cwd, home, mode, onOpen, onOpenSettings, onOpenCommands, 
       if (hit) return onOpen(hit);
       return;
     }
+    // Home owns no ctrl bindings of its own beyond r/d/p (handled above):
+    // a ctrl+letter must not re-trigger the plain-letter shortcut beneath
+    // (ctrl+n opening a session would cancel the notes overlay App just set).
+    if (key.ctrl) return;
     if (input === "h" && query === "" && handoffRow >= 0 && handoff?.status === "offer" && onOpenHandoff)
       return onOpenHandoff(handoff);
     if (input === "n" && query === "") return onOpen(null);

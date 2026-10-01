@@ -7,6 +7,52 @@ matching section here at tag time.
 
 ## [Unreleased]
 
+## [0.56.0] - 2026-10-01
+
+### Added
+
+- **Parallel development lanes** (ADR-0060, PR #1118): when several
+  sessions work on one feature, each parallel session lands in its own
+  isolated Git worktree on its own branch, so uncommitted changes never mix
+  between sessions. Provisioning is lazy — it starts only when parallelism
+  is observable (an active lane, or a sibling session touched the project
+  in the last 10 minutes), and `lanes.auto: false` restores the pre-lane
+  behavior entirely. A feature group groups the lanes of one base branch;
+  spawns bind to lanes; integration walks a resumable conflict state
+  (`moh lanes resolve`); stale lanes clean up. Surfaces: `moh lanes
+  group|start|list|show|integrate|resolve|status|abandon|cleanup`, the
+  `/lanes` modal (feature groups, labels, age, worktree health, cleanup
+  door), and two new `lane_created`/`lane_transitioned` chrome events.
+  Lane state is user data under `~/.moh/projects/<slug>/`; `node_modules`
+  is symlinked from the checkout.
+- **The project notes modal** (PR #1120): `ctrl+n` in chat and home opens a
+  free-text notes surface scoped to the project and shared across
+  sessions — user-only by design: never in the event log, never shown to
+  the model. Notes live in `~/.moh/projects/<slug>/notes.jsonl` next to the
+  session log, grep-able and hand-editable outside moh; writes are atomic
+  and a malformed line is skipped, never fatal. List mode (pinned first,
+  then most recently updated) with add/edit/pin/delete; the editor saves
+  only on `ctrl+s`, `ctrl+z` restores the opening snapshot, and `esc` asks
+  save/discard/stay when the draft changed. Side fix: Home no longer fires
+  plain-letter shortcuts on ctrl chords it does not own.
+- **The `pr` skill delivers its body via `--body-file`** (PR #1119): the
+  skill's shape `gh pr create --body "$(cat <<'EOF' …)"` is broken on the
+  macOS host shell (bash 3.2) — inside the substitution the body's own
+  quotes still parse, so the first apostrophe in the prose dies with
+  `unexpected EOF`. Measured over the session corpus: 169 calls used the
+  shape, 113 carried an apostrophe, 81 were lost outright. The skill now
+  teaches `--body-file -` with a `bash -n`-verified example, pinned as a
+  declared deviation in `NOTICE.md` with a re-port guard test.
+
+### Changed
+
+- **The model catalog was regenerated** (release step): 6 prices moved —
+  `tencent/hy3` 0.132 → 0.0825, `tencent/hy4-preview` 0.834 → 0.7506,
+  `google/gemma-4-26b-a4b-it` 0.09 → 0.0765, `moonshotai/kimi-k3`
+  0.6685 → 0.6635, with `~z-ai/glm-latest` 0.06 → 0.12 going up. No context
+  windows or reasoning flags moved; no issue and no context-window shrink.
+  `PRICING_SNAPSHOT.version` follows the manifest, which declares 0.56.0.
+
 ## [0.55.0] - 2026-10-01
 
 ### Added
@@ -1679,7 +1725,8 @@ matching section here at tag time.
   passed; a regression test pins the resolved path under
   `<home>/.moh/projects`.
 
-[Unreleased]: https://github.com/Marco-Cricchio/moh/compare/v0.55.0...develop
+[Unreleased]: https://github.com/Marco-Cricchio/moh/compare/v0.56.0...develop
+[0.56.0]: https://github.com/Marco-Cricchio/moh/compare/v0.55.0...v0.56.0
 [0.55.0]: https://github.com/Marco-Cricchio/moh/compare/v0.54.0...v0.55.0
 [0.54.0]: https://github.com/Marco-Cricchio/moh/compare/v0.53.2...v0.54.0
 [0.53.2]: https://github.com/Marco-Cricchio/moh/compare/v0.53.1...v0.53.2
