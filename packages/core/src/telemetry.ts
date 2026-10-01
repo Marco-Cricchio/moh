@@ -12,6 +12,8 @@ import { basename, join } from "node:path";
 import type { AgentEvent } from "./types";
 import { aggregateLocalUsage, type BillingPlanResolver, type LocalUsageRow } from "./quota/local";
 import { quotaContradictions, quotaEpisodes, summarizeQuota, type QuotaObservationEvent, type QuotaSummary } from "./quota/telemetry";
+import { performanceByModel, performanceSamples, taskReport, type PerformanceModelRow, type TaskReport } from "./performance/telemetry";
+import { percentile as percentileOf } from "./performance/telemetry";
 import { estimateModelCost } from "./pricing";
 import { activePath } from "./session/event-log";
 import { ENCODING } from "./session/ulid";
@@ -229,6 +231,14 @@ export interface TelemetryReport {
   attempts: TelemetryAttemptSummary;
   /** #1100: quota rollup — episodes, recoveries, wait, contradictions. */
   quota: QuotaSummary;
+  /** #1101: per-model performance — TTFC, active/wait duration split,
+   * p50/p95 latency, interrupted-call rate. Measured performance, never
+   * a productivity claim. */
+  performance: PerformanceModelRow[];
+  /** #1101: explicit task outcomes — verifications, acceptance, cost per
+   * accepted task (absent without acceptance evidence; unknown by
+   * default). */
+  tasks: TaskReport;
   /** Session files found (including skipped ones). */
   sessionsScanned: number;
   /** Files skipped as corrupt/unreadable — skipped, never fatal. An
@@ -344,6 +354,8 @@ export function aggregateTelemetry(options: {
     sessions: [],
     attempts: { attempts: 0, calls: 0, retriedCalls: 0, fallbackMoves: 0, failed: 0, aborted: 0, unknownUsage: 0, durationMs: 0 },
     quota: { exhausted: 0, rateLimited: 0, open: 0, recovered: 0, fallbackRecoveries: 0, waitMs: 0, observations: 0, contradictions: 0 },
+    performance: [],
+    tasks: { tasks: [], accepted: 0, rejected: 0, revisionNeeded: 0, unresolved: 0, unknown: 0 },
     sessionsScanned: 0,
     sessionsSkipped: 0,
   };
@@ -353,6 +365,9 @@ export function aggregateTelemetry(options: {
   const toolRows = new Map<string, TelemetryToolRow>();
   const fallbacks = new Map<string, TelemetryFallbackRow>();
   const routeServing = new Map<string, TelemetryRouteServingRow>();
+  // #1101: per-model performance accumulators, with the raw samples the
+  // percentiles recompute from at report time.
+  const perfRows = new Map<string, PerformanceModelRow & { ttfcSamples: number[]; latencySamples: number[] }>();
 
   const jsonl = readdirSync(dir)
     .filter((name) => name.endsWith(".jsonl"))
@@ -437,6 +452,37 @@ export function aggregateTelemetry(options: {
       summarizeQuota(quotaEpisodes(events), quotaContradictions(events), events.filter((e) => e.type === "quota_observation").length),
     );
 
+    // #1101: performance and task-outcome rollups. Performance rows sum
+    // per model across sessions (durations, outcome counts); percentile
+    // shapes recompute from the merged samples — percentiles never sum,
+    // samples do. Tasks concatenate — a task belongs to the session that
+    // declared it; child sessions keep their own logs (no parent
+    // double-count inside one projection).
+    const samples = performanceSamples(events);
+    for (const row of performanceByModel(events)) {
+      const acc = perfRows.get(row.model);
+      const sessionSamples = samples.get(row.model) ?? { ttfc: [], latency: [] };
+      if (!acc) {
+        perfRows.set(row.model, { ...row, ttfcSamples: [...sessionSamples.ttfc], latencySamples: [...sessionSamples.latency] });
+        continue;
+      }
+      acc.calls += row.calls;
+      acc.completed += row.completed;
+      acc.failed += row.failed;
+      acc.aborted += row.aborted;
+      acc.activeDurationMs += row.activeDurationMs;
+      acc.waitDurationMs += row.waitDurationMs;
+      acc.ttfcSamples.push(...sessionSamples.ttfc);
+      acc.latencySamples.push(...sessionSamples.latency);
+    }
+    const sessionTasks = taskReport(events, options.planFor ? { planFor: options.planFor } : {});
+    report.tasks.tasks.push(...sessionTasks.tasks);
+    report.tasks.accepted += sessionTasks.accepted;
+    report.tasks.rejected += sessionTasks.rejected;
+    report.tasks.revisionNeeded += sessionTasks.revisionNeeded;
+    report.tasks.unresolved += sessionTasks.unresolved;
+    report.tasks.unknown += sessionTasks.unknown;
+
     const rollup = aggregateSession(events, options.planFor);
     rollup.id = basename(name, ".jsonl");
     report.sessions.push(rollup);
@@ -502,6 +548,32 @@ export function aggregateTelemetry(options: {
       if (event.type === "error") bumpCount(report.route.turnErrors, event.reason);
     }
   }
+
+  // #1101: finalize the performance rows — recompute the percentile
+  // shapes from the merged samples, then the interrupted rate.
+  report.performance = [...perfRows.values()]
+    .map((row) => {
+      const finalized: PerformanceModelRow = {
+        model: row.model,
+        calls: row.calls,
+        completed: row.completed,
+        failed: row.failed,
+        aborted: row.aborted,
+        interruptedRate: row.calls > 0 ? row.aborted / row.calls : 0,
+        activeDurationMs: row.activeDurationMs,
+        waitDurationMs: row.waitDurationMs,
+      };
+      if (row.ttfcSamples.length > 0) {
+        row.ttfcSamples.sort((a, b) => a - b);
+        finalized.ttfc = { p50Ms: percentileOf(row.ttfcSamples, 50)!, p95Ms: percentileOf(row.ttfcSamples, 95)!, samples: row.ttfcSamples.length };
+      }
+      if (row.latencySamples.length > 0) {
+        row.latencySamples.sort((a, b) => a - b);
+        finalized.latency = { p50Ms: percentileOf(row.latencySamples, 50)!, p95Ms: percentileOf(row.latencySamples, 95)! };
+      }
+      return finalized;
+    })
+    .sort((a, b) => b.calls - a.calls || a.model.localeCompare(b.model));
 
   report.models = [...modelRows.values()]
     .map((row) => ({

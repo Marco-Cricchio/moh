@@ -714,6 +714,56 @@ type AgentEventBase =
        * transcript block and replay show a preview without re-reading the
        * child log. Absent when the child produced no output. */
       preview?: string;
+    }
+  /**
+   * #1101 (P2 task-outcome telemetry): the user (or a client on the
+   * user's behalf) declared a task/work unit. The id is user-declared or
+   * generated — it never carries prompt text, file paths of the work, or
+   * content. A `reopens` id links a reworked task to its original
+   * (revision/reopen relation). Chrome only.
+   */
+  | {
+      type: "task_declared";
+      /** Correlation id: user-declared or generated. No content rides it. */
+      taskId: string;
+      /** The original task this one reopens (revision relation). */
+      reopens?: string;
+      declaredAt: string;
+    }
+  /**
+   * #1101: one verification run a client recorded against a declared
+   * task — a test/typecheck/build/lint (or equivalent) command's result.
+   * Explicit, never inferred: only a client seam creates one. The
+   * diagnostics are bounded, redacted *metadata* (a one-line summary) —
+   * never full tool output. Repeated verifications are separate events;
+   * the projection reads the latest at any point in time. Chrome only.
+   */
+  | {
+      type: "task_verification";
+      taskId: string;
+      verificationId: string;
+      category: "test" | "typecheck" | "build" | "lint" | "other";
+      ok: boolean;
+      /** Process exit status, when known — absent = unknown, never zero. */
+      exitStatus?: number;
+      durationMs?: number;
+      /** Optional bounded, redacted one-line summary (≤ 240 chars after
+       * the seam's redaction) — never full output, never file contents. */
+      summary?: string;
+      recordedAt: string;
+    }
+  /**
+   * #1101: the explicit user verdict on a declared task: accepted,
+   * rejected, or revision-needed. `unresolved` records an explicit
+   * close-without-verdict; absence of any outcome event stays `unknown`
+   * in every projection — no signal is never success or failure.
+   * Chrome only.
+   */
+  | {
+      type: "task_outcome";
+      taskId: string;
+      outcome: "accepted" | "rejected" | "revision-needed" | "unresolved";
+      decidedAt: string;
     };
 
 /**

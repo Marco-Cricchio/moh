@@ -198,6 +198,28 @@ export {
   type TelemetrySessionRow,
   type TelemetrySubagentRow,
 } from "./telemetry";
+// #1101 (P2): the task-outcome producers and the read-only performance /
+// task projections. Explicit client seams only — never model-inferred;
+// `unknown` is the default outcome state.
+export {
+  redactSummary,
+  taskDeclaredEvent,
+  taskVerificationEvent,
+  taskOutcomeEvent,
+  SUMMARY_MAX_CHARS,
+  type VerificationCategory,
+  type TaskOutcome,
+} from "./task/telemetry";
+export {
+  performanceByModel,
+  performanceSamples,
+  concurrencyReport,
+  taskReport,
+  type PerformanceModelRow,
+  type ConcurrencyReport,
+  type TaskRow,
+  type TaskReport,
+} from "./performance/telemetry";
 // #1099: the attempt-chain projection stays internal until a client
 // surface (the `moh usage` rollups, P1) reads it — ADR-0004 keep-criterion.
 // Re-opening it is an explicit decision; tests and internal code import
