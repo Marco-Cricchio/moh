@@ -851,7 +851,9 @@ export class AgentLoop {
    * Returns null — no retry — when the seam is absent, the error kind is
    * Route-handled (`fallback` already moved the call down the chain) or
    * `aborted`, the turn's consultation budget is spent, no hook answers,
-   * or the proposal cannot be applied. An applicable proposal applies the
+   * or the proposal cannot be applied — including a ref that resolves to
+   * the currently serving provider (#1111: a no-op switch never retries,
+   * and the budget is not spent on it). An applicable proposal applies the
    * ref exactly like the manual `/model` switch (the session's guard
    * records `switch_refused` for a fit refusal) and returns the proposal.
    */
@@ -861,13 +863,25 @@ export class AgentLoop {
     const kind = refusalKind(err);
     if (kind === undefined || kind === "aborted" || ROUTE_HANDLED_ERROR_KINDS.has(kind)) return null;
     if (this.#modelRetriesThisTurn >= MAX_MODEL_ERROR_RETRIES) return null;
-    this.#modelRetriesThisTurn += 1;
     const message = err instanceof Error ? err.message : String(err);
+    // #1111: the provider serving the failed call, captured before any
+    // application — `applyModel` moves the session state in place.
+    const servingProviderName = this.#provider().name;
     const outcome = await seam.dispatch({ model: refusing, errorKind: kind, message });
     for (const e of outcome.errors) this.#append(e);
     if (outcome.model === undefined || outcome.model === refusing) return null;
     const applied = seam.applyModel(outcome.model);
-    if (applied.ok) return { model: applied.model };
+    if (applied.ok) {
+      // #1111: `switchModel` treats a ref that resolves to the currently
+      // serving provider as a silent no-op (`{ ok: true }`, no chrome) —
+      // an alias or the bare endpoint name while its model is serving.
+      // Retrying on it would re-read the same failing provider and pay
+      // for the call, so the proposal counts as refused: no retry, and
+      // the budget is not spent on a consultation that moves nothing.
+      if (applied.model === servingProviderName) return null;
+      this.#modelRetriesThisTurn += 1;
+      return { model: applied.model };
+    }
     // #948: a context-fit refusal already appended its own `switch_refused`
     // chrome event (the session's guard) — exactly one visible record.
     if (applied.reason === "context_length") return null;

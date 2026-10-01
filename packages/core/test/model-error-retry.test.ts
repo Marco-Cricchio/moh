@@ -188,32 +188,79 @@ describe("onModelError (ADR-0059)", () => {
     expect(session.history().some((e) => e.type === "model_switched")).toBe(false);
   });
 
-  test("the consultation budget is turn-scoped", async () => {
+  test("a proposal that resolves to the serving provider is a refused no-op (#1111)", async () => {
     const served: string[] = [];
-    // Every failure proposes pb; but pb never serves (registered as the
-    // failing provider's twin that also fails) — each retry consults again
-    // until the budget stops the loop.
     let consulted = 0;
+    // "pa" resolves to the provider that is already serving ("pa/m"): a
+    // different literal ref, the same endpoint. Applying it is a silent
+    // no-op switch — so the proposal must count as refused: no retry, no
+    // chrome, and no consultation budget spent on it.
     const rt = await runtime((ctx) =>
       ctx.onModelError(() => {
         consulted += 1;
-        return { model: "pb" };
+        return { model: "pa" };
+      }),
+    );
+    const session = createSession({ provider: "pa", registry: registry(served), extensions: rt });
+    const result = await session.send("noop");
+    expect(result.status).toBe("error");
+    // The second "pa/m" is the provider instance the no-op switch
+    // constructs before discovering nothing moves — no retry serves it.
+    expect(served).toEqual(["pa/m", "pa/m"]);
+    expect(session.history().some((e) => e.type === "model_switched")).toBe(false);
+    expect((session.history().at(-1) as Extract<AgentEvent, { type: "error" }>).reason).toBe("invalid_request");
+
+    // A later turn on the same session gets a full budget: the no-op did
+    // not spend it. The hook now proposes a real alternative, and the turn
+    // recovers exactly as a fresh proposal would.
+    const served2: string[] = [];
+    let consults2 = 0;
+    const rt2 = await runtime((ctx) =>
+      ctx.onModelError(() => {
+        consults2 += 1;
+        return { model: consults2 === 1 ? "pa" : "pb" };
+      }),
+    );
+    const session2 = createSession({ provider: "pa", registry: registry(served2), extensions: rt2 });
+    const r1 = await session2.send("noop-then-real");
+    expect(r1.status).toBe("error");
+    const r2 = await session2.send("real-now");
+    expect(r2.status).toBe("done");
+    expect(served2).toEqual(["pa/m", "pa/m", "pb/m"]);
+    expect(consults2).toBe(2);
+  });
+
+  test("the consultation budget is turn-scoped", async () => {
+    const served: string[] = [];
+    // Each retry proposes the next candidate in a chain of distinct
+    // providers (re-proposing the serving provider is a refused no-op
+    // since #1111, so distinct refs are what spend the budget): each
+    // retry fails again, until the budget stops the loop.
+    let consulted = 0;
+    const candidates = ["pb", "pc", "pd", "pe"];
+    let nth = 0;
+    const rt = await runtime((ctx) =>
+      ctx.onModelError(() => {
+        consulted += 1;
+        return { model: candidates[nth++] ?? "pf" };
       }),
     );
     const reg = new ProviderRegistry()
       .registerProvider("pa", () => {
         served.push("pa/m");
         return failing("invalid_request", "pa/m");
-      })
-      .registerProvider("pb", () => {
-        served.push("pb/m");
-        return failing("invalid_request", "pb/m");
       });
+    for (const name of ["pb", "pc", "pd", "pe", "pf"]) {
+      reg.registerProvider(name, () => {
+        served.push(`${name}/m`);
+        return failing("invalid_request", `${name}/m`);
+      });
+    }
     const session = createSession({ provider: "pa", registry: reg, extensions: rt });
     const result = await session.send("loop");
     expect(result.status).toBe("error");
-    // pa + 4 retries on pb, then the budget ends the turn (#1110: 4).
-    expect(served).toEqual(["pa/m", "pb/m", "pb/m", "pb/m", "pb/m"]);
+    // pa + the 4 budgeted retries, then the budget ends the turn (#1110: 4).
+    expect(served).toEqual(["pa/m", "pb/m", "pc/m", "pd/m", "pe/m"]);
     expect(consulted).toBe(4);
   });
 });
