@@ -38,13 +38,22 @@ export function normalizeProviderError(err: unknown, signal?: AbortSignal): Prov
   }
 
   const declaredWindow = recognizeDeclaredWindow(untruncatedText(err));
-  const fail = (kind: ProviderErrorKind, message: string) => new ProviderError(kind, message, declaredWindow);
 
   const status = findStatusCode(err);
   const message = describe(err);
   const body = describeKnownField(err, "responseBody", true)
     ?? describeKnownField(err, "data", true)
     ?? "";
+  // #1099: sanitized transport facts — the status number and, when the
+  // provider surfaced one, the Retry-After hint in ms. Read from known
+  // fields only (never arbitrary headers/serialization); both are optional.
+  const retryAfterMs = retryAfterMsOf(err);
+  const transport =
+    status !== undefined || retryAfterMs !== undefined
+      ? { ...(status !== undefined ? { httpStatus: status } : {}), ...(retryAfterMs !== undefined ? { retryAfterMs } : {}) }
+      : undefined;
+  const fail = (kind: ProviderErrorKind, message: string) =>
+    new ProviderError(kind, message, declaredWindow, transport);
   if (status !== undefined) {
     return fail(classifyStatus(status, body, message), message);
   }
@@ -54,11 +63,33 @@ export function normalizeProviderError(err: unknown, signal?: AbortSignal): Prov
     return fail("network", message);
   }
 
-  // SDK retry wrappers lose statusCode but keep the cause message; sniff it.
+    // SDK retry wrappers lose statusCode but keep the cause message; sniff it.
   const sniffed = classifyStatus(0, body, message);
   if (sniffed !== "invalid_request") return fail(sniffed, message);
 
   return fail("invalid_request", message);
+}
+
+/**
+ * #1099: the Retry-After hint a provider surfaced with a failure, in ms —
+ * read from known diagnostic fields only (`responseHeaders`/`headers`
+ * carrying a `retry-after` key; never an arbitrary serialization). Accepts
+ * seconds as number or decimal string, or an HTTP-date. Undefined when
+ * nothing usable is there.
+ */
+function retryAfterMsOf(err: unknown): number | undefined {
+  const headers = findField(err, "responseHeaders", new Set<object>(), 0)
+    ?? findField(err, "headers", new Set<object>(), 0);
+  if (headers === null || typeof headers !== "object") return undefined;
+  const record = headers as ErrorRecord;
+  const raw = record["retry-after"] ?? record["Retry-After"];
+  if (typeof raw === "number" && raw >= 0) return raw * 1000;
+  if (typeof raw !== "string" || raw.length === 0 || raw.length > 40) return undefined;
+  const seconds = Number(raw);
+  if (Number.isFinite(seconds) && seconds >= 0) return seconds * 1000;
+  const date = Date.parse(raw);
+  if (!Number.isNaN(date)) return Math.max(0, date - Date.now());
+  return undefined;
 }
 
 /**
