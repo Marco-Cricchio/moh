@@ -16,7 +16,7 @@ import { basename, dirname, isAbsolute, join } from "node:path";
 import { randomUUID } from "node:crypto";
 import { declaredId, identitySlug, legacyProjectSlug, resolveProjectIdentity, identityFileFor } from "./project-identity";
 import { readUserConfigFile, userConfigFile } from "./user-config";
-import { redactValue, noteSecretRedactionMisses } from "./redact";
+import { redactValue, noteRedactionResult } from "./redact";
 import type { AgentEvent, Message } from "./types";
 import { CANCELLED_TOOL_OUTPUT, SCHEMA_VERSION } from "./types";
 import { renderMentionAttachment } from "./mentions";
@@ -427,9 +427,9 @@ function readWholeFile(file: string): string {
  */
 function redactedLine(event: AgentEvent, file: string): string {
   const stamped = event.id === undefined ? stampEvent(event, file) : event;
-  const { value, misses } = redactValue(stamped);
-  if (misses.length > 0) noteSecretRedactionMisses(mohHomeFor(file), misses);
-  return JSON.stringify(value) + "\n";
+  const result = redactValue(stamped);
+  if (result.misses.length > 0 || result.depthCut) noteRedactionResult(mohHomeFor(file), result);
+  return JSON.stringify(result.value) + "\n";
 }
 
 /**

@@ -58,12 +58,23 @@ function normalizeKey(key: string): string {
 
 /** Returns a structurally-redacted copy (ADR-0032 layer). Cycles safe. */
 export function redactKeys(value: unknown, depth = 0): unknown {
+  return walkValue(value, depth, (v) => v);
+}
+
+/**
+ * The one structural walk both layers share: visits every node up to
+ * REDACT_DEPTH, masking secret-shaped keys, and hands each string to
+ * `onString` (identity for the keys-only layer, the pattern pass for the
+ * combined one). Cycles safe; never mutates.
+ */
+function walkValue(value: unknown, depth: number, onString: (s: string) => string): unknown {
   if (depth > REDACT_DEPTH) return value;
-  if (Array.isArray(value)) return value.map((v) => redactKeys(v, depth + 1));
+  if (typeof value === "string") return onString(value);
+  if (Array.isArray(value)) return value.map((v) => walkValue(v, depth + 1, onString));
   if (value !== null && typeof value === "object") {
     const out: Record<string, unknown> = {};
     for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
-      out[k] = REDACTED_KEYS.has(normalizeKey(k)) ? REDACTED : redactKeys(v, depth + 1);
+      out[k] = REDACTED_KEYS.has(normalizeKey(k)) ? REDACTED : walkValue(v, depth + 1, onString);
     }
     return out;
   }
@@ -191,6 +202,11 @@ export interface RedactionResult {
   value: unknown;
   /** Content-free lookalike reports (key names are not included). */
   misses: RedactionMiss[];
+  /** True when part of the structure sat deeper than REDACT_DEPTH and
+   * passed unscanned. The depth cap is a performance bound, not an
+   * exemption: whatever it cut is reported so a real secret hiding below
+   * it leaves evidence (never silence). */
+  depthCut: boolean;
 }
 
 /**
@@ -200,27 +216,37 @@ export interface RedactionResult {
  */
 export function redactValue(value: unknown, depth = 0): RedactionResult {
   const misses: RedactionMiss[] = [];
-  const walk = (v: unknown, d: number): unknown => {
-    if (d > REDACT_DEPTH) return v;
-    if (typeof v === "string") {
-      const redacted = redactString(v);
-      if (redacted === v) {
-        for (const m of detectSecretLookalikes(v)) misses.push(m);
-        return v;
-      }
-      return redacted;
+  let depthCut = false;
+  const value2 = walkTracked(value, depth, (s) => {
+    const redacted = redactString(s);
+    if (redacted === s) {
+      // Deliberate asymmetry ("precision over recall"): the lookalike
+      // detector runs only on strings the pattern layer left untouched —
+      // a string with one masked secret plus one unmasked lookalike
+      // reports nothing, because the dominant shape was caught.
+      for (const m of detectSecretLookalikes(s)) misses.push(m);
+      return s;
     }
-    if (Array.isArray(v)) return v.map((x) => walk(x, d + 1));
+    return redacted;
+  });
+  return { value: value2, misses, depthCut };
+
+  function walkTracked(v: unknown, d: number, onString: (s: string) => string): unknown {
+    if (d > REDACT_DEPTH) {
+      depthCut = true;
+      return v;
+    }
+    if (typeof v === "string") return onString(v);
+    if (Array.isArray(v)) return v.map((x) => walkTracked(x, d + 1, onString));
     if (v !== null && typeof v === "object") {
       const out: Record<string, unknown> = {};
       for (const [k, x] of Object.entries(v as Record<string, unknown>)) {
-        out[k] = REDACTED_KEYS.has(normalizeKey(k)) ? REDACTED : walk(x, d + 1);
+        out[k] = REDACTED_KEYS.has(normalizeKey(k)) ? REDACTED : walkTracked(x, d + 1, onString);
       }
       return out;
     }
     return v;
-  };
-  return { value: walk(value, depth), misses };
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -313,4 +339,18 @@ export function noteSecretRedactionMisses(home: string, misses: RedactionMiss[])
     seen.add(shape);
     noteSecretRedactionMiss({ home, shape });
   }
+}
+
+/** The shape line a depth cut writes (once per pass, content-free). */
+export const DEPTH_CUT_MISS_SHAPE = "depth-cut";
+
+/**
+ * Records the misses of one redaction pass as deduplicated, content-free
+ * shape lines (`category:length`). A depth cut — structure that sat
+ * deeper than the walk's ceiling and passed unscanned — is itself a
+ * reported miss: the cap is a performance bound, never silent silence.
+ */
+export function noteRedactionResult(home: string, result: RedactionResult): void {
+  if (result.depthCut) noteSecretRedactionMiss({ home, shape: DEPTH_CUT_MISS_SHAPE });
+  noteSecretRedactionMisses(home, result.misses);
 }

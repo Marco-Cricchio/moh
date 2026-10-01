@@ -113,6 +113,14 @@ describe("redactValue — the combined pass", () => {
     expect(hit.misses[0].category).toBeTruthy();
   });
 
+  test("a depth cut is reported, never silent — the cap is a bound, not an exemption", () => {
+    const deep = (n: number): unknown => (n === 0 ? { apiKey: "sk-abcdefghijklmnopqrstuvwx" } : { a: deep(n - 1) });
+    const { value, depthCut } = redactValue(deep(REDACT_DEPTH + 2));
+    expect(depthCut).toBe(true);
+    expect(JSON.stringify(value)).toContain("sk-abcdefghijklmnopqrstuvwx"); // passed through…
+    expect(redactValue({ text: "shallow" }).depthCut).toBe(false);
+  });
+
   test("does not mutate the input", () => {
     const input = { apiKey: "sk-abcdefghijklmnopqrstuvwx" };
     redactValue(input);
