@@ -1049,6 +1049,7 @@ export class AgentSession {
       return "";
     }
     this.#append(taskDeclaredEvent({ taskId: id, ...(reopens ? { reopens } : {}) }));
+    this.#declaredTasks.add(id);
     return id;
   }
 

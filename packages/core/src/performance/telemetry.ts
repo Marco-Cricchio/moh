@@ -379,3 +379,82 @@ export function taskReport(
   }
   return { tasks, ...counters };
 }
+
+// ---------------------------------------------------------------------------
+// Follow-up fixture: quality-adjusted comparison of accepted tasks
+// ---------------------------------------------------------------------------
+
+/** One accepted task of the comparison fixture: what the report shows per
+ * accepted task — the models that served its contributing calls, their
+ * latency (from the P0 attempt records), whether the *first* verification
+ * passed (verified first-pass success), how many reopens preceded the
+ * accepted task, and the cost/tokens/calls rollup. Rows are built ONLY
+ * from accepted tasks; tasks without acceptance evidence are excluded,
+ * never imputed. These are measured numbers — never productivity claims. */
+export interface AcceptedTaskFixtureRow {
+  taskId: string;
+  /** The distinct models that served the task's contributing calls. */
+  servingModels: string[];
+  /** Median completed-attempt latency across the contributing calls'
+   * attempts (ms); absent with no completed attempt — never zero. */
+  latencyP50Ms?: number;
+  /** Whether the first verification run recorded for the task passed
+   * (absent when no verification was run before acceptance). */
+  verifiedFirstPass?: boolean;
+  /** How many reopen relations precede this task in its revision chain. */
+  revisions: number;
+  calls: number;
+  inputTokens: number;
+  outputTokens: number;
+  estimatedCostUsd?: number;
+}
+
+/** Builds the accepted-task comparison fixture from a task report plus
+ * the raw events of the same session(s) — the latency comes from the
+ * attempt records the contributing callIds name. */
+export function acceptedTaskFixture(report: TaskReport, events: readonly AgentEvent[]): AcceptedTaskFixtureRow[] {
+  const attemptByCallId = new Map<string, { model: string; durations: number[] }>();
+  for (const event of events) {
+    if (event.type !== "model_call" || event.failed || !event.attempt) continue;
+    const attempt = event.attempt;
+    const entry = attemptByCallId.get(attempt.callId) ?? { model: attempt.servingModel, durations: [] };
+    if (attempt.outcome === "completed") entry.durations.push(attempt.durationMs);
+    entry.model = attempt.servingModel;
+    attemptByCallId.set(attempt.callId, entry);
+  }
+  // Reopen chains: taskId → the number of reopens between it and the root.
+  const depth = new Map<string, number>();
+  const depthOf = (taskId: string, seen = new Set<string>()): number => {
+    if (depth.has(taskId)) return depth.get(taskId)!;
+    const task = report.tasks.find((t) => t.taskId === taskId);
+    if (!task?.reopens || seen.has(taskId)) return 0;
+    const value = 1 + depthOf(task.reopens, new Set([...seen, taskId]));
+    depth.set(taskId, value);
+    return value;
+  };
+  const rows: AcceptedTaskFixtureRow[] = [];
+  for (const task of report.tasks) {
+    if (task.outcome !== "accepted") continue;
+    const models = new Set<string>();
+    const durations: number[] = [];
+    for (const call of task.contributingCalls) {
+      const entry = attemptByCallId.get(call.callId);
+      if (!entry) continue;
+      models.add(entry.model);
+      durations.push(...entry.durations);
+    }
+    durations.sort((a, b) => a - b);
+    rows.push({
+      taskId: task.taskId,
+      servingModels: [...models].sort(),
+      ...(durations.length > 0 ? { latencyP50Ms: durations[Math.floor((durations.length - 1) / 2)]! } : {}),
+      ...(task.verifications.length > 0 ? { verifiedFirstPass: task.verifications[0]!.ok } : {}),
+      revisions: depthOf(task.taskId),
+      calls: task.accepted!.calls,
+      inputTokens: task.accepted!.inputTokens,
+      outputTokens: task.accepted!.outputTokens,
+      ...(task.accepted!.estimatedCostUsd !== undefined ? { estimatedCostUsd: task.accepted!.estimatedCostUsd } : {}),
+    });
+  }
+  return rows;
+}

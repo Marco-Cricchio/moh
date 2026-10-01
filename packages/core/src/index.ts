@@ -215,10 +215,12 @@ export {
   performanceSamples,
   concurrencyReport,
   taskReport,
+  acceptedTaskFixture,
   type PerformanceModelRow,
   type ConcurrencyReport,
   type TaskRow,
   type TaskReport,
+  type AcceptedTaskFixtureRow,
 } from "./performance/telemetry";
 // #1099: the attempt-chain projection stays internal until a client
 // surface (the `moh usage` rollups, P1) reads it — ADR-0004 keep-criterion.
