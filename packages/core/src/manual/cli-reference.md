@@ -24,6 +24,7 @@ commands:
   mpm      project map diagnostics (see: moh mpm --help)
   sessions session management (rename, delete, tree, analyze; see: moh sessions --help)
   trash    the session trash (list, restore; see: moh trash --help)
+  lanes    parallel development lanes (see: moh lanes --help)
   usage    usage reports: models, tools, routes (see: moh usage --help)
   jev      TypeSafe/Jev configuration and per-use-case flags (see: moh jev --help)
   handoff  publish a session handoff (see: moh handoff --help)
@@ -267,6 +268,52 @@ derived title. Display names never touch file names or slugs.
 
 delete moves the session's JSONL file into the trash
 (~/.moh/trash/projects/<slug>/ — restorable via \`moh trash restore\
+```
+
+## moh lanes
+
+```
+usage: moh lanes group <name> [--target <ref>] [--cwd <dir>]
+       moh lanes start <group> <branch> [--base <ref>] [--session <id>] [--cwd <dir>]
+       moh lanes list [--group <name>] [--cwd <dir>]
+       moh lanes show <lane-id> [--cwd <dir>]
+       moh lanes integrate <lane-id> [--cwd <dir>]
+       moh lanes resolve <lane-id> [--cwd <dir>]
+       moh lanes status <lane-id> <active|paused|ready|conflicted|abandoned> [--cwd <dir>]
+       moh lanes abandon <lane-id> [--cwd <dir>]
+       moh lanes cleanup [--min-age-days <n>] [--apply] [--cwd <dir>]
+
+Parallel development lanes (feature groups + isolated worktrees): each
+lane owns one worktree and one ordinary git branch, so concurrent sessions
+never share uncommitted state. Metadata lives in
+~/.moh/projects/<slug>/development-lanes.json — never in the repository.
+
+  group <name>              create (or return) a feature group; --target
+                            is the integration branch (default: develop)
+  start <group> <branch>    create a lane: branch + worktree from the base
+                            ref's exact revision. --base defaults to the
+                            group's target. The session id binds the lane
+                            to one session; a duplicate active worktree or
+                            session is refused.
+  list [--group]            lanes (and groups) with status, branch, base
+                            freshness and worktree health
+  show <lane-id>            one lane's full record
+  integrate <lane-id>       merge the lane branch into the group's target.
+                            On conflict the target merge is aborted and the
+                            lane enters a resumable \`conflicted\` state.
+  resolve <lane-id>         retry the integration of a conflicted lane
+  status <lane-id> <state>  transition the lane's lifecycle status
+  abandon <lane-id>         remove the worktree, delete the branch, mark
+                            the lane abandoned (release: the worktree path
+                            can be reused by a new lane)
+  cleanup [--apply]         stale-lane cleanup: lanes idle for at least
+                            --min-age-days (default 7) whose worktree has
+                            NO uncommitted changes are removed (worktree +
+                            branch + registry row). Dirty lanes are
+                            reported but never touched. Without --apply it
+                            is a dry run.
+
+  --cwd     project root the lanes belong to (default: process.cwd())
 ```
 
 ## moh usage

@@ -48,6 +48,7 @@ page is the same content in manual form, plus the manual's own entries
 | /compact | force context compaction (same producer as the auto trigger) |
 | /copy | copy the last assistant reply to the clipboard |
 | /jev | Jev use cases: live status, switch one on/off for this session |
+| /lanes | parallel development lanes (feature groups, worktrees) |
 | /mode | switch vibe / dev mode |
 | /model | model picker (r refreshes live model lists) |
 | /reload | hot-reload moh.json + user config |
