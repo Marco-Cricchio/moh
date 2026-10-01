@@ -44,8 +44,10 @@ const ROUTE_HANDLED_ERROR_KINDS = new Set(["quota_exhausted", "rate_limited", "n
 
 /** ADR-0059: the maximum model-error consultations one turn gets. A
  * proposed ref that fails the same way consumes budget; an exhausted
- * budget ends the turn exactly as a consultation without an answer. */
-export const MAX_MODEL_ERROR_RETRIES = 3;
+ * budget ends the turn exactly as a consultation without an answer.
+ * Four: #1110's routing pool budget (up to 4 same-tier candidates) must
+ * be spendable within one turn. */
+export const MAX_MODEL_ERROR_RETRIES = 4;
 
 /**
  * #1099: a detail field is counted only when it is a finite number —

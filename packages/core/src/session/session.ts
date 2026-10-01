@@ -627,6 +627,10 @@ export class AgentSession {
                 this.#scopedDispatch(() =>
                   beforeTurnSeam.dispatchModelError({
                     ...ctx,
+                    // #1110: the same #852 cooldown list the per-turn
+                    // switch reads — a proposed alternative must not name
+                    // a stop the route already knows cannot serve.
+                    endpointCooldowns: this.endpointCooldowns,
                     session: { id: this.#sessionId, owner: this.#extensions !== undefined },
                   }),
                 ),

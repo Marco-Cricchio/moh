@@ -54,7 +54,9 @@ cannot interrupt anything — it *recovers* something. The retry continues
 the same logical call (#1099): same `callId`, next attempt ordinal, after
 the failed attempt's `model_call` record.
 
-**Bound.** One turn gets at most `MAX_MODEL_ERROR_RETRIES` (3)
+**Bound.** One turn gets at most `MAX_MODEL_ERROR_RETRIES` (4, raised
+from 3 by #1110 so a routing pool's own four-candidate budget is
+spendable within one turn)
 consultations. A proposed ref that fails the same way spends budget; an
 exhausted budget ends the turn exactly as a consultation without an
 answer. This keeps a misbehaving extension from turning one error into an

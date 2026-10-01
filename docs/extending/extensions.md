@@ -516,7 +516,9 @@ extension's note.
   `session` on the `beforeTurn` context and session-attributed events;
   1.9 added `hookTimeoutMs` and `signal` on the `onCompaction` context
   and the `applied: false` outcome on its `onApplied` callback; 1.10
-  added the `onModelError` hook, ADR-0059).
+  added the `onModelError` hook, ADR-0059; still 1.10, #1110 added the
+  same `endpointCooldowns` list the `beforeTurn` context already carries
+  to the `onModelError` context).
 - **Additive-only within a major**: new hooks and context fields may be
   added; existing ones never change meaning or disappear. Deprecated APIs
   survive one full major.

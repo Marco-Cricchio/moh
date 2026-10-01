@@ -453,6 +453,21 @@ export function createRoutingJudge(deps: RoutingJudgeDeps, host: RoutingJudgeHos
       pendingApplies.delete(ownerState);
     },
 
+    /**
+     * #1110: a switch the retry wave proposed did not apply (a context-fit
+     * refusal, or an unresolvable ref). The expectation must fall back to
+     * the model that actually failed and still serves — otherwise the next
+     * consultation is gated out by its own decision — and the pending mark
+     * drops with it. Owner-scoped like the handlers that call it.
+     */
+    releasePendingTo(current: string): void {
+      pendingApplies.delete(ownerState);
+      if (ownerState.decidedModel !== null && ownerState.decidedModel !== current) {
+        ownerState.decidedModel = current;
+      }
+      ownerState.expected = null;
+    },
+
     /** #868: the decided switch applied — clear the pending mark. */
     clearPendingSwitch(): void {
       pendingApplies.delete(ownerState);

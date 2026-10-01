@@ -210,6 +210,13 @@ export interface ModelErrorContext {
   /** The sanitized failure message. */
   readonly message: string;
   /**
+   * #852/#1110: the route chain stops currently in a failure cooldown —
+   * the same list `beforeTurn` carries, read at the moment of the failure.
+   * A hook that proposes an alternative must never name one of these.
+   * Absent when the session runs a non-route provider or an older runtime.
+   */
+  readonly endpointCooldowns?: readonly { ref: string; kind: string }[];
+  /**
    * #944: which session owns the failed call (same shape and contract as
    * on `beforeTurn` — key per-session state by `id`).
    */

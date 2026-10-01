@@ -29,7 +29,17 @@ import type {
 import { createJevClient, type JevClientOptions } from "./client";
 import { createGuardrailJudge, GUARDRAIL_TOOL } from "./guardrail-judge";
 import { createCompactionJudge } from "./compaction-judge";
-import { createRoutingJudge, OWNER_SESSION, type RoutingPool } from "./routing-judge";
+import { createRoutingJudge, OWNER_SESSION, type RoutingPool, type RoutingSession } from "./routing-judge";
+import {
+  MAX_MODEL_RETRY_ATTEMPTS,
+  canRetry,
+  newRetryState,
+  nextCandidate,
+  noteFailure,
+  noteRefused,
+  startTurn,
+  type ModelRetryState,
+} from "./model-retry";
 import { createInjectionJudge } from "./injection-judge";
 import { INJECTION_TOOLS } from "./injection";
 import { createLintGate } from "./lint-gate";
@@ -583,6 +593,103 @@ export function createJevGuardExtension(options: JevGuardOptions): ExtensionDefi
           },
         );
         router = judge;
+        // ---- #1110: the runtime-failure failover — the onModelError half ----
+        // When a model the router chose fails with a non-Route error, this
+        // answers the core's retry seam with the next candidate from the
+        // failed model's own tier (same tier, same preference order), up to
+        // four attempts per turn. Exclusions are per session with expiring
+        // exponential backoff (endpoint-level kinds indict the endpoint,
+        // model-level ones only the model), so the *next* turn starts from
+        // the known-good model and can re-select a previously failed one
+        // once its window expires. The core's own ordering is untouched:
+        // Route-handled kinds never reach this hook, and a proposal the fit
+        // guard refuses is skipped by the switch_refused handler below.
+        const retryStates = new Map<string, ModelRetryState>();
+        const retryStateFor = (session: RoutingSession): ModelRetryState => {
+          const known = retryStates.get(session.id);
+          if (known) return known;
+          // The router's borrowed-session bound, same rationale.
+          if (retryStates.size >= 64) retryStates.clear();
+          const fresh = newRetryState();
+          retryStates.set(session.id, fresh);
+          return fresh;
+        };
+        /** The footer text the retry wave last published (single-writer
+         * ownership, same discipline as the guardrail's turn note). */
+        let retryStatus: string | null = null;
+        /** #1110: the model that failed and started the wave still in
+         * flight, per session — the ref a refused/invalid proposal must
+         * release the expectation back to. */
+        const lastRetryFailed = new Map<string, string>();
+        /** The one place the wave's footer is released: only a status this
+         * wave still owns may be cleared (the seam's single-writer rule). */
+        const releaseRetryStatus = (): void => {
+          if (retryStatus !== null && lastPublished === retryStatus) {
+            lastPublished = null;
+            ctx.setStatus(null);
+          }
+          retryStatus = null;
+        };
+        ctx.afterTurn(releaseRetryStatus);
+        if (typeof ctx.onModelError === "function") {
+          ctx.onModelError(async (call) => {
+            if (!control.isOn("routing")) return;
+            const session = call.session ?? OWNER_SESSION;
+            // Scope: only a model the router itself chose. A manual pick
+            // (or routing paused) keeps the historical behavior exactly.
+            const snap = judge.snapshot(session);
+            if (snap.paused || snap.override || snap.decidedModel !== call.model) return;
+            const resolution = judge.peekResolution();
+            if (!resolution?.assignment) return;
+            const state = retryStateFor(session);
+            const now = Date.now();
+            if (!canRetry(state) || state.exhausted) return;
+            // The failed model is excluded first: an endpoint-level kind
+            // must also disqualify its same-endpoint siblings before the
+            // next candidate is picked.
+            noteFailure(state, call.model, call.errorKind, now);
+            // #852: the route's cooled-down stops ride the failure context
+            // (same list the per-turn switch honors) — never proposed.
+            const candidate = nextCandidate(resolution.assignment, call.model, state, now, call.endpointCooldowns ?? []);
+            if (candidate === undefined) {
+              // Nothing viable left: the router steps back — once per
+              // turn (the turn then ends the historical way, and the next
+              // turn's routing starts from the exclusions — never a
+              // blocking prompt).
+              state.exhausted = true;
+              ctx.appendEvent({
+                name: "jev_routing",
+                payload: { kind: "model-retry-exhausted", failed: call.model, errorKind: call.errorKind },
+              });
+              releaseRetryStatus();
+              return;
+            }
+            state.attempts += 1;
+            ctx.appendEvent({
+              name: "jev_routing",
+              payload: { kind: "model-retry", attempt: state.attempts, failed: call.model, errorKind: call.errorKind, next: candidate },
+            });
+            retryStatus = `routing: tentativo ${state.attempts}/${MAX_MODEL_RETRY_ATTEMPTS}…`;
+            lastPublished = retryStatus;
+            ctx.setStatus(retryStatus);
+            // The `model_switched` the retry causes is the router's own
+            // move — never the user taking the wheel. The switch chrome
+            // arrives only through the owning session's onEvent dispatch,
+            // so the pending mark can never be cleared for a child (its
+            // `model_switched` never reaches a hook): drop it eagerly,
+            // the wave keeps its own accounting.
+            if (lastRetryFailed.size >= 64) lastRetryFailed.clear();
+            lastRetryFailed.set(session.id, call.model);
+            judge.noteSwitch(candidate, call.model, session);
+            if (!session.owner) judge.dropPendingSwitch();
+            // A child's own wave cannot be released through the owner-keyed
+            // onEvent handlers (its switch chrome never reaches a hook), so
+            // release the expectation eagerly: the wave keeps its own
+            // accounting, the child's judge state stays coherent.
+            if (!session.owner) judge.releasePendingTo(call.model);
+            return { model: candidate };
+          });
+        }
         ctx.beforeTurn(async (call) => {
           if (!control.isOn("routing")) return;
           // #944: whose turn this is. A subagent child runs its turns
@@ -592,6 +699,8 @@ export function createJevGuardExtension(options: JevGuardOptions): ExtensionDefi
           // model move. An older host (apiVersion < 1.8) sends no session:
           // that reads as the owner, i.e. the pre-#944 behavior.
           const session = call.session ?? OWNER_SESSION;
+          // #1110: the retry budget is turn-scoped — the exclusions are not.
+          startTurn(retryStateFor(session));
           // #852: the route's cooled-down chain stops ride the context —
           // the judge refuses a switch targeting a known-unhealthy model.
           const verdict = await judge.decide(call.text, call.model, call.endpointCooldowns ?? [], session);
@@ -612,6 +721,11 @@ export function createJevGuardExtension(options: JevGuardOptions): ExtensionDefi
           if (event.type === "extension_failed") {
             const reason = (event as { reason?: unknown }).reason;
             if (reason !== "invalid_model" || !judge.switchPending()) return;
+            // #1110: a retry proposal that did not resolve leaves the
+            // expectation on the model that actually failed and serves —
+            // the next consultation must not gate on the dead target.
+            const failed = lastRetryFailed.get(OWNER_SESSION.id);
+            if (failed !== undefined) judge.releasePendingTo(failed);
             judge.dropPendingSwitch();
             ctx.appendEvent({
               name: "jev_routing",
@@ -627,9 +741,22 @@ export function createJevGuardExtension(options: JevGuardOptions): ExtensionDefi
           // invalid_model skip. The core already appended the visible
           // `switch_refused` record — never duplicated here — so the
           // router's own channel only drops the pending mark and notes
-          // why its target was not served.
+          // why its target was not served. #1110: during a retry wave the
+          // refused target is also excluded (model-level, short backoff)
+          // so the next attempt never re-proposes it.
           if (event.type === "switch_refused") {
+            const refused = (event as { to?: unknown }).to;
+            // #1110: the refused target is excluded (model-level, short
+            // backoff) so the next attempt never re-proposes it.
+            // onEvent dispatch carries no session identity by construction
+            // (the events reach these hooks from the owning session's log),
+            // so the owner key is the only honest one; with no owner state
+            // there is no wave to exclude for — skip, never invent one.
+            const ownerRetry = retryStates.get(OWNER_SESSION.id);
+            if (ownerRetry !== undefined && typeof refused === "string") noteRefused(ownerRetry, refused, Date.now());
             if (!judge.switchPending()) return;
+            const failed = lastRetryFailed.get(OWNER_SESSION.id);
+            if (failed !== undefined) judge.releasePendingTo(failed);
             judge.dropPendingSwitch();
             ctx.appendEvent({
               name: "jev_routing",

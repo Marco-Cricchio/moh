@@ -212,8 +212,8 @@ describe("onModelError (ADR-0059)", () => {
     const session = createSession({ provider: "pa", registry: reg, extensions: rt });
     const result = await session.send("loop");
     expect(result.status).toBe("error");
-    // pa + 3 retries on pb, then the budget ends the turn.
-    expect(served).toEqual(["pa/m", "pb/m", "pb/m", "pb/m"]);
-    expect(consulted).toBe(3);
+    // pa + 4 retries on pb, then the budget ends the turn (#1110: 4).
+    expect(served).toEqual(["pa/m", "pb/m", "pb/m", "pb/m", "pb/m"]);
+    expect(consulted).toBe(4);
   });
 });
