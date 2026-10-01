@@ -149,6 +149,18 @@ export {
   type LaneStatus,
   type LaneStoreOptions,
 } from "./development-lanes";
+export {
+  DevelopmentLaneService,
+  defaultLaneGitRunner,
+  laneWorktreeDirName,
+  resolveWorktreePath,
+  type CreateWorktreeLaneInput,
+  type LaneGitResult,
+  type LaneGitRunner,
+  type LaneOperationError,
+  type LaneOperationResult,
+  type LaneServiceOptions,
+} from "./development-lane-service";
 // #497: child-log tail seam — the ADR-0004 reopening that lets clients
 // (TUI subagent chips + live panel) tail a running child session's log
 // without full replay and without holding the child AgentSession.

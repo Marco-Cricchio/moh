@@ -145,7 +145,30 @@ export class DevelopmentLaneStore {
     return { ...group };
   }
 
-  createLane(input: CreateLaneInput): DevelopmentLane {
+  /**
+   * Validates a lane creation without writing state: the service probes
+   * before any Git write so a refused input never leaves partial effects.
+   * Resolves the group's target ref for the caller.
+   */
+  probeLane(input: CreateLaneInput): { ok: true; value: { targetRef: string } } | { ok: false; error: { kind: "registry"; message: string } } {
+    try {
+      this.#assertCreateLane(input);
+      const state = readState(this.#file);
+      const group = state.featureGroups.find((candidate) => candidate.id === input.featureGroupId);
+      if (!group) return { ok: false, error: { kind: "registry", message: `unknown feature group: ${input.featureGroupId}` } };
+      if (state.lanes.some((lane) => lane.worktreePath === input.worktreePath && !["landed", "abandoned"].includes(lane.status))) {
+        return { ok: false, error: { kind: "registry", message: `worktree is already assigned to an active lane: ${input.worktreePath}` } };
+      }
+      if (state.lanes.some((lane) => lane.sessionId === input.sessionId && !["landed", "abandoned"].includes(lane.status))) {
+        return { ok: false, error: { kind: "registry", message: `session is already assigned to an active lane: ${input.sessionId}` } };
+      }
+      return { ok: true, value: { targetRef: group.targetRef } };
+    } catch (error) {
+      return { ok: false, error: { kind: "registry", message: error instanceof Error ? error.message : String(error) } };
+    }
+  }
+
+  #assertCreateLane(input: CreateLaneInput): void {
     assertNonEmpty(input.featureGroupId, "featureGroupId");
     assertNonEmpty(input.sessionId, "sessionId");
     assertNonEmpty(input.worktreePath, "worktreePath");
@@ -167,6 +190,13 @@ export class DevelopmentLaneStore {
       if (!parent) throw new Error(`unknown parent lane: ${input.parentLaneId}`);
       if (parent.featureGroupId !== input.featureGroupId) throw new Error("parent lane must belong to the same feature group");
     }
+  }
+
+  /** Validates and registers a lane, returning the stored record. */
+  createLane(input: CreateLaneInput): DevelopmentLane {
+    this.#assertCreateLane(input);
+    const state = readState(this.#file);
+    const group = state.featureGroups.find((candidate) => candidate.id === input.featureGroupId)!;
     if (state.lanes.some((lane) => lane.worktreePath === input.worktreePath && !["landed", "abandoned"].includes(lane.status))) {
       throw new Error(`worktree is already assigned to an active lane: ${input.worktreePath}`);
     }
