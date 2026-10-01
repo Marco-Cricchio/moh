@@ -1,5 +1,5 @@
 import { existsSync } from "node:fs";
-import { dirname, isAbsolute, join, resolve } from "node:path";
+import { basename, dirname, isAbsolute, join, resolve } from "node:path";
 import { DevelopmentLaneStore, type DevelopmentLane, type LaneRelation, type LaneStatus } from "./development-lanes";
 
 
@@ -118,7 +118,7 @@ export class DevelopmentLaneService {
     // A relation/pair the registry would refuse (duplicate session, active
     // worktree, missing parent) must fail before any Git write happens.
     const relation: LaneRelation = input.parentLaneId ? "depends-on" : "independent";
-    const worktreePath = join(this.#cwd, "..", laneWorktreeDirName(input.branchRef));
+    const worktreePath = resolveWorktreePath(this.#cwd, input.branchRef);
     const probe = this.#store.probeLane({
       featureGroupId: input.featureGroupId,
       sessionId: input.sessionId,
@@ -313,15 +313,18 @@ export interface LaneConflict {
   laneRevision: string;
 }
 
-/** Directory name for a lane's worktree, derived from its branch ref. */
-export function laneWorktreeDirName(branchRef: string): string {
+/** Worktree directory for a lane: namespaced per project (the checkout's
+ * own directory name) so two repositories checked out side by side can
+ * never claim the same worktree path. */
+export function laneWorktreeDirName(branchRef: string, projectName: string): string {
   const safe = branchRef.replace(/[^a-zA-Z0-9._-]+/g, "-").replace(/^-+|-+$/g, "");
-  return `.moh-lanes/${safe || "lane"}`;
+  const safeProject = projectName.replace(/[^a-zA-Z0-9._-]+/g, "-").replace(/^-+|-+$/g, "") || "project";
+  return `.moh-lanes/${safeProject}/${safe || "lane"}`;
 }
 
 /** Resolves a lane worktree path to an absolute path under the project's parent. */
 export function resolveWorktreePath(cwd: string, branchRef: string): string {
   if (!isAbsolute(cwd)) throw new Error("cwd must be absolute");
   const root = dirname(cwd);
-  return resolve(root, laneWorktreeDirName(branchRef));
+  return resolve(root, laneWorktreeDirName(branchRef, basename(cwd)));
 }
