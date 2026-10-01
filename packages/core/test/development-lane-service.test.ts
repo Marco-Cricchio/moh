@@ -175,4 +175,98 @@ describe("development lane service", () => {
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.error.kind).toBe("worktree-exists");
   });
+
+  test("integrate lands cleanly and marks the lane landed", async () => {
+    const { cwd, home } = project();
+    const branches = new Set<string>();
+    const { runner, calls } = fakeGit((args) => {
+      if (args[0] === "worktree") { branches.add(args[3]!); return { code: 0, stdout: "", stderr: "" }; }
+      if (args[0] === "rev-parse" && args[2]!.startsWith("refs/heads/")) {
+        return branches.has(args[2]!.slice("refs/heads/".length)) ? { code: 0, stdout: "h\n", stderr: "" } : { code: 1, stdout: "", stderr: "" };
+      }
+      if (args[0] === "rev-parse") return { code: 0, stdout: "t0\n", stderr: "" };
+      return { code: 0, stdout: "", stderr: "" };
+    });
+    const service = new DevelopmentLaneService({ cwd, home, git: runner });
+    const group = await service.ensureFeatureGroup("theta", "develop");
+    const created = await service.createWorktreeLane({
+      featureGroupId: group.id, sessionId: "s1", branchRef: "feature/theta-1", baseRef: "develop",
+    });
+    expect(created.ok).toBe(true);
+    const result = await service.integrate(created.ok ? created.value.id : "");
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.value.outcome).toBe("landed");
+    const merge = calls.find((args) => args[0] === "merge");
+    expect(merge).toEqual(["merge", "--no-ff", "--no-edit", "feature/theta-1"]);
+    expect(calls.some((args) => args[0] === "merge" && args[1] === "--abort")).toBe(false);
+  });
+
+  test("integrate on conflict aborts the target merge and stores resumable conflict state", async () => {
+    const { cwd, home } = project();
+    const branches = new Set<string>();
+    let mergeAttempts = 0;
+    const { runner, calls } = fakeGit((args) => {
+      if (args[0] === "worktree") { branches.add(args[3]!); return { code: 0, stdout: "", stderr: "" }; }
+      if (args[0] === "rev-parse" && args[2]!.startsWith("refs/heads/")) {
+        return branches.has(args[2]!.slice("refs/heads/".length)) ? { code: 0, stdout: "lane999\n", stderr: "" } : { code: 1, stdout: "", stderr: "" };
+      }
+      if (args[0] === "rev-parse") return { code: 0, stdout: "targ222\n", stderr: "" };
+      if (args[0] === "merge" && args[1] !== "--abort") {
+        mergeAttempts += 1;
+        // First integrate conflicts; the post-resolve retry succeeds.
+        return mergeAttempts === 1 ? { code: 1, stdout: "", stderr: "CONFLICT (content): Merge conflict in file.txt" } : { code: 0, stdout: "", stderr: "" };
+      }
+      return { code: 0, stdout: "", stderr: "" };
+    });
+    const service = new DevelopmentLaneService({ cwd, home, git: runner });
+    const group = await service.ensureFeatureGroup("iota", "develop");
+    const created = await service.createWorktreeLane({
+      featureGroupId: group.id, sessionId: "s1", branchRef: "feature/iota-1", baseRef: "develop",
+    });
+    expect(created.ok).toBe(true);
+    const result = await service.integrate(created.ok ? created.value.id : "");
+    expect(result.ok).toBe(true);
+    if (result.ok && result.value.outcome === "conflicted") {
+      expect(result.value.conflict.targetRevision).toBe("targ222");
+      expect(result.value.conflict.laneRevision).toBe("lane999");
+    } else if (result.ok) {
+      throw new Error("expected a conflicted outcome");
+    }
+    // The merge was aborted in the target; the lane stays inspectable.
+    expect(calls.some((args) => args[0] === "merge" && args[1] === "--abort")).toBe(true);
+    const lane = service.listLanes(group.id)[0]!;
+    expect(lane.status).toBe("conflicted");
+    // Only a conflicted lane may resolve; a fresh retry that succeeds lands it.
+    const retry = await service.resolve(lane.id);
+    expect(retry.ok && retry.value.status).toBe("landed");
+  });
+
+  test("resolve refuses a lane that is not conflicted", async () => {
+    const { cwd, home } = project();
+    const { runner } = fakeGit((args) => {
+      if (args[0] === "rev-parse" && args[2]!.startsWith("refs/heads/")) return { code: 1, stdout: "", stderr: "" };
+      if (args[0] === "rev-parse") return { code: 0, stdout: "b\n", stderr: "" };
+      return { code: 0, stdout: "", stderr: "" };
+    });
+    const service = new DevelopmentLaneService({ cwd, home, git: runner });
+    const group = await service.ensureFeatureGroup("kappa", "develop");
+    const created = await service.createWorktreeLane({
+      featureGroupId: group.id, sessionId: "s1", branchRef: "feature/kappa-1", baseRef: "develop",
+    });
+    expect(created.ok).toBe(true);
+    const result = await service.resolve(created.ok ? created.value.id : "");
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error.kind).toBe("registry");
+  });
+
+  test("integrate refuses a lane whose branch is gone", async () => {
+    const { cwd, home } = project();
+    const { runner } = fakeGit(() => ({ code: 1, stdout: "", stderr: "fatal: bad revision" }));
+    const service = new DevelopmentLaneService({ cwd, home, git: runner });
+    const group = await service.ensureFeatureGroup("lambda", "develop");
+    const result = await service.integrate("lane-missing");
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error.kind).toBe("registry");
+    expect(service.listLanes(group.id)).toEqual([]);
+  });
 });

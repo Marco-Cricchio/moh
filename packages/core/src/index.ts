@@ -155,6 +155,7 @@ export {
   laneWorktreeDirName,
   resolveWorktreePath,
   type CreateWorktreeLaneInput,
+  type LaneConflict,
   type LaneGitResult,
   type LaneGitRunner,
   type LaneOperationError,

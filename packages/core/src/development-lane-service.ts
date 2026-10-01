@@ -237,6 +237,80 @@ export class DevelopmentLaneService {
     }
     return { ok: true, value: this.#store.setStatus(laneId, status) };
   }
+
+  /**
+   * Explicit integration: merge the lane's branch into the target ref in
+   * the MAIN checkout (invariant 8: serialized against one worktree, never
+   * a child's). On conflict the merge is aborted in the target and the lane
+   * enters a resumable `conflicted` state carrying source and target
+   * revisions (invariant 6). Never pushes (invariant 5's corollary: the
+   * client decides what happens to the remote).
+   */
+  async integrate(laneId: string): Promise<LaneOperationResult<{ outcome: "landed"; lane: DevelopmentLane } | { outcome: "conflicted"; conflict: LaneConflict }>> {
+    const lane = this.#store.listLanes().find((candidate) => candidate.id === laneId);
+    if (!lane) return fail("registry", `unknown lane: ${laneId}`);
+    if (["landed", "abandoned"].includes(lane.status)) {
+      return fail("registry", `lane is already ${lane.status}: ${laneId}`);
+    }
+    const branch = await this.#git(["rev-parse", "--verify", `refs/heads/${lane.branchRef}`], { cwd: this.#cwd });
+    if (branch.code !== 0) {
+      return fail("unknown-ref", `lane branch is missing: ${lane.branchRef}`);
+    }
+    const target = await this.#git(["rev-parse", "--verify", `${lane.targetRef}^{commit}`], { cwd: this.#cwd });
+    if (target.code !== 0) {
+      return fail("unknown-ref", `cannot resolve target ref "${lane.targetRef}": ${target.stderr.trim()}`);
+    }
+    const merge = await this.#git(["merge", "--no-ff", "--no-edit", lane.branchRef], { cwd: this.#cwd });
+    if (merge.code === 0) {
+      return { ok: true, value: { outcome: "landed" as const, lane: this.#store.setStatus(laneId, "landed") } };
+    }
+    // Conflict: undo the in-progress merge in the main checkout — the
+    // conflict belongs to the LANE as resumable state, not to the target.
+    await this.#git(["merge", "--abort"], { cwd: this.#cwd });
+    const laneHead = await this.#git(["rev-parse", "--verify", `refs/heads/${lane.branchRef}`], { cwd: this.#cwd });
+    this.#store.setStatus(laneId, "conflicted");
+    return {
+      ok: true,
+      value: {
+        outcome: "conflicted" as const,
+        conflict: {
+          laneId,
+          operation: "integrate" as const,
+          targetRef: lane.targetRef,
+          targetRevision: target.stdout.trim(),
+          laneRevision: laneHead.code === 0 ? laneHead.stdout.trim() : "",
+        },
+      },
+    };
+  }
+
+  /**
+   * Retries the last conflicted integration after the user resolved the
+   * conflict markers in the lane's worktree: merge the updated lane branch
+   * into the target again. Only a `conflicted` lane may resolve.
+   */
+  async resolve(laneId: string): Promise<LaneOperationResult<DevelopmentLane>> {
+    const lane = this.#store.listLanes().find((candidate) => candidate.id === laneId);
+    if (!lane) return fail("registry", `unknown lane: ${laneId}`);
+    if (lane.status !== "conflicted") {
+      return fail("registry", `lane is not conflicted: ${laneId} (${lane.status})`);
+    }
+    const retry = await this.#git(["merge", "--no-ff", "--no-edit", lane.branchRef], { cwd: this.#cwd });
+    if (retry.code !== 0) {
+      await this.#git(["merge", "--abort"], { cwd: this.#cwd });
+      return fail("conflict", retry.stderr.trim());
+    }
+    return { ok: true, value: this.#store.setStatus(laneId, "landed") };
+  }
+}
+
+/** A recorded integration conflict: resumable lane state, not a crash. */
+export interface LaneConflict {
+  laneId: string;
+  operation: "integrate" | "rebase";
+  targetRef: string;
+  targetRevision: string;
+  laneRevision: string;
 }
 
 /** Directory name for a lane's worktree, derived from its branch ref. */
