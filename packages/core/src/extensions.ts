@@ -40,6 +40,7 @@ import {
 } from "@moh/extension";
 import type { BeforeTurnResult } from "@moh/extension";
 import type { AgentEvent, ExtensionStatus } from "./types";
+import { redactKeys } from "./redact";
 
 /**
  * ADR-0033: what one `beforeTurn` dispatch produced. `model`/`confirm` are
@@ -268,32 +269,6 @@ export function resolveTurnConfirm(
   }
 }
 
-/**
- * ADR-0032 redaction heuristic: keys whose normalized form (lowercased,
- * `_` and `-` stripped) is EXACTLY one of these have their value replaced
- * before the payload reaches the log. Exact match on purpose — `tokens`
- * and `tokenCount` survive. A safety net, not a guarantee: an extension
- * must never put a credential in a payload in the first place.
- */
-const REDACTED_KEYS = new Set([
-  "apikey",
-  "apitoken",
-  "accesstoken",
-  "refreshtoken",
-  "token",
-  "secret",
-  "clientsecret",
-  "password",
-  "passwd",
-  "authorization",
-  "credentials",
-  "privatekey",
-  "sessionkey",
-]);
-
-/** Nesting depth the redaction walks (deeper values pass through). */
-const REDACT_DEPTH = 6;
-
 /** ADR-0032 cap: extension events per extension, per session, per turn. */
 const MAX_EVENTS_PER_TURN = 50;
 
@@ -307,23 +282,13 @@ const OWNER_BUDGET = "\u0000owner";
 /** ADR-0032 cap: serialized payload size. */
 const MAX_PAYLOAD_BYTES = 8 * 1024;
 
-function normalizeKey(key: string): string {
-  return key.toLowerCase().replace(/[_-]/g, "");
-}
-
-/** Returns a structurally-redacted copy of the payload (ADR-0032). */
-function redactPayload(value: unknown, depth = 0): unknown {
-  if (depth > REDACT_DEPTH) return value;
-  if (Array.isArray(value)) return value.map((v) => redactPayload(v, depth + 1));
-  if (value !== null && typeof value === "object") {
-    const out: Record<string, unknown> = {};
-    for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
-      out[k] = REDACTED_KEYS.has(normalizeKey(k)) ? "[redacted]" : redactPayload(v, depth + 1);
-    }
-    return out;
-  }
-  return value;
-}
+/**
+ * ADR-0032 redaction heuristic, now the shared module (ADR-0058, #1105):
+ * the same key heuristic serves the session log writer — one heuristic,
+ * not several. Still keys-only here: an extension payload is serialized
+ * and byte-capped below, and the pass stays structural by contract.
+ */
+const redactPayload = redactKeys;
 
 /**
  * The canonical path of a module: two spellings of one file (a symlink, a

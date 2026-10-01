@@ -176,6 +176,29 @@ is ever silently overwritten). A deleted session simply stops appearing
 in the home picker and listings; if it was the pertinent suggestion, the
 banner vanishes on refresh.
 
+## Secret redaction
+
+No secret is ever written to a session log in cleartext. Before an event
+reaches disk, the writer runs an unconditional redaction pass over it
+(ADR-0058): secret-shaped keys (`apiKey`, `token`, `password`,
+`authorization`, …) are masked wherever they appear, and high-confidence
+secret shapes in free text — provider keys (`sk-…`, `ghp_…`, `xoxb-…`,
+`AKIA…`, Google keys), `Bearer` headers, `api_key=`/`token=` assignments,
+credentials embedded in URLs, PEM private-key blocks — become the fixed
+placeholder `[redacted]`.
+
+There is **no opt-out**: no config key, flag or consent can disable the
+pass — it is an invariant of the log writer, like append-only. The pass
+applies at persistence only: the live conversation is untouched, but a
+resumed, forked or compacted session reconstructs from the log, so it
+sees `[redacted]` where the original turn saw the secret. Sessions
+written by older moh versions were not redacted — the guarantee is
+forward-only, existing logs are never rewritten. A string that *looks*
+like a secret but passed the patterns unmasked leaves a content-free,
+deduplicated line (a shape, never content) in
+`~/.moh/secret-redaction-misses.log` — the evidence file each new
+pattern is written from.
+
 ## Handoff between machines
 
 moh can carry a session between your machines with a **handoff**: a
