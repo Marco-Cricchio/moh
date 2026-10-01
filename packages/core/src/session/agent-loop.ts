@@ -35,6 +35,19 @@ import { quotaEventsFromProviderError, quotaRecoveryEvent, scopeKeyFor } from ".
 const QUOTA_ERROR_KINDS = new Set(["rate_limited", "quota_exhausted"]);
 
 /**
+ * ADR-0059: the ProviderError kinds the Route itself handles (fallback
+ * chain, recovery probes). A failure carrying one of these never reaches
+ * the `onModelError` seam — the Route's own ordering is unchanged — and
+ * neither does `aborted`.
+ */
+const ROUTE_HANDLED_ERROR_KINDS = new Set(["quota_exhausted", "rate_limited", "network", "overloaded"]);
+
+/** ADR-0059: the maximum model-error consultations one turn gets. A
+ * proposed ref that fails the same way consumes budget; an exhausted
+ * budget ends the turn exactly as a consultation without an answer. */
+export const MAX_MODEL_ERROR_RETRIES = 3;
+
+/**
  * #1099: a detail field is counted only when it is a finite number —
  * anything else a provider yields is unreported, never garbage in the log.
  */
@@ -71,6 +84,23 @@ export interface LoopBeforeTurn {
    * ask (headless): the turn is refused, never silently sent.
    */
   confirm?: (request: { reason: string; by: string; text: string }) => Promise<TurnConfirmOutcome>;
+}
+
+/**
+ * ADR-0059: the retry-on-model-error seam. `dispatch` consults the
+ * extensions' `onModelError` hooks after a provider call failed with an
+ * error the Route does not already handle; `applyModel` resolves and
+ * applies a proposed ref exactly like the manual `/model` switch, which
+ * the session owns (it appends the `model_switched` / `switch_refused`
+ * chrome). Absent = no extension can keep a failing turn alive.
+ */
+export interface LoopModelRetry {
+  dispatch(ctx: { model: string; errorKind: string; message: string }): Promise<{
+    model?: string;
+    by?: string;
+    errors: AgentEvent[];
+  }>;
+  applyModel(ref: string): { ok: true; model: string } | { ok: false; error: string; reason?: "context_length" };
 }
 
 
@@ -114,6 +144,11 @@ export interface AgentLoopOptions {
    * influence which model serves a turn (the historical behavior).
    */
   beforeTurn?: LoopBeforeTurn;
+  /**
+   * ADR-0059: the retry-on-model-error seam. Absent = a non-Route
+   * provider failure ends the turn exactly as it always has.
+   */
+  modelRetry?: LoopModelRetry;
   /** 1-based live-run turn sequence, for the `beforeTurn` context. */
   turnIndex?: () => number;
   /** Lazy MCP start, when configured. */
@@ -211,6 +246,7 @@ export class AgentLoop {
   readonly #toolRunner: LoopToolRunner;
   readonly #extensions: LoopExtensions | undefined;
   readonly #beforeTurn: LoopBeforeTurn | undefined;
+  readonly #modelRetry: LoopModelRetry | undefined;
   readonly #turnIndex: (() => number) | undefined;
   readonly #mcp: { ensureStarted(): Promise<void> } | undefined;
   readonly #messages: Message[];
@@ -237,6 +273,8 @@ export class AgentLoop {
   #callId = "";
   /** #1099: attempt ordinal within the current logical call. */
   #attemptIndex = 0;
+  /** ADR-0059: model-error consultations spent in the current turn. */
+  #modelRetriesThisTurn = 0;
   /** #83: turn rollup inputs — usage at turn start and models that served it. */
   #turnStartUsage: TokenUsage = { inputTokens: 0, outputTokens: 0 };
   #turnModels: string[] = [];
@@ -262,6 +300,7 @@ export class AgentLoop {
     this.#toolRunner = options.toolRunner;
     this.#extensions = options.extensions;
     this.#beforeTurn = options.beforeTurn;
+    this.#modelRetry = options.modelRetry;
     this.#turnIndex = options.turnIndex;
     this.#mcp = options.mcp;
     this.#messages = options.messages;
@@ -462,13 +501,17 @@ export class AgentLoop {
     if (!synthetic && !(await this.#dispatchBeforeTurn(text))) return { status: "cancelled" };
     // #166: the provider is read once per turn — a mid-session switch
     // (AgentSession.switchModel) takes effect from the next turn, never
-    // mid-stream.
-    const provider = this.#provider();
+    // mid-stream. The one exception is ADR-0059's retry seam below: a
+    // switch applied to recover a failed call is re-read immediately,
+    // because the failed call never produced a serving turn.
+    let provider = this.#provider();
     // #1099: one correlation id per turn; logical-call ids and attempt
     // ordinals reset per call below.
     this.#turnId = newUlid();
     this.#callId = "";
     this.#attemptIndex = 0;
+    // ADR-0059: the turn-scoped retry budget.
+    this.#modelRetriesThisTurn = 0;
     // #363: a Route may probe its selected target once at a user-turn
     // boundary. Follow-up calls after tools keep the serving target.
     if ("beginTurn" in provider && typeof provider.beginTurn === "function") provider.beginTurn();
@@ -620,64 +663,89 @@ export class AgentLoop {
       let sawText = false;
       let sawToolCalls = false;
       let sawUsage = false;
-      try {
-        const toolSpecs: ToolSpec[] = Object.values(this.#tools()).map((t) => ({
-          name: t.name,
-          description: t.description,
-          ...(t.inputSchema ? { parameters: z.toJSONSchema(t.inputSchema) as Record<string, unknown> } : {}),
-        }));
-        for await (const event of provider.stream(this.#messages, controller.signal, toolSpecs, this.#streamOptions())) {
-          if (controller.signal.aborted) break;
-          if (event.type === "text_delta") {
-            if (event.text) sawText = true;
-            this.#noteFirstContent();
-            assistantText += event.text;
-            this.#append({ type: "assistant_delta", text: event.text });
-          } else if (event.type === "tool_calls") {
-            if (event.calls.length > 0) sawToolCalls = true;
-            toolCalls.push(...event.calls);
-          } else if (event.type === "model_call_start") {
-            // A new call starts: record the previous one, then open a buffer
-            // for this one (#83). Mid-stream fallbacks announce a second
-            // call inside the same provider.stream — both get recorded.
-            this.#openCall(event);
-          } else if (event.type === "reasoning_start" || event.type === "reasoning_delta" || event.type === "reasoning_end") {
-            this.#consumeReasoningEvent(event);
-          } else if (event.type === "fallback") {
-            // Detailed durable fallback record; route_serving below is the
-            // user-visible transition once a fallback actually succeeds.
-            this.#append(event);
-            this.#flushFailedModelCall({ errorKind: event.reason });
-          } else if (event.type === "route_serving") {
-            this.#append(event);
-          } else if (event.type === "usage") {
-            // #853: zero tokens is the shape of an empty completion, never
-            // evidence of a real call.
-            if (event.inputTokens > 0 || event.outputTokens > 0) sawUsage = true;
-            this.#consumeUsage(event);
-          } else if (event.type === "finish") {
-            finishReason = event.reason;
+      // ADR-0059: the consumption loop. A non-Route provider failure may
+      // consult the `onModelError` seam and restart the call on the
+      // proposed model within this same iteration (same logical call, new
+      // attempt); without a proposal the catch ends the turn exactly as
+      // it always has.
+      for (;;) {
+        sawText = false;
+        sawToolCalls = false;
+        sawUsage = false;
+        assistantText = "";
+        finishReason = null;
+        toolCalls.length = 0;
+        try {
+          const toolSpecs: ToolSpec[] = Object.values(this.#tools()).map((t) => ({
+            name: t.name,
+            description: t.description,
+            ...(t.inputSchema ? { parameters: z.toJSONSchema(t.inputSchema) as Record<string, unknown> } : {}),
+          }));
+          for await (const event of provider.stream(this.#messages, controller.signal, toolSpecs, this.#streamOptions())) {
+            if (controller.signal.aborted) break;
+            if (event.type === "text_delta") {
+              if (event.text) sawText = true;
+              this.#noteFirstContent();
+              assistantText += event.text;
+              this.#append({ type: "assistant_delta", text: event.text });
+            } else if (event.type === "tool_calls") {
+              if (event.calls.length > 0) sawToolCalls = true;
+              toolCalls.push(...event.calls);
+            } else if (event.type === "model_call_start") {
+              // A new call starts: record the previous one, then open a buffer
+              // for this one (#83). Mid-stream fallbacks announce a second
+              // call inside the same provider.stream — both get recorded.
+              this.#openCall(event);
+            } else if (event.type === "reasoning_start" || event.type === "reasoning_delta" || event.type === "reasoning_end") {
+              this.#consumeReasoningEvent(event);
+            } else if (event.type === "fallback") {
+              // Detailed durable fallback record; route_serving below is the
+              // user-visible transition once a fallback actually succeeds.
+              this.#append(event);
+              this.#flushFailedModelCall({ errorKind: event.reason });
+            } else if (event.type === "route_serving") {
+              this.#append(event);
+            } else if (event.type === "usage") {
+              // #853: zero tokens is the shape of an empty completion, never
+              // evidence of a real call.
+              if (event.inputTokens > 0 || event.outputTokens > 0) sawUsage = true;
+              this.#consumeUsage(event);
+            } else if (event.type === "finish") {
+              finishReason = event.reason;
+            }
           }
+          break;
+        } catch (err) {
+          if (controller.signal.aborted) break;
+          // #240: the failed call keeps its completed reasoning text (error
+          // state) and model_call audit before the error lands. Opaque
+          // continuation is not checkpointed without a finalized message.
+          const refusing = this.#refusingRef();
+          this.#flushFailedModelCall(normalizeProviderError(err));
+          // ADR-0059: consult the seam before anything terminal is logged —
+          // a proposal that applies turns the failure into a retry (the
+          // failed `model_call` and the switch chrome record it); a refusal
+          // or silence falls through to the historical path, byte-identical.
+          if ((await this.#consultModelRetry(refusing, err)) !== null) {
+            // ADR-0049 (door one, #986): a real refusal still teaches the
+            // window it declared, before the call is retried elsewhere.
+            if (refusalKind(err) === "context_length" || declaredWindowOf(err) !== undefined) this.#onContextRefusal?.(refusing, err);
+            provider = this.#provider();
+            continue;
+          }
+          const reason = refusalKind(err) ?? "provider_failure";
+          const message = err instanceof Error ? err.message : String(err);
+          this.#append({ type: "error", reason, message });
+          // ADR-0049 (door one, #986): only a real refusal teaches — the
+          // provider just said what its window is by rejecting a larger
+          // request. A failure teaches when it classified as `context_length`
+          // (the session then learns or traces) or when its own wording
+          // carries a window formula moh reads (the refusal proves itself,
+          // and the refusal still keeps the kind it had: the taxonomy is
+          // untouched). Everything else is exactly as it was.
+          if (reason === "context_length" || declaredWindowOf(err) !== undefined) this.#onContextRefusal?.(refusing, err);
+          return { status: "error", reason, message };
         }
-      } catch (err) {
-        if (controller.signal.aborted) break;
-        // #240: the failed call keeps its completed reasoning text (error
-        // state) and model_call audit before the error lands. Opaque
-        // continuation is not checkpointed without a finalized message.
-        const refusing = this.#refusingRef();
-        this.#flushFailedModelCall(normalizeProviderError(err));
-        const reason = refusalKind(err) ?? "provider_failure";
-        const message = err instanceof Error ? err.message : String(err);
-        this.#append({ type: "error", reason, message });
-        // ADR-0049 (door one, #986): only a real refusal teaches — the
-        // provider just said what its window is by rejecting a larger
-        // request. A failure teaches when it classified as `context_length`
-        // (the session then learns or traces) or when its own wording
-        // carries a window formula moh reads (the refusal proves itself,
-        // and the refusal still keeps the kind it had: the taxonomy is
-        // untouched). Everything else is exactly as it was.
-        if (reason === "context_length" || declaredWindowOf(err) !== undefined) this.#onContextRefusal?.(refusing, err);
-        return { status: "error", reason, message };
       }
       // The provider stream ended: only a finalized model call is recorded.
       // An abort or an iterator ending after reasoning_end but before finish
@@ -774,6 +842,40 @@ export class AgentLoop {
       message: `${outcome.model}: ${applied.error}`,
     });
     return true;
+  }
+
+  /**
+   * ADR-0059: consults the `onModelError` seam for a failed provider call.
+   * Returns null — no retry — when the seam is absent, the error kind is
+   * Route-handled (`fallback` already moved the call down the chain) or
+   * `aborted`, the turn's consultation budget is spent, no hook answers,
+   * or the proposal cannot be applied. An applicable proposal applies the
+   * ref exactly like the manual `/model` switch (the session's guard
+   * records `switch_refused` for a fit refusal) and returns the proposal.
+   */
+  async #consultModelRetry(refusing: string, err: unknown): Promise<{ model: string } | null> {
+    const seam = this.#modelRetry;
+    if (!seam) return null;
+    const kind = refusalKind(err);
+    if (kind === undefined || kind === "aborted" || ROUTE_HANDLED_ERROR_KINDS.has(kind)) return null;
+    if (this.#modelRetriesThisTurn >= MAX_MODEL_ERROR_RETRIES) return null;
+    this.#modelRetriesThisTurn += 1;
+    const message = err instanceof Error ? err.message : String(err);
+    const outcome = await seam.dispatch({ model: refusing, errorKind: kind, message });
+    for (const e of outcome.errors) this.#append(e);
+    if (outcome.model === undefined || outcome.model === refusing) return null;
+    const applied = seam.applyModel(outcome.model);
+    if (applied.ok) return { model: applied.model };
+    // #948: a context-fit refusal already appended its own `switch_refused`
+    // chrome event (the session's guard) — exactly one visible record.
+    if (applied.reason === "context_length") return null;
+    this.#append({
+      type: "extension_failed",
+      name: outcome.by ?? "extension",
+      reason: "invalid_model",
+      message: `${outcome.model}: ${applied.error}`,
+    });
+    return null;
   }
 
   /** Drops an interrupted call without checkpointing resumable context: its

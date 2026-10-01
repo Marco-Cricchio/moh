@@ -72,6 +72,13 @@
  * ("the cut was never applied") instead of staying silent about a
  * judgment it made. An older runtime neither sends the window nor the
  * signal, and only ever calls `onApplied` for a cut it really applied.
+ *
+ * 1.10 (#1109, ADR-0059): the `onModelError` hook — the retry-on-error
+ * decision point. Fired once per failed provider call whose error kind is
+ * not Route-handled (quota, rate limit, network, overload): a hook may
+ * propose an alternative model ref, which the core validates through the
+ * same guards as any switch and retries the call on within the same turn.
+ * No answer keeps the historical behavior (the turn ends with the error).
  */
 
 /**
@@ -79,7 +86,7 @@
  * Minor bumps are additive (new optional hooks/fields); major bumps are
  * breaking and refuse to load older/newer extensions.
  */
-export const MOH_EXTENSION_API_VERSION = "1.9";
+export const MOH_EXTENSION_API_VERSION = "1.10";
 
 /** Structural (core-independent) view of an event-log entry. */
 export interface ExtensionEvent {
@@ -188,6 +195,47 @@ export interface BeforeTurnResult {
 
 /** How a pre-send confirmation ended (ADR-0033 §4). */
 export type TurnConfirmOutcome = "send" | "cancel" | "refuse";
+
+/**
+ * The model-error context (ADR-0059, apiVersion 1.10): what an
+ * `onModelError` hook sees when a provider call failed with an error the
+ * Route does not already handle. The facts of the failure only — the
+ * sanitized message, never raw transport detail.
+ */
+export interface ModelErrorContext {
+  /** The model ref that was serving the failed call. */
+  readonly model: string;
+  /** The normalized ProviderError kind (e.g. `context_length`, `auth`, `content_filtered`). */
+  readonly errorKind: string;
+  /** The sanitized failure message. */
+  readonly message: string;
+  /**
+   * #944: which session owns the failed call (same shape and contract as
+   * on `beforeTurn` — key per-session state by `id`).
+   */
+  readonly session?: {
+    readonly id: string;
+    readonly owner: boolean;
+  };
+}
+
+/**
+ * What an `onModelError` hook may return (ADR-0059). Proposal only, per
+ * the restrict-only precedent: `model` is an *alternative existing* model
+ * ref the core should retry the failed call on. The core validates it
+ * through the same guards as any manual switch (resolution, context fit —
+ * a fit refusal records `switch_refused` and no retry happens on that
+ * ref); it can never grant anything or invent a model. No answer (void)
+ * keeps the historical behavior: the turn ends with the error.
+ */
+export interface ModelErrorResult {
+  /** Alternative model ref to retry the failed call on (resolved like `/model`). */
+  readonly model?: string;
+}
+
+export type ModelErrorHook = (
+  ctx: ModelErrorContext,
+) => ModelErrorResult | void | Promise<ModelErrorResult | void>;
 
 export interface ToolCallContext {
   readonly callId: string;
@@ -438,6 +486,8 @@ export interface ExtensionSetupContext {
    */
   beforeTurn(hook: BeforeTurnHook): void;
   beforeModelCall(hook: BeforeModelCallHook): void;
+  /** ADR-0059: propose an alternative model ref after a non-Route provider failure. */
+  onModelError(hook: ModelErrorHook): void;
   onToolCall(hook: ToolCallHook): void;
   /**
    * Inspect a tool result before it reaches the model (ADR-0034, apiVersion
