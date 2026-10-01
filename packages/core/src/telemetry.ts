@@ -142,6 +142,20 @@ function addAttemptSummaries(into: TelemetryAttemptSummary, from: TelemetryAttem
   return into;
 }
 
+/** #1100: additive merge of per-session quota summaries — every counter
+ * sums, never overwrites. */
+function addQuotaSummaries(into: QuotaSummary, from: QuotaSummary): QuotaSummary {
+  into.exhausted += from.exhausted;
+  into.rateLimited += from.rateLimited;
+  into.open += from.open;
+  into.recovered += from.recovered;
+  into.fallbackRecoveries += from.fallbackRecoveries;
+  into.waitMs += from.waitMs;
+  into.observations += from.observations;
+  into.contradictions += from.contradictions;
+  return into;
+}
+
 /** Tool statistics across sessions. */
 export interface TelemetryToolRow {
   tool: string;
@@ -416,14 +430,12 @@ export function aggregateTelemetry(options: {
     // #1099: attempt-chain rollup, one pass per session.
     Object.assign(report.attempts, addAttemptSummaries(report.attempts, summarizeAttempts(attemptChains(events))));
 
-    // #1100: quota rollup — episodes, contradictions, observation count.
-    {
-      const observations = events.flatMap((e) => (e.type === "quota_observation" ? [e as QuotaObservationEvent] : []));
-      Object.assign(
-        report.quota,
-        summarizeQuota(quotaEpisodes(events), quotaContradictions(events), observations.length),
-      );
-    }
+    // #1100: quota rollup — episodes, contradictions, observation count,
+    // summed across sessions (never per-session overwrite).
+    addQuotaSummaries(
+      report.quota,
+      summarizeQuota(quotaEpisodes(events), quotaContradictions(events), events.filter((e) => e.type === "quota_observation").length),
+    );
 
     const rollup = aggregateSession(events, options.planFor);
     rollup.id = basename(name, ".jsonl");

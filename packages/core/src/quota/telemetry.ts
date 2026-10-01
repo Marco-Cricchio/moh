@@ -54,11 +54,16 @@ export function observationsFromQuotaReport(
   options: {
     endpoint: EndpointIdentity;
     model?: string;
-    /** Whose capacity the report describes. Default: `"endpoint"`. */
+    /** Whose capacity the report describes. Default: `"endpoint"`.
+     * A `pool` scope keys on the pool's identity alone — pass `pool`. */
     scope?: QuotaObservationEvent["scope"];
+    /** The shared pool's identity, required for `scope: "pool"`. */
+    pool?: string;
     /** Unit override for clients that know what the provider counts
      * (the #499 windows do not carry one; default `"provider-defined"`). */
     unit?: QuotaObservationEvent["unit"];
+    /** The moh.json endpoint name, when the recorder knows it. */
+    endpointName?: string;
     observedAt?: string;
   },
 ): QuotaObservationEvent[] {
@@ -67,9 +72,10 @@ export function observationsFromQuotaReport(
   return report.windows.map((window) => ({
     type: "quota_observation" as const,
     endpoint: options.endpoint,
+    ...(options.endpointName ? { endpointName: options.endpointName } : {}),
     ...(options.model ? { model: options.model } : {}),
     scope,
-    scopeKey: scopeKeyFor(options.endpoint, { scope, model: options.model }),
+    scopeKey: scopeKeyFor(options.endpoint, { scope, model: options.model, pool: options.pool }),
     unit: options.unit ?? ("provider-defined" as const),
     window: { label: window.label, kind: "unknown" as const },
     ...(window.limit !== undefined ? { limit: window.limit } : {}),
@@ -185,35 +191,36 @@ function redactText(value: string | undefined, max: number): string | undefined 
 }
 
 /** Normalizes a user declaration into its event form, or a plain error
- * string when the declaration contradicts itself (a `validUntil` before
- * `validFrom` is refused, never silently reordered). No key or credential
- * field exists on the input type — the redaction is structural, not
- * filtering. */
+ * string when the declaration contradicts itself (a blank endpoint name,
+ * or a `validUntil` before `validFrom` — refused, never silently
+ * reordered). No key or credential field exists on the input type — the
+ * redaction is structural, not filtering. */
 export function commercialDeclarationEvent(
   endpointName: string,
   declaration: CommercialDeclarationInput,
   now: string = new Date().toISOString(),
 ): { event: CommercialDeclarationEvent } | { error: string } {
+  const name = redactText(endpointName, MAX_TEXT);
+  if (!name) return { error: `commercial declaration refused: the endpoint name is blank` };
   const validFrom = declaration.validFrom ?? now;
   if (declaration.validUntil !== undefined && declaration.validUntil <= validFrom) {
-    return { error: `commercial declaration for "${endpointName}": validUntil must be after validFrom` };
+    return { error: `commercial declaration for "${name}": validUntil must be after validFrom` };
   }
   const price = typeof declaration.price === "number" && Number.isFinite(declaration.price) && declaration.price >= 0
     ? declaration.price
     : undefined;
+  const plan = redactText(declaration.plan, MAX_TEXT);
+  const currency = redactText(declaration.currency, MAX_CURRENCY);
+  const promotion = redactText(declaration.promotion, MAX_TEXT);
   return {
     event: {
       type: "commercial_declaration",
-      endpoint: redactText(endpointName, MAX_TEXT)!,
-      ...(redactText(declaration.plan, MAX_TEXT) ? { plan: redactText(declaration.plan, MAX_TEXT) } : {}),
+      endpoint: name,
+      ...(plan ? { plan } : {}),
       ...(price !== undefined ? { price } : {}),
-      ...(redactText(declaration.currency, MAX_CURRENCY)
-        ? { currency: redactText(declaration.currency, MAX_CURRENCY) }
-        : {}),
+      ...(currency ? { currency } : {}),
       ...(declaration.billingPeriod !== undefined ? { billingPeriod: declaration.billingPeriod } : {}),
-      ...(redactText(declaration.promotion, MAX_TEXT)
-        ? { promotion: redactText(declaration.promotion, MAX_TEXT) }
-        : {}),
+      ...(promotion ? { promotion } : {}),
       ...(declaration.overagePolicy !== undefined ? { overagePolicy: declaration.overagePolicy } : {}),
       validFrom,
       ...(declaration.validUntil !== undefined ? { validUntil: declaration.validUntil } : {}),
@@ -306,32 +313,40 @@ export interface QuotaContradiction {
 /** Finds contradictions between `quota_observation` events: same
  * `scopeKey` + window label, both carrying the compared field, both
  * temporally overlapping (the earlier one's `validUntil` — absent =
- * open-ended — still covers the later's `observedAt`), different values. */
+ * open-ended — still covers the later's `observedAt`), different values.
+ * Observations are grouped by scope+window first — linear in the log. */
 export function quotaContradictions(events: readonly AgentEvent[]): QuotaContradiction[] {
   const out: QuotaContradiction[] = [];
-  const seen = events.flatMap((e) => (e.type === "quota_observation" ? [e as QuotaObservationEvent] : []));
-  for (let i = 0; i < seen.length; i++) {
-    for (let j = i + 1; j < seen.length; j++) {
-      const a = seen[i]!;
-      const b = seen[j]!;
-      if (a.scopeKey !== b.scopeKey) continue;
-      const wa = a.window?.label;
-      const wb = b.window?.label;
-      if (wa === undefined || wa !== wb) continue;
-      if (a.validUntil !== undefined && a.validUntil < b.observedAt) continue;
-      if (b.validUntil !== undefined && b.validUntil < a.observedAt) continue;
-      for (const field of ["limit", "remaining"] as const) {
-        const va = a[field];
-        const vb = b[field];
-        if (va === undefined || vb === undefined || va === vb) continue;
-        // One direction per unordered pair: keep the earlier observation first.
-        out.push({
-          scopeKey: a.scopeKey,
-          window: wa,
-          field,
-          first: { value: va, observedAt: a.observedAt, source: a.source },
-          second: { value: vb, observedAt: b.observedAt, source: b.source },
-        });
+  const groups = new Map<string, QuotaObservationEvent[]>();
+  for (const event of events) {
+    if (event.type !== "quota_observation") continue;
+    const label = event.window?.label;
+    if (label === undefined) continue;
+    const key = `${event.scopeKey}\u0000${label}`;
+    const group = groups.get(key);
+    if (group) group.push(event as QuotaObservationEvent);
+    else groups.set(key, [event as QuotaObservationEvent]);
+  }
+  for (const group of groups.values()) {
+    for (let i = 0; i < group.length; i++) {
+      for (let j = i + 1; j < group.length; j++) {
+        const a = group[i]!;
+        const b = group[j]!;
+        if (a.validUntil !== undefined && a.validUntil < b.observedAt) continue;
+        if (b.validUntil !== undefined && b.validUntil < a.observedAt) continue;
+        for (const field of ["limit", "remaining"] as const) {
+          const va = a[field];
+          const vb = b[field];
+          if (va === undefined || vb === undefined || va === vb) continue;
+          // One direction per unordered pair: keep the earlier observation first.
+          out.push({
+            scopeKey: a.scopeKey,
+            window: a.window!.label,
+            field,
+            first: { value: va, observedAt: a.observedAt, source: a.source },
+            second: { value: vb, observedAt: b.observedAt, source: b.source },
+          });
+        }
       }
     }
   }
@@ -473,8 +488,11 @@ export function quotaPressure(
         row.quotaPressure = utilizationPct;
         row.allowanceUtilization = utilizationPct;
       }
-      // The one overage path: a usd-unit allowance the user priced.
-      const declaration = commercial.find((c) => c.price !== undefined);
+      // The one overage path: a usd-unit allowance the user priced, for
+      // this very endpoint. A labeled local estimate — never a charge.
+      const declaration = observation.endpointName
+        ? commercial.find((c) => c.price !== undefined && c.endpoint === observation.endpointName)
+        : undefined;
       if (
         declaration?.price !== undefined &&
         observation.unit === "usd" &&
@@ -482,7 +500,7 @@ export function quotaPressure(
         observation.limit !== undefined &&
         observation.used > observation.limit
       ) {
-        row.overageSpendUsd = observation.used - observation.limit;
+        row.overageSpendUsd = (observation.used - observation.limit) * declaration.price;
       }
     }
   }

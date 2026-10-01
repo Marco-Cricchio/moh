@@ -1000,7 +1000,7 @@ export class AgentSession {
   recordQuota(
     endpointName: string,
     report: import("../quota/types").QuotaReport,
-    options: { model?: string; scope?: "account" | "workspace" | "endpoint" | "provider" | "model" | "pool"; unit?: "tokens" | "requests" | "credits" | "usd" | "provider-defined" } = {},
+    options: { model?: string; scope?: "account" | "workspace" | "endpoint" | "provider" | "model" | "pool"; pool?: string; unit?: "tokens" | "requests" | "credits" | "usd" | "provider-defined" } = {},
   ): void {
     const profile = this.#endpoints.find((e) => e.name === endpointName);
     if (!profile) {
@@ -1010,6 +1010,7 @@ export class AgentSession {
     const endpoint = endpointIdentity(profile.type, profile.baseUrl);
     for (const observation of observationsFromQuotaReport(report, {
       endpoint,
+      endpointName: profile.name,
       ...(options.model ? { model: options.model } : {}),
       ...(options.scope ? { scope: options.scope } : {}),
       ...(options.unit ? { unit: options.unit } : {}),

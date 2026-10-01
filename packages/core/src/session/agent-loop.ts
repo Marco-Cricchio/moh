@@ -214,6 +214,7 @@ export class AgentLoop {
   readonly #lastPrompt: () => AssembledPrompt | null;
   readonly #append: (event: AgentEvent) => void;
   readonly #emitLive: ((event: ReasoningStreamEvent) => void) | undefined;
+
   readonly #thinking: (() => { level: ThinkingLevel } | undefined) | undefined;
   readonly #onTurnSettled: ((result: TurnResult) => void) | undefined;
   readonly #onContextRefusal: ((modelRef: string, err: unknown) => void) | undefined;
@@ -850,6 +851,9 @@ export class AgentLoop {
     if (outcome === "failed" && facts && QUOTA_ERROR_KINDS.has(facts.errorKind)) {
       const endpoint = call.endpoint ?? endpointIdentityOf(this.#provider());
       const scopeKey = scopeKeyFor(endpoint, { model: call.model });
+      // The block's `startedAt` is the failed attempt's settlement — the
+      // moment the refusal became a recorded fact (the attempt's own
+      // start/end live on the #1099 attempt record).
       const startedAt = new Date(endedAtMs).toISOString();
       const [observation, boundary] = quotaEventsFromProviderError({
         endpoint,

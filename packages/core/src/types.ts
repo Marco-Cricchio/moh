@@ -619,6 +619,9 @@ type AgentEventBase =
       /** Deterministic identity of the observed capacity (endpoint key,
        * or the pool's name for `pool` scope). Redacted by construction. */
       scopeKey: string;
+      /** The moh.json endpoint name the observation was recorded for,
+       * when the recorder knew it (redacted, bounded). */
+      endpointName?: string;
       unit?: "tokens" | "requests" | "credits" | "usd" | "provider-defined";
       /** The measured window. `kind` is `"unknown"` unless the provider
        * declared rolling/fixed semantics — moh never assumes one. */
