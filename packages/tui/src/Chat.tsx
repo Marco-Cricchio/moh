@@ -569,9 +569,10 @@ export function Chat({
   // Panel layout: the peek is full-width chrome above the footer (the
   // split layout is gone — see the return below). Rows stay tightly
   // capped: panel header + tail must never crowd the transcript.
-  // Five rows make the child’s live work readable; this is chrome budgeted
-  // out of the volatile transcript below, never unbounded panel growth.
-  const panelRows = 5;
+  // Eight rows make the child’s live work readable (owner feedback: at
+  // least 8); this is chrome budgeted out of the volatile transcript
+  // below, never unbounded panel growth.
+  const panelRows = 8;
   // The footer is bottom-anchored. Its changing chrome (peek/chips) takes
   // rows from the volatile transcript budget rather than pushing composer,
   // status and action chips down the terminal.
