@@ -20,6 +20,7 @@ page is the same content in manual form, plus the manual's own entries
 | ctrl+t | cycle theme (built-ins + personal) |
 | ctrl+y | cycle thinking level |
 | ctrl+s | settings panel |
+| ctrl+n | project notes (free-text, shared across sessions) |
 | ctrl+q | usage quota (provider + local, this session and recent) |
 | ctrl+r | rename the current session |
 | ctrl+g | keep my branch (while the external-growth warning is up): move the head back to your local tip |
