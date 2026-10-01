@@ -64,6 +64,7 @@ import { HandoffActivationModal, type GhVerification } from "./HandoffActivation
 import { SettingsPanel } from "./SettingsPanel";
 import { CommandsPanel } from "./CommandsPanel";
 import { ManualModal } from "./ManualModal";
+import { NotesModal } from "./NotesModal";
 import { ModelPickerModal } from "./ModelPickerModal";
 import { sanitizeForDisplay } from "./render-sanitize";
 import { endpointModelCatalog, aggregateLocalUsage, aggregateTelemetry, analyzeSession, billingPlanResolver, type LocalUsageRow, type SessionAnalysisReport } from "@moh/core";
@@ -137,7 +138,7 @@ export interface AppProps {
   yolo?: boolean;
 }
 
-type Overlay = null | "settings" | "commands" | "manual" | "onboarding" | "handoff-onboarding" | "workflow-offer" | "frontier" | "skill-chooser" | "model" | "skill-updates" | "quota" | "rename" | "cold-wizard" | "tree" | "mpm" | "session" | "jev" | "browser" | "lanes";
+type Overlay = null | "settings" | "commands" | "manual" | "notes" | "onboarding" |"handoff-onboarding" | "workflow-offer" | "frontier" | "skill-chooser" | "model" | "skill-updates" | "quota" | "rename" | "cold-wizard" | "tree" | "mpm" | "session" | "jev" | "browser" | "lanes";
 
 /** #242: one-shot, non-blocking informed-consent copy. Exported so focused
  * tests can verify the full message even when narrow status chrome clips it. */
@@ -1363,6 +1364,8 @@ function AppShell({
     // branch and /help is the documented fallback (never silently remapped;
     // backspace keeps deleting in the composer).
     if (overlay === null && key.ctrl && input === "h") return setOverlay("manual");
+    // Project notes (ctrl+n) — chat and home alike, no session required.
+    if (overlay === null && key.ctrl && input === "n") return setOverlay("notes");
     if (overlay === null && key.ctrl && input === "f" && workflowOn) return setOverlay("frontier");
     // #499: usage quota modal from chat — instant check before long tasks.
     if (overlay === null && key.ctrl && input === "q" && session) return setOverlay("quota");
@@ -1380,7 +1383,7 @@ function AppShell({
     // discarding the explicit cancel/Just claim decision. The manual modal
     // owns Esc too (#457): page → index, index → close — the App-level
     // handler must not close it out from under the page view.
-    if (overlay !== null && overlay !== "onboarding" && overlay !== "skill-chooser" && overlay !== "manual" && key.escape) {
+    if (overlay !== null && overlay !== "onboarding" && overlay !== "skill-chooser" && overlay !== "manual" && overlay !== "notes" && key.escape) {
       // The theme studio (inside settings) owns Esc while its name prompt or
       // picker is open — a bare Esc there must return to the studio, not
       // tear the whole overlay down to the home/chat screen.
@@ -1715,6 +1718,7 @@ function AppShell({
           />
         )}
         {overlay === "manual" && <ManualModal onClose={() => setOverlay(null)} />}
+        {overlay === "notes" && <NotesModal cwd={cwd} home={home ?? homedir()} onClose={() => setOverlay(null)} />}
         {overlay === "rename" && session && (
           <SessionRenameModal
             initialName={[...session.history()].reverse().find((event) => event.type === "session_renamed")?.name ?? ""}

@@ -155,6 +155,19 @@ describe("App overlays (issue #33)", () => {
     i.unmount();
   });
 
+  test("ctrl+n opens the project notes modal from home, esc closes", async () => {
+    const cwd = mkdtempSync(join(tmpdir(), "moh-app-cwd-"));
+    const i = render(<App intro={false} cwd={cwd} home={tempHome()} provider={MockProvider.demo()} skipOnboarding />);
+    await sleep(50);
+    i.stdin.write("\x0e"); // ctrl+n
+    await sleep(80);
+    expect(stripAnsi(i.lastFrame() ?? "")).toContain("no notes yet");
+    i.stdin.write("\x1b");
+    await sleep(70);
+    expect(stripAnsi(i.lastFrame() ?? "")).not.toContain("no notes yet");
+    i.unmount();
+  });
+
   test("ctrl+s and ctrl+k open the panels from home too", async () => {
     const cwd = mkdtempSync(join(tmpdir(), "moh-app-cwd-"));
     const i = render(<App intro={false} cwd={cwd} home={tempHome()} provider={MockProvider.demo()} skipOnboarding />);
