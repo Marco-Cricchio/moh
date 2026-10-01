@@ -57,7 +57,7 @@ async function runtime(
   home = tmpDir(),
 ): Promise<ExtensionRuntime> {
   const rt = new ExtensionRuntime({ mohHome: home, consent: () => true });
-  await rt.register(defineExtension({ name: "probe", version: "1.0.0", apiVersion: "1.2", setup }));
+  await rt.register(defineExtension({ name: "probe", version: "1.0.0", apiVersion: "1.10", setup }));
   return rt;
 }
 
@@ -133,7 +133,7 @@ describe("onModelError (ADR-0059)", () => {
     const reg = await rt0.register(defineExtension({
       name: "probe",
       version: "1.0.0",
-      apiVersion: "1.2",
+      apiVersion: "1.10",
       setup: (ctx) => ctx.onModelError(() => ({ model: "openrouter/mistralai/mistral-nemo" })),
     }));
     // Turn 1 measures a context far above mistral-nemo's window; turn 2
@@ -214,6 +214,6 @@ describe("onModelError (ADR-0059)", () => {
     expect(result.status).toBe("error");
     // pa + 3 retries on pb, then the budget ends the turn.
     expect(served).toEqual(["pa/m", "pb/m", "pb/m", "pb/m"]);
-    expect(consulted).toBeGreaterThanOrEqual(3);
+    expect(consulted).toBe(3);
   });
 });
