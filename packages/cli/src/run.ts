@@ -10,6 +10,7 @@ import { resolve as pathResolve, join } from "node:path";
 import { homedir } from "node:os";
 import {
   MAX_ITERATIONS_UNLIMITED,
+  DevelopmentLaneService,
   MockProvider,
   RuleError,
   SessionStore,
@@ -20,8 +21,10 @@ import {
   loadMohConfig,
   overridesFromFlags,
   publishHandoffAtExit,
+  readUserConfigFile,
   sessionFromConfig,
   resolveTracker,
+  userConfigFile,
   type SessionConsent,
   transportActive,
   type AgentEvent,
@@ -336,11 +339,30 @@ export async function runCommand(options: RunOptions): Promise<number> {
   // code — a refusal is not a crash, and never a silent send.
   const confirm = headlessConfirm(err);
 
+  // ADR-0060 (auto-lane): a fresh headless session lands in its own lane
+  // worktree unless lanes are off. One stdout line names the lane — never
+  // silent, never a question. Failure degrades to a laneless session.
+  let laneCwd: string | undefined;
+  try {
+    const userCfg = readUserConfigFile(userConfigFile(options.home)) as { lanes?: { auto?: boolean } };
+    const lanesEnabled = userCfg.lanes?.auto !== false;
+    const provisioned = await new DevelopmentLaneService({ cwd, home: options.home }).ensureSessionLane({
+      sessionId: `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
+      auto: lanesEnabled,
+    });
+    if (provisioned.lane) {
+      laneCwd = provisioned.lane.worktreePath;
+      out.write(`lane: ${provisioned.lane.branchRef} (isolated worktree: ${laneCwd})\n`);
+    }
+  } catch {
+    // Lane provisioning must never block a session.
+  }
+
   // Single assembly path (#100): the builder owns moh.json reading, the
   // MCP merge, provider resolution and session wiring. Headless: no
   // consent seams — project MCP servers and "ask" calls fail fast.
   const assembled = sessionFromConfig({
-    cwd,
+    cwd: laneCwd ?? cwd,
     // #826: the bundled first-party extensions this client ships.
     bundledExtensions: bundledExtensionSources(options.home),
     ...(options.home ? { home: options.home } : {}),

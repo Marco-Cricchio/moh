@@ -1,4 +1,4 @@
-import { existsSync } from "node:fs";
+import { existsSync, mkdirSync, symlinkSync } from "node:fs";
 import { basename, dirname, isAbsolute, join, resolve } from "node:path";
 import { DevelopmentLaneStore, type DevelopmentLane, type LaneRelation, type LaneStatus } from "./development-lanes";
 
@@ -74,11 +74,19 @@ function fail(kind: LaneOperationError["kind"], message: string): { ok: false; e
 export class DevelopmentLaneService {
   readonly #store: DevelopmentLaneStore;
   readonly #cwd: string;
+  /** Where the session actually runs (a lane worktree or the checkout). */
+  readonly #sessionCwd: string;
   readonly #git: LaneGitRunner;
 
   constructor(options: LaneServiceOptions) {
-    this.#cwd = options.cwd;
-    this.#store = new DevelopmentLaneStore({ cwd: options.cwd, home: options.home });
+    // A service constructed inside a lane worktree is remapped to the main
+    // checkout: the registry is per-project (origin/uuid slug) and a
+    // worktree resolves a different identity — and every Git write
+    // (worktree add, merge, branch -D) belongs to the main checkout,
+    // never to a lane's own checkout.
+    this.#cwd = mainCheckoutFor(options.cwd) ?? options.cwd;
+    this.#sessionCwd = options.cwd;
+    this.#store = new DevelopmentLaneStore({ cwd: this.#cwd, home: options.home });
     this.#git = options.git ?? defaultLaneGitRunner;
   }
 
@@ -239,6 +247,102 @@ export class DevelopmentLaneService {
   }
 
   /**
+   * Automatic lane provisioning (ADR-0060 amendment): called on every
+   * FRESH session start, so the user never runs lane commands by hand —
+   * they start N sessions and each lands in its own isolated worktree.
+   *
+   * - disabled by config (`lanes.auto: false`) or a non-repo/detached cwd
+   *   → a laneless session, exactly the pre-lane behavior;
+   * - the cwd is already inside a lane worktree → that lane is reused
+   *   (resume-in-lane, nested clients);
+   * - otherwise: feature group derived from the checkout's current branch
+   *   (its target), one lane per session on a `moh/<session>` branch,
+   *   default relation `independent` (same feature never implies
+   *   dependency — the user can stack later via `moh lanes`);
+   * - `node_modules` is symlinked from the checkout when present so the
+   *   lane reuses the shared install instead of paying a fresh one.
+   *
+   * Failure is non-fatal by design: a lane problem degrades to a plain
+   * session and the reason is returned for one visible notice.
+   */
+  async ensureSessionLane(options: {
+    /** Stable session correlation for the lane record and branch name. */
+    sessionId: string;
+    /** `lanes.auto` from the user config (default: true). */
+    auto?: boolean;
+  }): Promise<{ lane: DevelopmentLane | null; reason?: string }> {
+    if (options.auto === false) return { lane: null };
+    // Inside an existing lane worktree: reuse it — never nest lanes.
+    // (Checked against the SESSION cwd — the constructor remaps #cwd to the
+    // main checkout for registry/Git ownership — and before repo-ness: a
+    // worktree's .git is a pointer file the caller may not have
+    // materialized yet.)
+    const existing = this.#store.listLanes().find(
+      (candidate) => candidate.status === "active" && (candidate.worktreePath === this.#sessionCwd || this.#sessionCwd.startsWith(candidate.worktreePath + "/")),
+    );
+    if (existing) return { lane: existing };
+    if (!existsSync(join(this.#cwd, ".git"))) {
+      return { lane: null, reason: "not a git repository" };
+    }
+    const head = await this.#git(["rev-parse", "--abbrev-ref", "HEAD"], { cwd: this.#cwd });
+    const branch = head.stdout.trim();
+    if (head.code !== 0 || !branch || branch === "HEAD") {
+      return { lane: null, reason: "detached HEAD" };
+    }
+    let group = this.#store.listFeatureGroups().find((candidate) => candidate.targetRef === branch);
+    if (!group) {
+      try {
+        group = await this.ensureFeatureGroup(branch, branch);
+      } catch {
+        // A same-name group with a different target: qualify with the target.
+        group = await this.ensureFeatureGroup(`${branch}-work`, branch);
+      }
+    }
+    const sessionId = `auto-${options.sessionId}`;
+    const branchRef = `moh/${sessionId}`.slice(0, 80);
+    // The active lane for this session id is the reuse path: a retried
+    // open (or a client that calls provisioning twice) gets the same lane.
+    const mine = this.#store.listLanes().find(
+      (candidate) => candidate.sessionId === sessionId && !["landed", "abandoned"].includes(candidate.status),
+    );
+    if (mine && this.worktreeExists(mine)) return { lane: mine };
+    const result = await this.createWorktreeLane({
+      featureGroupId: group.id,
+      sessionId,
+      branchRef,
+      baseRef: branch,
+    });
+    if (!result.ok) {
+      // A branch that already exists (same session id retried): reuse the
+      // registered lane if one is active for that branch.
+      const registered = this.#store.listLanes().find(
+        (candidate) => candidate.branchRef === branchRef && !["landed", "abandoned"].includes(candidate.status),
+      );
+      if (registered && this.worktreeExists(registered)) return { lane: registered };
+      return { lane: null, reason: result.error.message };
+    }
+    this.#shareNodeModules(result.value.worktreePath);
+    return { lane: result.value };
+  }
+
+  /** Shares the checkout's node_modules with a fresh worktree (fail-silent). */
+  #shareNodeModules(worktreePath: string): void {
+    try {
+      const source = join(this.#cwd, "node_modules");
+      const target = join(worktreePath, "node_modules");
+      if (existsSync(source) && !existsSync(target)) {
+        // The worktree directory may be missing in degraded flows; creating
+        // it is harmless (git materializes it in the normal path).
+        mkdirSync(worktreePath, { recursive: true });
+        symlinkSync(source, target, process.platform === "win32" ? "junction" : "dir");
+      }
+    } catch {
+      // A failed share is invisible; the lane still works (its own install).
+    }
+  }
+
+
+  /**
    * Explicit integration: merge the lane's branch into the target ref in
    * the MAIN checkout (invariant 8: serialized against one worktree, never
    * a child's). On conflict the merge is aborted in the target and the lane
@@ -320,6 +424,25 @@ export function laneWorktreeDirName(branchRef: string, projectName: string): str
   const safe = branchRef.replace(/[^a-zA-Z0-9._-]+/g, "-").replace(/^-+|-+$/g, "");
   const safeProject = projectName.replace(/[^a-zA-Z0-9._-]+/g, "-").replace(/^-+|-+$/g, "") || "project";
   return `.moh-lanes/${safeProject}/${safe || "lane"}`;
+}
+
+/** A path inside a lane worktree maps to the main checkout that owns it:
+ * lane worktrees live under `<checkout-parent>/.moh-lanes/<repo>/<branch>`,
+ * so the checkout root is `<anchor-parent>/<repo>` where `.moh-lanes` is the
+ * anchor. Null when the cwd is not inside a lane worktree. */
+export function mainCheckoutFor(cwd: string): string | null {
+  let current = resolve(cwd);
+  let repoName: string | null = null;
+  for (let i = 0; i < 8; i++) {
+    const parent = dirname(current);
+    if (parent === current) return null;
+    if (basename(current) === ".moh-lanes") {
+      return repoName ? join(dirname(current), repoName) : null;
+    }
+    repoName = basename(current);
+    current = parent;
+  }
+  return null;
 }
 
 /** Resolves a lane worktree path to an absolute path under the project's parent. */

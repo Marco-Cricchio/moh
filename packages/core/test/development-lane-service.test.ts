@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { existsSync, mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DevelopmentLaneService, resolveWorktreePath, type LaneGitRunner, type LaneGitResult } from "../src/index";
@@ -268,5 +268,112 @@ describe("development lane service", () => {
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.error.kind).toBe("registry");
     expect(service.listLanes(group.id)).toEqual([]);
+  });
+});
+
+describe("ensureSessionLane (auto-lane, ADR-0060)", () => {
+  function gitRepo() {
+    const cwd = mkdtempSync(join(tmpdir(), "moh-auto-lane-"));
+    mkdirSync(join(cwd, ".git"), { recursive: true });
+    return cwd;
+  }
+
+  test("provisions a lane under a group named after the current branch", async () => {
+    const cwd = gitRepo();
+    const home = mkdtempSync(join(tmpdir(), "h-"));
+    const { runner } = fakeGit((args) => {
+      if (args[0] === "rev-parse" && args[1] === "--abbrev-ref") return { code: 0, stdout: "develop\n", stderr: "" };
+      if (args[0] === "rev-parse" && args[2]!.startsWith("refs/heads/")) return { code: 1, stdout: "", stderr: "" };
+      if (args[0] === "rev-parse") return { code: 0, stdout: "b0\n", stderr: "" };
+      return { code: 0, stdout: "", stderr: "" };
+    });
+    const service = new DevelopmentLaneService({ cwd, home, git: runner });
+    const { lane } = await service.ensureSessionLane({ sessionId: "abc123" });
+    expect(lane).toBeDefined();
+    expect(lane!.branchRef).toBe("moh/auto-abc123");
+    expect(lane!.baseRef).toBe("develop");
+    expect(lane!.targetRef).toBe("develop");
+    expect(lane!.relation).toBe("independent");
+    const groups = service.store.listFeatureGroups();
+    expect(groups).toHaveLength(1);
+    expect(groups[0]!.name).toBe("develop");
+  });
+
+  test("a second session reuses the group and gets its own lane", async () => {
+    const cwd = gitRepo();
+    const home = mkdtempSync(join(tmpdir(), "h-"));
+    const { runner } = fakeGit((args) => {
+      if (args[0] === "rev-parse" && args[1] === "--abbrev-ref") return { code: 0, stdout: "develop\n", stderr: "" };
+      if (args[0] === "rev-parse" && args[2]!.startsWith("refs/heads/")) return { code: 1, stdout: "", stderr: "" };
+      if (args[0] === "rev-parse") return { code: 0, stdout: "b1\n", stderr: "" };
+      return { code: 0, stdout: "", stderr: "" };
+    });
+    const service = new DevelopmentLaneService({ cwd, home, git: runner });
+    const first = await service.ensureSessionLane({ sessionId: "one" });
+    const second = await service.ensureSessionLane({ sessionId: "two" });
+    expect(first.lane!.branchRef).toBe("moh/auto-one");
+    expect(second.lane!.branchRef).toBe("moh/auto-two");
+    expect(service.store.listFeatureGroups()).toHaveLength(1);
+  });
+
+  test("opt-out via auto:false returns no lane and writes nothing", async () => {
+    const cwd = gitRepo();
+    const home = mkdtempSync(join(tmpdir(), "h-"));
+    const { runner, calls } = fakeGit(() => ({ code: 0, stdout: "", stderr: "" }));
+    const service = new DevelopmentLaneService({ cwd, home, git: runner });
+    const { lane } = await service.ensureSessionLane({ sessionId: "x", auto: false });
+    expect(lane).toBeNull();
+    expect(calls).toEqual([]);
+    expect(service.store.listFeatureGroups()).toEqual([]);
+  });
+
+  test("a session started inside a lane worktree reuses that lane", async () => {
+    const cwd = gitRepo();
+    const home = mkdtempSync(join(tmpdir(), "h-"));
+    const { runner } = fakeGit((args) => {
+      if (args[0] === "rev-parse" && args[1] === "--abbrev-ref") return { code: 0, stdout: "develop\n", stderr: "" };
+      if (args[0] === "rev-parse" && args[2]!.startsWith("refs/heads/")) return { code: 1, stdout: "", stderr: "" };
+      if (args[0] === "rev-parse") return { code: 0, stdout: "b2\n", stderr: "" };
+      return { code: 0, stdout: "", stderr: "" };
+    });
+    const service = new DevelopmentLaneService({ cwd, home, git: runner });
+    const { lane } = await service.ensureSessionLane({ sessionId: "r1" });
+    // Materialize the worktree the fake runner never created (its .git
+    // pointer file is what the reuse check keys on in the real flow).
+    mkdirSync(lane!.worktreePath, { recursive: true });
+    writeFileSync(join(lane!.worktreePath, ".git"), "gitdir: /x\n");
+    // A nested service pointed at the worktree sees the same registry (same
+    // home/project) and must reuse the lane instead of nesting.
+    const nested = new DevelopmentLaneService({ cwd: lane!.worktreePath, home, git: runner });
+    const again = await nested.ensureSessionLane({ sessionId: "r2" });
+    expect(again.lane!.id).toBe(lane!.id);
+  });
+
+  test("a detached HEAD stays laneless with a reason", async () => {
+    const cwd = gitRepo();
+    const home = mkdtempSync(join(tmpdir(), "h-"));
+    const { runner } = fakeGit((args) => {
+      if (args[0] === "rev-parse" && args[1] === "--abbrev-ref") return { code: 0, stdout: "HEAD\n", stderr: "" };
+      return { code: 0, stdout: "", stderr: "" };
+    });
+    const service = new DevelopmentLaneService({ cwd, home, git: runner });
+    const { lane, reason } = await service.ensureSessionLane({ sessionId: "d1" });
+    expect(lane).toBeNull();
+    expect(reason).toBe("detached HEAD");
+  });
+
+  test("shares the checkout's node_modules into the fresh worktree", async () => {
+    const cwd = gitRepo();
+    mkdirSync(join(cwd, "node_modules"));
+    const home = mkdtempSync(join(tmpdir(), "h-"));
+    const { runner } = fakeGit((args) => {
+      if (args[0] === "rev-parse" && args[1] === "--abbrev-ref") return { code: 0, stdout: "develop\n", stderr: "" };
+      if (args[0] === "rev-parse" && args[2]!.startsWith("refs/heads/")) return { code: 1, stdout: "", stderr: "" };
+      if (args[0] === "rev-parse") return { code: 0, stdout: "b3\n", stderr: "" };
+      return { code: 0, stdout: "", stderr: "" };
+    });
+    const service = new DevelopmentLaneService({ cwd, home, git: runner });
+    const { lane } = await service.ensureSessionLane({ sessionId: "nm1" });
+    expect(existsSync(join(lane!.worktreePath, "node_modules"))).toBe(true);
   });
 });

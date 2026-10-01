@@ -20,6 +20,8 @@ import {
   prepareTrackerRemote,
   resolveTrackerSync,
   readUserProviderConfig,
+  DevelopmentLaneService,
+  readUserConfigFile,
   type AgentSession,
   type AssemblyError,
   type ExtensionStatus,
@@ -828,42 +830,65 @@ function AppShell({
     /** #595: a session assembled in a DIFFERENT cwd (the clone). */
     cwdOverride?: string,
   ) => {
-    const base = {
-      cwd: cwdOverride ?? cwd,
-      home,
-      provider,
-      workflow: configRef.current.workflow.enabled,
-      onPermissionRequest: gate.ask as NonNullable<Parameters<typeof makeSession>[0]["onPermissionRequest"]>,
-      onAskUser: askGate.ask,
-      onConfirmTurn: confirmGate.ask,
-      permissionMode: config.permissionMode,
-      ...(yolo ? { yolo } : {}),
-      ...(handoffOffer ? { handoffOffer } : {}),
-      onHandoffWarning: (message: string) => push(message, "warn"),
+    const finishOpen = (laneCwd?: string, laneNotice?: string) => {
+      const base = {
+        cwd: cwdOverride ?? laneCwd ?? cwd,
+        home,
+        provider,
+        workflow: configRef.current.workflow.enabled,
+        onPermissionRequest: gate.ask as NonNullable<Parameters<typeof makeSession>[0]["onPermissionRequest"]>,
+        onAskUser: askGate.ask,
+        onConfirmTurn: confirmGate.ask,
+        permissionMode: config.permissionMode,
+        ...(yolo ? { yolo } : {}),
+        ...(handoffOffer ? { handoffOffer } : {}),
+        onHandoffWarning: (message: string) => push(message, "warn"),
+      };
+      let made: ReturnType<typeof makeSession>;
+      if (resume) {
+        const store = SessionStore.open(resume.file);
+        made = makeSession({ ...base, store, resumeEvents: store.load() });
+      } else {
+        made = makeSession(base);
+      }
+      if ("error" in made) {
+        push(assemblyErrorToast(made.error));
+        return;
+      }
+      if (laneNotice) push(laneNotice);
+      // Informed consent must precede an initial prompt's first provider
+      // call, not wait for the post-render session effect.
+      showReasoningPersistenceNotice(made.session);
+      setSession(made.session);
+      // T3 #436: a seeded session opens with the handoff as its first
+      // turn — message + turn-scoped skill prompt (ADR-0011 pattern, the
+      // same seam /ask-moh uses; never a replayed event log).
+      if (turnPrompt) {
+        void made.session.send(initialPrompt ?? handoffSeedMessage(lastOffer.current!), { prompt: turnPrompt });
+      } else if (initialPrompt) {
+        void made.session.send(initialPrompt);
+      }
     };
-    let made: ReturnType<typeof makeSession>;
-    if (resume) {
-      const store = SessionStore.open(resume.file);
-      made = makeSession({ ...base, store, resumeEvents: store.load() });
-    } else {
-      made = makeSession(base);
-    }
-    if ("error" in made) {
-      push(assemblyErrorToast(made.error));
-      return;
-    }
-    // Informed consent must precede an initial prompt's first provider
-    // call, not wait for the post-render session effect.
-    showReasoningPersistenceNotice(made.session);
-    setSession(made.session);
-    // T3 #436: a seeded session opens with the handoff as its first
-    // turn — message + turn-scoped skill prompt (ADR-0011 pattern, the
-    // same seam /ask-moh uses; never a replayed event log).
-    if (turnPrompt) {
-      void made.session.send(initialPrompt ?? handoffSeedMessage(lastOffer.current!), { prompt: turnPrompt });
-    } else if (initialPrompt) {
-      void made.session.send(initialPrompt);
-    }
+    if (resume || cwdOverride) return finishOpen();
+    // ADR-0060 (auto-lane): a fresh session provisions (or reuses) its own
+    // lane worktree before assembly — the user just opens sessions; the
+    // lane appears as one notice. Failure degrades to a laneless session.
+    void (async () => {
+      try {
+        const userCfg = readUserConfigFile(userConfigFile(home)) as { lanes?: { auto?: boolean } };
+        const provisioned = await new DevelopmentLaneService({ cwd, home }).ensureSessionLane({
+          sessionId: `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
+          auto: userCfg.lanes?.auto !== false,
+        });
+        if (provisioned.lane) {
+          finishOpen(provisioned.lane.worktreePath, `lane: ${provisioned.lane.branchRef} — isolated worktree`);
+        } else {
+          finishOpen();
+        }
+      } catch {
+        finishOpen();
+      }
+    })();
   };
 
   // #595 cold-directory wizard: scan state, trigger gate, and completion.
