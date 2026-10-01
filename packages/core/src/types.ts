@@ -539,6 +539,25 @@ type AgentEventBase =
    * it dim.
    */
   | { type: "session_note"; text: string }
+  /**
+   * Parallel development lanes (ADR-0060): a lane was created and bound to
+   * this session. Chrome only — metadata only, no work content. `log` is
+   * the owning session file when the lane rides a child session.
+   */
+  | {
+      type: "lane_created";
+      laneId: string;
+      featureGroupId: string;
+      branchRef: string;
+      worktreePath: string;
+      baseRef: string;
+      baseRevision: string;
+      targetRef: string;
+      relation: "independent" | "depends-on" | "integration";
+      parentLaneId?: string;
+    }
+  /** A lane owned (or observed) by this session changed lifecycle status. Chrome only. */
+  | { type: "lane_transitioned"; laneId: string; from: string; to: string }
   /** #774 / ADR-0029: the browser tool was requested but the toolchain is
    * missing. Visible diagnostic chrome — never a turn error. */
   | { type: "browser_unavailable"; reason: string }

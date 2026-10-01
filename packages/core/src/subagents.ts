@@ -5,6 +5,7 @@ import type { AgentEvent, Provider, Tool, ToolContext } from "./types";
 import type { PermissionsConfig, SessionConfig } from "./session/config";
 import type { ExtensionRuntime } from "./extensions";
 import { AgentSession } from "./session/session";
+import { DevelopmentLaneStore } from "./development-lanes";
 import { SessionStore, lastAssistantText } from "./session-store";
 import { PromptComposer, BASE_PROMPT } from "./prompt-composer";
 import { resolveProviderRef, defaultRegistry, type FrozenProviderRegistry, type ProviderRegistry } from "./provider-registry";
@@ -97,6 +98,18 @@ export interface SubagentOptions {
    * the parent retains all map ownership.
    */
   mpm?: { snapshotFor(task: string): string | null };
+  /**
+   * ADR-0060: parallel development lanes. When present, a spawn whose task
+   * declares `lane: <feature-group-name>` (or the single-lane default when
+   * exactly one lane is pending) is executed inside the lane's worktree,
+   * with the lane's own cwd, and a `lane_created` chrome event records the
+   * binding in the parent's log. The child never receives the lane store
+   * or the Git runner: it just runs in the lane's directory.
+   */
+  lanes?: {
+    /** Project root that owns the lane worktrees. Default: the session cwd. */
+    cwd?: string;
+  };
 }
 
 const spawnInputSchema = subagentSpecSchema.extend({
@@ -147,6 +160,11 @@ export interface SubagentHostOptions {
   home?: string;
   /** #620: bounded read-only MPM snapshot seam (see SubagentOptions). */
   mpm?: { snapshotFor(task: string): string | null };
+  /** ADR-0060: lane-bound spawns (see SubagentOptions). */
+  lanes?: {
+    /** Project root that owns the lane worktrees. Default: the host cwd. */
+    cwd?: string;
+  };
 }
 
 /** Simple counting semaphore: caps parallel children (default 3). */
@@ -277,6 +295,22 @@ export class SubagentHost {
     const spec: SubagentSpec = { name: "subagent", ...(base ?? {}), ...overrides };
     const spawnId = `subagent-${randomUUID().slice(0, 8)}`;
 
+    // ADR-0060: an explicit `lane: <branchRef>` line in the task binds the
+    // spawn to a registered lane — the child runs inside that lane's
+    // worktree. Unknown or ambiguous lane refs fail the spawn with a
+    // didactic error and zero side effects.
+    const laneMatch = /^lane:\s*(\S+)\s*$/m.exec(task);
+    let laneCwd: string | undefined;
+    if (this.#options.lanes && laneMatch) {
+      const lane = new DevelopmentLaneStore({ cwd: this.#options.lanes.cwd ?? this.#options.cwd, home: this.#options.home })
+        .listLanes()
+        .find((candidate) => candidate.branchRef === laneMatch[1] && !["landed", "abandoned"].includes(candidate.status));
+      if (!lane) {
+        return resultJson({ status: "error", output: "", error: `no active lane for branch "${laneMatch[1]}" — create it first with the lane tools` });
+      }
+      laneCwd = lane.worktreePath;
+    }
+
     const acquired = await this.#semaphore.acquire(ctx.signal);
     if (!acquired) {
       return resultJson({ status: "cancelled", output: "", error: "spawn aborted while waiting for a slot" });
@@ -310,6 +344,9 @@ export class SubagentHost {
         }
       }
       const store = SessionStore.create(this.#options.cwd, this.#options.home ?? homedir());
+      // A lane-bound child works inside the lane's worktree (isolation by
+      // construction); its log stays with the project's other sessions.
+      const childCwd = laneCwd ?? this.#options.cwd;
       const perms = this.#options.permissions ?? {};
       // #849: the parent's live mode overrides the launch-time config so a
       // child mirrors the session it spawned from (a rotation mid-session
@@ -329,7 +366,7 @@ export class SubagentHost {
         // `beforeTurn` model ref names `endpoint/model-id`, and a child
         // must resolve it against the same profiles the parent routes on.
         ...(this.#options.endpoints?.length ? { endpoints: this.#options.endpoints } : {}),
-        cwd: this.#options.cwd,
+        cwd: childCwd,
         maxIterations: spec.maxIterations,
         permissions: { ...permsForChild, runtimeRules: this.#options.runtimeRules() },
         ...(this.#options.onPermissionRequest ? { onPermissionRequest: this.#options.onPermissionRequest } : {}),
@@ -344,6 +381,21 @@ export class SubagentHost {
           ...(mpmOrientation ? { sections: { mpm: () => mpmOrientation } } : {}),
         }),
       });
+      // A lane-bound spawn records the binding next to the spawn event, so
+      // replay reconstructs which worktree served the child (ADR-0060).
+      if (laneCwd) {
+        this.#options.onEvent({
+          type: "lane_created",
+          laneId: `lane:${laneMatch![1]}`,
+          featureGroupId: "",
+          branchRef: laneMatch![1]!,
+          worktreePath: laneCwd,
+          baseRef: "",
+          baseRevision: "",
+          targetRef: "",
+          relation: "independent",
+        });
+      }
       this.#options.onEvent({
         type: "subagent_spawn",
         callId: spawnId,

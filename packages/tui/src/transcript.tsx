@@ -1119,6 +1119,12 @@ export function projectTranscript(events: ReadonlyArray<AgentEvent>, options: { 
         // content. The transcript has no projection today; the usage
         // surfaces project them.
         break;
+      case "lane_created":
+      case "lane_transitioned":
+        // ADR-0060: parallel-development-lane chrome — ids, refs and
+        // status only, never content. The transcript has no projection
+        // today; the lanes surfaces project them.
+        break;
       default: {
         const exhaustive: never = event;
         throw new Error(`unhandled AgentEvent: ${JSON.stringify(exhaustive)}`);
