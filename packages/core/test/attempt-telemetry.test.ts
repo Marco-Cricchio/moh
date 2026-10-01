@@ -301,4 +301,34 @@ describe("attempt telemetry (#1099)", () => {
       rmSync(home, { recursive: true, force: true });
     }
   });
+
+  // #1101: time to first content rides the attempt record — present when
+  // the attempt streamed text, absent when it produced none (a tool-only
+  // call, a failure). Unknown, never zero.
+  it("ttfcMs records the first streamed text delta; a textless call carries no ttfc", async () => {
+    // A completed text call: ttfc present, >= 0, and stamped before end.
+    const textSession = session(providerOf("gw/auto", async function* () {
+      yield { type: "model_call_start", model: "gw/auto" };
+      yield { type: "usage", inputTokens: 5, outputTokens: 2, provenance: "provider" };
+      yield { type: "text_delta", text: "hello" };
+      yield { type: "finish", reason: "stop" };
+    }));
+    const result = await textSession.send("say hi");
+    expect(result.status).toBe("done");
+    const attempt = modelCalls(textSession.history())[0]!.attempt!;
+    expect(attempt.ttfcMs).toBeGreaterThanOrEqual(0);
+    expect(attempt.ttfcMs!).toBeLessThanOrEqual(attempt.durationMs);
+
+    // A tool-only completed call: no text streamed — no ttfc field at all.
+    const toolOnly = session(providerOf("gw/auto", async function* () {
+      yield { type: "model_call_start", model: "gw/auto" };
+      yield { type: "usage", inputTokens: 5, outputTokens: 1, provenance: "provider" };
+      yield { type: "tool_calls", calls: [{ callId: "c3", name: "noop", args: {} }] };
+      yield { type: "finish", reason: "tool_calls" };
+    }));
+    await toolOnly.send("call the tool");
+    const toolAttempt = modelCalls(toolOnly.history())[0]!.attempt!;
+    expect(toolAttempt.outcome).toBe("completed");
+    expect(toolAttempt.ttfcMs).toBeUndefined();
+  });
 });

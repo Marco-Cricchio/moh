@@ -3,6 +3,8 @@ import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 import type { AgentEvent, ExtensionStatus, Message, Provider, ReasoningStreamEvent, SendOptions, SkillPrompt, Tool, TurnResult } from "../types";
 import { SCHEMA_VERSION } from "../types";
+import { normalizeTaskId, taskDeclaredEvent, taskOutcomeEvent, taskVerificationEvent } from "../task/telemetry";
+import { newUlid } from "./ulid";
 import { substituteSkillArgs } from "../skill-args";
 import { localTipAt, fileTailId, resolveEventRef } from "../session-store";
 import { activePath, pathTo, resolveHead } from "./event-log";
@@ -166,6 +168,8 @@ export class AgentSession {
    * no replay divergence.
    */
   #declaredWindows = new DeclaredWindows();
+  /** #1101: task ids declared in this session (or its resumed log). */
+  #declaredTasks = new Set<string>();
   /** Session handoff (#434): the raw post-turn artifact runner. */
   #handoff: HandoffRunner | null = null;
   /** A successful bash `git push` occurred in the active turn (#437). */
@@ -726,6 +730,11 @@ export class AgentSession {
       // declared windows — reopening re-derives the very same numbers, so
       // compaction and the fit guard compute here what they computed then.
       this.#declaredWindows = DeclaredWindows.fromEvents(resumeEvents);
+      // #1101: a resumed session keeps accepting verifications and
+      // outcomes for the tasks its log declared.
+      for (const event of resumeEvents) {
+        if (event.type === "task_declared") this.#declaredTasks.add(event.taskId);
+      }
       // #578 (d6): a compaction pointer that does not resolve on the
       // active path (corruption, truncation) restarts context from the
       // path start — surfaced as visible warning chrome, never silent.
@@ -1017,6 +1026,78 @@ export class AgentSession {
     })) {
       this.#append(observation);
     }
+  }
+
+  /**
+   * #1101: declares a task/work unit — the recording seam for explicit
+   * task-outcome telemetry. `taskId` is user-declared; without one a
+   * generated correlation id (no content) is used. `reopens` links a
+   * revision to the original task's id (which need not exist in this
+   * session's log — cross-session reopen chains are a projection's job).
+   * A blank explicit id is refused with a visible note, never invented
+   * around. Returns the recorded task id.
+   */
+  declareTask(taskId?: string, options: { reopens?: string } = {}): string {
+    const id = taskId !== undefined ? normalizeTaskId(taskId) : newUlid();
+    if (!id) {
+      this.#append({ type: "session_note", text: "task declaration refused: the task id was empty" });
+      return "";
+    }
+    const reopens = options.reopens !== undefined ? normalizeTaskId(options.reopens) : undefined;
+    if (options.reopens !== undefined && !reopens) {
+      this.#append({ type: "session_note", text: "task declaration refused: the reopens id was empty" });
+      return "";
+    }
+    this.#append(taskDeclaredEvent({ taskId: id, ...(reopens ? { reopens } : {}) }));
+    this.#declaredTasks.add(id);
+    return id;
+  }
+
+  /**
+   * #1101: records one verification run (test/typecheck/build/lint or
+   * equivalent) against a declared task. Explicit, never inferred; the
+   * summary is redacted and bounded at the seam. A verification for an
+   * undeclared task is refused with a visible note — an outcome must
+   * always have a declared task to correlate to.
+   */
+  recordVerification(
+    taskId: string,
+    verification: {
+      category: import("../task/telemetry").VerificationCategory;
+      ok: boolean;
+      exitStatus?: number;
+      durationMs?: number;
+      summary?: string;
+    },
+  ): void {
+    const id = normalizeTaskId(taskId);
+    if (!id || !this.#declaredTasks.has(id)) {
+      this.#append({ type: "session_note", text: `verification refused: task "${taskId}" was never declared in this session` });
+      return;
+    }
+    this.#append(taskVerificationEvent({ taskId: id, verificationId: newUlid(), ...verification }));
+  }
+
+  /**
+   * #1101: records the explicit user verdict on a declared task. Only
+   * this seam creates an outcome — absence stays `unknown` in every
+   * projection. An outcome for an undeclared task is refused with a
+   * visible note.
+   */
+  recordTaskOutcome(taskId: string, outcome: import("../task/telemetry").TaskOutcome): void {
+    const id = normalizeTaskId(taskId);
+    if (!id || !this.#declaredTasks.has(id)) {
+      this.#append({ type: "session_note", text: `task outcome refused: task "${taskId}" was never declared in this session` });
+      return;
+    }
+    this.#append(taskOutcomeEvent({ taskId: id, outcome }));
+  }
+
+  /** #1101: task ids declared in this session — replayed from the log on
+   * construction, so a resumed session keeps accepting verifications and
+   * outcomes for tasks its log declared. */
+  get declaredTasks(): readonly string[] {
+    return [...this.#declaredTasks];
   }
 
   /** The provider type of the active endpoint (#166): feeds /model's

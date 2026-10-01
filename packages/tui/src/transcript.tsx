@@ -1097,6 +1097,13 @@ export function projectTranscript(events: ReadonlyArray<AgentEvent>, options: { 
         // #1100: quota/commercial chrome — metadata only. The transcript
         // has no projection today; the usage surfaces project them.
         break;
+      case "task_declared":
+      case "task_verification":
+      case "task_outcome":
+        // #1101: task-outcome chrome — ids and verdicts only, never
+        // content. The transcript has no projection today; the usage
+        // surfaces project them.
+        break;
       default: {
         const exhaustive: never = event;
         throw new Error(`unhandled AgentEvent: ${JSON.stringify(exhaustive)}`);

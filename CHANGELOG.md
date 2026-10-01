@@ -7,6 +7,19 @@ matching section here at tag time.
 
 ## [Unreleased]
 
+### Added
+
+- **Performance and task-outcome telemetry** (#1101): the event log
+  records time-to-first-content per model call plus explicit,
+  client-seamed task outcomes (`declareTask`, `recordVerification`,
+  `recordTaskOutcome` on the session API) with bounded, redacted
+  verification summaries. Read-only projections (`performanceByModel`,
+  `taskReport`, `concurrencyReport`, `acceptedTaskFixture`) compute
+  TTFC/latency percentiles, retry-vs-processing time, interrupted-call
+  rate, and cost-per-accepted-task — computed only where acceptance
+  evidence exists; unknown is never imputed and moh never infers
+  success from model output.
+
 ## [0.54.0] - 2026-09-30
 
 ### Added

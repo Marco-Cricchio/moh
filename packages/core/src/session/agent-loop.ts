@@ -187,6 +187,10 @@ type PendingCall = {
   endpoint?: EndpointIdentity;
   wire?: string;
   consumedUsage: boolean;
+  /** #1101: wall-clock ms of the attempt's first streamed text delta
+   * ("useful content" — reasoning deltas do not count); undefined until
+   * one arrives (absent ttfc, never zero). */
+  firstContentAt?: number;
   cacheReadTokens?: number;
   cacheWriteTokens?: number;
   reasoningTokens?: number;
@@ -347,6 +351,14 @@ export class AgentLoop {
     }
   }
 
+  /** #1101: folds the first streamed text delta of the open attempt into
+   * the TTFC stamp — the first call wins; reasoning deltas never count. */
+  #noteFirstContent(): void {
+    if (this.#pendingCall && this.#pendingCall.firstContentAt === undefined) {
+      this.#pendingCall.firstContentAt = Date.now();
+    }
+  }
+
   /** #1099: builds the attempt record of a settled pending call — timing,
    * sanitized identity, outcome and normalized failure facts. The chain
    * index comes from the provider's own chain when it is a route (0
@@ -378,6 +390,9 @@ export class AgentLoop {
       ...(failure?.errorKind !== undefined ? { errorKind: failure.errorKind } : {}),
       ...(failure?.httpStatus !== undefined ? { httpStatus: failure.httpStatus } : {}),
       ...(failure?.retryAfterMs !== undefined ? { retryAfterMs: failure.retryAfterMs } : {}),
+      // #1101: time to first streamed text content; absent when the
+      // attempt produced none — unknown, never zero.
+      ...(call.firstContentAt !== undefined ? { ttfcMs: Math.max(0, call.firstContentAt - call.startedAt) } : {}),
       consumedUsage: call.consumedUsage,
       pricingVersion: PRICING_SNAPSHOT.version,
     };
@@ -531,6 +546,7 @@ export class AgentLoop {
             if (controller.signal.aborted) break;
             if (event.type === "text_delta") {
               wrapText += event.text;
+              this.#noteFirstContent();
               this.#append({ type: "assistant_delta", text: event.text });
             } else if (event.type === "model_call_start") {
               this.#openCall(event);
@@ -614,6 +630,7 @@ export class AgentLoop {
           if (controller.signal.aborted) break;
           if (event.type === "text_delta") {
             if (event.text) sawText = true;
+            this.#noteFirstContent();
             assistantText += event.text;
             this.#append({ type: "assistant_delta", text: event.text });
           } else if (event.type === "tool_calls") {
