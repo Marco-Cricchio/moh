@@ -177,6 +177,60 @@ keep-criterion) project reconstructable
 per-call chains — retries, fallback moves, unknown-usage attempts — from a
 session's events without reading any prompt text.
 
+#### Quota and commercial telemetry (#1100)
+
+Three chrome events record provider-declared quota state and the user's
+own commercial assumptions, so a report can distinguish observed
+capacity, provider declarations, and local estimates:
+
+- `quota_observation` — one quota fact at a point in time. It carries the
+  sanitized endpoint identity, whose capacity it describes
+  (`scope`: `account`/`workspace`/`endpoint`/`provider`/`model`/`pool`),
+  a deterministic `scopeKey` (a `pool` scope keys on the pool's identity
+  alone, so two endpoints sharing a pool project together), the unit when
+  known, the measured window (`kind: "unknown"` unless the provider
+  declared rolling/fixed semantics — moh never assumes), optional
+  `limit`/`remaining`/`used`/`percent`, the reset fact only when the
+  provider declared one (`resetAt`/`resetMs` — absent means unknown
+  mechanics), the observation source (`quota-endpoint`,
+  `provider-error`, `provider-header`, `user-config`, `local-estimate`),
+  and the #1099 attempt linkage when it rode a call. Every measured field
+  is optional: absent means the provider did not report it, never zero.
+- `quota_episode` — one normalized boundary: `exhausted`/`rate_limited`
+  when the provider refused or throttled, `recovered` when a later
+  attempt succeeded (with the observed `waitMs` backoff and whether the
+  recovery came from a fallback move).
+- `commercial_declaration` — the user's own declaration for an endpoint
+  (moh.json `endpoints[].commercial`: `plan`, `price`, `currency`,
+  `billingPeriod`, `promotion`, `overagePolicy`, `validFrom`/
+  `validUntil`). Explicit and user-owned — moh never infers a plan from
+  endpoint identity. Strings are redacted on record; an inverted validity
+  window is refused with a visible note.
+
+Producers: `session.recordQuota(endpointName, report, options?)` records
+a #499 `getQuota` report into the log; the loop records quota-class
+failures (`rate_limited`, `quota_exhausted`) and their recoveries on its
+own. Projections (exported from `@moh/core`): `quotaEpisodes()` pairs
+boundaries into distinct episodes with real temporal bounds (a block
+with no recovery stays open — honest unknown); `quotaContradictions()`
+lists overlapping observations of the same scope and window whose
+declared numbers disagree (reported, never resolved); `summarizeQuota()`
+rolls episodes up; `quotaPressure()` answers the period query — pressure,
+first observed block, wait, recovery, overage spend and allowance
+utilization per scope. The overage spend is a labeled local estimate:
+it appears only when the user declared a price and a `usd`-unit
+observation shows `used > limit`. Unknown output example:
+
+```json
+{ "scopeKey": "openai-compat(https://api.example.com/v1)#gw/x",
+  "firstObservedBlock": "2026-10-01T05:07:31.446Z",
+  "recoveryTime": "2026-10-01T05:07:31.447Z",
+  "waitMs": 1 }
+```
+
+A scope never probed and never refused shows nothing — absence, not zero.
+
+
 ```ts
 async function watch() {
   for await (const event of session.events) {

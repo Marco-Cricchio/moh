@@ -20,6 +20,8 @@ import { PromptComposer, type AssembledPrompt, type SkillIndexEntry } from "../p
 import { discoverSkills } from "../skills";
 import { ExtensionRuntime } from "../extensions";
 import { EventLog } from "./event-log";
+import { commercialDeclarationEvent, observationsFromQuotaReport } from "../quota/telemetry";
+import { endpointIdentity } from "../types";
 import { PermissionGate, type ToolHookChecker } from "./permission-gate";
 import { ToolRunner, type ToolResultHookChecker } from "./tool-runner";
 import { TurnQueue } from "./turn-queue";
@@ -871,6 +873,16 @@ export class AgentSession {
       this.#append({ type: "browser_unavailable", reason: message });
     }
     if (!withNotes) return;
+    // #1100: the endpoints' user-owned commercial declarations, recorded
+    // once per session open (resume skips — the log already carries them).
+    // An invalid declaration (a `validUntil` before `validFrom`) is one
+    // visible note, never a session error.
+    for (const profile of this.#endpoints) {
+      if (!profile.commercial) continue;
+      const outcome = commercialDeclarationEvent(profile.name, profile.commercial);
+      if ("event" in outcome) this.#append(outcome.event);
+      else this.#append({ type: "session_note", text: outcome.error });
+    }
     for (const note of this.#startupNotes) {
       this.#append({ type: "session_note", text: note });
     }
@@ -975,6 +987,35 @@ export class AgentSession {
     return typeof route.health === "function"
       ? route.health().map(({ ref, kind }) => ({ ref, kind }))
       : [];
+  }
+
+  /**
+   * #1100: records one quota probe as `quota_observation` events — the
+   * recording half of the #499 seam (`getQuota` produces the report, this
+   * persists it). `endpointName` must be one of the session's endpoint
+   * profiles; the endpoint identity is built through the #1099 sanitizer,
+   * so no key or query string can enter. Unknown endpoint: a visible note,
+   * never an error. The probe's `authority` badge rides along.
+   */
+  recordQuota(
+    endpointName: string,
+    report: import("../quota/types").QuotaReport,
+    options: { model?: string; scope?: "account" | "workspace" | "endpoint" | "provider" | "model" | "pool"; unit?: "tokens" | "requests" | "credits" | "usd" | "provider-defined" } = {},
+  ): void {
+    const profile = this.#endpoints.find((e) => e.name === endpointName);
+    if (!profile) {
+      this.#append({ type: "session_note", text: `quota observation refused: unknown endpoint "${endpointName}"` });
+      return;
+    }
+    const endpoint = endpointIdentity(profile.type, profile.baseUrl);
+    for (const observation of observationsFromQuotaReport(report, {
+      endpoint,
+      ...(options.model ? { model: options.model } : {}),
+      ...(options.scope ? { scope: options.scope } : {}),
+      ...(options.unit ? { unit: options.unit } : {}),
+    })) {
+      this.#append(observation);
+    }
   }
 
   /** The provider type of the active endpoint (#166): feeds /model's
