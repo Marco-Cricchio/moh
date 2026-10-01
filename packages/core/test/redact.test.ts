@@ -127,3 +127,14 @@ describe("detectSecretLookalikes", () => {
     expect(detectSecretLookalikes("checksum a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2").length).toBeGreaterThan(0);
   });
 });
+
+describe("performance (ADR-0058: the append hot path gains a bounded scan)", () => {
+  test("a large realistic tool_result redacts in low single-digit milliseconds", () => {
+    const chunk = "line of ordinary tool output with some code `fetch(x)` and numbers 12345\n".repeat(200);
+    const event = { type: "tool_result", callId: "c", ok: true, output: chunk.repeat(10) };
+    const start = performance.now();
+    for (let i = 0; i < 20; i += 1) redactValue(event);
+    const perCall = (performance.now() - start) / 20;
+    expect(perCall).toBeLessThan(50); // generous ceiling: the scan is linear
+  });
+});
