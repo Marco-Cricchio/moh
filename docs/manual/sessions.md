@@ -141,6 +141,22 @@ history resume and fork see; tree stats describe the full topology.
 `--json` emits the same data as JSON. In the TUI, `/session` shows the
 same report for the currently open session in a snapshot modal.
 
+### Performance and task outcomes (#1101)
+
+`moh usage` reports (and `aggregateTelemetry`) also carry two
+quality-adjusted sections. **Performance** shows, per model: time to
+first content, active provider-processing time with retry/wait time
+kept separate, p50/p95 latency, and the interrupted-call rate. These
+are measured latency numbers — moh does not claim that tokens or
+throughput measure developer productivity. **Task outcomes** exist only
+where a client recorded them through explicit seams (`declareTask`,
+`recordVerification`, `recordTaskOutcome` on the session API): a task
+without a recorded verdict counts as `unknown` — absence of a signal is
+never success or failure, and cost-per-accepted-task is computed only
+when acceptance evidence exists, never imputed. Verification summaries
+are redacted and bounded at the seam: no prompt text, completions,
+source content or credentials enter the log.
+
 ## Delete and the trash
 
 Deleting a session (home screen: `d` on a selected session row, `y`

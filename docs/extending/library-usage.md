@@ -603,6 +603,74 @@ agent loop and the event-log format are untouched; a corrupt or
 unreadable session file is skipped and counted in `sessionsSkipped`,
 never fatal. Exported from `@moh/core` (ADR-0004).
 
+The report also carries the #1101 sections: `performance` (per model:
+TTFC, active provider-processing duration, the reconstructed
+retry/wait time kept strictly separate, p50/p95 latency and the
+interrupted-call rate) and `tasks` (the explicit task-outcome layer —
+verifications, acceptance verdicts, and the cost/tokens/calls rollup
+that exists only where acceptance evidence exists). A client that wants
+the quality-adjusted comparison builds it with `acceptedTaskFixture()`,
+which excludes unknown values rather than imputing them.
+
+## Performance and task-outcome telemetry (#1101)
+
+The quality-adjusted layer is **explicit-seam only**: moh never infers
+success from assistant prose, tool errors or sentiment, and a task
+without a user or verification signal stays `unknown` — absence of a
+signal is never success or failure.
+
+Three chrome events, produced only through the client seams:
+
+- `task_declared` — a task/work unit: a correlation id (user-declared
+  via `session.declareTask("ISSUE-42")` or generated with no content),
+  and the optional `reopens` relation linking a revision to its
+  original task.
+- `task_verification` — one verification run against a declared task
+  (`session.recordVerification(taskId, { category, ok, exitStatus?,
+  durationMs?, summary? })`): the command category
+  (`test`/`typecheck`/`build`/`lint`/`other`), the verdict, and bounded
+  redacted diagnostics *metadata* — the summary is collapsed to one
+  line, capped at 240 chars, and credential-shaped tokens are redacted
+  at the seam. Never full tool output, never file contents.
+- `task_outcome` — the explicit user verdict (`accepted`, `rejected`,
+  `revision-needed`, or the explicit `unresolved`); recorded with
+  `session.recordTaskOutcome(taskId, outcome)`. Undeclared task ids are
+  refused with a visible note.
+
+Performance needs no new producer: the per-attempt audit record of
+#1099 carries the timing, and #1101 adds one field to it — `ttfcMs`,
+the time to first streamed text content (reasoning deltas do not
+count; a call that streamed no text carries no field — unknown, never
+zero). Projections exported from `@moh/core`:
+
+- `performanceByModel(events)` — per model: logical calls,
+  completed/failed/aborted, interrupted rate, active provider-processing
+  duration, the retry/wait time reconstructed from attempt-chain gaps
+  (a fallback move's gap belongs to the chain, not to either model),
+  and p50/p95 shapes for TTFC and latency.
+- `concurrencyReport(intervals)` — union vs. sum over parent and child
+  call intervals: `busyMs` is the honest wall-clock busy time,
+  `concurrentMs` is exactly what a naive total double-counts across
+  concurrent child sessions.
+- `taskReport(events)` — declared tasks with their verification runs
+  (latest verdict at outcome time: failed-then-passed reads
+  correctly), the contributing model calls (interval-derived, joined
+  with the #1099 correlation ids; child-session calls stay in the
+  child's own log), and the accepted rollup computed ONLY for tasks
+  whose outcome is `accepted`.
+- `acceptedTaskFixture(report, events)` — the comparison fixture per
+  accepted task: serving models, median latency, verified first-pass
+  success, reopen count, and the cost/tokens/calls rollup. Tasks
+  without acceptance evidence are excluded, never imputed.
+
+Privacy: task ids, durations, counts, model refs — no prompt text, no
+completions, no source content, no credentials, no unbounded
+diagnostics ever enter the log or the projections. And the honesty
+line: these are **measured performance** numbers. moh does not claim
+that output tokens or throughput measure developer productivity; the
+fixture exists so you can compare verified first-pass success, rework
+and cost per accepted task — quality-adjusted, explicitly signaled.
+
 
 ## Moh Project Map — read-only status and query (#614)
 
