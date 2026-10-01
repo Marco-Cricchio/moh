@@ -111,6 +111,9 @@ export interface SlashContext {
    * meant to open too, so the two never diverge. Absent (headless): the
    * command points at the CLI door (`moh browser status|install`) instead. */
   onOpenBrowserSetup?: () => void;
+  /** ADR-0060: opens the lanes modal (/lanes). Absent (headless): the
+   * command points at the CLI door (`moh lanes …`) instead. */
+  onOpenLanes?: () => void;
   /** Opens the all-commands panel (`/commands`, `?`). */
   onOpenCommands?: () => void;
   /** #457: opens the user manual modal (`/help`, ctrl+h). Absent
@@ -579,6 +582,20 @@ const sessionCommand: SlashCommand = {
   },
 };
 
+/** ADR-0060: opens the lanes modal — the parallel-development feature
+ * groups with each lane's status, branch, base freshness and worktree
+ * health. Writes stay on the CLI door (`moh lanes …`). */
+const lanesCommand: SlashCommand = {
+  name: "lanes",
+  description: "parallel development lanes (feature groups, worktrees)",
+  usage: "/lanes",
+  run(ctx) {
+    if (!ctx.session) return ctx.notify("/lanes needs an open session");
+    if (!ctx.onOpenLanes) return ctx.notify("/lanes needs the TUI session shell");
+    ctx.onOpenLanes();
+  },
+};
+
 /** #468/ADR-0020: the explicit fork action, reachable only while the
  * session-file-growth warning is up — no general fork command. #768: an
  * argument picks the scope — `/fork branch` copies only the active
@@ -738,6 +755,7 @@ export const BASE_COMMANDS: SlashCommand[] = [
   forkCommand,
   helpCommand,
   jevCommand,
+  lanesCommand,
   modeCommand,
   modelCommand,
   mpmCommand,

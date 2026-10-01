@@ -72,6 +72,7 @@ import { JevModal } from "./JevModal";
 import { JEV_EXTENSION_NAME, readJevSummary, setJevUseCase, type JevStatusSummary } from "./jev-control";
 import { SessionRenameModal } from "./SessionRenameModal";
 import { SessionModal } from "./SessionModal";
+import { LanesModal } from "./LanesModal";
 import { TreePanel } from "./TreePanel";
 import { sessionTree, type TreeNode } from "@moh/core";
 import { contextWindowForLabel, mergePickCatalog } from "./model-picker";
@@ -134,7 +135,7 @@ export interface AppProps {
   yolo?: boolean;
 }
 
-type Overlay = null | "settings" | "commands" | "manual" | "onboarding" | "handoff-onboarding" | "workflow-offer" | "frontier" | "skill-chooser" | "model" | "skill-updates" | "quota" | "rename" | "cold-wizard" | "tree" | "mpm" | "session" | "jev" | "browser";
+type Overlay = null | "settings" | "commands" | "manual" | "onboarding" | "handoff-onboarding" | "workflow-offer" | "frontier" | "skill-chooser" | "model" | "skill-updates" | "quota" | "rename" | "cold-wizard" | "tree" | "mpm" | "session" | "jev" | "browser" | "lanes";
 
 /** #242: one-shot, non-blocking informed-consent copy. Exported so focused
  * tests can verify the full message even when narrow status chrome clips it. */
@@ -1465,6 +1466,7 @@ function AppShell({
         onOpenTree: () => setOverlay("tree"),
         onOpenMpm: () => setOverlay("mpm"),
         onOpenSession: () => setOverlay("session"),
+        onOpenLanes: () => setOverlay("lanes"),
         onOpenJev: () => setOverlay("jev"),
         onOpenBrowserSetup: () => setOverlay("browser"),
       })}
@@ -1704,6 +1706,7 @@ function AppShell({
           ) : (
             <Text> session analysis unavailable: {sessionReport && "error" in sessionReport ? sessionReport.error : "session file unknown"}</Text>
           ))}
+        {overlay === "lanes" && <LanesModal cwd={process.cwd()} onClose={() => setOverlay(null)} />}
         {overlay === "quota" && session && (
           <QuotaModal
             endpoints={session.endpointProfiles}
