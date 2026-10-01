@@ -27,6 +27,10 @@ export interface DevelopmentLane {
   relation: LaneRelation;
   parentLaneId?: string;
   status: LaneStatus;
+  /** What this lane is working on (issue id, task slug) — captured from
+   * the session's first user message or set explicitly. User-facing in
+   * `moh lanes list` and /lanes so a stale lane is identifiable. */
+  label?: string;
   createdAt: string;
   updatedAt: string;
 }
@@ -230,6 +234,19 @@ export class DevelopmentLaneStore {
     const lane = state.lanes.find((candidate) => candidate.id === laneId);
     if (!lane) throw new Error(`unknown lane: ${laneId}`);
     lane.status = status;
+    lane.updatedAt = now();
+    writeState(this.#file, state);
+    return { ...lane };
+  }
+
+  /** Sets (or clears, with a blank value) a lane's user-facing label. */
+  setLabel(laneId: string, label: string): DevelopmentLane {
+    const state = readState(this.#file);
+    const lane = state.lanes.find((candidate) => candidate.id === laneId);
+    if (!lane) throw new Error(`unknown lane: ${laneId}`);
+    const clean = label.trim();
+    if (clean) lane.label = clean.slice(0, 120);
+    else delete lane.label;
     lane.updatedAt = now();
     writeState(this.#file, state);
     return { ...lane };

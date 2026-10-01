@@ -271,13 +271,13 @@ describe("development lane service", () => {
   });
 });
 
-describe("ensureSessionLane (auto-lane, ADR-0060)", () => {
-  function gitRepo() {
-    const cwd = mkdtempSync(join(tmpdir(), "moh-auto-lane-"));
-    mkdirSync(join(cwd, ".git"), { recursive: true });
-    return cwd;
-  }
+function gitRepo() {
+  const cwd = mkdtempSync(join(tmpdir(), "moh-auto-lane-"));
+  mkdirSync(join(cwd, ".git"), { recursive: true });
+  return cwd;
+}
 
+describe("ensureSessionLane (auto-lane, ADR-0060)", () => {
   test("provisions a lane under a group named after the current branch", async () => {
     const cwd = gitRepo();
     const home = mkdtempSync(join(tmpdir(), "h-"));
@@ -288,7 +288,7 @@ describe("ensureSessionLane (auto-lane, ADR-0060)", () => {
       return { code: 0, stdout: "", stderr: "" };
     });
     const service = new DevelopmentLaneService({ cwd, home, git: runner });
-    const { lane } = await service.ensureSessionLane({ sessionId: "abc123" });
+    const { lane } = await service.ensureSessionLane({ sessionId: "abc123", force: true });
     expect(lane).toBeDefined();
     expect(lane!.branchRef).toBe("moh/auto-abc123");
     expect(lane!.baseRef).toBe("develop");
@@ -309,9 +309,13 @@ describe("ensureSessionLane (auto-lane, ADR-0060)", () => {
       return { code: 0, stdout: "", stderr: "" };
     });
     const service = new DevelopmentLaneService({ cwd, home, git: runner });
-    const first = await service.ensureSessionLane({ sessionId: "one" });
+    // Lazy: session "one" stays in the checkout; "two" is the first
+    // parallel session and gets the lane.
+    const first = await service.ensureSessionLane({ sessionId: "one", force: true });
+    expect(first.lane).toBeDefined();
     const second = await service.ensureSessionLane({ sessionId: "two" });
-    expect(first.lane!.branchRef).toBe("moh/auto-one");
+    expect(second.lane).toBeDefined();
+    expect(second.lane!.branchRef).toBe("moh/auto-two");
     expect(second.lane!.branchRef).toBe("moh/auto-two");
     expect(service.store.listFeatureGroups()).toHaveLength(1);
   });
@@ -337,7 +341,7 @@ describe("ensureSessionLane (auto-lane, ADR-0060)", () => {
       return { code: 0, stdout: "", stderr: "" };
     });
     const service = new DevelopmentLaneService({ cwd, home, git: runner });
-    const { lane } = await service.ensureSessionLane({ sessionId: "r1" });
+    const { lane } = await service.ensureSessionLane({ sessionId: "r1", force: true });
     // Materialize the worktree the fake runner never created (its .git
     // pointer file is what the reuse check keys on in the real flow).
     mkdirSync(lane!.worktreePath, { recursive: true });
@@ -357,7 +361,7 @@ describe("ensureSessionLane (auto-lane, ADR-0060)", () => {
       return { code: 0, stdout: "", stderr: "" };
     });
     const service = new DevelopmentLaneService({ cwd, home, git: runner });
-    const { lane, reason } = await service.ensureSessionLane({ sessionId: "d1" });
+    const { lane, reason } = await service.ensureSessionLane({ sessionId: "d1", force: true });
     expect(lane).toBeNull();
     expect(reason).toBe("detached HEAD");
   });
@@ -373,7 +377,104 @@ describe("ensureSessionLane (auto-lane, ADR-0060)", () => {
       return { code: 0, stdout: "", stderr: "" };
     });
     const service = new DevelopmentLaneService({ cwd, home, git: runner });
-    const { lane } = await service.ensureSessionLane({ sessionId: "nm1" });
+    const { lane } = await service.ensureSessionLane({ sessionId: "nm1", force: true });
     expect(existsSync(join(lane!.worktreePath, "node_modules"))).toBe(true);
+  });
+});
+
+describe("lazy lanes, labels and cleanup (ADR-0060)", () => {
+  function autoRunner() {
+    return fakeGit((args) => {
+      if (args[0] === "rev-parse" && args[1] === "--abbrev-ref") return { code: 0, stdout: "develop\n", stderr: "" };
+      if (args[0] === "rev-parse" && args[2]!.startsWith("refs/heads/")) return { code: 1, stdout: "", stderr: "" };
+      if (args[0] === "rev-parse") return { code: 0, stdout: "b\n", stderr: "" };
+      return { code: 0, stdout: "", stderr: "" };
+    });
+  }
+
+  test("lazy: the first session stays in the checkout, the second gets a lane", async () => {
+    const cwd = gitRepo();
+    const home = mkdtempSync(join(tmpdir(), "h-"));
+    const { runner } = autoRunner();
+    const service = new DevelopmentLaneService({ cwd, home, git: runner });
+    const first = await service.ensureSessionLane({ sessionId: "solo" });
+    expect(first.lane).toBeNull();
+    expect(first.reason).toBe("lazy: no parallel session yet");
+    expect(service.store.listFeatureGroups()).toEqual([]);
+    // A live sibling (the client's own open-session count) is parallelism
+    // evidence: the second window provisions immediately.
+    const second = await service.ensureSessionLane({ sessionId: "par", task: "issue #42", liveSiblingSessions: 1 });
+    expect(second.lane).toBeDefined();
+    expect(second.lane!.label).toBe("issue #42");
+  });
+
+  test("a task label names the lane and survives a resume-in-lane", async () => {
+    const cwd = gitRepo();
+    const home = mkdtempSync(join(tmpdir(), "h-"));
+    const { runner } = autoRunner();
+    const service = new DevelopmentLaneService({ cwd, home, git: runner });
+    const first = await service.ensureSessionLane({ sessionId: "a", force: true });
+    const again = await service.ensureSessionLane({ sessionId: "b", task: "fix parser", liveSiblingSessions: 1 });
+    expect(again.lane!.label).toBe("fix parser");
+    expect(first.lane!.label).toBeUndefined();
+    // The lane list exposes the label for humans.
+    const listed = service.listLanes().find((lane) => lane.id === again.lane!.id);
+    expect(listed?.label).toBe("fix parser");
+  });
+
+  test("cleanup removes clean stale lanes, keeps dirty ones", async () => {
+    const cwd = gitRepo();
+    const home = mkdtempSync(join(tmpdir(), "h-"));
+    let dirty = false;
+    const { runner } = fakeGit((args) => {
+      if (args[0] === "rev-parse" && args[1] === "--abbrev-ref") return { code: 0, stdout: "develop\n", stderr: "" };
+      if (args[0] === "rev-parse" && args[2]!.startsWith("refs/heads/")) return { code: 1, stdout: "", stderr: "" };
+      if (args[0] === "rev-parse") return { code: 0, stdout: "b\n", stderr: "" };
+      if (args[0] === "status") return { code: 0, stdout: dirty ? " M file.ts\n" : "", stderr: "" };
+      return { code: 0, stdout: "", stderr: "" };
+    });
+    const service = new DevelopmentLaneService({ cwd, home, git: runner });
+    const a = await service.ensureSessionLane({ sessionId: "old-clean", force: true, task: "done days ago" });
+    const b = await service.ensureSessionLane({ sessionId: "old-dirty", force: true, task: "wip" });
+    // Age both lanes past the cutoff.
+    const store = service.store;
+    for (const lane of store.listLanes()) {
+      store.setLabel(lane.id, lane.label ?? "");
+      // Rewind updatedAt by touching status twice with an aged state: use
+      // the public seam — setStatus refreshes updatedAt, so age via label
+      // write is not enough. Instead: write state directly through setStatus
+      // then rewind the file timestamp by patching via a second setLabel.
+      void lane;
+    }
+    // Simplest honest aging: bypass service with an old copy of the state.
+    const { readFileSync, writeFileSync } = await import("node:fs");
+    const file = store.file;
+    const aged = JSON.parse(readFileSync(file, "utf8"));
+    const old = new Date(Date.now() - 30 * 86_400_000).toISOString();
+    for (const lane of aged.lanes) lane.updatedAt = old;
+    writeFileSync(file, JSON.stringify(aged, null, 2));
+    void a; void b;
+
+    // Dry run first.
+    const dry = await service.cleanup({ minAgeDays: 7, apply: false });
+    expect(dry.ok && dry.value.removed).toHaveLength(2);
+    expect(store.listLanes().filter((l) => l.status === "active")).toHaveLength(2);
+
+    // Dirty lanes survive; clean ones go. Note: with the fake runner the
+    // worktrees are never materialized, so `worktreeExists` is false and
+    // both lanes take the missing-worktree removal path — dirty detection
+    // needs the worktree to exist. Materialize both first.
+    for (const lane of store.listLanes()) {
+      mkdirSync(lane.worktreePath, { recursive: true });
+      writeFileSync(join(lane.worktreePath, ".git"), "gitdir: /x\n");
+    }
+    dirty = true;
+    const report = await service.cleanup({ minAgeDays: 7, apply: true });
+    expect(report.ok && report.value.removed).toHaveLength(0);
+    expect(report.ok && report.value.kept).toHaveLength(2);
+    dirty = false;
+    const final = await service.cleanup({ minAgeDays: 7, apply: true });
+    expect(final.ok && final.value.removed).toHaveLength(2);
+    expect(store.listLanes().filter((l) => l.status === "active")).toHaveLength(0);
   });
 });

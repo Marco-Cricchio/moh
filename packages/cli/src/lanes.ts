@@ -21,6 +21,7 @@ export const LANES_USAGE = `usage: moh lanes group <name> [--target <ref>] [--cw
        moh lanes resolve <lane-id> [--cwd <dir>]
        moh lanes status <lane-id> <active|paused|ready|conflicted|abandoned> [--cwd <dir>]
        moh lanes abandon <lane-id> [--cwd <dir>]
+       moh lanes cleanup [--min-age-days <n>] [--apply] [--cwd <dir>]
 
 Parallel development lanes (feature groups + isolated worktrees): each
 lane owns one worktree and one ordinary git branch, so concurrent sessions
@@ -45,6 +46,12 @@ never share uncommitted state. Metadata lives in
   abandon <lane-id>         remove the worktree, delete the branch, mark
                             the lane abandoned (release: the worktree path
                             can be reused by a new lane)
+  cleanup [--apply]         stale-lane cleanup: lanes idle for at least
+                            --min-age-days (default 7) whose worktree has
+                            NO uncommitted changes are removed (worktree +
+                            branch + registry row). Dirty lanes are
+                            reported but never touched. Without --apply it
+                            is a dry run.
 
   --cwd     project root the lanes belong to (default: process.cwd())`;
 
@@ -78,13 +85,13 @@ export async function lanesCommand({
     err.write(LANES_USAGE + "\n");
     return sub ? 0 : 2;
   }
-  if (!["group", "start", "list", "show", "integrate", "resolve", "status", "abandon"].includes(sub)) {
+  if (!["group", "start", "list", "show", "integrate", "resolve", "status", "abandon", "cleanup"].includes(sub)) {
     err.write(`moh lanes: unknown command "${sub}"\n\n${LANES_USAGE}\n`);
     return 2;
   }
   let parsed;
   try {
-    parsed = parseArgs(rest, { strings: ["cwd", "target", "base", "session", "group"] });
+    parsed = parseArgs(rest, { strings: ["cwd", "target", "base", "session", "group", "min-age-days"], booleans: ["apply"] });
   } catch (e) {
     if (e instanceof ArgError) {
       err.write(`moh lanes ${sub}: ${e.message}\n`);
@@ -158,7 +165,9 @@ export async function lanesCommand({
             ].join(" · ")
           : "state unreadable";
         const parent = lane.parentLaneId ? ` ← ${lane.parentLaneId}` : "";
-        out.write(`  ${statusLabel(lane.status)} ${lane.id}\n    branch ${lane.branchRef}${parent}\n    ${health}\n`);
+        const ageDays = Math.max(0, Math.floor((Date.now() - Date.parse(lane.updatedAt)) / 86_400_000));
+        const label = lane.label ? `  "${lane.label}"` : "";
+        out.write(`  ${statusLabel(lane.status)} ${lane.id}${label}\n    branch ${lane.branchRef}${parent} · ${ageDays}d\n    ${health}\n`);
       }
     }
     return 0;
@@ -176,6 +185,32 @@ export async function lanesCommand({
     }
     const inspect = await service.inspect(lane.id);
     out.write(`lane       ${lane.id}\nstatus     ${lane.status}\nrelation   ${lane.relation}${lane.parentLaneId ? ` (parent ${lane.parentLaneId})` : ""}\nbranch     ${lane.branchRef}\nworktree   ${lane.worktreePath}${inspect.ok && !inspect.value.worktreePresent ? "  (MISSING)" : ""}\nbase       ${lane.baseRef} @ ${lane.baseRevision.slice(0, 12)}${inspect.ok && inspect.value.stale ? `  (STALE — ${lane.baseRef} now at ${inspect.value.currentBaseRevision?.slice(0, 12) ?? "?"})` : ""}\ntarget     ${lane.targetRef}\nsession    ${lane.sessionId}\ncreated    ${lane.createdAt}\n`);
+    return 0;
+  }
+
+  if (sub === "cleanup") {
+    const minAgeDays = parsed.strings["min-age-days"] ? Number(parsed.strings["min-age-days"]) : 7;
+    if (!Number.isFinite(minAgeDays) || minAgeDays < 0) {
+      err.write("moh lanes cleanup: --min-age-days must be a non-negative number\n");
+      return 2;
+    }
+    const apply = parsed.booleans["apply"] === true;
+    const result = await service.cleanup({ minAgeDays, apply });
+    if (!result.ok) return printError(err, "cleanup", result.error);
+    const { removed, kept } = result.value;
+    if (removed.length === 0 && kept.length === 0) {
+      out.write("no stale lanes — nothing to clean up\n");
+      return 0;
+    }
+    for (const lane of removed) {
+      out.write(`${apply ? "removed" : "would remove"}: ${lane.id}${lane.label ? ` (${lane.label})` : ""} · ${lane.branchRef}\n`);
+    }
+    for (const candidate of kept) {
+      out.write(`kept (uncommitted work): ${candidate.lane.id}${candidate.lane.label ? ` (${candidate.lane.label})` : ""} · ${candidate.lane.branchRef} · ${candidate.ageDays}d old\n`);
+    }
+    if (!apply && removed.length > 0) {
+      out.write(`\ndry run — re-run with --apply to remove ${removed.length} lane(s)\n`);
+    }
     return 0;
   }
 

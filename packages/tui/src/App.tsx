@@ -876,9 +876,17 @@ function AppShell({
     void (async () => {
       try {
         const userCfg = readUserConfigFile(userConfigFile(home)) as { lanes?: { auto?: boolean } };
+        // Lazy-lane evidence: another session of this project touched in
+        // the last 10 minutes (another Home window, a moh run) — the
+        // cross-process signal, the same seam Home lists with.
+        const recentSibling = listSessionSummaries(cwd, home).some(
+          (summary) => Date.now() - summary.mtimeMs < 10 * 60 * 1000,
+        );
         const provisioned = await new DevelopmentLaneService({ cwd, home }).ensureSessionLane({
           sessionId: `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
           auto: userCfg.lanes?.auto !== false,
+          task: initialPrompt,
+          ...(recentSibling ? { liveSiblingSessions: 1 } : {}),
         });
         if (provisioned.lane) {
           finishOpen(provisioned.lane.worktreePath, `lane: ${provisioned.lane.branchRef} — isolated worktree`);

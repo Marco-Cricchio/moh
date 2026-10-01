@@ -346,9 +346,17 @@ export async function runCommand(options: RunOptions): Promise<number> {
   try {
     const userCfg = readUserConfigFile(userConfigFile(options.home)) as { lanes?: { auto?: boolean } };
     const lanesEnabled = userCfg.lanes?.auto !== false;
+    // Lazy-lane evidence: a project session modified in the last 10
+    // minutes is a live sibling (another terminal/window) — cross-process,
+    // no registry needed.
+    const recentSibling = listSessionSummaries(cwd, options.home).some(
+      (summary) => Date.now() - summary.mtimeMs < 10 * 60 * 1000,
+    );
     const provisioned = await new DevelopmentLaneService({ cwd, home: options.home }).ensureSessionLane({
       sessionId: `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
       auto: lanesEnabled,
+      task: prompt,
+      ...(recentSibling ? { liveSiblingSessions: 1 } : {}),
     });
     if (provisioned.lane) {
       laneCwd = provisioned.lane.worktreePath;

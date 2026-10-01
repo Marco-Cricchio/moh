@@ -55,6 +55,7 @@ describe("lanes modal (ADR-0060)", () => {
       targetRef: "develop",
       relation: "independent",
     });
+    store.setLabel(lane.id, "issue #42 auth flow");
     const child = store.createLane({
       featureGroupId: group.id,
       sessionId: "session-b",
@@ -73,10 +74,12 @@ describe("lanes modal (ADR-0060)", () => {
     expect(out).toContain("feature/auth-1");
     expect(out).toContain("feature/auth-2");
     expect(out).toContain("←"); // stack parent marker
+    expect(out).toContain("issue #42 auth flow");
     expect(out).toContain("conflicted");
     expect(out).toContain("worktree MISSING");
-    expect(out).toContain("develop @ abc123de".replace("develop @ abc123de", "develop @"));
+    expect(out).toContain("base develop");
     expect(out).toContain("abc123de");
+    expect(out).toContain("0d");
     expect(out).toContain("moh lanes integrate");
   });
 

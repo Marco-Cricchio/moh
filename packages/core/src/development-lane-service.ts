@@ -247,18 +247,23 @@ export class DevelopmentLaneService {
   }
 
   /**
-   * Automatic lane provisioning (ADR-0060 amendment): called on every
-   * FRESH session start, so the user never runs lane commands by hand —
-   * they start N sessions and each lands in its own isolated worktree.
+   * Lazy lanes (ADR-0060 amendment): the checkout itself is the first
+   * workspace — provisioning starts only when a parallel lane already
+   * exists (or `force` is set). No orphan lanes for generic or
+   * single-session work; no disk, startup or registry cost without
+   * parallelism.
    *
    * - disabled by config (`lanes.auto: false`) or a non-repo/detached cwd
    *   → a laneless session, exactly the pre-lane behavior;
    * - the cwd is already inside a lane worktree → that lane is reused
    *   (resume-in-lane, nested clients);
+   * - zero active lanes and no `force` → laneless ("lazy");
    * - otherwise: feature group derived from the checkout's current branch
    *   (its target), one lane per session on a `moh/<session>` branch,
    *   default relation `independent` (same feature never implies
    *   dependency — the user can stack later via `moh lanes`);
+   * - `task` names the lane (issue id / task slug) so a stale lane is
+   *   identifiable weeks later;
    * - `node_modules` is symlinked from the checkout when present so the
    *   lane reuses the shared install instead of paying a fresh one.
    *
@@ -270,6 +275,14 @@ export class DevelopmentLaneService {
     sessionId: string;
     /** `lanes.auto` from the user config (default: true). */
     auto?: boolean;
+    /** What the session is working on — labels the lane for humans. */
+    task?: string;
+    /** Provision even with zero active lanes (explicit door, `moh lanes start`). */
+    force?: boolean;
+    /** Live sibling sessions of this project the client already knows
+     * about (its open-session count minus itself). Evidence of parallelism
+     * for the lazy check, without registry state. */
+    liveSiblingSessions?: number;
   }): Promise<{ lane: DevelopmentLane | null; reason?: string }> {
     if (options.auto === false) return { lane: null };
     // Inside an existing lane worktree: reuse it — never nest lanes.
@@ -280,9 +293,25 @@ export class DevelopmentLaneService {
     const existing = this.#store.listLanes().find(
       (candidate) => candidate.status === "active" && (candidate.worktreePath === this.#sessionCwd || this.#sessionCwd.startsWith(candidate.worktreePath + "/")),
     );
-    if (existing) return { lane: existing };
+    if (existing) {
+      // A session that opens with a task in hand names its lane — the
+      // label is what makes a stale lane identifiable later.
+      if (options.task) this.#store.setLabel(existing.id, options.task);
+      return { lane: existing };
+    }
     if (!existsSync(join(this.#cwd, ".git"))) {
       return { lane: null, reason: "not a git repository" };
+    }
+    // Lazy lanes: the checkout itself is the workspace while there is no
+    // evidence of parallel work. Evidence = active lanes (kept alive by
+    // earlier parallel sessions) OR a caller-supplied signal that another
+    // session of this project is live (`liveSiblingSessions`: the client
+    // knows its open-session count). No inference, no questions — just
+    // observable activity.
+    const activeLanes = this.#store.listLanes().filter((candidate) => !["landed", "abandoned"].includes(candidate.status));
+    const parallelEvidence = activeLanes.length > 0 || (options.liveSiblingSessions ?? 0) > 0;
+    if (!parallelEvidence && !options.force) {
+      return { lane: null, reason: "lazy: no parallel session yet" };
     }
     const head = await this.#git(["rev-parse", "--abbrev-ref", "HEAD"], { cwd: this.#cwd });
     const branch = head.stdout.trim();
@@ -318,11 +347,57 @@ export class DevelopmentLaneService {
       const registered = this.#store.listLanes().find(
         (candidate) => candidate.branchRef === branchRef && !["landed", "abandoned"].includes(candidate.status),
       );
-      if (registered && this.worktreeExists(registered)) return { lane: registered };
+      if (registered && this.worktreeExists(registered)) {
+        if (options.task) this.#store.setLabel(registered.id, options.task);
+        return { lane: registered };
+      }
       return { lane: null, reason: result.error.message };
     }
-    this.#shareNodeModules(result.value.worktreePath);
-    return { lane: result.value };
+    // Name the lane after the work: the issue id / task slug is what an
+    // old lane is recognized by weeks later.
+    const labeled = options.task ? this.#store.setLabel(result.value.id, options.task) : result.value;
+    this.#shareNodeModules(labeled.worktreePath);
+    return { lane: labeled };
+  }
+
+  /**
+   * Stale-lane cleanup: a lane older than `minAgeDays` whose worktree has
+   * NO uncommitted changes is removable — its commits live on the branch
+   * and its noise lives in the registry. Dirty lanes are reported but
+   * never touched (deleting uncommitted work is always the user's call).
+   * `apply: false` is a dry run the clients surface as a suggestion.
+   */
+  async cleanup(options: CleanupOptions = {}): Promise<LaneOperationResult<CleanupReport>> {
+    const minAgeDays = options.minAgeDays ?? 7;
+    const apply = options.apply ?? true;
+    const cutoff = Date.now() - minAgeDays * 24 * 3600 * 1000;
+    const report: CleanupReport = { removed: [], kept: [] };
+    for (const lane of this.#store.listLanes()) {
+      if (["landed", "abandoned"].includes(lane.status)) continue;
+      const updatedAt = Date.parse(lane.updatedAt);
+      if (!Number.isFinite(updatedAt) || updatedAt > cutoff) continue;
+      if (!this.worktreeExists(lane)) {
+        // A missing worktree means nothing is left to lose on disk; the
+        // registry row is the only residue.
+        if (apply) report.removed.push(this.#store.setStatus(lane.id, "abandoned"));
+        else report.removed.push(lane);
+        continue;
+      }
+      const status = await this.#git(["status", "--porcelain"], { cwd: lane.worktreePath });
+      const dirty = status.code !== 0 || status.stdout.trim() !== "";
+      if (dirty) {
+        report.kept.push({ lane, ageDays: Math.floor((Date.now() - updatedAt) / 86_400_000), dirty });
+        continue;
+      }
+      if (!apply) {
+        report.removed.push(lane);
+        continue;
+      }
+      const removed = await this.abandon(lane.id);
+      if (removed.ok) report.removed.push(removed.value);
+      else report.kept.push({ lane, ageDays: Math.floor((Date.now() - updatedAt) / 86_400_000), dirty: false });
+    }
+    return { ok: true, value: report };
   }
 
   /** Shares the checkout's node_modules with a fresh worktree (fail-silent). */
@@ -450,4 +525,24 @@ export function resolveWorktreePath(cwd: string, branchRef: string): string {
   if (!isAbsolute(cwd)) throw new Error("cwd must be absolute");
   const root = dirname(cwd);
   return resolve(root, laneWorktreeDirName(branchRef, basename(cwd)));
+}
+
+export interface CleanupCandidate {
+  lane: DevelopmentLane;
+  ageDays: number;
+  dirty: boolean;
+}
+
+export interface CleanupReport {
+  /** Lanes removed (worktree + branch + registry). */
+  removed: DevelopmentLane[];
+  /** Lanes that looked stale but hold uncommitted work — reported, never touched. */
+  kept: CleanupCandidate[];
+}
+
+export interface CleanupOptions {
+  /** Minimum age (days since the lane's last update) to consider. Default 7. */
+  minAgeDays?: number;
+  /** Execute the removals; false = report only (dry run). Default true. */
+  apply?: boolean;
 }

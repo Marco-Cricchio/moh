@@ -140,3 +140,31 @@ describe("moh lanes (ADR-0060)", () => {
     expect(store.file.startsWith(cwd)).toBe(false);
   });
 });
+
+describe("moh lanes cleanup (ADR-0060)", () => {
+  test("cleanup dry run reports, --apply removes", async () => {
+    const { cwd, home } = newRepo();
+    await run(cwd, home, ["group", "clean", "--target", "develop"]);
+    const started = await run(cwd, home, ["start", "clean", "feature/clean-1"]);
+    const laneId = /lane (lane-\S+)/.exec(started.out)?.[1]!;
+    // Age the lane past the cutoff by rewriting the registry (user data).
+    const store = new DevelopmentLaneStore({ cwd, home });
+    const file = store.file;
+    const aged = JSON.parse(await import("node:fs").then((m) => m.readFileSync(file, "utf8")));
+    const old = new Date(Date.now() - 30 * 86_400_000).toISOString();
+    for (const lane of aged.lanes) lane.updatedAt = old;
+    (await import("node:fs")).writeFileSync(file, JSON.stringify(aged, null, 2));
+    // Materialize the worktree so cleanup sees a clean one (git worktree
+    // add really ran, so it already exists; the .git check passes).
+
+    const dry = await run(cwd, home, ["cleanup"]);
+    expect(dry.code).toBe(0);
+    expect(dry.out).toContain("would remove");
+    expect(dry.out).toContain("dry run");
+
+    const applied = await run(cwd, home, ["cleanup", "--apply"]);
+    expect(applied.code).toBe(0);
+    expect(applied.out).toContain("removed");
+    expect(store.listLanes().find((l) => l.id === laneId)?.status).toBe("abandoned");
+  });
+});

@@ -81,14 +81,16 @@ export function LanesModal({ cwd, home, onClose }: LanesModalProps) {
               {groupLanes.map((lane) => {
                 const color = themeColor(theme, lane.status);
                 const missing = worktreeStatus(lane);
+                const ageDays = Math.max(0, Math.floor((Date.now() - Date.parse(lane.updatedAt)) / 86_400_000));
                 return (
                   <Text key={lane.id}>
                     <Text color={color}>●</Text> {lane.status}{" "}
-                    <Text bold>{lane.branchRef}</Text>
+                    {lane.label ? <Text bold>"{lane.label}"</Text> : <Text bold>{lane.branchRef}</Text>}
                     {lane.parentLaneId && <Dim> ← {shortId(lane.parentLaneId)}</Dim>}
+                    <Dim> · {ageDays}d</Dim>
                     {"  "}
                     <Dim>
-                      {lane.relation} · base {lane.baseRef} @ {lane.baseRevision.slice(0, 8)}
+                      {lane.label ? lane.branchRef : lane.relation} · base {lane.baseRef} @ {lane.baseRevision.slice(0, 8)}
                       {missing ? ` · ${missing}` : ""}
                     </Dim>
                   </Text>
@@ -98,7 +100,7 @@ export function LanesModal({ cwd, home, onClose }: LanesModalProps) {
           );
         })}
       <Text> </Text>
-      <Dim>esc close · writes: moh lanes integrate/resolve/abandon {"<lane-id>"}</Dim>
+      <Dim>esc close · writes: moh lanes integrate/resolve/abandon {"<lane-id>"} · cleanup: moh lanes cleanup --apply</Dim>
     </Dialog>
   );
 }

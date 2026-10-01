@@ -76,6 +76,31 @@ An orchestration that creates child sessions may receive a lane-management capab
 - Storing lane state in the project repository: it pollutes project data and violates the user-data boundary.
 - Making clients own lane state: TUI and CLI would diverge and headless orchestration could not participate.
 
+## Amendment: lazy lanes, task labels, stale cleanup (2026-10-01)
+
+Provisioning on every fresh session start created lanes nobody needed —
+single-session work paid worktree, branch and registry costs with nothing
+to isolate. Three refinements, all without inference:
+
+**Lazy lanes.** The checkout itself is the first workspace. A lane is
+provisioned only when parallelism is observable: an active lane already
+exists, or the client reports a live sibling session of the same project
+(a session file modified in the last 10 minutes — the cross-process
+signal; no registry, no questions). The declared trade-off: the first
+session is not isolated until a second one appears; isolation protects
+sessions born after parallelism emerged.
+
+**Task labels.** The lane records *what* it is working on (the issue id or
+task text, from the client's prompt), rendered by `moh lanes list` and
+`/lanes` with the lane's age in days. A stale lane is identifiable by its
+work, not by a random id.
+
+**Stale cleanup.** `moh lanes cleanup [--apply] [--min-age-days N]`
+(default 7, dry run by default): a lane idle past the cutoff whose
+worktree has NO uncommitted changes is removed — worktree, branch,
+registry row; its committed work lives on the branch until landed. Dirty
+lanes are reported, never touched. `/lanes` surfaces the cleanup door.
+
 ## Follow-up
 
 Implementation starts with the isolated lane lifecycle, then adds feature-group metadata and explicit relationships, followed by integration and resumable conflict state. A later decision may add a shared-runtime mode only if real workloads demonstrate that isolated worktrees are insufficient.
