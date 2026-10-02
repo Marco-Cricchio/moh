@@ -175,6 +175,15 @@ export const mohConfigSchema = z.object({
    * turn. `0` is the #498 unlimited sentinel: no cap at all. Any integer
    * 1–500 is accepted (preset values 50/100/200/500 are a UI concern). */
   maxIterations: z.number().int().min(0).max(500).optional(),
+  /**
+   * ADR-0056 (#1126): the wall-clock ceiling, in milliseconds, for every
+   * turn-path hook invocation (`beforeTurn`, `beforeModelCall`,
+   * `onToolCall`, `onToolResult`, `afterTurn`). Default 30000. An
+   * expired or thrown hook contributes nothing — the turn proceeds with
+   * one visible `extension_failed` record; the hook is not retried
+   * within the turn. The compaction hook keeps its own shorter window.
+   */
+  hookTimeoutMs: z.number().int().min(1000).max(600000).optional(),
   /** MPM per-project override (ADR-0026): an explicit `enabled` (either
    * value) overrides the user default; absent = inherit. */
   mpm: mpmProjectConfigSchema.optional(),

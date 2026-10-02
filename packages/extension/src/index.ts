@@ -436,7 +436,19 @@ export interface AfterTurnContext {
 export type SessionStartHook = (ctx: SessionStartContext) => void | Promise<void>;
 export type SessionEndHook = (ctx: SessionEndContext) => void | Promise<void>;
 export type BeforeTurnHook = (ctx: BeforeTurnContext) => BeforeTurnResult | void | Promise<BeforeTurnResult | void>;
-export type BeforeModelCallHook = (ctx: BeforeModelCallContext) => void | Promise<void>;
+/**
+ * ADR-0054: what a `beforeModelCall` hook may return — prompt-section
+ * replacements, `null` meaning hidden. The return is judged against the
+ * 5 s replacement window (ADR-0056 owns the deadline composition); the
+ * core applies only sections the extension's declared capability covers.
+ */
+export interface BeforeModelCallResult {
+  sections?: Partial<Record<string, string | null>>;
+}
+
+export type BeforeModelCallHook = (
+  ctx: BeforeModelCallContext,
+) => BeforeModelCallResult | void | Promise<BeforeModelCallResult | void>;
 export type ToolCallHook = (ctx: ToolCallContext) => ToolCallHookResult | void | Promise<ToolCallHookResult | void>;
 export type ToolResultHook = (ctx: ToolResultContext) => ToolResultHookResult | void | Promise<ToolResultHookResult | void>;
 export type EventHook = (ctx: EventContext) => void | Promise<void>;

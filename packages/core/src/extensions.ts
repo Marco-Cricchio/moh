@@ -22,6 +22,7 @@ import {
   type ExtensionSetupContext,
   type BeforeTurnHook,
   type BeforeModelCallHook,
+  type BeforeModelCallResult,
   type ModelErrorHook,
   type ModelErrorResult,
   type EventHook,
@@ -42,6 +43,25 @@ import {
 } from "@moh/extension";
 import type { BeforeTurnResult } from "@moh/extension";
 import type { AgentEvent, ExtensionStatus } from "./types";
+
+/**
+ * ADR-0054 + ADR-0056 (#1126): what one `beforeModelCall` dispatch
+ * produced. `replacements` are the section returns that beat the 5 s
+ * window, in registration order — application (one-author-per-section,
+ * capability checks, the provenance line, the `prompt_override` record)
+ * belongs to the composer. `timeouts` names the hooks that lost a clock:
+ * `"replacement"` (answered past 5 s but inside the ceiling — its other
+ * contributions still count) or `"hook"` (never answered inside the
+ * ceiling — it contributed nothing). `errors` are the fail-open
+ * `extension_failed` records. Section keys are the composer's
+ * `SectionName`s, typed loosely here so the runtime stays independent of
+ * the composer's internals.
+ */
+export interface BeforeModelCallDispatch {
+  readonly replacements: { by: string; sections: Partial<Record<string, string | null>> }[];
+  readonly timeouts: { by: string; window: "replacement" | "hook" }[];
+  readonly errors: AgentEvent[];
+}
 import { redactKeys } from "./redact";
 
 /**
@@ -127,6 +147,24 @@ export interface ExtensionRuntimeOptions {
    * visible `extension_failed` event.
    */
   requestTurn?: (text: string) => Promise<boolean>;
+  /**
+   * ADR-0056 (#1126): the wall-clock ceiling for every turn-path hook
+   * invocation (`beforeTurn`, `beforeModelCall`, `onToolCall`,
+   * `onToolResult`, `afterTurn`). Default 30 s. Expired or thrown, a
+   * hook contributes nothing and the turn proceeds with one visible
+   * `extension_failed` record. The compaction hook keeps its own shorter
+   * window (#979) and is not governed by this ceiling.
+   */
+  hookTimeoutMs?: number;
+  /**
+   * ADR-0054: how long a `beforeModelCall` hook has to return its
+   * prompt-section replacement before the core's own text wins for that
+   * call. Default 5 s. The hook itself keeps running to the ceiling;
+   * only the replacement is forfeit. Exposed as an option so tests (and
+   * future clients) can shrink the clocks; the policy default never
+   * changes silently.
+   */
+  replacementWindowMs?: number;
 }
 
 /** `register` options: trust is a property of the code being registered,
@@ -175,6 +213,23 @@ interface HookSet {
 
 /** ADR-0037: the maximum consecutive synthetic turns one extension gets. */
 export const MAX_CONSECUTIVE_SYNTHETIC_TURNS = 2;
+
+/**
+ * ADR-0056 (#1126): the default wall-clock ceiling for every turn-path
+ * hook invocation. Generous on purpose — a slow-but-legitimate hook
+ * (Jev's network round-trips) must fit; an extension that needs more
+ * gets a larger ceiling from configuration.
+ */
+export const DEFAULT_HOOK_TIMEOUT_MS = 30_000;
+
+/**
+ * ADR-0054: the window a `beforeModelCall` hook has to return its
+ * prompt-section replacement. Past it, the core's own text serves that
+ * call and one visible record says so — but the hook's other
+ * contributions (notes, statuses, side effects) still count, and the
+ * hook itself keeps running to the ADR-0056 ceiling.
+ */
+export const PROMPT_REPLACEMENT_WINDOW_MS = 5_000;
 
 /** One live extension instance inside the runtime. */
 export interface RuntimeExtension {
@@ -340,6 +395,10 @@ async function importDefinition(file: string): Promise<unknown> {
 
 export class ExtensionRuntime {
   readonly #options: ExtensionRuntimeOptions;
+  /** ADR-0056: the effective turn-path hook ceiling (ms). */
+  readonly #hookTimeoutMs: number;
+  /** ADR-0054: the prompt-section replacement window (ms). */
+  readonly #replacementWindowMs: number;
   readonly #mohHome: string;
   readonly #instances: RuntimeExtension[] = [];
   readonly #pending: AgentEvent[] = [];
@@ -389,6 +448,75 @@ export class ExtensionRuntime {
   constructor(options: ExtensionRuntimeOptions = {}) {
     this.#options = options;
     this.#mohHome = options.mohHome ?? resolve(homedir(), ".moh");
+    this.#hookTimeoutMs = options.hookTimeoutMs ?? DEFAULT_HOOK_TIMEOUT_MS;
+    this.#replacementWindowMs = options.replacementWindowMs ?? PROMPT_REPLACEMENT_WINDOW_MS;
+  }
+
+  /** ADR-0056: the effective turn-path hook ceiling (ms). */
+  get hookTimeoutMs(): number {
+    return this.#hookTimeoutMs;
+  }
+
+  /**
+   * ADR-0056/#1126: runs one hook invocation under the wall-clock
+   * ceiling. Expired or thrown, the hook contributes nothing — the
+   * caller sees `undefined` — and one visible `extension_failed` record
+   * says so. A hook that answers *after* the ceiling is abandoned: its
+   * late rejection is swallowed (already recorded) and its late value is
+   * never read. The runtime holds no per-hook timer after the race
+   * settles.
+   */
+  async #runCapped<T>(
+    instance: RuntimeExtension,
+    hookLabel: string,
+    run: () => Promise<T> | T,
+    ceilingMs: number = this.#hookTimeoutMs,
+  ): Promise<{ out: T | undefined; timedOut: boolean }> {
+    let timedOut = false;
+    let deadline: ReturnType<typeof setTimeout> | undefined;
+    // The throw is captured INSIDE the racing promise: a rejecting race
+    // member and the wall clock settle in either order, and the outcome
+    // (one visible record, no contribution) must not depend on which won.
+    let failed = false;
+    let failure: unknown;
+    const pending = (async () => {
+      try {
+        return await run();
+      } catch (err) {
+        failed = true;
+        failure = err;
+        return undefined as T;
+      }
+    })();
+    const out = await Promise.race([
+      pending,
+      new Promise<undefined>((resolve) => {
+        deadline = setTimeout(() => {
+          timedOut = true;
+          resolve(undefined);
+        }, ceilingMs);
+      }),
+    ]);
+    if (deadline !== undefined) clearTimeout(deadline);
+    if (timedOut) {
+      this.#recordHookError({
+        type: "extension_failed",
+        name: instance.def.name,
+        reason: "hook_timeout",
+        message: `the ${hookLabel} hook did not answer within ${ceilingMs}ms; it contributed nothing`,
+      });
+      return { out: undefined, timedOut };
+    }
+    if (failed) {
+      this.#recordHookError({
+        type: "extension_failed",
+        name: instance.def.name,
+        reason: "hook",
+        message: errMessage(failure),
+      });
+      return { out: undefined, timedOut: false };
+    }
+    return { out: out as T, timedOut: false };
   }
 
   /** Successfully loaded instances, in registration order. */
@@ -1179,19 +1307,9 @@ export class ExtensionRuntime {
     let confirm: BeforeTurnDispatch["confirm"];
     for (const instance of this.#instances) {
       for (const hook of instance.hooks.beforeTurn) {
-        let out: BeforeTurnResult | void;
-        try {
-          out = await hook(ctx);
-        } catch (err) {
-          this.#recordHookError({
-            type: "extension_failed",
-            name: instance.def.name,
-            reason: "hook",
-            message: errMessage(err),
-          });
-          continue;
-        }
-        if (!out) continue;
+        // ADR-0056: expired or thrown, the hook contributes nothing.
+        const { out, timedOut } = await this.#runCapped(instance, "beforeTurn", () => hook(ctx));
+        if (timedOut || !out) continue;
         if (model === undefined && typeof out.model === "string" && out.model.trim() !== "") {
           model = out.model.trim();
           modelBy = instance.def.name;
@@ -1231,19 +1349,10 @@ export class ExtensionRuntime {
     for (const instance of this.#instances) {
       for (const entry of instance.hooks.onToolResult) {
         if (!entry.tools.includes(call.name)) continue;
-        let out: ToolResultHookResult | void;
-        try {
-          out = await entry.hook(call);
-        } catch (err) {
-          this.#recordHookError({
-            type: "extension_failed",
-            name: instance.def.name,
-            reason: "hook",
-            message: errMessage(err),
-          });
-          continue;
-        }
-        if (!out) continue;
+        // ADR-0056: expired or thrown, the hook contributes nothing —
+        // the original result proceeds to the model.
+        const { out, timedOut } = await this.#runCapped(instance, "onToolResult", () => entry.hook(call));
+        if (timedOut || !out) continue;
         const reason = out.withhold?.reason;
         if (typeof reason !== "string" || reason.trim() === "") {
           // A withhold with no reason would replace the result with an
@@ -1382,9 +1491,109 @@ export class ExtensionRuntime {
     return { drop, onApplied, errors: this.#drainErrors() };
   }
 
-  async dispatchBeforeModelCall(ctx: Parameters<BeforeModelCallHook>[0]): Promise<AgentEvent[]> {
-    await this.#each("beforeModelCall", (h) => h(ctx));
-    return this.#drainErrors();
+  /**
+   * ADR-0054 + ADR-0056 (#1126): the composed deadline dispatch. The hook
+   * itself runs to the turn-path ceiling (default 30 s); only the
+   * returned prompt-section replacement is judged against the shorter
+   * ADR-0054 window (default 5 s). Outcomes per hook:
+   *
+   * - answers within the replacement window → its `sections` count, in
+   *   registration order;
+   * - answers between the window and the ceiling → the replacement is
+   *   forfeit (the core's own text serves that call, one visible record
+   *   says so) but the hook's other contributions still count;
+   * - never answers within the ceiling → it contributes nothing, one
+   *   visible record says so, and it is not retried within the turn.
+   */
+  async dispatchBeforeModelCall(ctx: Parameters<BeforeModelCallHook>[0]): Promise<BeforeModelCallDispatch> {
+    const replacements: BeforeModelCallDispatch["replacements"] = [];
+    const timeouts: BeforeModelCallDispatch["timeouts"] = [];
+    // The sentinel keeps a hook's own `void` return distinguishable from
+    // a lost race, and the ceiling from the hook's own answer.
+    const WINDOW_LOST = Symbol("replacement_window_lost");
+    const CEILING_HIT = Symbol("hook_ceiling_hit");
+    for (const instance of this.#instances) {
+      for (const hook of instance.hooks.beforeModelCall) {
+        // The composed clocks (ADR-0054 + ADR-0056): the hook promise is
+        // raced against the replacement window first, then — if the
+        // window is lost — against the ceiling for the REST of its own
+        // budget. A lost window forfeits only the sections; the hook's
+        // other work still counts until the ceiling.
+        const started = Date.now();
+        let windowTimer: ReturnType<typeof setTimeout> | undefined;
+        let ceilingTimer: ReturnType<typeof setTimeout> | undefined;
+        let failed = false;
+        let failure: unknown;
+        const pending = (async () => {
+          try {
+            return await hook(ctx);
+          } catch (err) {
+            failed = true;
+            failure = err;
+            return undefined;
+          }
+        })();
+        const window = new Promise<symbol>((resolve) => {
+          windowTimer = setTimeout(() => resolve(WINDOW_LOST), this.#replacementWindowMs);
+        });
+        let out = await Promise.race([pending, window]);
+        if (windowTimer !== undefined) clearTimeout(windowTimer);
+        if (out === WINDOW_LOST) {
+          // The replacement is forfeit; the core's own text serves this
+          // call. One visible record says so. The hook keeps its
+          // remaining budget to the ceiling.
+          timeouts.push({ by: instance.def.name, window: "replacement" });
+          this.#recordHookError({
+            type: "extension_failed",
+            name: instance.def.name,
+            reason: "replacement_timeout",
+            message: `the beforeModelCall hook answered after the ${this.#replacementWindowMs}ms replacement window; the core's own sections serve this call`,
+          });
+          const elapsed = Date.now() - started;
+          const remaining = Math.max(0, this.#hookTimeoutMs - elapsed);
+          const ceiling = new Promise<symbol>((resolve) => {
+            ceilingTimer = setTimeout(() => resolve(CEILING_HIT), remaining);
+          });
+          out = await Promise.race([pending, ceiling]);
+          if (ceilingTimer !== undefined) clearTimeout(ceilingTimer);
+          if (out === CEILING_HIT) {
+            timeouts.push({ by: instance.def.name, window: "hook" });
+            this.#recordHookError({
+              type: "extension_failed",
+              name: instance.def.name,
+              reason: "hook_timeout",
+              message: `the beforeModelCall hook did not answer within ${this.#hookTimeoutMs}ms; it contributed nothing`,
+            });
+            continue;
+          }
+          // Answered late: its other contributions counted (they already
+          // happened); the forfeited replacement is not revived.
+          if (failed) {
+            this.#recordHookError({
+              type: "extension_failed",
+              name: instance.def.name,
+              reason: "hook",
+              message: errMessage(failure),
+            });
+          }
+          continue;
+        }
+        if (failed) {
+          this.#recordHookError({
+            type: "extension_failed",
+            name: instance.def.name,
+            reason: "hook",
+            message: errMessage(failure),
+          });
+          continue;
+        }
+        const answered = (out ?? {}) as BeforeModelCallResult;
+        if (answered.sections && typeof answered.sections === "object") {
+          replacements.push({ by: instance.def.name, sections: answered.sections });
+        }
+      }
+    }
+    return { replacements, timeouts, errors: this.#drainErrors() };
   }
 
   /**
@@ -1434,7 +1643,9 @@ export class ExtensionRuntime {
   }
 
   async dispatchAfterTurn(result: { status: string; reason?: string; message?: string }, synthetic = false): Promise<AgentEvent[]> {
-    await this.#each("afterTurn", (h) => h({ result, ...(synthetic ? { synthetic: true as const } : {}) }));
+    // ADR-0056: afterTurn is a turn-path hook — each invocation runs
+    // under the ceiling.
+    await this.#each("afterTurn", (h) => h({ result, ...(synthetic ? { synthetic: true as const } : {}) }), undefined, this.#hookTimeoutMs);
     return this.#drainErrors();
   }
 
@@ -1449,19 +1660,11 @@ export class ExtensionRuntime {
   ): Promise<{ veto: boolean; ask: boolean; reason?: string; by?: string; errors: AgentEvent[] }> {
     for (const instance of this.#instances) {
       for (const hook of instance.hooks.onToolCall) {
-        let out: ToolCallHookResult | void;
-        try {
-          out = await hook(call);
-        } catch (err) {
-          this.#recordHookError({
-            type: "extension_failed",
-            name: instance.def.name,
-            reason: "hook",
-            message: errMessage(err),
-          });
-          continue;
-        }
-        if (out && (out.veto || out.ask)) {
+        // ADR-0056: expired or thrown, the hook contributes nothing — a
+        // silence never vetoes, never asks.
+        const { out, timedOut } = await this.#runCapped(instance, "onToolCall", () => hook(call));
+        if (timedOut || !out) continue;
+        if (out.veto || out.ask) {
           return {
             veto: out.veto === true,
             ask: out.veto !== true && out.ask === true,
@@ -1479,9 +1682,15 @@ export class ExtensionRuntime {
     key: K,
     invoke: (hook: HookSet[K][number]) => Promise<void> | void,
     only?: readonly RuntimeExtension[],
+    /** ADR-0056: pass a ceiling to run each invocation under the turn-path wall clock. */
+    hookTimeoutMs?: number,
   ): Promise<void> {
     for (const instance of only ?? this.#instances) {
       for (const hook of instance.hooks[key]) {
+        if (hookTimeoutMs !== undefined) {
+          await this.#runCapped(instance, String(key), () => invoke(hook), hookTimeoutMs);
+          continue;
+        }
         try {
           await (invoke(hook) as Promise<void> | void);
         } catch (err) {

@@ -41,7 +41,8 @@ moh reads two files:
   "skillRouting": { "labels": { "my-label": { "command": "/implement", "priority": 1, "disabled": false, "suffix": "..." } } },
   "mpm": { "enabled": true, "quota": { "maxFiles": 5000, "maxTotalBytes": 33554432 }, "exclude": ["legacy/**"] },
   "browser": { "enabled": true, "headless": true, "allowedHosts": ["192.168.1.1"] },
-  "maxIterations": 50
+  "maxIterations": 50,
+  "hookTimeoutMs": 30000
 }
 ```
 
@@ -172,6 +173,19 @@ All keys are optional. Notes:
   never fires. Any integer 1–500 is accepted (the 50/100/200/500
   presets are a UI concern): manage it from the TUI settings row
   ("Max iterations/turn") or `moh run --max-iterations`.
+- `hookTimeoutMs` — ADR-0056: the wall-clock ceiling, in milliseconds,
+  for every turn-path extension hook invocation (`beforeTurn`,
+  `beforeModelCall`, `onToolCall`, `onToolResult`, `afterTurn`).
+  Default 30000. An expired or thrown hook contributes nothing — the
+  turn proceeds with one visible `extension_failed` record and the
+  hook is not retried within the turn. (The compaction hook keeps its
+  own shorter window.) Within `beforeModelCall`, a returned
+  prompt-section replacement is judged against a separate, shorter
+  5 s window (ADR-0054): returned past it, the core's own text serves
+  that call — the hook's other work still counts to the ceiling. A
+  ceiling below 5000 makes every window loss an instant ceiling loss
+  (the late-answer path never gets to run); keep it above 5 s unless
+  you mean that.
 
 ## ~/.moh/config
 
