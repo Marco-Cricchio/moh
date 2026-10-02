@@ -1125,6 +1125,11 @@ export function projectTranscript(events: ReadonlyArray<AgentEvent>, options: { 
         // status only, never content. The transcript has no projection
         // today; the lanes surfaces project them.
         break;
+      case "orchestration_stopped":
+        // ADR-0055: the orchestration stop record — the aborted children
+        // keep their own spawn/result blocks; the stop itself needs no
+        // transcript block.
+        break;
       default: {
         const exhaustive: never = event;
         throw new Error(`unhandled AgentEvent: ${JSON.stringify(exhaustive)}`);
