@@ -732,9 +732,12 @@ describe("subagent_spawn requester/limits + orchestration stop (ADR-0055, #1127)
     });
     const events = tap(parent);
     const send = parent.send("go");
-    // Wait until the child is registered as live.
-    await Bun.sleep(300);
-    const live = parent.liveSubagents();
+    // Wait until the child is registered as live (poll, never sample).
+    let live: ReturnType<typeof parent.liveSubagents> = [];
+    for (let i = 0; i < 50 && live.length === 0; i++) {
+      await Bun.sleep(20);
+      live = parent.liveSubagents();
+    }
     expect(live).toHaveLength(1);
     expect(live[0]!.name).toBe("research");
     expect(live[0]!.requester).toEqual({ kind: "model" });
@@ -782,7 +785,7 @@ describe("#1127: extension-requested spawns", () => {
       permissions: { overrides: { tools: { spawn: "allow" } } },
       subagents: { home, provider: MockProvider.scripted([{ deltas: ["ok"], finish: "stop" }]) },
     });
-    (parent as any).setSpawnRequester(() => ({ kind: "extension", extension: "conductor" }));
+    parent.setSpawnRequester(() => ({ kind: "extension", extension: "conductor" }));
     const events = tap(parent);
     await parent.send("go");
     const spawn = events.find((e) => e.type === "subagent_spawn") as any;

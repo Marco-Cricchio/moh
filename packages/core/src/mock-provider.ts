@@ -1,15 +1,16 @@
 import { readFileSync } from "node:fs";
 import { ProviderError } from "./types";
+import { recognizeDeclaredWindow } from "./declared-window";
+import type { FinishReason, Message, Provider, ProviderErrorKind, StreamEvent, StreamOptions, ToolSpec } from "./types";
 
-/** Resolves when the signal aborts (a helper for hold-vs-abort races). */
+/** Resolves when the signal aborts — so a #1061 hold cannot pin a stream
+ * past cancellation (#1127): the hold is a test gate, never a jail. */
 function aborted(signal: AbortSignal): Promise<void> {
   return new Promise((resolve) => {
     if (signal.aborted) resolve();
     else signal.addEventListener("abort", () => resolve(), { once: true });
   });
 }
-import { recognizeDeclaredWindow } from "./declared-window";
-import type { FinishReason, Message, Provider, ProviderErrorKind, StreamEvent, StreamOptions, ToolSpec } from "./types";
 
 export interface MockToolCall {
   callId?: string;

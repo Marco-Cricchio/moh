@@ -9,6 +9,7 @@ import { DevelopmentLaneStore } from "./development-lanes";
 import { SessionStore, lastAssistantText } from "./session-store";
 import { PromptComposer, BASE_PROMPT } from "./prompt-composer";
 import { resolveProviderRef, defaultRegistry, type FrozenProviderRegistry, type ProviderRegistry } from "./provider-registry";
+import { DEFAULT_MAX_ITERATIONS } from "./session/agent-loop";
 // ADR-0050 (§4): the child's own route, built from the parent's live pair.
 import { childRouteOf } from "./route";
 import type { EndpointProfile } from "./config";
@@ -461,7 +462,7 @@ export class SubagentHost {
       const limits: SubagentSpawnLimits = {
         ...(spec.allowedTools ? { tools: [...spec.allowedTools] } : {}),
         mode: permsForChild.unrestrictedTools === true ? "yolo" : permsForChild.mode ?? liveMode ?? perms.mode ?? "normal",
-        maxIterations: spec.maxIterations ?? this.#options.defaultMaxIterations?.() ?? 50,
+        maxIterations: spec.maxIterations ?? this.#options.defaultMaxIterations?.() ?? DEFAULT_MAX_ITERATIONS,
       };
       this.#options.onEvent({
         type: "subagent_spawn",

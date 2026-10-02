@@ -28,7 +28,7 @@ import { PermissionGate, type ToolHookChecker } from "./permission-gate";
 import { ToolRunner, type ToolResultHookChecker } from "./tool-runner";
 import { TurnQueue } from "./turn-queue";
 import { AgentLoop } from "./agent-loop";
-import { SubagentHost } from "../subagents";
+import { SubagentHost, type SubagentSpawnRequester, type SubagentSpawnLimits } from "../subagents";
 import { replayMessages, replayWarnings } from "../session-store";
 import { MemoryRunner, MemoryStore, createMaintenanceExtractor } from "../memory";
 import type { CompactionHookContext } from "@moh/extension";
@@ -122,7 +122,7 @@ export class AgentSession {
    * control and the live-children listing read it. */
   #subagentHost: SubagentHost | null = null;
   /** ADR-0055 (#1127): who is asking for spawns right now. */
-  #spawnRequester: () => { kind: "model" } | { kind: "extension"; extension: string } = () => ({ kind: "model" });
+  #spawnRequester: () => SubagentSpawnRequester = () => ({ kind: "model" });
   #skills: SkillIndexEntry[];
   #skillDirs: string[];
   readonly #mohHome: string;
@@ -976,7 +976,7 @@ export class AgentSession {
    * ADR-0055 (#1127): the live children this session spawned, each with its
    * spawn requester/limits — the list the stop control shows before acting.
    */
-  liveSubagents(): { callId: string; name: string; requester: { kind: "model" } | { kind: "extension"; extension: string }; limits: { tools?: string[]; mode: "normal" | "auto-accept" | "yolo"; maxIterations: number } }[] {
+  liveSubagents(): { callId: string; name: string; requester: SubagentSpawnRequester; limits: SubagentSpawnLimits }[] {
     return this.#subagentHost?.liveSubagents() ?? [];
   }
 
@@ -996,7 +996,7 @@ export class AgentSession {
 
   /** ADR-0055 (#1127): set who the next spawns are attributed to — the
    * model (default) or a named orchestration extension. */
-  setSpawnRequester(requester: () => { kind: "model" } | { kind: "extension"; extension: string }): void {
+  setSpawnRequester(requester: () => SubagentSpawnRequester): void {
     this.#spawnRequester = requester;
   }
 
