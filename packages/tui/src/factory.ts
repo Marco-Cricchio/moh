@@ -121,6 +121,11 @@ export function makeSession(options: OpenSessionOptions): MakeSessionResult {
                     ...(request.version ? { version: request.version } : {}),
                     ...(request.file ? { file: request.file } : {}),
                     ...(request.hash ? { hash: request.hash } : {}),
+                    // ADR-0061: the manifest's declared capabilities — what
+                    // the user is being asked to grant — and, on a widening
+                    // re-ask, the diff the question must name.
+                    ...(request.capabilities?.length ? { capabilities: request.capabilities } : {}),
+                    ...(request.addedCapabilities?.length ? { addedCapabilities: request.addedCapabilities } : {}),
                   },
                   // The label names what is known: the extension on a re-ask
                   // (an edited file), the file itself on a first-time ask,

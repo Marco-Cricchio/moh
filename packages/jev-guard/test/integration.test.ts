@@ -166,6 +166,21 @@ describe("the bundled descriptor (#826) — the activation answer the client con
     expect(jevBundledSource.name).toBe("jev-guard");
     expect(jevBundledSource.name).toBe(JEV_GUARD_NAME);
   });
+
+  test("the descriptor's manifest mirrors the package's own moh.extension.json (ADR-0061)", () => {
+    // The physical file is what a registry install verifies; the descriptor
+    // is what a bundled registration checks the subset rule against. The two
+    // must agree (and Jev declares no capability slots in code).
+    const physical = JSON.parse(readFileSync(join(import.meta.dir, "..", "moh.extension.json"), "utf8")) as {
+      name: string;
+      version: string;
+      entry: string[];
+      capabilities: string[];
+    };
+    expect(physical.name).toBe("jev-guard");
+    expect(physical.entry).toContain("src/index.ts");
+    expect(jevBundledSource.manifest?.capabilities).toEqual(physical.capabilities);
+  });
 });
 
 describe("activation through the generic door (#826)", () => {
