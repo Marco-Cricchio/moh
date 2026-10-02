@@ -651,7 +651,9 @@ and the host's warning line).
   approved npm dependency list is bound to that same content identity and
   is authorized again after a changed module requests dependencies. All
   are host-supplied seams; with no consent seam and nothing stored, the
-  load is refused.
+  load is refused. A grant recorded before manifests existed (an earlier
+  moh version) is not silently honored: the first load after the upgrade
+  asks once, with the manifest in the question, and re-remembers.
 - `register(def, { bundled: true })` marks code the *host shipped*
   (first-party bundled code, the Jev extension): consent and dependency
   authorization are skipped, because those bytes never came from the user's

@@ -42,7 +42,7 @@ import {
 } from "@moh/extension";
 import type { BeforeTurnResult } from "@moh/extension";
 import type { AgentEvent, ExtensionStatus } from "./types";
-import { capabilityDiff, capabilitiesSubset, manifestHash, manifestPathFor, readExtensionManifest } from "./extension-manifest";
+import { capabilityDiff, capabilitiesSubset, readExtensionManifest, type ManifestAuthority } from "./extension-manifest";
 import { redactKeys } from "./redact";
 
 /**
@@ -152,7 +152,7 @@ export interface RegisterOptions {
    * here refuse the load. File loads derive their own manifest and never
    * need this.
    */
-  manifest?: { hash?: string; path?: string; capabilities: readonly string[] };
+  manifest?: ManifestAuthority;
 }
 
 /**
@@ -775,7 +775,7 @@ export class ExtensionRuntime {
       capabilities?: readonly string[];
     },
     bundled: boolean,
-    manifest?: { hash: string; path: string },
+    manifest?: ManifestAuthority,
   ): Promise<{ ok: true } | { ok: false; reason: string; message: string }> {
     if (bundled) return { ok: true };
     const store = this.#readStore();
@@ -841,12 +841,11 @@ export class ExtensionRuntime {
       this.#emitFailed(basename(abs), "manifest", manifest.message);
       return false;
     }
-    const mh = manifestHash(abs) ?? "";
     const gate = await this.#ensureConsent(
       identity,
       { file: abs, hash: identityHash(identity), capabilities: manifest.manifest.capabilities },
       false,
-      { hash: mh, path: manifestPathFor(abs) },
+      manifest.authority,
     );
     if (!gate.ok) {
       this.#emitFailed(basename(abs), gate.reason, gate.message);
@@ -895,6 +894,9 @@ export class ExtensionRuntime {
     const index = this.#instances.findIndex((i) => i.file === file);
     if (index === -1) return;
     const previous = this.#instances[index]!;
+    // Everything below speaks about the canonical path, like the load path —
+    // the manifest lookup and the consent store key must match it.
+    file = canonicalModulePath(file);
     // ADR-0061: the manifest is re-read before anything else — a missing or
     // malformed one keeps the previous instance, exactly like a refused
     // consent would: what serves is the last state the user approved.
@@ -911,7 +913,6 @@ export class ExtensionRuntime {
     // instance in place. A widening manifest edit shows the capability diff
     // in the question (#1125).
     const identity = contentIdentity(file);
-    const mh = manifestHash(file) ?? "";
     if (identity) {
       const gate = await this.#ensureConsent(
         identity,
@@ -923,7 +924,7 @@ export class ExtensionRuntime {
           capabilities: manifest.manifest.capabilities,
         },
         false,
-        { hash: mh, path: manifestPathFor(file) },
+        manifest.authority,
       );
       if (!gate.ok) {
         this.#options.onWarning?.(`extension ${previous.def.name}: reload refused (${gate.reason}); previous instance kept`);
@@ -1037,9 +1038,9 @@ export class ExtensionRuntime {
       // ADR-0061: the grant covers manifest bytes too; re-derived here so a
       // manifest swapped in between ask and import is caught.
       file
-        ? { hash: manifestHash(file) ?? "", path: manifestPathFor(file) }
+        ? (recheck?.ok ? recheck.authority : undefined)
         : options.manifest?.hash
-          ? { hash: options.manifest.hash, path: options.manifest.path ?? options.manifest.hash }
+          ? { hash: options.manifest.hash, path: options.manifest.path ?? options.manifest.hash, capabilities: options.manifest.capabilities }
           : undefined,
     );
     if (!consent.ok) return { ok: false, name, reason: consent.reason, message: consent.message };
@@ -1048,7 +1049,9 @@ export class ExtensionRuntime {
     const authority = manifestCaps ?? options.manifest?.capabilities;
     if (authority) {
       const defCaps: unknown = (d as { capabilities?: unknown }).capabilities;
-      const codeCaps = Array.isArray(defCaps) ? defCaps.filter((c): c is string => typeof c === "string") : [];
+      // A non-string entry is not dropped: it coerces into a slot the
+      // manifest will not have declared, so the refusal names it.
+      const codeCaps = (Array.isArray(defCaps) ? defCaps : []).map((c) => (typeof c === "string" ? c : String(c)));
       const subset = capabilitiesSubset(codeCaps, authority);
       if (!subset.ok) {
         return {

@@ -68,7 +68,7 @@ export interface BundledExtensionSource {
    * another package's file). When present, the same subset rule applies at
    * registration: code capabilities not declared here refuse the load.
    */
-  readonly manifest?: { hash?: string; capabilities: readonly string[] };
+  readonly manifest?: { hash?: string; path?: string; capabilities: readonly string[] };
   /** Builds the definition to register. Called only when `active` is true. */
   activate(context: BundledActivationContext): unknown;
   /**
@@ -167,9 +167,22 @@ export function resolveBundledExtensions(options: {
       continue;
     }
     anyActive = true;
+    const { manifest, ...rest } = descriptor;
     void options.runtime.register(descriptor.activate(options.context), {
       bundled: true,
-      ...(descriptor.manifest ? { manifest: descriptor.manifest } : {}),
+      ...rest,
+      // A bundled source without a hash derives its store key from the name
+      // (in-memory identities have no path); only the capabilities are
+      // load-bearing today — a bundled registration skips consent.
+      ...(manifest?.capabilities?.length
+        ? {
+            manifest: {
+              hash: manifest.hash ?? "",
+              path: manifest.path ?? manifest.hash ?? descriptor.name,
+              capabilities: manifest.capabilities,
+            },
+          }
+        : {}),
     });
     // The reader is lazy on purpose: the instance may not exist yet at this
     // point (the registration above is in flight), so the wiring captures

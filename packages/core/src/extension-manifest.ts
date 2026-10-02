@@ -31,11 +31,24 @@ export interface ExtensionManifest {
   readonly capabilities: readonly CapabilitySlot[];
 }
 
+/** What consent signs about one manifest: its own SHA-256 (`hash`), the
+ * stable store key (`path` — the manifest file's path), and the
+ * capabilities it declared. */
+export interface ManifestAuthority {
+  readonly hash: string;
+  readonly path: string;
+  readonly capabilities: readonly string[];
+}
+
 export type ManifestReadResult =
-  | { ok: true; manifest: ExtensionManifest }
+  | { ok: true; manifest: ExtensionManifest; authority: ManifestAuthority }
   | { ok: false; reason: "missing" | "malformed"; message: string };
 
-function isManifest(value: unknown): value is ExtensionManifest {
+export function manifestPathFor(entryFile: string): string {
+  return join(dirname(entryFile), MANIFEST_FILE);
+}
+
+function isManifestValue(value: unknown): value is ExtensionManifest {
   if (typeof value !== "object" || value === null) return false;
   const v = value as Record<string, unknown>;
   if (typeof v.name !== "string" || v.name.length === 0) return false;
@@ -49,7 +62,7 @@ function isManifest(value: unknown): value is ExtensionManifest {
   return true;
 }
 
-function normalize(value: unknown): ExtensionManifest {
+function normalizeManifest(value: unknown): ExtensionManifest {
   const v = value as Record<string, unknown>;
   const entry = v.entry;
   return {
@@ -69,25 +82,31 @@ function normalize(value: unknown): ExtensionManifest {
  * decidable from these bytes alone.
  */
 export function readExtensionManifest(entryFile: string): ManifestReadResult {
-  const file = join(dirname(entryFile), MANIFEST_FILE);
-  if (!existsSync(file)) {
+  const file = manifestPathFor(entryFile);
+  let bytes: Buffer;
+  try {
+    if (!existsSync(file)) {
+      return { ok: false, reason: "missing", message: `no ${MANIFEST_FILE} beside ${basename(entryFile)}` };
+    }
+    bytes = readFileSync(file);
+  } catch {
     return { ok: false, reason: "missing", message: `no ${MANIFEST_FILE} beside ${basename(entryFile)}` };
   }
   let parsed: unknown;
   try {
-    parsed = JSON.parse(readFileSync(file, "utf8"));
+    parsed = JSON.parse(bytes.toString("utf8"));
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     return { ok: false, reason: "malformed", message: `${MANIFEST_FILE} is not valid JSON: ${message}` };
   }
-  if (!isManifest(parsed)) {
+  if (!isManifestValue(parsed)) {
     return {
       ok: false,
       reason: "malformed",
       message: `${MANIFEST_FILE} must declare { name, version, entry, capabilities? } with string values`,
     };
   }
-  const manifest = normalize(parsed);
+  const manifest = normalizeManifest(parsed);
   const base = basename(entryFile);
   if (!manifest.entry.some((e) => e === base || join(dirname(entryFile), e) === entryFile)) {
     return {
@@ -96,22 +115,17 @@ export function readExtensionManifest(entryFile: string): ManifestReadResult {
       message: `${MANIFEST_FILE} declares entry ${manifest.entry.join(", ")} — not ${base}`,
     };
   }
-  return { ok: true, manifest };
-}
-
-/** The manifest file's path for one entry file — the stable key the consent
- * store records the manifest under (stable across a widening edit, where
- * the content identity is not). */
-export function manifestPathFor(entryFile: string): string {
-  return join(dirname(entryFile), MANIFEST_FILE);
-}
-
-/** SHA-256 of the manifest's exact bytes — the second half of the content
- * identity consent signs (the first is the entry file's own hash). */
-export function manifestHash(entryFile: string): string | undefined {
-  const file = join(dirname(entryFile), MANIFEST_FILE);
-  if (!existsSync(file)) return undefined;
-  return createHash("sha256").update(readFileSync(file)).digest("hex");
+  return {
+    ok: true,
+    manifest,
+    // One read, one hash: the authority the consent signs is the exact
+    // bytes this call parsed — no second read to race a swap.
+    authority: {
+      hash: createHash("sha256").update(bytes).digest("hex"),
+      path: file,
+      capabilities: manifest.capabilities,
+    },
+  };
 }
 
 /** What a manifest edit changed, in consent terms: `added` is the widening
