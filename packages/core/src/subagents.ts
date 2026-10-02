@@ -80,6 +80,25 @@ export const BUILTIN_AGENT_PRESETS: Record<string, SubagentSpec> = {
 
 export const DEFAULT_SUBAGENT_CONCURRENCY = 3;
 
+/** ADR-0055 (#1127): who asked for a spawn. */
+export type SubagentSpawnRequester = { kind: "model" } | { kind: "extension"; extension: string };
+
+/** ADR-0055 (#1127): the scopes actually applied to a spawned child. */
+export interface SubagentSpawnLimits {
+  tools?: string[];
+  mode: "normal" | "auto-accept" | "yolo";
+  maxIterations: number;
+}
+
+/** A live child the stop control can abort. */
+interface LiveChild {
+  callId: string;
+  name: string;
+  requester: SubagentSpawnRequester;
+  limits: SubagentSpawnLimits;
+  abort: () => void;
+}
+
 /** Options for enabling the spawn tool on a session. */
 export interface SubagentOptions {
   /** Presets from moh.json `agents`, merged over the built-ins (user wins). */
@@ -165,6 +184,12 @@ export interface SubagentHostOptions {
     /** Project root that owns the lane worktrees. Default: the host cwd. */
     cwd?: string;
   };
+  /** ADR-0055 (#1127): who is asking for spawns right now — the model, or
+   * an orchestration extension by name. Default: the model. */
+  requester?: () => SubagentSpawnRequester;
+  /** ADR-0055 (#1127): the session's resolved iteration cap, read live so
+   * the recorded `limits.maxIterations` is what the child actually gets. */
+  defaultMaxIterations?: () => number;
 }
 
 /** Simple counting semaphore: caps parallel children (default 3). */
@@ -205,10 +230,43 @@ class Semaphore {
 export class SubagentHost {
   readonly #options: SubagentHostOptions;
   readonly #semaphore: Semaphore;
+  /** ADR-0055 "one stop" (#1127): the children currently in flight. */
+  readonly #live = new Map<string, LiveChild>();
 
   constructor(options: SubagentHostOptions) {
     this.#options = options;
     this.#semaphore = new Semaphore(options.maxConcurrency ?? DEFAULT_SUBAGENT_CONCURRENCY);
+  }
+
+  /** The live children: callId, display name, spawn requester/limits. */
+  liveSubagents(): { callId: string; name: string; requester: SubagentSpawnRequester; limits: SubagentSpawnLimits }[] {
+    return [...this.#live.values()].map((child) => ({
+      callId: child.callId,
+      name: child.name,
+      requester: child.requester,
+      limits: child.limits,
+    }));
+  }
+
+  /**
+   * ADR-0055 "one stop": stop everything this orchestration started —
+   * lists the live children, aborts them, and returns their callIds so the
+   * session records one `orchestration_stopped` chrome event. Children
+   * already settled contribute nothing.
+   */
+  stop(): string[] {
+    const stopped: string[] = [];
+    for (const child of this.#live.values()) {
+      stopped.push(child.callId);
+      try {
+        child.abort();
+      } catch {
+        // An abort that throws still counts as stopped: the child's own
+        // result event carries the outcome.
+      }
+    }
+    this.#live.clear();
+    return stopped;
   }
 
   /** Resolves a preset name against moh.json agents (user) over built-ins. */
@@ -396,13 +454,30 @@ export class SubagentHost {
           relation: "independent",
         });
       }
+      // ADR-0055 (#1127): who asked and what was applied — the fields that
+      // make an orchestration's children derivable from the log, reused by
+      // the live-children registry the stop control reads.
+      const requester: SubagentSpawnRequester = this.#options.requester?.() ?? { kind: "model" };
+      const limits: SubagentSpawnLimits = {
+        ...(spec.allowedTools ? { tools: [...spec.allowedTools] } : {}),
+        mode: permsForChild.unrestrictedTools === true ? "yolo" : permsForChild.mode ?? liveMode ?? perms.mode ?? "normal",
+        maxIterations: spec.maxIterations ?? this.#options.defaultMaxIterations?.() ?? 50,
+      };
       this.#options.onEvent({
         type: "subagent_spawn",
         callId: spawnId,
         name: spec.name,
         ...(preset ? { preset } : {}),
         log: store.file,
+        requester,
+        limits,
       });
+      // The stop control (ADR-0055 "one stop"): a live child aborts with
+      // its parent's turn; this registry adds the door that does not
+      // require turning the owner's own turn off.
+      const live: LiveChild = { callId: spawnId, name: spec.name, requester, limits, abort: () => child?.abort() };
+      this.#live.set(spawnId, live);
+      const forget = () => this.#live.delete(spawnId);
       // Abort propagation: cancelling the parent's turn aborts the child.
       const abortChild = () => child?.abort();
       ctx.signal.addEventListener("abort", abortChild, { once: true });
@@ -411,6 +486,7 @@ export class SubagentHost {
         turn = await child.send(firstMessage);
       } finally {
         ctx.signal.removeEventListener("abort", abortChild);
+        forget();
       }
       const usage = child.usage;
       const result: SubagentResult =

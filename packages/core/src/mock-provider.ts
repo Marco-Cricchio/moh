@@ -1,5 +1,13 @@
 import { readFileSync } from "node:fs";
 import { ProviderError } from "./types";
+
+/** Resolves when the signal aborts (a helper for hold-vs-abort races). */
+function aborted(signal: AbortSignal): Promise<void> {
+  return new Promise((resolve) => {
+    if (signal.aborted) resolve();
+    else signal.addEventListener("abort", () => resolve(), { once: true });
+  });
+}
 import { recognizeDeclaredWindow } from "./declared-window";
 import type { FinishReason, Message, Provider, ProviderErrorKind, StreamEvent, StreamOptions, ToolSpec } from "./types";
 
@@ -108,8 +116,12 @@ export class MockProvider implements Provider {
       // #1061: the mid-turn hold — awaited BEFORE the delta it gates, so a
       // test can assert the frame at a deterministic instant with the turn
       // still open (the last delta before the hold is painted, this one and
-      // everything after are not).
-      if (turn.hold && emitted === turn.hold.afterDeltas) await turn.hold.release;
+      // everything after are not). #1127: an abort during the hold ends the
+      // wait (the hold is a test gate, never a way to pin the stream past
+      // cancellation).
+      if (turn.hold && emitted === turn.hold.afterDeltas) {
+        await Promise.race([turn.hold.release, aborted(signal)]);
+      }
       if (signal.aborted) return;
       if (turn.error && emitted === failAt) {
         throw new ProviderError(
