@@ -1,6 +1,6 @@
 # ADR-0061: Extension platform — manifest declaration, authoritative lifecycle, package registry, client surfaces
 
-Status: accepted · Date: 2026-10-02 · Issue: #1000 · Related: ADR-0031 (restrict-only), ADR-0039 (bundled source), ADR-0053 (capability slots), ADR-0054 (prompt section replacement), ADR-0055 (orchestration), ADR-0056 (hook ceilings)
+Status: accepted · Date: 2026-10-02 · Issue: #1000 · Amended: ADR-0062 (extension UI contributions — the read-only client v1 below is superseded) · Related: ADR-0031 (restrict-only), ADR-0039 (bundled source), ADR-0053 (capability slots), ADR-0054 (prompt section replacement), ADR-0055 (orchestration), ADR-0056 (hook ceilings)
 
 ## Context
 
