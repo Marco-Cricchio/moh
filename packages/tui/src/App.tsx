@@ -258,6 +258,11 @@ function AppShell({
     [cfgFile],
   );
   const [modelLabel, setModelLabel] = useState(() => providerLabel(provider, cwd, home));
+  // The cwd the open session actually runs in. Auto-lane (ADR-0060) assembles
+  // the session in a worktree under `.moh-lanes/...` - the filesystem chrome
+  // (branch, cwd tail, 12549 12549paths) must read from there, not from the launch
+  // directory, or row2 shows a branch that is never the lane's.
+  const [sessionCwd, setSessionCwd] = useState(cwd);
   // startInChat assembles eagerly (tests, bare resume); a broken config is a
   // visible error now — no silent demo fallback (ADR-0005).
   const [initialSession] = useState(() =>
@@ -882,6 +887,9 @@ function AppShell({
         ...(handoffOffer ? { handoffOffer } : {}),
         onHandoffWarning: (message: string) => push(message, "warn"),
       };
+      // Filesystem chrome follows the session's real cwd (the lane worktree
+      // when one was provisioned), never the launch directory.
+      if (base.cwd !== sessionCwd) setSessionCwd(base.cwd);
       let made: ReturnType<typeof makeSession>;
       if (resume) {
         const store = SessionStore.open(resume.file);
@@ -1456,7 +1464,7 @@ function AppShell({
   const chat = showChat ? (
     <Chat
       session={session}
-      cwd={cwd}
+      cwd={sessionCwd}
       toastRows={toasts.length}
       mode={mode}
       modelLabel={modelLabel}
@@ -1642,7 +1650,7 @@ function AppShell({
           <Box flexDirection="column" width="100%" alignItems="center">{chat}</Box>
         ) : (
           <Home
-            cwd={cwd}
+            cwd={sessionCwd}
             home={home}
             mode={mode}
             intro={introActive}
@@ -1678,7 +1686,7 @@ function AppShell({
         )}
         {overlay === "onboarding" && (
           <Onboarding
-            cwd={cwd}
+            cwd={sessionCwd}
             home={home}
             env={env}
             onDone={(ref) => {
@@ -1708,7 +1716,7 @@ function AppShell({
         )}
         {overlay === "handoff-onboarding" && (
           <HandoffActivationModal
-            cwd={cwd}
+            cwd={sessionCwd}
             startup={!handoffFromSettings}
             verifyGh={verifyHandoffGh}
             onDone={(transport) => {
@@ -1728,7 +1736,7 @@ function AppShell({
         )}
         {overlay === "settings" && (
           <SettingsPanel
-            cwd={cwd}
+            cwd={sessionCwd}
             onStudioActive={setSettingsStudioActive}
             home={home}
             config={config}
@@ -1756,7 +1764,7 @@ function AppShell({
         {overlay === "cold-wizard" && coldOffers && (
           <ColdWizard
             offers={coldOffers}
-            cwd={cwd}
+            cwd={sessionCwd}
             home={home}
             fetchPayload={async (url) => {
               const fetched = await createGistHandoffTransport({ cwd, home }).fetchByUrl?.(url);
@@ -1780,7 +1788,7 @@ function AppShell({
           />
         )}
         {overlay === "manual" && <ManualModal onClose={() => setOverlay(null)} />}
-        {overlay === "notes" && <NotesModal cwd={cwd} home={home ?? homedir()} onClose={() => setOverlay(null)} />}
+        {overlay === "notes" && <NotesModal cwd={sessionCwd} home={home ?? homedir()} onClose={() => setOverlay(null)} />}
         {overlay === "rename" && session && (
           <SessionRenameModal
             initialName={[...session.history()].reverse().find((event) => event.type === "session_renamed")?.name ?? ""}
@@ -1915,7 +1923,7 @@ function AppShell({
         )}
         {overlay === "browser" && (
           <BrowserSetupModal
-            cwd={cwd}
+            cwd={sessionCwd}
             {...(home ? { home } : {})}
             hasSession={session !== null}
             onDone={(outcome) => {
