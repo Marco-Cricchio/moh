@@ -9,6 +9,17 @@ matching section here at tag time.
 
 ### Added
 
+- **Prompt section replacement via `beforeModelCall`** (ADR-0054, #1129,
+  apiVersion 1.11): an extension with a per-section capability grant
+  (`replace-prompt-section:<name>`) may replace one of the six data prompt
+  sections (`environment`, `tools`, `skills`, `memory`, `session_state`,
+  `mpm`) from the hook's return value; `null` hides. The core writes a
+  provenance line at the head of a replaced section, refuses a second
+  author per section visibly, and appends one `prompt_override` chrome
+  event per composition change (`replaced` | `hidden` | `restored`) —
+  never the words. The borrowed-runtime surface widens with
+  `dispatchBeforeModelCall`, so a subagent child composes the parent's
+  replacements with its own chrome.
 - **Subagent spawn attribution and the orchestration stop** (ADR-0055,
   #1127): every `subagent_spawn` event now records who asked — the model,
   or a named orchestration extension — and the limits actually applied to

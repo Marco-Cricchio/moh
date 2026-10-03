@@ -15,7 +15,13 @@ import type {
   ToolSpec,
   TurnResult,
 } from "../types";
-import type { AssembledPrompt } from "../prompt-composer";
+import type { AssembledPrompt, SectionName } from "../prompt-composer";
+import {
+  applyPromptReplacements,
+  promptOverrideEvents,
+  type PromptContribution,
+  type ReplacementAuthor,
+} from "../prompt-override";
 import type { TurnConfirmOutcome } from "@moh/extension";
 import { resolveTurnConfirm, type BeforeTurnDispatch, type ExtensionRuntime } from "../extensions";
 import { assembleMentions, renderMentionAttachment, type MentionAttachment } from "../mentions";
@@ -161,6 +167,10 @@ export interface AgentLoopOptions {
   assemblePrompt: () => void;
   /** The most recently assembled prompt, for beforeModelCall dispatch. */
   lastPrompt: () => AssembledPrompt | null;
+  /** ADR-0054 (#1129): true when the ADR-0011 turn-scoped skill prompt
+   * holds the `skills` section this turn — a replacement for it is
+   * refused that call. */
+  skillsProtected?: () => boolean;
   /** Log append callback — the loop owns its event emission. */
   append: (event: AgentEvent) => void;
   /** #488: mention expansion config — `@path` tokens in user messages
@@ -254,6 +264,11 @@ export class AgentLoop {
   readonly #messages: Message[];
   readonly #assemblePrompt: () => void;
   readonly #lastPrompt: () => AssembledPrompt | null;
+  readonly #skillsProtected: (() => boolean) | undefined;
+  /** ADR-0054 (#1129): the contributions in force at the last applied
+   * composition, keyed by section — the diff state behind "one
+   * `prompt_override` per change, never per call". */
+  #promptContributions = new Map<SectionName, PromptContribution>();
   readonly #append: (event: AgentEvent) => void;
   readonly #emitLive: ((event: ReasoningStreamEvent) => void) | undefined;
 
@@ -308,6 +323,7 @@ export class AgentLoop {
     this.#messages = options.messages;
     this.#assemblePrompt = options.assemblePrompt;
     this.#lastPrompt = options.lastPrompt;
+    this.#skillsProtected = options.skillsProtected;
     this.#append = options.append;
     this.#mentions = options.mentions;
     this.#emitLive = options.emitLive;
@@ -655,11 +671,14 @@ export class AgentLoop {
           messages: this.#messages,
         });
         for (const e of dispatch.errors) this.#append(e);
-        // ADR-0054: applying the replacements (capability checks, one
-        // author per section, the provenance line, `prompt_override`) is
-        // the composer's work — #1129. The deadline composition (which
-        // returns beat the 5 s window, which lost a clock) is decided
-        // here, in the dispatch.
+        // ADR-0054 (#1129): apply the replacements that beat the window —
+        // capability checks, one author per section, the provenance line —
+        // and record the composition change once per change, never per
+        // call. The core's own text survives: the composer re-runs next
+        // call, so the projection is rebuilt from scratch every time.
+        for (const e of this.#applyPromptOverrides(lastPrompt, dispatch.replacements)) {
+          this.#append(e);
+        }
       }
       const toolCalls: ToolCall[] = [];
       // #853: a bare (non-routed) provider's empty completion must end
@@ -921,6 +940,32 @@ export class AgentLoop {
   #streamOptions(): StreamOptions | undefined {
     const thinking = this.#thinking?.();
     return thinking ? { thinking } : undefined;
+  }
+
+  /**
+   * ADR-0054 (#1129): applies one dispatch's winning replacements to the
+   * prompt this iteration is about to send. Returns the `prompt_override`
+   * records for whatever changed against the composition previously in
+   * force (the caller appends them); the refusals are appended here, so
+   * the loop's call sites stay symmetric.
+   */
+  #applyPromptOverrides(
+    base: AssembledPrompt,
+    authors: readonly ReplacementAuthor[],
+  ): AgentEvent[] {
+    const application = applyPromptReplacements(base.sections, authors, {
+      ...(this.#skillsProtected ? { skillsProtected: this.#skillsProtected() } : {}),
+    });
+    for (const e of application.refusals) this.#append(e);
+    // The call about to be made reads the effective composition: rebuild
+    // the system message in place (it is this loop's #messages[0] — the
+    // session's assemblePrompt put it there).
+    if (this.#messages[0]?.role === "system") {
+      this.#messages[0] = { role: "system", parts: [{ kind: "text", text: application.system }] };
+    }
+    const events = promptOverrideEvents(this.#promptContributions, application);
+    this.#promptContributions = new Map(application.contributions.map((c) => [c.section, c]));
+    return events;
   }
 
   /** Records a failed call for audit/display without treating its reasoning

@@ -86,7 +86,7 @@
  * Minor bumps are additive (new optional hooks/fields); major bumps are
  * breaking and refuse to load older/newer extensions.
  */
-export const MOH_EXTENSION_API_VERSION = "1.10";
+export const MOH_EXTENSION_API_VERSION = "1.11";
 
 /** Structural (core-independent) view of an event-log entry. */
 export interface ExtensionEvent {
@@ -440,7 +440,12 @@ export type BeforeTurnHook = (ctx: BeforeTurnContext) => BeforeTurnResult | void
  * ADR-0054: what a `beforeModelCall` hook may return — prompt-section
  * replacements, `null` meaning hidden. The return is judged against the
  * 5 s replacement window (ADR-0056 owns the deadline composition); the
- * core applies only sections the extension's declared capability covers.
+ * core applies only sections the extension's declared capability covers —
+ * one capability slot per section, `replace-prompt-section:<name>`, and
+ * only the six data sections (`environment`, `tools`, `skills`, `memory`,
+ * `session_state`, `mpm`) are replaceable at all; `base` and the note
+ * sections never are. A replacement outside the grant is refused at
+ * runtime, visibly, and the core's text stands for that call (ADR-0054).
  */
 export interface BeforeModelCallResult {
   sections?: Partial<Record<string, string | null>>;

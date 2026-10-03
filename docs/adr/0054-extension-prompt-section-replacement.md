@@ -76,7 +76,9 @@ append-only and ordered by turn, and replay reconstructs what was in force. The 
 *who* and *which part*, not the words: extension text never enters the log verbatim (the inlet
 rule of #997), and a replaced `memory` or `session_state` can be tens of kilobytes that moh
 will not carry on every change. The text is reproducible from the extension's own code and its
-version — the version is in the event, the bytes' hash in `extensions.json`.
+version — the version is in the event, the bytes' hash in `extensions.json`. A section that
+returns to core text is itself a change of what is in force, so disengagement is recorded too
+(`mode: "restored"`), keeping the reconstruction exact.
 
 **Disengaging.** No hot switch. Revocation rides the ADR-0053 boundary — it takes effect from
 the next session, a live session keeps its powers — and `/reload` is the in-session door.

@@ -151,7 +151,10 @@ permissions. Within one turn, the ordering is:
    It fires before the turn's provider is read and before anything is
    logged, so a turn that is never sent leaves no trace.
 3. Per model call: `beforeModelCall` — read the assembled prompt
-   (`{ sections, system, version }`) and messages; read-only.
+   (`{ sections, system, version }`) and messages; optionally return
+   `{ sections: { <name>: "<replacement>" | null } }` to replace a prompt
+   section (apiVersion 1.11, ADR-0054 — see "Replacing a prompt section"
+   below).
 4. Per tool call: `onToolCall` — return `{ veto: true, reason? }` to deny,
    or `{ ask: true, reason? }` to hand the call to the human consent flow;
    runs before the permission gate's user-rule tiers.
@@ -188,6 +191,45 @@ A veto outranks user permission rules and applies even in
 yolo mode — extensions can only restrict, never widen. The denial
 produces the same denied `tool_result` the model sees for any denial, so
 the loop can react to it.
+
+## Replacing a prompt section (ADR-0054)
+
+`beforeModelCall` may return `{ sections: Partial<Record<SectionName, string | null>> }`:
+each entry replaces that section's text for the call about to be made,
+with `null` meaning *hidden*. Six data sections are replaceable —
+`environment`, `tools`, `skills`, `memory`, `session_state`, `mpm` —
+plus your own contribution sections; `base` and the project's
+instruction files are never replaceable (they are moh's identity and the
+user's own words), and a section added later defaults to not
+replaceable.
+
+- **Capability, per section.** Replacing `memory` needs the capability
+  slot `replace-prompt-section:memory` declared in your code and your
+  manifest (one slot per section, so the consent question names exactly
+  what you may touch). Without the grant the replacement is refused at
+  runtime — a visible `extension_failed { reason: "section_not_granted" }`
+  — and the core's own text serves that call.
+- **One author per section.** A second extension returning a replacement
+  for an already-replaced section is refused with
+  `extension_failed { reason: "section_contested" }`; the first author's
+  text stands. Dispatch stays in registration order.
+- **Provenance.** The core writes one line at the head of a replaced
+  section (`[extension: your-ext v1.2.0 — section replaced]`), so the
+  model can tell which text is not moh's voice. Hiding a section is
+  recorded as `hidden`, never a silent omission.
+- **The record.** When the set of contributions in force changes — a
+  section replaced, hidden, or restored to core text — the session log
+  gains one `prompt_override` chrome event naming section, author,
+  version and mode. It never records the words; replay reconstructs what
+  was in force from these events alone.
+- **It follows the runtime into children.** A subagent child borrows the
+  dispatch too: the same replacements shape the child's prompt, and the
+  refusals and `prompt_override` records land in the child's own log.
+- **Disengaging.** Nothing is persisted: the replacement is a per-call
+  projection of what your hook returns. Stop returning it and the core's
+  text stands, recorded once as `restored`; disabling the extension
+  removes it entirely. A slow hook that misses the 5 s window loses only
+  the replacement (the deadline composition above).
 
 ## Choosing the model of a turn
 
@@ -565,7 +607,7 @@ extension's note.
 ## Versioning policy
 
 - The host speaks `MOH_EXTENSION_API_VERSION` (`"major.minor"`); the
-  current version is **1.10** (1.1 added `ask` and the two observation
+  current version is **1.11** (1.1 added `ask` and the two observation
   seams; 1.2 added `beforeTurn`; 1.3 added the `extension_control`
   command channel; 1.4 added `onToolResult`, `confirm.onResolved` and
   `onCompaction`; 1.5 added `setPromptNote`; 1.6 added `requestTurn`;
@@ -575,7 +617,8 @@ extension's note.
   and the `applied: false` outcome on its `onApplied` callback; 1.10
   added the `onModelError` hook, ADR-0059; still 1.10, #1110 added the
   same `endpointCooldowns` list the `beforeTurn` context already carries
-  to the `onModelError` context).
+  to the `onModelError` context; 1.11 added the prompt-section
+  replacement return value on `beforeModelCall`, ADR-0054).
 - **Additive-only within a major**: new hooks and context fields may be
   added; existing ones never change meaning or disappear. Deprecated APIs
   survive one full major.
