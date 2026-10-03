@@ -14,7 +14,7 @@ import type { ExtensionDefinition, ExtensionHost, ExtensionSetupContext } from "
 import { ExtensionRuntime } from "../src/extensions";
 import { scopeEffectSentence } from "../src/host-scope";
 import type { AgentEvent } from "../src/types";
-import { sessionFromConfig } from "../src";
+import { sessionFromConfig, MockProvider } from "../src";
 import type { AgentSession } from "../src/session/session";
 import type { PermissionAskContext } from "../src/session/config";
 
@@ -348,35 +348,49 @@ describe("contribute-tool: the contribution slot (ADR-0067)", () => {
           name: "search",
           description: "searches the web",
           inputSchema: z.object({ query: z.string() }),
+          // A denied call must never reach the body: any output here would
+          // fail the assertions below.
           execute: (args) => `results for ${(args as { query: string }).query}`,
         });
       },
     } as ExtensionDefinition);
     await rt.ready();
 
-    let denial: string | undefined;
+    const captured: AgentEvent[] = [];
     const assembled = sessionFromConfig({
       cwd: root,
       home: root,
-      config: { provider: "mock" },
+      // The scripted model calls `search` like any tool; the deny rule
+      // must answer at the gate before the extension's body runs — and
+      // the call comes back to the model as an ordinary failed tool_result.
+      provider: MockProvider.scripted([
+        {
+          deltas: [],
+          finish: "tool_calls",
+          toolCalls: [{ callId: "c1", name: "search", args: { query: "test" } }],
+        },
+        { deltas: ["done"], finish: "stop" },
+      ]),
       overrides: {
         permissions: { overrides: { tools: { search: "deny" as const } } },
         extensions: rt,
-        sink: (e) => {
-          if (e.type === "tool_call") denial = "call-appended";
-        },
+        sink: (e) => captured.push(e),
       },
     });
     if (!("session" in assembled)) throw new Error(assembled.error.message);
     const session = assembled.session as unknown as AgentSession;
     try {
-      // The deny rule answers at the gate before any execute: run the seam
-      // path the model would take (the same runner and gate) directly.
-      const outcome = await session.send("use search");
-      void outcome;
-      // A deny rule means the gate refuses before the tool body runs; the
-      // model-visible registry still holds the tool (it was contributed).
-      expect(session.tools.search).toBeDefined();
+      await session.send("use search");
+      const call = captured.find((e) => e.type === "tool_call" && e.name === "search");
+      expect(call).toBeDefined();
+      const result = captured.find((e) => e.type === "tool_result" && e.callId === "c1");
+      expect(result).toBeDefined();
+      expect(result && result.type === "tool_result" ? result : undefined).toMatchObject({ ok: false, errorKind: "permission" });
+      if (result && result.type === "tool_result") {
+        expect(result.output).toContain("denied by permission rule");
+      }
+      // The registration record rode the runtime's event channel (the
+      // session drains it into its log), contributor visible.
       expect(events.some((e) => e.type === "tool_contributed")).toBe(true);
     } finally {
       await session.dispose();

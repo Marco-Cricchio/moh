@@ -1351,7 +1351,13 @@ bindPathDeny(isDenied: (resolvedAbsPath: string) => boolean): void {
   bindToolContributor(contributor: (registration: { extension: string; tool: unknown }) => void): void {
     this.#toolContributor = contributor;
     const pending = this.#pendingContributed.splice(0);
-    for (const registration of pending) contributor(registration);
+    for (const registration of pending) {
+      contributor(registration);
+      // ADR-0067: the registration record lands with the session's log —
+      // emitted at bind time, never during setup, so a replay sees it
+      // where the tool became callable.
+      this.#emit({ type: "tool_contributed", extension: registration.extension, tool: (registration.tool as { name: string }).name });
+    }
   }
 
   /** True when any loaded extension holds a `contribute-tool:<name>` grant. */
@@ -1380,7 +1386,9 @@ bindPathDeny(isDenied: (resolvedAbsPath: string) => boolean): void {
     const registration = { extension, tool };
     if (this.#toolContributor) this.#toolContributor(registration);
     else this.#pendingContributed.push(registration);
-    this.#emit({ type: "tool_contributed", extension, tool: name });
+    // The `tool_contributed` record is emitted by `bindToolContributor`
+    // at bind time — the log of the session where the tool became
+    // callable, never a setup-time orphan event.
   }
 
   /** True when any loaded extension holds a `tool:<name|*>` grant. */
@@ -1856,6 +1864,20 @@ bindPathDeny(isDenied: (resolvedAbsPath: string) => boolean): void {
       if (!isCredentialScope(capability)) continue;
       const validity = validateCredentialScope(capability);
       if (!validity.ok) return { ok: false, name, reason: "invalid_credential_scope", message: validity.message };
+    }
+    // ADR-0067: the tool scopes validate at load like their scope
+    // siblings. An invocation name must be a name a session can look up
+    // (the wildcard is its own grammar); a contribution is always named
+    // exactly — a wildcard contribution would hide which tools the
+    // extension's code actually adds.
+    for (const capability of granted) {
+      if (isToolScope(capability)) {
+        const validity = validateToolScope(capability);
+        if (!validity.ok) return { ok: false, name, reason: "invalid_tool_scope", message: validity.message };
+      } else if (isContributeToolScope(capability)) {
+        const validity = validateContributeToolScope(capability);
+        if (!validity.ok) return { ok: false, name, reason: "invalid_tool_scope", message: validity.message };
+      }
     }
     instance.grantedCapabilities = [...granted];
     const commandSlot: { registerCommand?: ExtensionSetupContext["registerCommand"] } = granted.includes("contribute-commands")
