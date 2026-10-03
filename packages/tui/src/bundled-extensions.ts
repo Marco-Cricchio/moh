@@ -18,7 +18,7 @@
  */
 import { readFileSync } from "node:fs";
 import { jevBundledSource } from "@moh/jev-guard";
-import { userConfigFile, type MountedBundledExtension } from "@moh/core";
+import { defaultCredentialStore, userConfigFile, type MountedBundledExtension } from "@moh/core";
 
 /** Every first-party bundled extension, in registration order (hook
  * precedence is registration order, so this list is a contract).
@@ -32,9 +32,15 @@ import { userConfigFile, type MountedBundledExtension } from "@moh/core";
 export function bundledExtensionSources(home?: string): readonly MountedBundledExtension[] {
   const file = userConfigFile(home);
   const read = (f: string): string => readFileSync(f, "utf8");
+  // #1162: the same credential store the assembly will host. The one-time
+  // legacy-key migration (config plaintext -> store) runs here, before the
+  // activation answer, so a pre-#1162 config converges without user action
+  // and "active" keeps meaning what it always meant.
+  const store = defaultCredentialStore(home ?? process.env.HOME ?? ".");
+  jevBundledSource.migrate?.(store, file);
   let active = false;
   try {
-    active = jevBundledSource.evaluateActive?.(read, file) ?? false;
+    active = jevBundledSource.evaluateActive?.(read, file, store) ?? false;
   } catch {
     // A malformed `typesafe` block is the user's to fix (`moh jev status`
     // reports it loudly); at assembly time it means "not active" — a broken

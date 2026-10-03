@@ -616,6 +616,29 @@ export type HostFetchResult =
   | HostFetchSuccess
   | { ok: false; reason: "outside_scope" | "invalid_url" | "unknown_credential" | "denied" | "too_large" | "failed"; target?: string; message?: string };
 
+/**
+ * #1162: what one `ctx.host.fetch` may ask for. The seam's first consumer
+ * with a request body (Jev's TypeSafe POST) grew the request side from the
+ * anonymous GET ADR-0066 shipped — same scope rules, same buffered
+ * response, same log event. `method` is GET (default) or POST; a `body` is
+ * allowed only with POST and is capped by the same fixed byte limit the
+ * response is; `contentType` defaults to `application/json` when a body is
+ * present. `signal` aborts the request host-side (the extension composes
+ * its own deadline into it).
+ */
+export interface HostFetchOptions {
+  /** ADR-0069: resolve this ref and inject it as the request's bearer. */
+  credential?: string;
+  /** GET (default) or POST. */
+  method?: "GET" | "POST";
+  /** The request body — POST only, byte-capped like the response. */
+  body?: string | Uint8Array;
+  /** Request content type; default `application/json` when a body is set. */
+  contentType?: string;
+  /** Aborts the in-flight request host-side. */
+  signal?: AbortSignal;
+}
+
 
 /**
  * ADR-0064 + ADR-0065: the host-performs seam. **Present only when the
@@ -646,8 +669,12 @@ export interface ExtensionHost {
    * scope granted too; the host resolves the ref and injects the value
    * itself — the value never crosses the seam, and no read-the-value API
    * exists (ADR-0069).
+   *
+   * #1162: the request side — `method` (GET default, POST), `body`
+   * (POST-only, capped like the response), `contentType` (default
+   * `application/json` with a body) and `signal` (host-side abort).
    */
-  fetch(url: string, options?: { credential?: string }): Promise<HostFetchResult>;
+  fetch(url: string, options?: HostFetchOptions): Promise<HostFetchResult>;
 }
 
 /**

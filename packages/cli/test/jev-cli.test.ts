@@ -14,6 +14,8 @@ import { runCli, SPAWN_TEST_TIMEOUT_MS } from "./spawn-harness";
 
 const TMP_ROOT = mkdtempSync(join(tmpdir(), "moh-jev-cli-"));
 const KEY = "ts_live_0000secret9f2a";
+/** #1162: the credential ref `jev status` and the Settings entry agree on. */
+const KEY_REF = "typesafe";
 
 /** `config` is written verbatim to `~/.moh/config`; `undefined` leaves the
  * file absent (the zero-config case). */
@@ -26,7 +28,9 @@ function harness(config?: string) {
     mkdirSync(join(home, ".moh"), { recursive: true });
     writeFileSync(join(home, ".moh", "config"), config);
   }
-  const spawn = (argv: string[]) => runCli(argv, { cwd, home });
+  // #1162: the child reads the credential store — the 0600-file fallback,
+  // never the developer's own keychain.
+  const spawn = (argv: string[]) => runCli(argv, { cwd, home, env: { MOH_SECRET_STORE: "file" } });
   return { home, cwd, spawn };
 }
 
@@ -40,13 +44,29 @@ describe("moh jev status (#784)", () => {
     expect(stdout).toContain("usage: moh jev status");
   }, SPAWN_TEST_TIMEOUT_MS);
 
-  test("active: masked key and effective timeout, exit 0", () => {
-    const { spawn } = harness(ACTIVE_CONFIG);
+  test("legacy plaintext key: active with the migration hint (#1162)", () => {
+    const { spawn, home } = harness(ACTIVE_CONFIG);
     const { code, stdout, stderr } = spawn(["jev", "status"]);
     expect(code).toBe(0);
     expect(stderr).toBe("");
-    expect(stdout).toBe("  jev             active (key …9f2a, timeout 2500ms)\n  guardrail       on\n  routing         off\n  injection       off\n  quality gate    off\n  classification  on\n  rerank          off\n  skills          off\n");
+    expect(stdout).toContain("  jev             active (key …9f2a, timeout 2500ms)");
+    expect(stdout).toContain("  legacy          plaintext key still in the config");
     // The key only ever reaches the screen masked.
+    expect(stdout).not.toContain(KEY);
+
+    // Status is side-effect free: the config still carries the key (the
+    // migration happens at assembly / in Settings, not here).
+    expect(readFileSync(join(home, ".moh", "config"), "utf8")).toContain("apiKey");
+  }, SPAWN_TEST_TIMEOUT_MS);
+
+  test("stored credential: active, no legacy hint, no plaintext (#1162)", () => {
+    const { spawn, home } = harness("{}");
+    mkdirSync(join(home, ".moh"), { recursive: true });
+    writeFileSync(join(home, ".moh", "secrets.json"), JSON.stringify({ [KEY_REF]: KEY }));
+    const { code, stdout } = spawn(["jev", "status"]);
+    expect(code).toBe(0);
+    expect(stdout).toContain("  jev             active (key …9f2a, timeout 2500ms)");
+    expect(stdout).not.toContain("legacy");
     expect(stdout).not.toContain(KEY);
   }, SPAWN_TEST_TIMEOUT_MS);
 
@@ -65,15 +85,19 @@ describe("moh jev status (#784)", () => {
     expect(stdout).toContain(TYPESAFE_SETTINGS_HINT);
   }, SPAWN_TEST_TIMEOUT_MS);
 
-  test("active with a routing opt-in and a custom timeout", () => {
-    const { spawn } = harness(JSON.stringify({ typesafe: { apiKey: KEY, timeoutMs: 5000, routing: true } }));
+  test("active (stored credential) with a routing opt-in and a custom timeout", () => {
+    const { spawn, home } = harness(JSON.stringify({ typesafe: { timeoutMs: 5000, routing: true } }));
+    mkdirSync(join(home, ".moh"), { recursive: true });
+    writeFileSync(join(home, ".moh", "secrets.json"), JSON.stringify({ [KEY_REF]: KEY }));
     const { code, stdout } = spawn(["jev", "status"]);
     expect(code).toBe(0);
     expect(stdout).toBe("  jev             active (key …9f2a, timeout 5000ms)\n  guardrail       on\n  routing         on\n  injection       off\n  quality gate    off\n  classification  on\n  rerank          off\n  skills          off\n");
   }, SPAWN_TEST_TIMEOUT_MS);
 
-  test("--json active: exactly the pinned object, one line", () => {
-    const { spawn } = harness(ACTIVE_CONFIG);
+  test("--json active (stored credential): exactly the pinned object, one line", () => {
+    const { spawn, home } = harness("{}");
+    mkdirSync(join(home, ".moh"), { recursive: true });
+    writeFileSync(join(home, ".moh", "secrets.json"), JSON.stringify({ [KEY_REF]: KEY }));
     const { code, stdout } = spawn(["jev", "status", "--json"]);
     expect(code).toBe(0);
     expect(stdout).toBe('{"active":true,"keyHint":"…9f2a","timeoutMs":2500,"guardrail":true,"routing":false,"injection":false,"lint":false,"classification":true,"rerank":false,"skills":false}\n');

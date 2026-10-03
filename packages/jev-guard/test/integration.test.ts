@@ -15,7 +15,20 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { sessionFromConfig, userConfigFile } from "@moh/core";
+import { defaultCredentialStore } from "@moh/core";
 import { jevBundledSource } from "../src/integration";
+import { TYPESAFE_CREDENTIAL_REF, migrateTypesafeKey, removeTypesafeKey } from "../src/typesafe";
+
+/** A minimal in-memory credential store (the runtime's test shape). */
+function memoryStore(initial: Record<string, string> = {}) {
+  const map = new Map(Object.entries(initial));
+  return {
+    get: (ref: string) => map.get(ref),
+    set: (ref: string, value: string) => void map.set(ref, value),
+    delete: (ref: string) => map.delete(ref),
+    list: () => [...map.keys()].sort(),
+  };
+}
 import type { JevUseCaseState } from "../src/use-cases";
 
 /** #826 residue removal: the *client* resolves activation and mounts the
@@ -24,9 +37,11 @@ import type { JevUseCaseState } from "../src/use-cases";
  * — read the config, ask the descriptor, treat a broken block as inactive —
  * so these tests exercise the real path end to end. */
 function mountJev(home: string) {
+  const store = memoryStore();
+  jevBundledSource.migrate?.(store, userConfigFile(home));
   let active = false;
   try {
-    active = jevBundledSource.evaluateActive((f) => readFileSync(f, "utf8"), userConfigFile(home));
+    active = jevBundledSource.evaluateActive((f) => readFileSync(f, "utf8"), userConfigFile(home), store);
   } catch {
     active = false;
   }
@@ -85,7 +100,7 @@ describe("the typesafe config block (#784, #826)", () => {
       resolveTypesafeConfig({ apiKey: "sk-abcdef", timeoutMs: 900, routing: true, tiers: { "a/one": "potente" } }),
     ).toMatchObject({
       active: true,
-      apiKey: "sk-abcdef",
+      legacyApiKey: "sk-abcdef",
       timeoutMs: 900,
       routing: true,
       tiers: { "a/one": "potente" },
@@ -123,12 +138,37 @@ describe("the typesafe config block (#784, #826)", () => {
     mkdirSync(dir, { recursive: true });
     writeFileSync(file, JSON.stringify({ provider: "mock", typesafe: { timeoutMs: 1200 } }));
 
-    saveTypesafeApiKey(file, " sk-new ");
-    expect(readTypesafeConfig(file)).toEqual({ apiKey: "sk-new", timeoutMs: 1200 });
+    // #1162: the key is a credential now — the store is the only home, and
+    // a legacy plaintext key in config is cleaned up on save.
+    const store = memoryStore();
+    saveTypesafeApiKey(store, " sk-new ", file);
+    expect(store.get(TYPESAFE_CREDENTIAL_REF)).toBe("sk-new");
+    expect(readTypesafeConfig(file)).toEqual({ timeoutMs: 1200 });
     expect(JSON.parse(require("node:fs").readFileSync(file, "utf8")).provider).toBe("mock");
 
-    removeTypesafeApiKey(file);
-    expect(readTypesafeConfig(file)).toEqual({ timeoutMs: 1200 });
+    removeTypesafeKey(store);
+    expect(store.get(TYPESAFE_CREDENTIAL_REF)).toBeUndefined();
+  });
+
+  test("the legacy plaintext key migrates once into the credential store (#1162)", () => {
+    const dir = tmpDir();
+    const file = join(dir, "config");
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(file, JSON.stringify({ provider: "mock", typesafe: { apiKey: " sk-legacy " }, theme: "nord" }));
+
+    const store = memoryStore();
+    migrateTypesafeKey(store, file);
+    expect(store.get(TYPESAFE_CREDENTIAL_REF)).toBe("sk-legacy");
+    // The config no longer carries it; unrelated sections survive.
+    expect(readTypesafeConfig(file)).toEqual({});
+    expect(JSON.parse(require("node:fs").readFileSync(file, "utf8"))).toMatchObject({ provider: "mock", theme: "nord" });
+
+    // Idempotent: a second run is a no-op, and a stored credential wins
+    // over any late plaintext (which is removed either way).
+    writeFileSync(file, JSON.stringify({ typesafe: { apiKey: "sk-other" } }));
+    migrateTypesafeKey(store, file);
+    expect(store.get(TYPESAFE_CREDENTIAL_REF)).toBe("sk-legacy");
+    expect(readTypesafeConfig(file)).toEqual({});
   });
 });
 
@@ -137,12 +177,18 @@ describe("the bundled descriptor (#826) — the activation answer the client con
     const at = (body: unknown) => JSON.stringify(body);
     const file = "/nonexistent/config";
 
-    // An empty config, a blank key and a broken block all mean "not active".
-    expect(jevBundledSource.evaluateActive(() => "", file)).toBe(false);
-    expect(jevBundledSource.evaluateActive(() => at({ typesafe: { apiKey: "   " } }), file)).toBe(false);
-    expect(jevBundledSource.evaluateActive(() => at({ typesafe: { timeoutMs: -1 } }), file)).toBe(false);
+    // #1162: activation is the stored credential — presence only, never the
+    // value — or a legacy plaintext key that has not migrated yet.
+    const store = memoryStore();
+    expect(jevBundledSource.evaluateActive(() => "", file, store)).toBe(false);
+    expect(jevBundledSource.evaluateActive(() => at({ typesafe: { apiKey: "   " } }), file, store)).toBe(false);
+    expect(jevBundledSource.evaluateActive(() => at({ typesafe: { timeoutMs: -1 } }), file, store)).toBe(false);
 
-    expect(jevBundledSource.evaluateActive(() => at({ typesafe: { apiKey: "sk-test" } }), file)).toBe(true);
+    // Legacy: not migrated yet, but the extension runs exactly as before.
+    expect(jevBundledSource.evaluateActive(() => at({ typesafe: { apiKey: "sk-test" } }), file, store)).toBe(true);
+    // Migrated: the store's fact is the switch, the config is empty.
+    store.set(TYPESAFE_CREDENTIAL_REF, "sk-test");
+    expect(jevBundledSource.evaluateActive(() => "", file, store)).toBe(true);
   });
 
   test("activation reads through the reader the client injects, never the disk", () => {
@@ -151,7 +197,10 @@ describe("the bundled descriptor (#826) — the activation answer the client con
     // descriptor reached for the filesystem itself, this would be false.
     const file = join(tmpDir(), "config-that-does-not-exist");
     expect(existsSync(file)).toBe(false);
-    expect(jevBundledSource.evaluateActive(() => JSON.stringify({ typesafe: { apiKey: "sk-test" } }), file)).toBe(true);
+    const store = memoryStore();
+    expect(jevBundledSource.evaluateActive(() => JSON.stringify({ typesafe: { apiKey: "sk-test" } }), file, store)).toBe(true);
+    store.set(TYPESAFE_CREDENTIAL_REF, "sk-test");
+    expect(jevBundledSource.evaluateActive(() => JSON.stringify({ typesafe: {} }), file, store)).toBe(true);
     expect(jevBundledSource.evaluateActive(() => JSON.stringify({ typesafe: {} }), file)).toBe(false);
   });
 
@@ -197,11 +246,13 @@ describe("activation through the generic door (#826)", () => {
     // The line the manual documents, produced by the extension itself (the
     // core has no words for it): pinned here so a refactor cannot drop it.
     expect(
-      inactive.session.history().some((e) => e.type === "session_note" && e.text === "jev: inactive (no api key)"),
+      inactive.session.history().some((e) => e.type === "session_note" && e.text === "jev: inactive (no stored credential)"),
     ).toBe(true);
     await inactive.session.dispose();
 
     writeUserConfig(home, { typesafe: { apiKey: "sk-test", timeoutMs: 800 } });
+    // mountJev migrates on mount (as the client does): the key lands in the
+    // store and leaves the config before the session is assembled.
     const active = sessionFromConfig(base());
     expect("error" in active).toBe(false);
     if ("error" in active) return;

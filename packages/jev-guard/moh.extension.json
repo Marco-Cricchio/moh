@@ -1,6 +1,11 @@
 {
   "name": "jev-guard",
   "version": "0.1.0",
-  "entry": ["src/index.ts"],
-  "capabilities": []
+  "entry": [
+    "src/index.ts"
+  ],
+  "capabilities": [
+    "host:api.typesafe.ai",
+    "credential:typesafe"
+  ]
 }

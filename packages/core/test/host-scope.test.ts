@@ -13,6 +13,7 @@ import type { ExtensionDefinition, ExtensionHost, ExtensionSetupContext } from "
 import { ExtensionRuntime } from "../src/extensions";
 import { scopeEffectSentence, scopeEffectSentences, hostMatchesScope, validateHostScope } from "../src/host-scope";
 import type { AgentEvent } from "../src/types";
+import type { CredentialStore } from "../src/credential-scope";
 
 const roots: string[] = [];
 const servers: Bun.Server<never>[] = [];
@@ -29,16 +30,33 @@ function project(): string {
   return root;
 }
 
-function runtime(root: string): ExtensionRuntime {
+function runtime(root: string, extra: { credentialStore?: CredentialStore } = {}): ExtensionRuntime {
   return new ExtensionRuntime({
     mohHome: mkdtempSync(join(tmpdir(), "moh-host-home-")),
     projectRoot: root,
     consent: () => true,
+    ...extra,
   });
 }
 
-async function probe(root: string, capabilities: readonly string[], events: AgentEvent[], manifest?: { reasoning?: string }) {
-  const rt = runtime(root);
+/** A minimal in-memory credential store (the runtime's test shape). */
+function memoryStore(initial: Record<string, string>): CredentialStore {
+  const map = new Map(Object.entries(initial));
+  return {
+    get: (ref) => map.get(ref),
+    set: (ref, value) => void map.set(ref, value),
+    delete: (ref) => map.delete(ref),
+    list: () => [...map.keys()].sort(),
+  };
+}
+
+async function probe(
+  root: string,
+  capabilities: readonly string[],
+  events: AgentEvent[],
+  manifest?: { reasoning?: string; store?: Record<string, string> },
+) {
+  const rt = runtime(root, manifest?.store !== undefined ? { credentialStore: memoryStore(manifest.store) } : {});
   const box: { ctx: ExtensionSetupContext | null } = { ctx: null };
   rt.onLoadEvent((event) => events.push(event));
   await rt.register(
@@ -134,6 +152,57 @@ describe("host scope: fetch end to end", () => {
     expect(refusals).toHaveLength(1);
     expect((refusals[0] as { target: string }).target).toBe("not-allowed.example.com");
     expect(events.some((e) => e.type === "extension_failed")).toBe(false);
+  });
+
+  test("#1162: POST with a body crosses the seam, method logged, GET+body refused", async () => {
+    const root = project();
+    const seen: { method: string; body: string; auth?: string; contentType?: string }[] = [];
+    const s = Bun.serve({
+      hostname: "127.0.0.1",
+      port: 0,
+      fetch: async (req) => {
+        seen.push({
+          method: req.method,
+          body: await req.text(),
+          auth: req.headers.get("authorization") ?? undefined,
+          contentType: req.headers.get("content-type") ?? undefined,
+        });
+        return new Response(JSON.stringify({ ok: 1 }), { status: 200, headers: { "content-type": "application/json" } });
+      },
+    });
+    servers.push(s as unknown as Bun.Server<never>);
+    const hostPort = `127.0.0.1:${new URL(s.url.origin).port}`;
+    const events: AgentEvent[] = [];
+    const ctx = await probe(root, [`host:${hostPort}`, "credential:probe"], events, { store: { probe: "sekrit" } });
+    const host = ctx?.host as ExtensionHost;
+
+    const posted = await host.fetch!(`http://${hostPort}/judge`, {
+      method: "POST",
+      body: JSON.stringify({ state: "rm -rf /" }),
+      credential: "probe",
+    });
+    expect(posted.ok).toBe(true);
+    expect(seen).toHaveLength(1);
+    expect(seen[0]!.method).toBe("POST");
+    expect(seen[0]!.body).toBe(JSON.stringify({ state: "rm -rf /" }));
+    expect(seen[0]!.auth).toBe("Bearer sekrit");
+    expect(seen[0]!.contentType).toBe("application/json");
+    const op = events.find((e) => e.type === "host_op" && (e as { op: string }).op === "fetch") as { method?: string; status: number } | undefined;
+    expect(op?.method).toBe("POST");
+    expect(op?.status).toBe(200);
+
+    // A body on the default GET is a typed refusal, never a silent drop.
+    const bad = await host.fetch!(`http://${hostPort}/x`, { body: "nope" });
+    expect(bad.ok).toBe(false);
+    if (!bad.ok) {
+      expect(bad.reason).toBe("failed");
+      expect(bad.message).toContain("POST");
+    }
+
+    // An oversize request body is the same too_large answer the response has.
+    const big = await host.fetch!(`http://${hostPort}/x`, { method: "POST", body: "x".repeat(1024 * 1024 + 1) });
+    expect(big.ok).toBe(false);
+    if (!big.ok) expect(big.reason).toBe("too_large");
   });
 
   test("wildcard covers one label only (ADR-0066)", () => {

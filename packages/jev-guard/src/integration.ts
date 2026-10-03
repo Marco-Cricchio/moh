@@ -27,7 +27,7 @@
 import { readFileSync } from "node:fs";
 import type { BundledActivationContext, BundledInstanceReader, BundledWiring } from "@moh/core";
 import { createJevGuardExtension } from "./index";
-import { readTypesafeConfig, resolveTypesafeConfig } from "./typesafe";
+import { TYPESAFE_CREDENTIAL_REF, TYPESAFE_HOST_SCOPE, migrateTypesafeKey, readTypesafeConfig, resolveTypesafeConfig } from "./typesafe";
 
 /**
  * The extension's registered name.
@@ -51,24 +51,39 @@ export const jevBundledSource = {
   name: NAME,
 
   /**
-   * ADR-0061 (#1125): this package's own manifest, mirrored in
+   * ADR-0061 + #1162: this package's own manifest, mirrored in
    * `moh.extension.json` at the package root (the physical file is what a
    * registry install verifies; this descriptor is what a bundled
-   * registration checks the subset rule against). Jev uses no capability
-   * slot in code — its `wire` slots are core-owned generic plumbing, not
-   * extension capabilities — so the declaration is empty.
+   * registration checks the subset rule against). Jev's network life
+   * crosses the host seam: `host:api.typesafe.ai` + `credential:typesafe`
+   * are the whole grant — the endpoint is fixed, the key is resolved
+   * host-side, and no other host is reachable.
    */
-  manifest: { capabilities: [] as string[] },
+  manifest: {
+    capabilities: [TYPESAFE_HOST_SCOPE, `credential:${TYPESAFE_CREDENTIAL_REF}`] as string[],
+  },
 
-  /** Effect-free: a stored, non-empty API key is the only activation switch.
-   * The **client** evaluates this (see `packages/tui/src/bundled-extensions.ts`);
-   * the core never calls it over the user's config. */
-  evaluateActive(readConfig: (file: string) => string, configFile: string): boolean {
+  /**
+   * Effect-free: a stored `typesafe` credential — or a legacy plaintext
+   * key still awaiting the one-time migration — is the activation switch.
+   * The **client** evaluates this (see `packages/tui/src/bundled-extensions.ts`),
+   * passing the same credential store the assembly will; the core never
+   * calls it over the user's config, and the store is read for presence
+   * only, never for the value. */
+  evaluateActive(
+    readConfig: (file: string) => string,
+    configFile: string,
+    credentialStore?: { get(ref: string): string | undefined },
+  ): boolean {
     try {
       // The reader is the caller's: the activation fact is the *caller's*
       // question ("should this run?"), asked through whatever read the
       // caller trusts — a file read here, an in-memory config in a test.
-      return resolveTypesafeConfig(readTypesafeConfig(configFile, readConfig)).active;
+      // #1162: presence in the credential store is the new home of the
+      // fact; the legacy plaintext key keeps a pre-migration config
+      // active until the client's migration has run.
+      const stored = credentialStore?.get(TYPESAFE_CREDENTIAL_REF) !== undefined;
+      return resolveTypesafeConfig(readTypesafeConfig(configFile, readConfig), stored).active;
     } catch {
       // A malformed `typesafe` block is a user error the CLI reports
       // (`moh jev status` exits 2). For the assembly it means "not active":
@@ -79,18 +94,31 @@ export const jevBundledSource = {
   },
 
   /**
+   * #1162: the one-time legacy-key migration (config plaintext → the
+   * `typesafe` credential), run by the client before `evaluateActive`.
+   * Idempotent and effect-free when there is nothing to migrate.
+   */
+  migrate(store: { get(ref: string): string | undefined; set(ref: string, value: string): void }, configFile: string): void {
+    migrateTypesafeKey(store, configFile);
+  },
+
+  /**
    * What the user reads in the session log when the key is absent. The
    * manual documents this exact line, and the core cannot produce it: only
    * this package knows that a missing API key is what "inactive" means.
    */
   inactiveNote(): string {
-    return "jev: inactive (no api key)";
+    return "jev: inactive (no stored credential)";
   },
 
   activate(context: BundledActivationContext): unknown {
     const typesafe = resolveTypesafeConfig(readTypesafeConfig(context.configFile, readFile));
+    // #1162: no key arrives here — the extension speaks `credential:<ref>`
+    // and the host resolves the value itself (ADR-0069). A key that is not
+    // in the store yet is a per-call `unknown_credential` refusal: loud in
+    // the log, fail-open in behavior, never a broken session.
     return createJevGuardExtension({
-      apiKey: typesafe.apiKey!,
+      credentialRef: TYPESAFE_CREDENTIAL_REF,
       ...(typesafe.timeoutMs !== undefined ? { timeoutMs: typesafe.timeoutMs } : {}),
       // #1041: the guardrail's own flag, resolved at the same moment as the
       // rest: `guardrail: false` is the only value that disarms it.

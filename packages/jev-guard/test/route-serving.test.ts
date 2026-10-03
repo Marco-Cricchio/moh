@@ -12,6 +12,8 @@
 import { describe, expect, test } from "bun:test";
 import { createJevGuardExtension } from "../src/index";
 import { fakeCtx, runTurn, routingJudgments } from "./extension.test-utils";
+import { transportFromFetch } from "../src/client";
+const transportOf = (impl: unknown) => transportFromFetch(impl as Parameters<typeof transportFromFetch>[0]);
 
 describe("#945: route_serving reconciles the announced switch with the serving model", () => {
   const pool = {
@@ -30,8 +32,7 @@ describe("#945: route_serving reconciles the announced switch with the serving m
       new Response(JSON.stringify({ model: "jev-latest", answers: body, usage: {} }), { status: 200 })) as unknown as typeof fetch;
   const setup = async (ctx: ReturnType<typeof fakeCtx>) => {
     await createJevGuardExtension({
-      apiKey: "sk-test",
-      fetchImpl: fetchOk(answers("potente", 0.9)),
+            transport: transportOf(fetchOk(answers("potente", 0.9))),
       routing: { pool: async () => pool },
       enabled: true,
       classification: false,

@@ -24,6 +24,13 @@ import { readUserConfigFile, updateUserConfigFile, type UserConfigIo } from "@mo
 /** Where the key is entered (the TUI Settings entry) — shown by the CLI hint. */
 export const TYPESAFE_SETTINGS_HINT = "set the key from the TUI Settings panel (Jev / TypeSafe)";
 
+/** The host scope and credential ref this extension's manifest declares
+ * (#1162): the manifest and the runtime transport must name the same two.
+ * Owned here (the vendor's config/identity module) so `integration.ts` can
+ * use them without the index.ts cycle. */
+export const TYPESAFE_HOST_SCOPE = "host:api.typesafe.ai";
+export const TYPESAFE_CREDENTIAL_REF = "typesafe";
+
 /** Hook timeout for one Jev call, in ms (ratified default). */
 export const TYPESAFE_TIMEOUT_MS_DEFAULT = 2500;
 
@@ -32,11 +39,17 @@ export const TYPESAFE_TIERS = ["economico", "bilanciato", "potente"] as const;
 export type TypesafeTier = (typeof TYPESAFE_TIERS)[number];
 
 /**
- * The `typesafe` section's schema. Unknown keys inside it are stripped,
+ * The `typesafe` section's schema: unknown keys inside it are stripped,
  * like every other schema in the config layer.
+ *
+ * #1162: the TypeSafe key is a credential — stored under the ref
+ * `typesafe` in the OS keychain (0600-file fallback), never in config. The
+ * schema keeps reading a legacy plaintext `apiKey` only so a config that
+ * still carries one can be migrated (once, by the client's assembly:
+ * `migrateTypesafeKey`), never to keep two homes.
  */
 export const typesafeConfigSchema = z.object({
-  /** TypeSafe API key. Present = the bundled Jev extension is active. */
+  /** Legacy (#1162): a pre-migration plaintext key, read once to migrate. */
   apiKey: z.string().optional(),
   /** Hook timeout for one Jev call, ms. Config only — never in the UI. */
   timeoutMs: z.number().int().positive().optional(),
@@ -78,10 +91,18 @@ export type TypesafeConfig = z.infer<typeof typesafeConfigSchema>;
 
 /** The resolved runtime shape: what session assembly actually needs. */
 export interface ResolvedTypesafeConfig {
-  /** True when a non-empty key is present — the only activation switch. */
+  /**
+   * #1162: true when the credential store holds the `typesafe` ref — or a
+   * legacy plaintext key still waits to be migrated. The stored credential
+   * is the only activation switch, exactly as the config key used to be.
+   */
   active: boolean;
-  /** The key (absent when inactive). Never logged, never rendered whole. */
-  apiKey?: string;
+  /**
+   * #1162 (legacy): a plaintext key still present in config, awaiting the
+   * one-time migration into the credential store. Never read by the
+   * runtime — the client migrates it at assembly.
+   */
+  legacyApiKey?: string;
   /** Effective hook timeout in ms. */
   timeoutMs: number;
   /**
@@ -137,12 +158,18 @@ export function readTypesafeConfig(
   return parsed.data;
 }
 
-/** Resolves the block into what the assembly consumes (no silent defaults beyond the ratified ones). */
-export function resolveTypesafeConfig(block: TypesafeConfig | undefined): ResolvedTypesafeConfig {
-  const apiKey = block?.apiKey?.trim();
+/** Resolves the block into what the assembly consumes (no silent defaults beyond the ratified ones).
+ *
+ * #1162: `stored` is the credential store's answer for the `typesafe` ref —
+ * `store.get(REF) !== undefined`. Active = stored credential, or a legacy
+ * plaintext key that has not been migrated yet (so today's behavior — the
+ * extension runs — survives the move). */
+export function resolveTypesafeConfig(block: TypesafeConfig | undefined, stored = false): ResolvedTypesafeConfig {
+  const legacyApiKey = block?.apiKey?.trim();
+  const active = stored || (typeof legacyApiKey === "string" && legacyApiKey.length > 0);
   return {
-    active: typeof apiKey === "string" && apiKey.length > 0,
-    ...(apiKey ? { apiKey } : {}),
+    active,
+    ...(legacyApiKey ? { legacyApiKey } : {}),
     timeoutMs: block?.timeoutMs ?? TYPESAFE_TIMEOUT_MS_DEFAULT,
     guardrail: block?.guardrail !== false,
     routing: block?.routing === true,
@@ -162,18 +189,56 @@ export function maskApiKey(key: string): string {
 }
 
 /**
- * Persists the key through the guardian (read-modify-write; unrelated
- * sections survive). Removing the key is `removeTypesafeApiKey`.
+ * #1162: the one-time key migration — moves a legacy plaintext
+ * `typesafe.apiKey` from the user config into the credential store and
+ * deletes it from the file. Idempotent: an existing stored credential
+ * wins and the plaintext is removed either way; no stored value and no
+ * plaintext is a no-op. Called by the client at assembly (the client owns
+ * the config surface of what it ships) and by the Settings entry's mount,
+ * so a pre-#1162 config converges on the store without user action.
  */
-export function saveTypesafeApiKey(file: string, key: string, io: UserConfigIo = {}): void {
-  updateUserConfigFile(
-    file,
-    (data) => {
-      const current = (data.typesafe ?? {}) as Record<string, unknown>;
-      data.typesafe = { ...current, apiKey: key.trim() };
-    },
-    io,
-  );
+export function migrateTypesafeKey(
+  store: { get(ref: string): string | undefined; set(ref: string, value: string): void },
+  file: string,
+  io: UserConfigIo = {},
+  read: (file: string) => string = (f) => readFileSync(f, "utf8"),
+): void {
+  // A malformed block is nothing to migrate (the CLI reports it loudly
+  // elsewhere): migration must never be the thing that fails an assembly.
+  let legacy: string | undefined;
+  try {
+    legacy = resolveTypesafeConfig(readTypesafeConfig(file, read)).legacyApiKey;
+  } catch {
+    return;
+  }
+  const stored = store.get(TYPESAFE_CREDENTIAL_REF) !== undefined;
+  if (!stored && legacy) store.set(TYPESAFE_CREDENTIAL_REF, legacy);
+  if (legacy) removeTypesafeApiKey(file, io);
+}
+
+/**
+ * #1162: persists the key as the credential `typesafe` (the caller
+ * validates first, per the ratified key-save behaviour). The config file
+ * is left untouched — and a legacy plaintext key, if one lingers, is
+ * removed: the store is the only home from here on.
+ */
+export function saveTypesafeApiKey(
+  store: { set(ref: string, value: string): void },
+  key: string,
+  file?: string,
+  io: UserConfigIo = {},
+  read: (file: string) => string = (f) => readFileSync(f, "utf8"),
+): void {
+  const trimmed = key.trim();
+  store.set(TYPESAFE_CREDENTIAL_REF, trimmed);
+  if (file !== undefined && resolveTypesafeConfig(readTypesafeConfig(file, read)).legacyApiKey !== undefined) {
+    removeTypesafeApiKey(file, io);
+  }
+}
+
+/** #1162: removes the credential: the extension stays unregistered from the next session on. */
+export function removeTypesafeKey(store: { delete(ref: string): boolean }): void {
+  store.delete(TYPESAFE_CREDENTIAL_REF);
 }
 
 /**

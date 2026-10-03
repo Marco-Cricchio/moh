@@ -11,13 +11,16 @@
  * - `@moh/core` never learns about Jev: it knows only the generic
  *   `appendEvent` / `setStatus` / `ask` contract additions this layer needs.
  * - The endpoint and the model are hardcoded (no override, no env var).
- * - No npm dependency: one `fetch`, so no dependency-authorization friction.
- * - The key lives in the user config; present = active. No toggle.
+ * - No npm dependency: no SDK, no dependency-authorization friction.
+ * - #1162: all network I/O crosses the host-tool seam (`ctx.host.fetch`
+ *   under `host:api.typesafe.ai` + `credential:typesafe`); no raw `fetch`
+ *   exists in this package. The key lives only in the credential store —
+ *   the host injects it, and the client never sees the value.
  *
  * The default export is the factory below: a definition needs the resolved
- * `apiKey`/`timeoutMs`, which only the assembly (the owner of the user
- * config) has — so the module exports a producer of definitions rather
- * than one ready-made definition.
+ * `timeoutMs`/use-case flags, which only the assembly (the owner of the
+ * user config) has — so the module exports a producer of definitions
+ * rather than one ready-made definition.
  */
 import { defineExtension, MOH_EXTENSION_API_VERSION, type ExtensionDefinition, type ExtensionSetupContext } from "@moh/extension";
 import type {
@@ -26,7 +29,8 @@ import type {
   CompactionHookResult,
   CompactionSection,
 } from "@moh/extension";
-import { createJevClient, type JevClientOptions } from "./client";
+import { createJevClient, hostTransport, type JevClientOptions, type JevTransport } from "./client";
+import { TYPESAFE_CREDENTIAL_REF } from "./typesafe";
 import { createGuardrailJudge, GUARDRAIL_TOOL } from "./guardrail-judge";
 import { createCompactionJudge } from "./compaction-judge";
 import { createRoutingJudge, OWNER_SESSION, type RoutingPool, type RoutingSession } from "./routing-judge";
@@ -76,8 +80,12 @@ export interface JevRoutingOptions {
 }
 
 export interface JevGuardOptions {
-  /** TypeSafe API key (from the user config's `typesafe.apiKey`). */
-  apiKey: string;
+  /**
+   * #1162: the credential ref the host resolves for every TypeSafe call.
+   * Default `TYPESAFE_CREDENTIAL_REF` (`"typesafe"`); the value itself is
+   * never here — the host injects it (ADR-0069).
+   */
+  credentialRef?: string;
   /** Hook timeout for one Jev call, ms. Default `JEV_TIMEOUT_MS_DEFAULT`. */
   timeoutMs?: number;
   /**
@@ -89,8 +97,11 @@ export interface JevGuardOptions {
    * session *starts* in; `/jev` moves it for the open session only.
    */
   guardrail?: boolean;
-  /** Test seam: the fetch implementation handed to the client. */
-  fetchImpl?: typeof fetch;
+  /**
+   * #1162: test seam — a transport handed straight to the client, bypassing
+   * the host seam (production builds the transport from `ctx.host.fetch`).
+   */
+  transport?: JevTransport;
   /**
    * #787: model routing. Present = the router is registered; absent = the
    * whole use case is unavailable (a caller that never wants it).
@@ -168,16 +179,21 @@ export interface JevGuardOptions {
  * case enabled costs exactly zero calls.
  */
 export function createJevGuardExtension(options: JevGuardOptions): ExtensionDefinition {
-  const clientOptions: JevClientOptions = {
-    apiKey: options.apiKey,
-    ...(options.timeoutMs !== undefined ? { timeoutMs: options.timeoutMs } : {}),
-    ...(options.fetchImpl ? { fetchImpl: options.fetchImpl } : {}),
-  };
   return defineExtension({
     name: JEV_GUARD_NAME,
     version: JEV_GUARD_VERSION,
     apiVersion: MOH_EXTENSION_API_VERSION,
     setup(ctx: ExtensionSetupContext) {
+      // #1162: the transport — the caller's test seam, or the host seam
+      // under the extension's `host:` + `credential:` scopes. Without the
+      // seam (no scope granted) the client fails open with a typed
+      // refusal, the same shape as any outage.
+      const clientOptions: JevClientOptions = {
+        transport:
+          options.transport ??
+          (typeof ctx.host === "object" ? hostTransport(ctx.host.fetch, options.credentialRef ?? TYPESAFE_CREDENTIAL_REF) : refusedTransport),
+        ...(options.timeoutMs !== undefined ? { timeoutMs: options.timeoutMs } : {}),
+      };
       // #1013: what this extension last published through the status seam —
       // the guardrail's turn note or the client's outage text. The seam is
       // single-writer, so a clear may only erase a status we still own.
@@ -935,10 +951,20 @@ function asRecord(value: unknown): Record<string, unknown> | undefined {
   return value as Record<string, unknown>;
 }
 
+/** #1162: a transport with no host seam — every call is a typed refusal,
+ * so a mis-granted extension fails open like any outage, never crashes. */
+const refusedTransport: JevTransport = async () => ({
+  ok: false,
+  kind: "refused",
+  message: "host seam unavailable (no host: scope granted)",
+});
+
 export default createJevGuardExtension;
 
 export {
   createJevClient,
+  hostTransport,
+  transportFromFetch,
   validateJevKey,
   JEV_ENDPOINT,
   JEV_MODEL,
@@ -963,6 +989,8 @@ export type {
   JevQuestion,
   JevScoreAnswer,
   JevScoreQuestion,
+  JevTransport,
+  JevTransportResult,
 } from "./client";
 export { questions } from "./questions-core";
 export {
@@ -1172,9 +1200,13 @@ export {
   TYPESAFE_SETTINGS_HINT,
   TYPESAFE_TIMEOUT_MS_DEFAULT,
   TYPESAFE_TIERS,
+  TYPESAFE_HOST_SCOPE,
+  TYPESAFE_CREDENTIAL_REF,
   maskApiKey,
+  migrateTypesafeKey,
   readTypesafeConfig,
   removeTypesafeApiKey,
+  removeTypesafeKey,
   resolveTypesafeConfig,
   saveTypesafeApiKey,
   saveTypesafeClassification,
