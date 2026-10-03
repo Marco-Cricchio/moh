@@ -87,6 +87,14 @@ export interface LoopBeforeTurn {
   dispatch(text: string, turnIndex: number, model: string): Promise<BeforeTurnDispatch>;
   applyModel(ref: string): { ok: true; model: string } | { ok: false; error: string; reason?: "context_length" };
   /**
+   * #1143: resets the per-turn `extension_event` budget (owner + borrowed)
+   * at dispatch entry, before any hook runs — `beforeTurn` fires before
+   * the `user_message` append that otherwise resets it, so a hook
+   * recording at turn start would otherwise spend the previous turn's
+   * budget (after a cap-out the new turn's events are dropped).
+   */
+  beginBudgetTurn?: () => void;
+  /**
    * ADR-0033 §4: the pre-send confirmation. Asks the client whether the
    * turn may be sent, given the extension's reason. Absent = no client can
    * ask (headless): the turn is refused, never silently sent.
@@ -842,6 +850,10 @@ export class AgentLoop {
   async #dispatchBeforeTurn(text: string): Promise<boolean> {
     const seam = this.#beforeTurn;
     if (!seam) return true;
+    // #1143: the budget reset moves here — this dispatch runs before the
+    // `user_message` append, so a hook recording at turn start would spend
+    // the previous turn's budget (documented semantics: per turn).
+    seam.beginBudgetTurn?.();
     const outcome = await seam.dispatch(text, this.#turnIndex?.() ?? 1, this.#provider().name);
     for (const event of outcome.errors) this.#append(event);
     if (outcome.confirm) {
