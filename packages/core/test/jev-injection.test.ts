@@ -16,7 +16,8 @@ import {
   type AgentEvent,
   type Tool,
 } from "../src/index";
-import { createJevGuardExtension } from "@moh/jev-guard";
+import { createJevGuardExtension, transportFromFetch } from "@moh/jev-guard";
+const transportOf = (impl: unknown) => transportFromFetch(impl as Parameters<typeof transportFromFetch>[0]);
 
 function tmpDir(prefix = "moh-inj-"): string {
   return mkdtempSync(join(tmpdir(), prefix));
@@ -82,7 +83,7 @@ async function runtimeFor(probabilities: { input: Probabilities; tool?: Probabil
   const fetch = jevFetch(probabilities);
   const rt = new ExtensionRuntime({ mohHome: tmpDir() });
   await rt.register(
-    createJevGuardExtension({ apiKey: "sk-test", fetchImpl: fetch.impl, injection, classification: false }),
+    createJevGuardExtension({ transport: transportOf(fetch.impl), injection, classification: false }),
     { bundled: true },
   );
   return { rt, calls: fetch.calls };
@@ -273,10 +274,9 @@ describe("anti-injection, tool half (#791)", () => {
     const rt = new ExtensionRuntime({ mohHome: tmpDir() });
     await rt.register(
       createJevGuardExtension({
-        apiKey: "sk-test",
-        fetchImpl: (async () => {
+        transport: transportOf((async () => {
           throw new Error("network down");
-        }) as unknown as typeof fetch,
+        })),
         injection: true,
         classification: false,
       }),

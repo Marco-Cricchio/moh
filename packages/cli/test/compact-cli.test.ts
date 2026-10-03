@@ -107,11 +107,30 @@ describe("moh compact (#466)", () => {
     const { cwd, file } = project("ok");
     seed(file);
     const before = readFileSync(file, "utf8");
-    // Jev, when the user config carries a key (this machine does), appends
-    // its own judgment events during compaction — the marker count must not
-    // count those, only the marker itself.
-    const { code, out, err } = await run(["compact", "--session", file, "--cwd", cwd]);
-    expect(err).toBe("");
+    // Isolated HOME (#1162): the compacted session must not depend on this
+    // machine's Jev key or a live network — pre-#1162 this case relied on
+    // the real api.typesafe.ai answering. With no key in the isolated home
+    // the bundled extension is inactive, the marker count is exact, and the
+    // run is hermetic.
+    const origHome = process.env.HOME;
+    process.env.HOME = mkdtempSync(join(TMP_ROOT, "ok-home-"));
+    // #1162: the credential store must be the isolated file fallback, never
+    // this machine's keychain — a real `typesafe` credential there would
+    // activate the extension and put a live network call in the test.
+    const origStore = process.env.MOH_SECRET_STORE;
+    process.env.MOH_SECRET_STORE = "file";
+    try {
+      await expectCompactsSeedInPlace(cwd, file, before);
+    } finally {
+      process.env.HOME = origHome;
+      process.env.MOH_SECRET_STORE = origStore;
+    }
+  });
+
+  async function expectCompactsSeedInPlace(cwd: string, file: string, before: string): Promise<void> {
+    {
+      const { code, out, err } = await run(["compact", "--session", file, "--cwd", cwd]);
+      expect(err).toBe("");
     expect(code).toBe(0);
     expect(out).toContain("compacted");
     // Append-only: the log only grew, and exactly one marker was added.
@@ -125,7 +144,8 @@ describe("moh compact (#466)", () => {
     expect(marker.upToId).toBeTruthy();
     // Compacting never consumes (ADR-0022): no session_resumed at all.
     expect(after).not.toContain("session_resumed");
-  });
+    }
+  }
 
   test("refuses a session with nothing to compact", async () => {
     const { cwd, file } = project("small");

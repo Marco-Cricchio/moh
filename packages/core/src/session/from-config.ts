@@ -336,6 +336,9 @@ export function sessionFromConfig(options: SessionFromConfigOptions): SessionFro
         configFile: userFile,
         endpoints: config.endpoints ?? [],
         modelPool: createModelPool(config.endpoints ?? []),
+        // ADR-0069 + #1162: the same credential store the runtime hosts —
+        // presence-only reads for a bundled descriptor's activation fact.
+        credentialStore: options.credentialStore ?? defaultCredentialStore(home),
         // #868: the declared routing pool, verbatim (already schema-validated).
         ...(config.routingPool !== undefined ? { routingPool: config.routingPool } : {}),
         skillRoster: () =>

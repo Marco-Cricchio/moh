@@ -16,13 +16,15 @@
  * deliberately absent here: the CLI has no live session to command, so that
  * belongs to the TUI's `/jev` modal (#832/#833).
  */
-import { userConfigFile } from "@moh/core";
+import { defaultCredentialStore, userConfigFile } from "@moh/core";
 // #826: the `typesafe` config block belongs to the extension that owns it,
 // so the client reads and writes it through the vendor package, not through
 // the core's public surface.
 import {
+  TYPESAFE_CREDENTIAL_REF,
   TYPESAFE_SETTINGS_HINT,
   maskApiKey,
+  migrateTypesafeKey,
   readTypesafeConfig,
   resolveTypesafeConfig,
   saveTypesafeClassification,
@@ -99,10 +101,11 @@ function row(label: string, value: string): string {
  * `guardrail`, `routing`, `injection`, `lint`, `classification`, `rerank`,
  * `skills`. `keyHint` is omitted when inactive rather than
  * nulled — the key does not exist in that state. */
-function statusJson(cfg: ResolvedTypesafeConfig): Record<string, unknown> {
+function statusJson(cfg: ResolvedTypesafeConfig, stored: string | undefined): Record<string, unknown> {
   return {
     active: cfg.active,
-    ...(cfg.apiKey !== undefined ? { keyHint: maskApiKey(cfg.apiKey) } : {}),
+    ...(stored !== undefined ? { keyHint: maskApiKey(stored) } : {}),
+    ...(cfg.legacyApiKey !== undefined ? { legacyPlaintext: true } : {}),
     timeoutMs: cfg.timeoutMs,
     guardrail: cfg.guardrail,
     routing: cfg.routing,
@@ -114,13 +117,18 @@ function statusJson(cfg: ResolvedTypesafeConfig): Record<string, unknown> {
   };
 }
 
-function renderStatus(cfg: ResolvedTypesafeConfig): string {
+function renderStatus(cfg: ResolvedTypesafeConfig, stored: string | undefined): string {
   const lines = [
     row(
       "jev",
-      cfg.apiKey !== undefined
-        ? `active (key ${maskApiKey(cfg.apiKey)}, timeout ${cfg.timeoutMs}ms)`
-        : "inactive",
+      // #1162: the stored credential is the display source; a not-yet-
+      // migrated plaintext key still reads active (it is what activates
+      // the extension until the client's migration runs), with the hint.
+      stored !== undefined
+        ? `active (key ${maskApiKey(stored)}, timeout ${cfg.timeoutMs}ms)`
+        : cfg.active
+          ? `active (key ${maskApiKey(cfg.legacyApiKey!)}, timeout ${cfg.timeoutMs}ms)`
+          : "inactive",
     ),
     row("guardrail", cfg.guardrail ? "on" : "off"),
     row("routing", cfg.routing ? "on" : "off"),
@@ -133,6 +141,9 @@ function renderStatus(cfg: ResolvedTypesafeConfig): string {
   // The way back in, printed only when it is missing: with a key stored
   // there is nothing to activate.
   if (!cfg.active) lines.push(row("hint", TYPESAFE_SETTINGS_HINT));
+  if (cfg.legacyApiKey !== undefined) {
+    lines.push(row("legacy", "plaintext key still in the config — open the TUI Settings (or start a session) to migrate it into the credential store"));
+  }
   return lines.join("");
 }
 
@@ -207,9 +218,21 @@ export async function jevCommand({
     return 2;
   }
 
+  // #1162: the key is the credential `typesafe`, not a config key. Status
+  // stays side-effect free (no migration here — that is the client's
+  // assembly and the Settings entry's mount): presence in the store is
+  // read directly, and a lingering plaintext key is reported as legacy.
+  const store = defaultCredentialStore(home ?? process.env.HOME ?? ".");
+  let stored: string | undefined;
+  try {
+    stored = store.get(TYPESAFE_CREDENTIAL_REF);
+  } catch (e) {
+    stderr.write(`moh jev status: could not read the credential store: ${e instanceof Error ? e.message : String(e)}\n`);
+    return 2;
+  }
   let cfg: ResolvedTypesafeConfig;
   try {
-    cfg = resolveTypesafeConfig(readTypesafeConfig(file));
+    cfg = resolveTypesafeConfig(readTypesafeConfig(file), stored !== undefined);
   } catch (e) {
     // A malformed `typesafe` block is a broken user config: it fails loudly
     // here (as it does at session assembly) rather than being flattened
@@ -219,7 +242,7 @@ export async function jevCommand({
   }
 
   stdout.write(
-    parsed.booleans["json"] ? `${JSON.stringify(statusJson(cfg))}\n` : renderStatus(cfg),
+    parsed.booleans["json"] ? `${JSON.stringify(statusJson(cfg, stored))}\n` : renderStatus(cfg, stored),
   );
   return 0;
 }

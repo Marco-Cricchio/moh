@@ -29,6 +29,7 @@ import {
   type HostReadResult,
   type HostReadLinkResult,
   type HostFetchResult,
+  type HostFetchOptions,
   type BeforeTurnHook,
   type BeforeModelCallHook,
   type BeforeModelCallResult,
@@ -2644,14 +2645,31 @@ bindPathDeny(isDenied: (resolvedAbsPath: string) => boolean): void {
    * anonymous — an authenticated request needs the matching
    * `credential:<ref>` scope too (F2b owns custody and injection).
    */
-  #networkHostFor(instance: RuntimeExtension, scopes: readonly string[]): { fetch?: (url: string, options?: { credential?: string }) => Promise<HostFetchResult> } {
+  #networkHostFor(instance: RuntimeExtension, scopes: readonly string[]): { fetch?: (url: string, options?: HostFetchOptions) => Promise<HostFetchResult> } {
     if (scopes.length === 0) return {};
     const name = instance.def.name;
     // ADR-0066: the host deny seam is its own callback — path rules never
     // match hostnames. Absent, no deny check runs.
     const isDenied = this.#options.isHostDenied ?? (() => false);
     return {
-      fetch: async (raw: string, options?: { credential?: string }): Promise<HostFetchResult> => {
+      fetch: async (raw: string, options?: HostFetchOptions): Promise<HostFetchResult> => {
+        // #1162: the request side. GET (default) or POST; a body is POST-
+        // only and capped by the same fixed limit the response is — a
+        // mis-sized request is a typed refusal, never a silent truncation.
+        const method = options?.method === "POST" ? "POST" : "GET";
+        if (options?.body !== undefined && method !== "POST") {
+          this.#emit({ type: "host_refused", callId: newUlid(), extension: name, op: "fetch", path: String(raw), reason: "failed", method });
+          return { ok: false, reason: "failed", message: "a request body requires method POST" };
+        }
+        const bodyBytes: Uint8Array | undefined =
+          options?.body === undefined ? undefined
+          : typeof options.body === "string" ? new TextEncoder().encode(options.body)
+          : options.body;
+        if (bodyBytes !== undefined && bodyBytes.byteLength > MAX_FETCH_BYTES) {
+          this.#emit({ type: "host_refused", callId: newUlid(), extension: name, op: "fetch", path: String(raw), reason: "too_large", method });
+          return { ok: false, reason: "too_large", message: `request body exceeds the ${MAX_FETCH_BYTES} byte limit` };
+        }
+        const contentType = options?.contentType ?? (bodyBytes !== undefined ? "application/json" : undefined);
         // ADR-0069: an authenticated request needs the matching
         // `credential:<ref>` scope granted (the intersection of two
         // grants). Under `host:` alone the request stays anonymous.
@@ -2673,7 +2691,9 @@ bindPathDeny(isDenied: (resolvedAbsPath: string) => boolean): void {
           }
           credentialRef = ref;
         }
-        const headers = credentialValue !== undefined ? { authorization: `Bearer ${credentialValue}` } : undefined;
+        const headers: Record<string, string> = {};
+        if (credentialValue !== undefined) headers.authorization = `Bearer ${credentialValue}`;
+        if (contentType !== undefined) headers["content-type"] = contentType;
         let current: URL;
         try {
           current = new URL(raw);
@@ -2701,10 +2721,17 @@ bindPathDeny(isDenied: (resolvedAbsPath: string) => boolean): void {
           try {
             // `redirect: "manual"`: every hop is our own scope decision,
             // never the fetch implementation's. The credential rides
-            // every in-scope hop (ADR-0069).
-            response = await fetch(current, { redirect: "manual", ...(headers ? { headers } : {}) });
+            // every in-scope hop (ADR-0069); a POST replays its body —
+            // the request was one operation, the hops are transport.
+            response = await fetch(current, {
+              redirect: "manual",
+              method,
+              ...(bodyBytes !== undefined ? { body: bodyBytes as BodyInit } : {}),
+              ...(Object.keys(headers).length > 0 ? { headers } : {}),
+              ...(options?.signal !== undefined ? { signal: options.signal } : {}),
+            });
           } catch (err) {
-            this.#emit({ type: "host_refused", callId, extension: name, op: "fetch", path: `${current.pathname}${current.search}`, reason: "failed" });
+            this.#emit({ type: "host_refused", callId, extension: name, op: "fetch", path: `${current.pathname}${current.search}`, reason: "failed", method });
             return { ok: false, reason: "failed", message: errMessage(err) };
           }
           if (response.status >= 300 && response.status < 400) {
@@ -2712,7 +2739,7 @@ bindPathDeny(isDenied: (resolvedAbsPath: string) => boolean): void {
             if (location === null) {
               // A redirect with no destination: nothing to follow — serve
               // the 3xx body as the answer, like any other status.
-              return await this.#consumeFetchResponse(instance, callId, current, response, credentialRef);
+              return await this.#consumeFetchResponse(instance, callId, current, response, credentialRef, method);
             }
             let next: URL;
             try {
@@ -2739,7 +2766,7 @@ bindPathDeny(isDenied: (resolvedAbsPath: string) => boolean): void {
             current = next;
             continue;
           }
-          return await this.#consumeFetchResponse(instance, callId, current, response, credentialRef);
+          return await this.#consumeFetchResponse(instance, callId, current, response, credentialRef, method);
         }
         this.#emit({ type: "host_refused", callId: newUlid(), extension: name, op: "fetch", path: `${current.pathname}${current.search}`, reason: "outside_scope", target: current.host });
         return { ok: false, reason: "outside_scope", target: current.host, message: `more than ${MAX_REDIRECTS} redirects` };
@@ -2750,7 +2777,7 @@ bindPathDeny(isDenied: (resolvedAbsPath: string) => boolean): void {
   /** Buffers one in-scope response within the size limit and logs it.
    * The cap is enforced mid-read: a chunked response that oversizes is
    * aborted while streaming, never fully buffered first. */
-  async #consumeFetchResponse(instance: RuntimeExtension, callId: string, url: URL, response: Response, credentialRef?: string): Promise<HostFetchResult> {
+  async #consumeFetchResponse(instance: RuntimeExtension, callId: string, url: URL, response: Response, credentialRef?: string, method?: string): Promise<HostFetchResult> {
     const name = instance.def.name;
     const pathAndQuery = `${url.pathname}${url.search}`;
     const tooLarge = (): HostFetchResult => {
@@ -2794,6 +2821,7 @@ bindPathDeny(isDenied: (resolvedAbsPath: string) => boolean): void {
       status: response.status,
       bytes: total,
       ...(credentialRef !== undefined ? { credential: credentialRef } : {}),
+      ...(method !== undefined ? { method } : {}),
     });
     return { ok: true, status: response.status, bytes: merged, finalHost: url.host };
   }

@@ -4,7 +4,7 @@ import { Text, useInput } from "ink";
 import { join } from "node:path";
 import { homedir } from "node:os";
 import { endpointModelCatalog, fallbackIneligibleReason, fetchLiveCatalogs, liveListings, loadMohConfig, loadMergedConfig, listOpenAiCompatModels, MAX_ITERATIONS_UNLIMITED, probeBrowserToolchain, readUserProviderConfig, removeUserEndpoint, renderTosCard, saveUserProviderRef, setUserEndpointFallbackEligible, setUserEndpointModel, summarizeLiveCatalogReport, tosCardFor, writeMohConfig, userConfigFile, DEFAULT_MAX_ITERATIONS, type BrowserToolchainStatus, type LiveModelListing, type MohConfig } from "@moh/core";
-import { validateJevKey, readTypesafeConfig, removeTypesafeApiKey, resolveTypesafeConfig, saveTypesafeApiKey, saveTypesafeClassification, saveTypesafeGuardrail, saveTypesafeInjection, saveTypesafeLint, saveTypesafeRerank, saveTypesafeRouting, saveTypesafeSkills, maskApiKey, JEV_USE_CASE_DESCRIPTIONS, TYPESAFE_TIMEOUT_MS_DEFAULT, type JevKeyValidation } from "@moh/jev-guard";
+import { validateJevKey, readTypesafeConfig, removeTypesafeKey, migrateTypesafeKey, resolveTypesafeConfig, saveTypesafeApiKey, saveTypesafeClassification, saveTypesafeGuardrail, saveTypesafeInjection, saveTypesafeLint, saveTypesafeRerank, saveTypesafeRouting, saveTypesafeSkills, maskApiKey, JEV_USE_CASE_DESCRIPTIONS, TYPESAFE_TIMEOUT_MS_DEFAULT, transportFromFetch, TYPESAFE_CREDENTIAL_REF, type JevKeyValidation, type JevTransport } from "@moh/jev-guard";
 import { defaultCredentialStore, validateCredentialScope } from "@moh/core";
 import { setIcons } from "./icons";
 import { THEMES, THEME_ORDER } from "./themes";
@@ -57,6 +57,27 @@ interface Row {
   key: string;
   label: string;
   value: string;
+}
+
+/**
+ * #1162: the Settings entry's pre-mint validation transport — a plain
+ * bearer POST carrying the key the user just typed. The value is not a
+ * stored credential yet, so the host's credential injection does not
+ * apply; once validation passes it is minted into the store and from then
+ * on only the host ever sees it. The extension package itself stays free
+ * of raw fetch — this lives in the client that owns the surface.
+ */
+function plainJevTransport(apiKey: string): JevTransport {
+  return transportFromFetch(
+    (url, init) =>
+      fetch(url, {
+        method: "POST",
+        headers: { authorization: `Bearer ${apiKey}`, "content-type": "application/json", ...init.headers },
+        body: init.body,
+        ...(init.signal !== undefined ? { signal: init.signal } : {}),
+      }),
+    {},
+  );
 }
 
 /** #498: the preset cycle for the max-iterations row. "unlimited" is the
@@ -234,12 +255,23 @@ export function SettingsPanel({ cwd, home, config, onChange, modelLabel, onProvi
   // are display-only here) and switches the default `provider` ref.
   // #784: the Jev (TypeSafe) entry — key input, status, remove, disclosure.
   const jevFile = userFile;
+  // #1162: the key is a credential. Mounting the panel runs the one-time
+  // legacy migration, then presence in the store is the whole status.
+  const jevStore = useMemo(() => defaultCredentialStore(home ?? homedir()), [home]);
+  // Once per mount: the migration writes (store + config), so it must not
+  // re-run on every render — a render is a read, never a write.
+  const migrated = useRef(false);
+  if (!migrated.current) {
+    migrated.current = true;
+    migrateTypesafeKey(jevStore, jevFile);
+  }
   const readJev = (): JevState => {
     try {
-      const resolved = resolveTypesafeConfig(readTypesafeConfig(jevFile));
+      const stored = jevStore.get(TYPESAFE_CREDENTIAL_REF) !== undefined;
+      const resolved = resolveTypesafeConfig(readTypesafeConfig(jevFile), stored);
       return {
         active: resolved.active,
-        ...(resolved.apiKey ? { keyHint: maskApiKey(resolved.apiKey) } : {}),
+        ...(stored && jevStore.get(TYPESAFE_CREDENTIAL_REF) ? { keyHint: maskApiKey(jevStore.get(TYPESAFE_CREDENTIAL_REF)!) } : {}),
         timeoutMs: resolved.timeoutMs,
         guardrail: resolved.guardrail,
         routing: resolved.routing,
@@ -259,7 +291,7 @@ export function SettingsPanel({ cwd, home, config, onChange, modelLabel, onProvi
     : jev.active
       ? `active (key ${jev.keyHint ?? "…"}, timeout ${jev.timeoutMs}ms)`
       : "inactive";
-  const validate = validateKey ?? ((key: string) => validateJevKey(key, { timeoutMs: jev.timeoutMs }));
+  const validate = validateKey ?? ((key: string) => validateJevKey({ timeoutMs: jev.timeoutMs, transport: plainJevTransport(key) }));
   type Sub =
     | { kind: "endpoint"; cursor: number }
     | { kind: "jev"; cursor: number }
@@ -593,7 +625,7 @@ export function SettingsPanel({ cwd, home, config, onChange, modelLabel, onProvi
         }
         // Active or unverified: both are the user's decision to store.
         try {
-          saveTypesafeApiKey(jevFile, trimmed);
+          saveTypesafeApiKey(jevStore, trimmed, jevFile);
         } catch (e) {
           setSub({
             kind: "jev-key",
@@ -621,7 +653,7 @@ export function SettingsPanel({ cwd, home, config, onChange, modelLabel, onProvi
    * next session on (nothing to disable in the running one). */
   const removeJevKey = () => {
     try {
-      removeTypesafeApiKey(jevFile);
+      removeTypesafeKey(jevStore);
     } catch (e) {
       return onToast(`jev: could not remove the key (${e instanceof Error ? e.message : String(e)})`);
     }

@@ -11,6 +11,8 @@ import { createJevGuardExtension } from "../src/index";
 import type { RoutingModel } from "../src/routing";
 import type { RoutingPool } from "../src/routing-judge";
 import { emitEvent, fakeCtx, runModelError, runTurn, type FakeCtx } from "./extension.test-utils";
+import { transportFromFetch } from "../src/client";
+const transportOf = (impl: unknown) => transportFromFetch(impl as Parameters<typeof transportFromFetch>[0]);
 
 const pool: RoutingModel[] = [
   { ref: "a/cheap", price: 1 },
@@ -34,8 +36,7 @@ function jevAnswer(choice: string): typeof fetch {
 /** The wiring options: routing on, the given pool, the given tier labels. */
 function options(pool: RoutingPool, labels?: Record<string, string>) {
   return {
-    apiKey: "sk-test",
-    fetchImpl: jevAnswer("potente"),
+        transport: transportOf(jevAnswer("potente")),
     routing: { pool: async () => pool, ...(labels ? { labels } : {}) },
     enabled: true,
     classification: false,
@@ -194,8 +195,7 @@ describe("jev model-error retry wiring (#1110)", () => {
   test("routing off (paused): the seam stays silent", async () => {
     const ctx = fakeCtx();
     await createJevGuardExtension({
-      apiKey: "sk-test",
-      fetchImpl: jevAnswer("potente"),
+      transport: transportOf(jevAnswer("potente")),
       routing: { pool: async () => ({ models: pool }) },
       // config off → the router starts paused
       classification: false,
