@@ -91,6 +91,10 @@ export function formatRule(rule: PermissionRule): string {
  */
 export function parseRule(str: string, effect: RuleEffect, tier: PermissionTier = "config"): PermissionRule {
   if (str === "") throw new RuleError(`empty ${effect} rule`);
+  // #1143: a bare `*` rule would match every invocation of every tool
+  // (including write/bash/spawn) — refuse it fail-closed. There is no
+  // documented all-tools wildcard; scope rules per tool.
+  if (str.trim() === "*") throw new RuleError(`invalid ${effect} rule "*": there is no all-tools wildcard; name the tool`);
   const colon = str.indexOf(":");
   if (colon === -1) {
     return { tier, tool: str, effect };
@@ -382,6 +386,9 @@ export class PermissionResolver {
     }
     const ov = opts.overrides ?? {};
     for (const [tool, decision] of Object.entries(ov.tools ?? {})) {
+      // #1143: `"*": "allow"` would become a tool-level rule matching every
+      // invocation (fail-open). Refuse it: the resolver throws on load.
+      if (tool === "*") throw new RuleError(`invalid tools override "*": there is no all-tools wildcard; name the tool`);
       if (decision === "allow" || decision === "deny") {
         rules.push({ tier: "config", tool, effect: decision });
       }
