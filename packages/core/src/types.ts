@@ -719,8 +719,36 @@ type AgentEventBase =
       validFrom: string;
       validUntil?: string;
     }
-  /** Subagents (#13): a child session was spawned; `log` is its own JSONL file. */
-  | { type: "subagent_spawn"; callId: string; name: string; preset?: string; log: string }
+  /**
+   * Subagents (#13); orchestration requester/limits (ADR-0055, #1127):
+   * `requester` names who asked — the model, or the extension by name —
+   * and `limits` records the scopes actually applied to the child (its
+   * tool allow-list when one was set, the effective permission mode, the
+   * applied iteration cap). Together they make an orchestration's children
+   * derivable from the log across restarts, with no session identity.
+   */
+  | {
+      type: "subagent_spawn";
+      callId: string;
+      name: string;
+      preset?: string;
+      log: string;
+      requester: { kind: "model" } | { kind: "extension"; extension: string };
+      limits: {
+        /** The child's applied tool allow-list, when the spec named one. */
+        tools?: string[];
+        /** The effective permission mode the child runs under. */
+        mode: "normal" | "auto-accept" | "yolo";
+        /** The applied per-turn iteration cap (resolved, never undefined). */
+        maxIterations: number;
+      };
+    }
+  /**
+   * ADR-0055 "one stop" (#1127): everything one orchestration started was
+   * stopped — the listed live children were aborted. Chrome only; the
+   * aborted children still land their own `subagent_result` (cancelled).
+   */
+  | { type: "orchestration_stopped"; callIds: string[]; stoppedAt: string }
   /** Subagent finished; usage tokens accumulated by the child, where exposed. */
   | {
       type: "subagent_result";

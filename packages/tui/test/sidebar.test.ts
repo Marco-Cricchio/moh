@@ -11,7 +11,7 @@ describe("projectSidebar (issue #118)", () => {
     const events = [
       ev({ type: "user_message", text: "hi" }),
       ev({ type: "tool_call", callId: "1", name: "bash", args: { command: "bun test" } }),
-      ev({ type: "subagent_spawn", callId: "2", name: "research", log: "/tmp/x.jsonl" }),
+      ev({ type: "subagent_spawn", callId: "2", name: "research", log: "/tmp/x.jsonl", requester: { kind: "model" }, limits: { mode: "normal", maxIterations: 50 } }),
       ev({ type: "tool_result", callId: "1", ok: true, output: "ok" }),
       ev({ type: "model_call", model: "m", usage: { inputTokens: 1000, outputTokens: 200 } }),
       ev({ type: "subagent_result", callId: "2", name: "research", status: "done", usage: { inputTokens: 5, outputTokens: 5 }, log: "/tmp/x.jsonl" }),
@@ -26,7 +26,7 @@ describe("projectSidebar (issue #118)", () => {
   test("an in-flight tool call stays ok: null and a spawned subagent stays running", () => {
     const events = [
       ev({ type: "tool_call", callId: "1", name: "read", args: { path: "/a/b.ts" } }),
-      ev({ type: "subagent_spawn", callId: "2", name: "tdd", log: "/tmp/y.jsonl" }),
+      ev({ type: "subagent_spawn", callId: "2", name: "tdd", log: "/tmp/y.jsonl", requester: { kind: "model" }, limits: { mode: "normal", maxIterations: 50 } }),
     ];
     const s = projectSidebar(events);
     expect(s.activity).toEqual([

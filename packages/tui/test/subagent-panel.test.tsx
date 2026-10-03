@@ -32,8 +32,8 @@ describe("trackSubagents", () => {
   test("pairs spawn/result by callId and keeps order", () => {
     const events: AgentEvent[] = [
       { type: "session_start", schemaVersion: 1, promptVersion: "1" },
-      { type: "subagent_spawn", callId: "a", name: "scout", preset: "research", log: "/x/a.jsonl" },
-      { type: "subagent_spawn", callId: "b", name: "worker", log: "/x/b.jsonl" },
+      { type: "subagent_spawn", callId: "a", name: "scout", preset: "research", log: "/x/a.jsonl", requester: { kind: "model" }, limits: { mode: "normal", maxIterations: 50 } },
+      { type: "subagent_spawn", callId: "b", name: "worker", log: "/x/b.jsonl", requester: { kind: "model" }, limits: { mode: "normal", maxIterations: 50 } },
       { type: "subagent_result", callId: "a", name: "scout", status: "done", usage: { inputTokens: 100, outputTokens: 50 }, log: "/x/a.jsonl" },
     ];
     const subs = trackSubagents(events);
@@ -46,9 +46,9 @@ describe("trackSubagents", () => {
 
   test("adds ordinal only when child names collide", () => {
     const duplicated = trackSubagents([
-      { type: "subagent_spawn", callId: "a", name: "subagent", log: "/x/a.jsonl" },
-      { type: "subagent_spawn", callId: "b", name: "subagent", log: "/x/b.jsonl" },
-      { type: "subagent_spawn", callId: "c", name: "scout", log: "/x/c.jsonl" },
+      { type: "subagent_spawn", callId: "a", name: "subagent", log: "/x/a.jsonl", requester: { kind: "model" }, limits: { mode: "normal", maxIterations: 50 } },
+      { type: "subagent_spawn", callId: "b", name: "subagent", log: "/x/b.jsonl", requester: { kind: "model" }, limits: { mode: "normal", maxIterations: 50 } },
+      { type: "subagent_spawn", callId: "c", name: "scout", log: "/x/c.jsonl", requester: { kind: "model" }, limits: { mode: "normal", maxIterations: 50 } },
     ]);
     expect(duplicated.map((sub) => sub.displayName ?? sub.name)).toEqual(["1 subagent", "2 subagent", "scout"]);
   });
