@@ -114,6 +114,9 @@ export interface SlashContext {
   /** ADR-0060: opens the lanes modal (/lanes). Absent (headless): the
    * command points at the CLI door (`moh lanes …`) instead. */
   onOpenLanes?: () => void;
+  /** #1131: opens the /extensions state modal. Absent (headless): the
+   * command keeps the textual state list on the notify channel. */
+  onOpenExtensions?: () => void;
   /** Opens the all-commands panel (`/commands`, `?`). */
   onOpenCommands?: () => void;
   /** #457: opens the user manual modal (`/help`, ctrl+h). Absent
@@ -745,22 +748,26 @@ const copyCommand: SlashCommand = {
   },
 };
 
-/** ADR-0062 (#1130): the inspectable extension surface. The full screen is
- * #1131; today the command lists what is in force — each extension's
- * registered commands and every refused command registration with its
- * reason — on the notify channel, which headless callers print too. */
+/** #1131: the inspectable extension surface. With a UI present the
+ * command opens the extensions modal (a read-only snapshot: versions,
+ * source paths, capabilities, sections in force, last failure with its
+ * reason, refused registrations, ignored duplicates); without one, the
+ * same facts degrade to the notify channel, which headless callers print
+ * too. Read-only — it never writes configuration. */
 const extensionsCommand: SlashCommand = {
   name: "extensions",
-  description: "extension state: registered commands and refused registrations",
+  description: "extension state: versions, capabilities, sections, failures",
   usage: "/extensions",
   run(ctx) {
+    if (ctx.onOpenExtensions) return ctx.onOpenExtensions();
     if (!ctx.session) return ctx.notify("/extensions needs an open session");
     const names = ctx.session.extensionNames();
     if (names.length === 0) return ctx.notify("no extensions registered");
     const lines: string[] = [];
-    for (const name of names) {
-      lines.push(name);
-      for (const command of ctx.session.extensionCommands().filter((c) => c.extension === name)) {
+    for (const info of ctx.session.extensionLiveInfo()) {
+      lines.push(`${info.name} v? · ${info.file ?? "bundled"}`);
+      if (info.capabilities.length > 0) lines.push(`  capabilities: ${info.capabilities.join(", ")}`);
+      for (const command of info.commands) {
         lines.push(`  command: /${command.name}${command.description ? ` — ${command.description}` : ""}`);
       }
     }
