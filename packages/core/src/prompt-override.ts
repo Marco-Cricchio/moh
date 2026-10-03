@@ -76,45 +76,44 @@ export function applyPromptReplacements(
   options: { skillsProtected?: boolean } = {},
 ): PromptOverrideApplication {
   const refusals: AgentEvent[] = [];
+  const refuse = (author: ReplacementAuthor, reason: string, message: string): void => {
+    refusals.push({ type: "extension_failed", name: author.by, reason, message });
+  };
   const applied = new Map<SectionName, PromptContribution>();
   const sections: Partial<Record<SectionName, string>> = { ...base };
   for (const author of authors) {
     for (const [section, value] of Object.entries(author.sections)) {
       if (!REPLACEABLE_SECTIONS.includes(section as SectionName)) {
-        refusals.push({
-          type: "extension_failed",
-          name: author.by,
-          reason: "section_not_replaceable",
-          message: `section "${section}" is not replaceable (ADR-0054: only ${REPLACEABLE_SECTIONS.join(", ")})`,
-        });
+        refuse(
+          author,
+          "section_not_replaceable",
+          `section "${section}" is not replaceable (ADR-0054: only ${REPLACEABLE_SECTIONS.join(", ")})`,
+        );
         continue;
       }
       const name = section as SectionName;
       if (name === "skills" && options.skillsProtected) {
-        refusals.push({
-          type: "extension_failed",
-          name: author.by,
-          reason: "section_protected",
-          message: "the skills section is held by the turn-scoped skill prompt this turn (ADR-0011)",
-        });
+        refuse(
+          author,
+          "section_protected",
+          "the skills section is held by the turn-scoped skill prompt this turn (ADR-0011)",
+        );
         continue;
       }
       if (!author.capabilities.includes(replaceSectionCapability(name))) {
-        refusals.push({
-          type: "extension_failed",
-          name: author.by,
-          reason: "section_not_granted",
-          message: `no capability grant for section "${name}" (${replaceSectionCapability(name)} must be declared and consented)`,
-        });
+        refuse(
+          author,
+          "section_not_granted",
+          `no capability grant for section "${name}" (${replaceSectionCapability(name)} must be declared and consented)`,
+        );
         continue;
       }
       if (applied.has(name)) {
-        refusals.push({
-          type: "extension_failed",
-          name: author.by,
-          reason: "section_contested",
-          message: `section "${name}" already has an author in this composition; one author per section (ADR-0054)`,
-        });
+        refuse(
+          author,
+          "section_contested",
+          `section "${name}" already has an author in this composition; one author per section (ADR-0054)`,
+        );
         continue;
       }
       if (value === null) {
@@ -123,12 +122,7 @@ export function applyPromptReplacements(
         continue;
       }
       if (typeof value !== "string") {
-        refusals.push({
-          type: "extension_failed",
-          name: author.by,
-          reason: "invalid_section",
-          message: `section "${name}" replacement must be a string or null`,
-        });
+        refuse(author, "invalid_section", `section "${name}" replacement must be a string or null`);
         continue;
       }
       sections[name] = `[extension: ${author.by} v${author.version} — section replaced]\n\n${value}`;
