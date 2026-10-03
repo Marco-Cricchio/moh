@@ -59,6 +59,7 @@ describe("Semaphore (#1143)", () => {
     // Fully drained: a fresh acquire is instant.
     expect(await sem.acquire(new AbortController().signal)).toBe(true);
   });
+});
 
 /** Collects parent events into an array for assertions. */
 function tap(session: { events: AsyncIterable<AgentEvent> }): AgentEvent[] {

@@ -1156,6 +1156,34 @@ describe("ADR-0056 hook deadlines (#1126)", () => {
     expect((verdict.errors[0] as any).message).toContain("80ms");
   });
 
+  test("a throw landing after the timeout is one bounded hook_late_error record (#1143)", async () => {
+    const rt = deadlineRuntime();
+    await rt.register(
+      defineExtension({
+        name: "late",
+        version: "1.0.0",
+        apiVersion: MOH_EXTENSION_API_VERSION,
+        setup: (ctx) => {
+          ctx.onToolCall(async () => {
+            await Bun.sleep(200); // past the 80ms ceiling…
+            throw new Error("late boom"); // …then throws: the abandoned promise
+          });
+        },
+      }),
+    );
+    const verdict = await rt.checkToolHooks({ callId: "c1", name: "echo", args: {} });
+    expect(verdict.veto).toBe(false);
+    expect(verdict.errors).toHaveLength(1);
+    expect(verdict.errors[0]).toMatchObject({ reason: "hook_timeout" });
+    // The late throw is recorded once the abandoned promise settles: the
+    // next dispatch drains it from the same (owner) bucket.
+    await Bun.sleep(250);
+    const next = await rt.checkToolHooks({ callId: "c2", name: "echo", args: {} });
+    const late = next.errors.filter((e) => (e as { reason?: string }).reason === "hook_late_error");
+    expect(late).toHaveLength(1);
+    expect((late[0] as { message: string }).message).toContain("late boom");
+  });
+
   test("a throwing hook is still one fail-open record (ceiling does not change the throw path)", async () => {
     // No session: createSession fire-and-forgets a dispatchSessionStart
     // whose drain would race with this direct dispatch over the error

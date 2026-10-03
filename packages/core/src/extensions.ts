@@ -838,6 +838,23 @@ export class ExtensionRuntime {
         reason: "hook_timeout",
         message: `the ${hookLabel} hook did not answer within ${ceilingMs}ms; it contributed nothing`,
       });
+      // #1143: a throw that lands after the timeout won the race would
+      // otherwise go unrecorded — `failed`/`failure` in the abandoned
+      // promise are never read. One bounded late-error record keeps "a
+      // non-answer is absence, never authority" honest. The record rides
+      // the same error bucket this dispatch drained into: captured here,
+      // because the abandoned promise resumes outside the async scope.
+      const bucket = this.#borrowedSessions.getStore()?.errors ?? this.#hookErrors;
+      void pending.catch(() => {}).then(() => {
+        if (failed) {
+          bucket.push({
+            type: "extension_failed",
+            name: instance.def.name,
+            reason: "hook_late_error",
+            message: `the ${hookLabel} hook threw after its ${ceilingMs}ms timeout: ${errMessage(failure)}`,
+          });
+        }
+      });
       return { out: undefined, timedOut };
     }
     if (failed) {
