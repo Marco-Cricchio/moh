@@ -28,6 +28,7 @@ import {
   type HostOpResult,
   type HostReadResult,
   type HostReadLinkResult,
+  type HostFetchResult,
   type BeforeTurnHook,
   type BeforeModelCallHook,
   type BeforeModelCallResult,
@@ -55,10 +56,10 @@ import type { ExtensionSpawnSpec } from "@moh/extension";
 import type { SubagentHost } from "./subagents";
 import { ExtensionSpawnRefusedError } from "./extension-scope";
 import { capabilityDiff, capabilitiesSubset, readExtensionManifest, type ManifestAuthority } from "./extension-manifest";
-import { checkPathScope, isPathScope, pathScopesOf, validatePathScope } from "./host-scope";
+import { checkHostScope, checkPathScope, hostScopesOf, isHostScope, isPathScope, MAX_FETCH_BYTES, MAX_REDIRECTS, HOST_SCOPE_REASONING_KEY, TOTAL_HOST_WILDCARD, validateHostScope, validatePathScope, pathScopesOf } from "./host-scope";
 import { newUlid } from "./session/ulid";
 
-type HostOpName = "read" | "write" | "append" | "rename" | "delete" | "readlink";
+type HostOpName = "read" | "write" | "append" | "rename" | "delete" | "readlink" | "fetch";
 import { redactKeys } from "./redact";
 import { assertNoExtensionScope, runInExtensionScope } from "./extension-scope";
 
@@ -149,6 +150,12 @@ export interface ExtensionConsentRequest {
    * declares that the previously granted manifest did not. Empty or absent
    * means no new powers. */
   addedCapabilities?: readonly string[];
+  /**
+   * ADR-0066: the manifest's `reasoning` — the author's justification for
+   * a total network wildcard (`host:*`), which the consent question
+   * displays. Present only when the manifest declares one.
+   */
+  reasoning?: string;
 }
 
 export interface ExtensionRuntimeOptions {
@@ -165,6 +172,12 @@ export interface ExtensionRuntimeOptions {
    * every path grant per call; absent, no deny check runs.
    */
   isPathDenied?: (resolvedAbsPath: string) => boolean;
+  /**
+   * ADR-0066: the user's per-call deny answer for a request hostname.
+   * A deny beats every `host:` grant per call; absent, no deny check
+   * runs. Separate from `isPathDenied`: path rules never match hosts.
+   */
+  isHostDenied?: (hostname: string) => boolean;
   /**
    * One-time enable consent. Called only when no stored consent matches the
    * module's content identity, and — for a file — BEFORE the module is
@@ -1402,6 +1415,8 @@ bindPathDeny(isDenied: (resolvedAbsPath: string) => boolean): void {
         ...(info.version ? { version: info.version } : {}),
         ...(info.capabilities?.length ? { capabilities: info.capabilities } : {}),
         ...(added.length ? { addedCapabilities: added } : {}),
+        // ADR-0066: the total-wildcard justification rides the question.
+        ...(manifest?.reasoning !== undefined ? { reasoning: manifest.reasoning } : {}),
       });
     } catch (err) {
       return { ok: false, reason: "consent", message: errMessage(err) };
@@ -1589,6 +1604,9 @@ bindPathDeny(isDenied: (resolvedAbsPath: string) => boolean): void {
     /** The instance this one replaces (a hot-reload): excluded from the
      * rail's capacity count, whose slot is being handed over (#1132). */
     replacing?: RuntimeExtension,
+    /** ADR-0066: the manifest authority the consent signed (its
+     * `reasoning` travels from the same bytes, never a re-read). */
+    manifestAuthority?: ManifestAuthority,
   ): Promise<
     | { ok: true; instance: RuntimeExtension }
     | ({ ok: false; name?: string; reason: string; message: string })
@@ -1627,6 +1645,18 @@ bindPathDeny(isDenied: (resolvedAbsPath: string) => boolean): void {
     // lookup — which also re-checks the bytes, catching a file swapped in
     // between. For an in-memory registration it is the question itself.
     const recheck = file ? readExtensionManifest(file) : undefined;
+    // ADR-0061: the grant covers manifest bytes too; re-derived here so a
+    // manifest swapped in between ask and import is caught.
+    const consentAuthority = file
+      ? (recheck?.ok ? recheck.authority : undefined)
+      : options.manifest?.hash
+        ? {
+            hash: options.manifest.hash,
+            path: options.manifest.path ?? options.manifest.hash,
+            capabilities: options.manifest.capabilities,
+            ...(options.manifest.reasoning !== undefined ? { reasoning: options.manifest.reasoning } : {}),
+          }
+        : undefined;
     const consent = await this.#ensureConsent(
       identity,
       {
@@ -1639,13 +1669,7 @@ bindPathDeny(isDenied: (resolvedAbsPath: string) => boolean): void {
         ...(recheck?.ok ? { capabilities: recheck.manifest.capabilities } : {}),
       },
       bundled,
-      // ADR-0061: the grant covers manifest bytes too; re-derived here so a
-      // manifest swapped in between ask and import is caught.
-      file
-        ? (recheck?.ok ? recheck.authority : undefined)
-        : options.manifest?.hash
-          ? { hash: options.manifest.hash, path: options.manifest.path ?? options.manifest.hash, capabilities: options.manifest.capabilities }
-          : undefined,
+      consentAuthority,
     );
     if (!consent.ok) return { ok: false, name, reason: consent.reason, message: consent.message };
     // The subset check itself: only where a manifest exists to check against
@@ -1716,6 +1740,28 @@ bindPathDeny(isDenied: (resolvedAbsPath: string) => boolean): void {
       const validity = validatePathScope(capability);
       if (!validity.ok) return { ok: false, name, reason: "invalid_path_scope", message: validity.message };
     }
+    // ADR-0066: a malformed `host:` scope fails loudly at load; the total
+    // wildcard `host:*` exists only with a manifest `reasoning` string —
+    // the author's justification the consent question displays. The
+    // manifest is the only source: an in-memory registration without one
+    // cannot claim the total wildcard at all.
+    for (const capability of granted) {
+      if (!isHostScope(capability)) continue;
+      const validity = validateHostScope(capability);
+      if (!validity.ok) return { ok: false, name, reason: "invalid_host_scope", message: validity.message };
+      if (capability !== TOTAL_HOST_WILDCARD) continue;
+      // One authority only: the manifest object consent signed (or the
+      // registration's declared authority) — never a second disk read.
+      const declared = consentAuthority?.reasoning;
+      if (typeof declared !== "string" || declared.trim() === "") {
+        return {
+          ok: false,
+          name,
+          reason: "missing_reasoning",
+          message: `"${TOTAL_HOST_WILDCARD}" requires a "${HOST_SCOPE_REASONING_KEY}" string in the extension manifest — the justification the consent question displays`,
+        };
+      }
+    }
     instance.grantedCapabilities = [...granted];
     const commandSlot: { registerCommand?: ExtensionSetupContext["registerCommand"] } = granted.includes("contribute-commands")
       ? { registerCommand: (command: ExtensionCommand) => this.#registerCommand(instance, command) }
@@ -1741,9 +1787,14 @@ bindPathDeny(isDenied: (resolvedAbsPath: string) => boolean): void {
     // grant covers at least one `path:<glob>` scope (enforcement by
     // absence); the scope check runs per call, before the host performs.
     const scopes = pathScopesOf(granted);
-    const hostSlot: Pick<ExtensionSetupContext, "host"> = scopes.length > 0
-      ? { host: this.#hostFor(instance, scopes) }
-      : {};
+    const hostScopes = hostScopesOf(granted);
+    const fileHost = this.#fileHostFor(instance, scopes);
+    const netHost = this.#networkHostFor(instance, hostScopes);
+    // Both scopes land on one seam object; a method absent at runtime
+    // means no scope of its kind was granted (enforcement by absence).
+    const hostObject = { ...fileHost, fetch: netHost.fetch } as ExtensionHost;
+    const hostSlot: Pick<ExtensionSetupContext, "host"> =
+      scopes.length > 0 || hostScopes.length > 0 ? { host: hostObject } : {};
     const ctx: ExtensionSetupContext = {
       ...commandSlot,
       ...panelSlot,
@@ -1831,7 +1882,7 @@ bindPathDeny(isDenied: (resolvedAbsPath: string) => boolean): void {
    * event with the resolved path. The host acted in the world; the log
    * records it.
    */
-  #hostFor(instance: RuntimeExtension, scopes: readonly string[]): ExtensionHost {
+  #fileHostFor(instance: RuntimeExtension, scopes: readonly string[]): Omit<ExtensionHost, "fetch"> {
     const name = instance.def.name;
     const root = this.#options.projectRoot ?? process.cwd();
     const isDenied = this.#pathDeny ?? this.#options.isPathDenied ?? (() => false);
@@ -2557,5 +2608,147 @@ bindPathDeny(isDenied: (resolvedAbsPath: string) => boolean): void {
     const borrowed = this.#borrowedSessions.getStore();
     if (borrowed) return borrowed.errors.splice(0, borrowed.errors.length);
     return this.#hookErrors.splice(0, this.#hookErrors.length);
+  }
+
+  /**
+   * ADR-0066: the `host:<domain>` scope's execution path. One check-scope
+   * module decides every request and every redirect hop
+   * (`checkHostScope`); a refusal is a typed result plus one
+   * `host_refused` event — never an exception, never an
+   * `extension_failed`; a completed request is one `host_op` event with
+   * the final host, path, status and byte count. The response is fully
+   * buffered bytes with a fixed size limit (`too_large` past it); no
+   * streaming in this phase. Under `host:` alone the request is
+   * anonymous — an authenticated request needs the matching
+   * `credential:<ref>` scope too (F2b owns custody and injection).
+   */
+  #networkHostFor(instance: RuntimeExtension, scopes: readonly string[]): { fetch?: (url: string) => Promise<HostFetchResult> } {
+    if (scopes.length === 0) return {};
+    const name = instance.def.name;
+    // ADR-0066: the host deny seam is its own callback — path rules never
+    // match hostnames. Absent, no deny check runs.
+    const isDenied = this.#options.isHostDenied ?? (() => false);
+    return {
+      fetch: async (raw: string): Promise<HostFetchResult> => {
+        let current: URL;
+        try {
+          current = new URL(raw);
+        } catch {
+          this.#emit({ type: "host_refused", callId: newUlid(), extension: name, op: "fetch", path: String(raw), reason: "invalid_url" });
+          return { ok: false, reason: "invalid_url", message: "not a valid URL" };
+        }
+        let origin = "";
+        for (let hop = 0; hop <= MAX_REDIRECTS; hop++) {
+          const callId = newUlid();
+          const checked = checkHostScope(current, scopes, isDenied);
+          if (!checked.ok) {
+            this.#emit({
+              type: "host_refused",
+              callId,
+              extension: name,
+              op: "fetch",
+              path: `${current.pathname}${current.search}`,
+              reason: checked.reason,
+              ...(checked.target !== undefined ? { target: checked.target } : {}),
+            });
+            return { ok: false, reason: checked.reason, ...(checked.target !== undefined ? { target: checked.target } : {}) };
+          }
+          let response: Response;
+          try {
+            // `redirect: "manual"`: every hop is our own scope decision,
+            // never the fetch implementation's.
+            response = await fetch(current, { redirect: "manual" });
+          } catch (err) {
+            this.#emit({ type: "host_refused", callId, extension: name, op: "fetch", path: `${current.pathname}${current.search}`, reason: "failed" });
+            return { ok: false, reason: "failed", message: errMessage(err) };
+          }
+          if (response.status >= 300 && response.status < 400) {
+            const location = response.headers.get("location");
+            if (location === null) {
+              // A redirect with no destination: nothing to follow — serve
+              // the 3xx body as the answer, like any other status.
+              return await this.#consumeFetchResponse(instance, callId, current, response);
+            }
+            let next: URL;
+            try {
+              next = new URL(location, current);
+            } catch {
+              this.#emit({ type: "host_refused", callId, extension: name, op: "fetch", path: `${current.pathname}${current.search}`, reason: "failed" });
+              return { ok: false, reason: "failed", message: `redirect target is not a valid URL: ${location}` };
+            }
+            if (next.origin === origin) {
+              // A loop back to an origin already visited: refuse rather
+              // than spin to the hop ceiling.
+              this.#emit({
+                type: "host_refused",
+                callId,
+                extension: name,
+                op: "fetch",
+                path: `${next.pathname}${next.search}`,
+                reason: "outside_scope",
+                target: next.host,
+              });
+              return { ok: false, reason: "outside_scope", target: next.host, message: "redirect loop" };
+            }
+            origin = current.origin;
+            current = next;
+            continue;
+          }
+          return await this.#consumeFetchResponse(instance, callId, current, response);
+        }
+        this.#emit({ type: "host_refused", callId: newUlid(), extension: name, op: "fetch", path: `${current.pathname}${current.search}`, reason: "outside_scope", target: current.host });
+        return { ok: false, reason: "outside_scope", target: current.host, message: `more than ${MAX_REDIRECTS} redirects` };
+      },
+    };
+  }
+
+  /** Buffers one in-scope response within the size limit and logs it.
+   * The cap is enforced mid-read: a chunked response that oversizes is
+   * aborted while streaming, never fully buffered first. */
+  async #consumeFetchResponse(instance: RuntimeExtension, callId: string, url: URL, response: Response): Promise<HostFetchResult> {
+    const name = instance.def.name;
+    const pathAndQuery = `${url.pathname}${url.search}`;
+    const tooLarge = (): HostFetchResult => {
+      this.#emit({ type: "host_refused", callId, extension: name, op: "fetch", path: pathAndQuery, reason: "too_large", target: url.host });
+      return { ok: false, reason: "too_large", message: `response exceeds the ${MAX_FETCH_BYTES} byte limit` };
+    };
+    // Enforce the cap on the body as it arrives: consume the stream in
+    // chunks and refuse the moment the limit is crossed — a lying or
+    // absent content-length cannot make the host swallow 10 GB.
+    const reader = response.body?.getReader();
+    if (!reader) {
+      this.#emit({ type: "host_refused", callId, extension: name, op: "fetch", path: pathAndQuery, reason: "failed", target: url.host });
+      return { ok: false, reason: "failed", message: "response has no readable body" };
+    }
+    const chunks: Uint8Array[] = [];
+    let total = 0;
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      total += value.byteLength;
+      if (total > MAX_FETCH_BYTES) {
+        await reader.cancel();
+        return tooLarge();
+      }
+      chunks.push(value);
+    }
+    const merged = new Uint8Array(total);
+    let offset = 0;
+    for (const chunk of chunks) {
+      merged.set(chunk, offset);
+      offset += chunk.byteLength;
+    }
+    this.#emit({
+      type: "host_op",
+      callId,
+      extension: name,
+      op: "fetch",
+      path: pathAndQuery,
+      outcome: "ok",
+      host: url.host,
+      status: response.status,
+      bytes: total,
+    });
+    return { ok: true, status: response.status, bytes: merged, finalHost: url.host };
   }
 }

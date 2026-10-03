@@ -547,15 +547,17 @@ type AgentEventBase =
    * rename names the resolved destination. Chrome only — never model
    * context, never a turn error. Secret redaction applies downstream.
    */
-  | { type: "host_op"; callId: string; extension: string; op: "read" | "write" | "append" | "rename" | "delete" | "readlink";
-      path: string; outcome: "ok"; bytes?: number; to?: string }
+  | { type: "host_op"; callId: string; extension: string; op: "read" | "write" | "append" | "rename" | "delete" | "readlink" | "fetch";
+      path: string; outcome: "ok"; bytes?: number; to?: string; host?: string; status?: number }
   /**
    * ADR-0064: one host-performed operation was refused by the scope check.
    * Distinct from `extension_failed` (extension faults): a refusal is a
-   * policy answer, never a crash. `reason` is the typed refusal reason.
+   * policy answer, never a crash. `reason` is the typed refusal reason;
+   * `target` (ADR-0066) names the request or redirect host a fetch was
+   * refused for.
    */
-  | { type: "host_refused"; callId: string; extension: string; op: "read" | "write" | "append" | "rename" | "delete" | "readlink";
-      path: string; reason: "outside_scope" | "invalid_path" | "denied" | "failed"; resolved?: string }
+  | { type: "host_refused"; callId: string; extension: string; op: "read" | "write" | "append" | "rename" | "delete" | "readlink" | "fetch";
+      path: string; reason: "outside_scope" | "invalid_path" | "invalid_url" | "denied" | "too_large" | "failed"; resolved?: string; target?: string }
   /**
    * ADR-0054 (#1129): a prompt-section composition change — a section
    * replaced or hidden by an extension, or restored to core text. Chrome
