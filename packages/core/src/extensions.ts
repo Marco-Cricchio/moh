@@ -31,6 +31,7 @@ import {
   type HostFetchResult,
   type HostRunToolResult,
   type HostFetchOptions,
+  type ExtensionContributedTool,
   type BeforeTurnHook,
   type BeforeModelCallHook,
   type BeforeModelCallResult,
@@ -60,7 +61,7 @@ import { ExtensionSpawnRefusedError } from "./extension-scope";
 import { capabilityDiff, capabilitiesSubset, readExtensionManifest, type ManifestAuthority } from "./extension-manifest";
 import { checkHostScope, checkPathScope, hostScopesOf, isHostScope, isPathScope, MAX_FETCH_BYTES, MAX_REDIRECTS, HOST_SCOPE_REASONING_KEY, TOTAL_HOST_WILDCARD, validateHostScope, validatePathScope, pathScopesOf } from "./host-scope";
 import { credentialScopesOf, credentialScopeRef, isCredentialScope, validateCredentialScope, type CredentialStore } from "./credential-scope";
-import { isToolScope, validateToolScope, toolScopesOf, checkToolScope, isContributeToolScope, validateContributeToolScope, contributesTool, toolScopeName } from "./tool-scope";
+import { isToolScope, validateToolScope, toolScopesOf, checkToolScope, isContributeToolScope, validateContributeToolScope, contributesTool, toolScopeName, contributeToolScopesOf, contributeToolName, CONTRIBUTE_TOOL_SCOPE_PREFIX } from "./tool-scope";
 import { newUlid } from "./session/ulid";
 
 type HostOpName = "read" | "write" | "append" | "rename" | "delete" | "readlink" | "fetch" | "run_tool";
@@ -1338,6 +1339,50 @@ bindPathDeny(isDenied: (resolvedAbsPath: string) => boolean): void {
     this.#toolSeam = seam;
   }
 
+  /**
+   * ADR-0067: the session binds its contributed-tool sink. A registration
+   * made before a session exists (setup runs during load) is held and
+   * applied — and logged — at bind time, so the `tool_contributed` event
+   * lands inside the session's log deterministically.
+   */
+  #toolContributor: ((registration: { extension: string; tool: unknown }) => void) | null = null;
+  #pendingContributed: { extension: string; tool: unknown }[] = [];
+
+  bindToolContributor(contributor: (registration: { extension: string; tool: unknown }) => void): void {
+    this.#toolContributor = contributor;
+    const pending = this.#pendingContributed.splice(0);
+    for (const registration of pending) contributor(registration);
+  }
+
+  /** True when any loaded extension holds a `contribute-tool:<name>` grant. */
+  hasContributedToolScopes(): boolean {
+    return this.#instances.some((e) => contributeToolScopesOf(e.grantedCapabilities).length > 0);
+  }
+
+  /**
+   * ADR-0067 `registerTool`: the name must be one the consent named; a
+   * mismatch is a loud `extension_failed` and the tool never reaches the
+   * model. With a session bound, the tool registers immediately (and the
+   * `tool_contributed` record rides the session's log); without one, the
+   * registration is held for `bindToolContributor`.
+   */
+  #registerContributedTool(instance: RuntimeExtension, tool: ExtensionContributedTool, grantedNames: readonly string[]): void {
+    const extension = instance.def.name;
+    const name = typeof (tool as { name?: unknown } | null)?.name === "string" ? tool.name : "";
+    if (name === "" || !contributesTool(name, [...grantedNames.map((n) => `${CONTRIBUTE_TOOL_SCOPE_PREFIX}${n}`)])) {
+      this.#emitFailed(extension, "register_tool_refused", `contribute-tool: the registered tool name "${name}" is not one the consent granted (${grantedNames.map((n) => `"${n}"`).join(", ") || "none"})`);
+      return;
+    }
+    if (typeof tool.execute !== "function") {
+      this.#emitFailed(extension, "register_tool_refused", `contribute-tool: "${name}" has no execute()`);
+      return;
+    }
+    const registration = { extension, tool };
+    if (this.#toolContributor) this.#toolContributor(registration);
+    else this.#pendingContributed.push(registration);
+    this.#emit({ type: "tool_contributed", extension, tool: name });
+  }
+
   /** True when any loaded extension holds a `tool:<name|*>` grant. */
   hasToolScopes(): boolean {
     return this.#instances.some((e) => toolScopesOf(e.grantedCapabilities).length > 0);
@@ -1823,6 +1868,16 @@ bindPathDeny(isDenied: (resolvedAbsPath: string) => boolean): void {
     const overlaySlot: { registerOverlay?: ExtensionSetupContext["registerOverlay"] } = granted.includes("contribute-overlays")
       ? { registerOverlay: (overlay: ExtensionOverlay) => this.#registerOverlay(instance, overlay) }
       : {};
+    // ADR-0067: the contributed-tool slot. Present only when the grant
+    // covers at least one `contribute-tool:<name>` scope (enforcement by
+    // absence); the registered name must be one the consent named, and
+    // the tool lands in the session via the bound contributor — the same
+    // runner and gate as every session tool.
+    const contributedNames = contributeToolScopesOf(granted).map(contributeToolName);
+    const toolSlot: { registerTool?: ExtensionSetupContext["registerTool"] } =
+      contributedNames.length > 0
+        ? { registerTool: (tool) => this.#registerContributedTool(instance, tool, contributedNames) }
+        : {};
     // ADR-0053 + ADR-0055 (#998 follow-up): the spawn-subagent slot.
     // Present only when granted (enforcement by absence); the envelope is
     // intersected at every call, and a refusal is a loud
@@ -1860,6 +1915,7 @@ bindPathDeny(isDenied: (resolvedAbsPath: string) => boolean): void {
       ...commandSlot,
       ...panelSlot,
       ...overlaySlot,
+      ...toolSlot,
       ...spawnSlot,
       ...hostSlot,
       state: instance.state,

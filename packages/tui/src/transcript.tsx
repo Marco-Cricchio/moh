@@ -1141,6 +1141,11 @@ export function projectTranscript(events: ReadonlyArray<AgentEvent>, options: { 
         // Chrome — audit only; the transcript has no projection today,
         // the log carries the record.
         break;
+      case "tool_contributed":
+        // ADR-0067: a contributed tool's registration record — the
+        // contributor is visible here; the model's calls of the tool are
+        // ordinary tool_call/tool_result blocks. Chrome — audit only.
+        break;
       default: {
         const exhaustive: never = event;
         throw new Error(`unhandled AgentEvent: ${JSON.stringify(exhaustive)}`);

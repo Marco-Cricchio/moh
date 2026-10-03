@@ -33,6 +33,15 @@ import { SubagentHost, type SubagentSpawnRequester, type SubagentSpawnLimits } f
 import { replayMessages, replayWarnings } from "../session-store";
 import { MemoryRunner, MemoryStore, createMaintenanceExtractor } from "../memory";
 import type { CompactionHookContext } from "@moh/extension";
+import type { ContributedToolSchema } from "@moh/extension";
+
+/** ADR-0067: the shape of one contributed tool arriving through the bound sink. */
+interface ContributedToolShape {
+  name: string;
+  description: string;
+  inputSchema?: ContributedToolSchema;
+  execute(args: unknown, ctx: { signal: AbortSignal; cwd: string }): Promise<string> | string;
+}
 import { resolveEndpointThinking } from "../thinking-preferences";
 import { catalogEntryFor, modelSupportsImages } from "../model-catalog";
 import { HandoffRunner } from "../handoff";
@@ -427,8 +436,7 @@ export class AgentSession {
     // the normal ToolRunner path, the extension named as the ask's
     // requester, no tool_call/tool_result events (the seam logs host_op).
     if (this.#extensions && typeof (this.#extensions as { bindToolSeam?: unknown }).bindToolSeam === "function") {
-      (this.#extensions as { bindToolSeam(s: unknown): void }).bindToolSeam({
-        runTool: async (request: { extension: string; tool: string; args: unknown }) => {
+      (this.#extensions as { bindToolSeam(s: unknown): void }).bindToolSeam({        runTool: async (request: { extension: string; tool: string; args: unknown }) => {
           const tool = this.#allTools()[request.tool];
           if (!tool) return { ok: false as const, reason: "unknown_tool" as const, message: `no session tool named "${request.tool}"` };
           const outcome = await this.#toolRunner.runSeamCall(
@@ -443,6 +451,25 @@ export class AgentSession {
           if (outcome.output.startsWith(`unknown tool:`)) return { ok: false as const, reason: "unknown_tool" as const, message: outcome.output };
           return { ok: false as const, reason: "failed" as const, message: outcome.output };
         },
+      });
+    }
+    // ADR-0067: the contributed-tool sink behind `ctx.registerTool`. A
+    // contributed tool rides the same runner and gate as every session
+    // tool — registration is just an entry in the model-visible registry;
+    // its `tool_contributed` record is emitted by the runtime at
+    // registration time. The wrapper adapts the extension's validator
+    // (the `safeParse` slice of zod) to the core Tool contract.
+    if (this.#extensions && typeof (this.#extensions as { bindToolContributor?: unknown }).bindToolContributor === "function") {
+      (this.#extensions as { bindToolContributor(c: (r: { extension: string; tool: unknown }) => void): void }).bindToolContributor(({ tool }) => {
+        const contributed = tool as ContributedToolShape;
+        this.addTools({
+          [contributed.name]: {
+            name: contributed.name,
+            description: contributed.description,
+            inputSchema: (contributed.inputSchema ?? undefined) as Tool["inputSchema"],
+            execute: (args, ctx) => contributed.execute(args, ctx),
+          },
+        });
       });
     }
     this.#onDispose = config.onDispose;
