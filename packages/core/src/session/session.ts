@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 import type { AgentEvent, ExtensionStatus, Message, Provider, ReasoningStreamEvent, SendOptions, SkillPrompt, Tool, TurnResult } from "../types";
 import { SCHEMA_VERSION } from "../types";
+import type { ExtensionLiveInfo } from "../extensions-screen";
 import { normalizeTaskId, taskDeclaredEvent, taskOutcomeEvent, taskVerificationEvent } from "../task/telemetry";
 import { newUlid } from "./ulid";
 import { substituteSkillArgs } from "../skill-args";
@@ -1434,6 +1435,22 @@ export class AgentSession {
   /** ADR-0062 (#1130): refused command registrations, with their reasons. */
   extensionCommandRefusals() {
     return this.#extensions?.commandRefusals() ?? [];
+  }
+
+  /**
+   * #1131: what only the running runtime knows about each registered
+   * instance — source file, declared capabilities, registered commands.
+   * The event log alone cannot answer these (the log records who and
+   * which part, never the paths or the capability strings), so a screen
+   * folds the log for the shared facts and merges this for the live ones.
+   */
+  extensionLiveInfo(): ExtensionLiveInfo[] {
+    return (this.#extensions?.instances ?? []).map((i) => ({
+      name: i.def.name,
+      ...(i.file !== undefined ? { file: i.file } : {}),
+      capabilities: i.def.capabilities ?? [],
+      commands: i.commands.map((c) => ({ name: c.name, description: c.description ?? "" })),
+    }));
   }
 
   /**

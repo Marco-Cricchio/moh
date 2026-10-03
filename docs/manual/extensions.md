@@ -108,7 +108,15 @@ An extension whose grant covers `contribute-commands` (named explicitly
 in its consent question) registers slash commands that run like native
 ones. Precedence is native commands > skills > extension commands: a
 colliding name is refused loudly, and `/extensions` lists every extension's
-commands plus each refused registration with its reason. The same command
+commands plus each refused registration with its reason. `/extensions`
+opens the read-only extension-state screen: per enabled extension its
+version, source path (or "bundled"), declared capabilities, registered
+commands and the prompt sections it currently owns (ADR-0054); then the
+last failure with its reason, every refused registration, and the ignored
+duplicate copies (the project copy wins, the loser is named). The same
+state is derivable from the session's event log alone, so a headless
+reader folds it without a live session. The command never writes
+configuration. The same command
 runs headless: `moh run "/deploy-status --env prod"` prints one
 `extension_command_result` JSON line with the command's text output — the
 same text the TUI shows, never a second behavior.

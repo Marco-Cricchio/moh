@@ -845,6 +845,13 @@ describe("extension slash commands (#1130, ADR-0062)", () => {
     expect(text).toContain("/model — collides with a native command or skill");
   });
 
+  test("#1131: /extensions opens the screen when the client provides the seam", () => {
+    let opened = false;
+    const ctx = makeCtx({ session: null, onOpenExtensions: () => (opened = true) });
+    expect(runSlashCommand("/extensions", ctx)).toBe(true);
+    expect(opened).toBe(true);
+  });
+
   test("the completion popup lists extension commands after the native ones", async () => {
     const session = await extSession(false);
     const { commandEntries } = await import("../src/commands");

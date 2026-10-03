@@ -285,6 +285,19 @@ export {
   type SessionTreeStats,
 } from "./session-analyze";
 
+// #1131: the read-only `/extensions` state — the TUI overlay and any
+// headless reader fold it. Metadata-only projection (ADR-0004).
+export {
+  extensionsScreenStateFromEvents,
+  readExtensionsScreenState,
+  mergeExtensionLiveInfo,
+  type ExtensionsScreenState,
+  type ExtensionsScreenExtension,
+  type ExtensionsScreenSection,
+  type ExtensionsScreenRefusal,
+  type ExtensionLiveInfo,
+} from "./extensions-screen";
+
 import { skillRecommendations, formatSkillCommand, type SkillRecommendation, type SkillRoutingConfig, type SkillRouteOverride } from "./skill-routing";
 // #765: prompt snippets — skill argument parsing and placeholder
 // substitution. Pure and client-reusable (the TUI detects

@@ -67,7 +67,7 @@ import { ManualModal } from "./ManualModal";
 import { NotesModal } from "./NotesModal";
 import { ModelPickerModal } from "./ModelPickerModal";
 import { sanitizeForDisplay } from "./render-sanitize";
-import { endpointModelCatalog, aggregateLocalUsage, aggregateTelemetry, analyzeSession, billingPlanResolver, type LocalUsageRow, type SessionAnalysisReport } from "@moh/core";
+import { endpointModelCatalog, aggregateLocalUsage, aggregateTelemetry, analyzeSession, billingPlanResolver, listInstalledExtensions, readExtensionsScreenState, mergeExtensionLiveInfo, type LocalUsageRow, type SessionAnalysisReport, type ExtensionsScreenState } from "@moh/core";
 import { fetchLiveCatalogs, liveListings, reportNeedsNotice, summarizeLiveCatalogReport, type LiveModelListing } from "@moh/core";
 import { QuotaModal } from "./QuotaModal";
 import { MpmModal } from "./MpmModal";
@@ -75,6 +75,7 @@ import { JevModal } from "./JevModal";
 import { JEV_EXTENSION_NAME, readJevSummary, setJevUseCase, type JevStatusSummary } from "./jev-control";
 import { SessionRenameModal } from "./SessionRenameModal";
 import { SessionModal } from "./SessionModal";
+import { ExtensionsModal } from "./ExtensionsModal";
 import { LanesModal } from "./LanesModal";
 import { TreePanel } from "./TreePanel";
 import { sessionTree, type TreeNode } from "@moh/core";
@@ -138,7 +139,7 @@ export interface AppProps {
   yolo?: boolean;
 }
 
-type Overlay = null | "settings" | "commands" | "manual" | "notes" | "onboarding" |"handoff-onboarding" | "workflow-offer" | "frontier" | "skill-chooser" | "model" | "skill-updates" | "quota" | "rename" | "cold-wizard" | "tree" | "mpm" | "session" | "jev" | "browser" | "lanes";
+type Overlay = null | "settings" | "commands" | "manual" | "notes" | "onboarding" |"handoff-onboarding" | "workflow-offer" | "frontier" | "skill-chooser" | "model" | "skill-updates" | "quota" | "rename" | "cold-wizard" | "tree" | "mpm" | "session" | "jev" | "browser" | "lanes" | "extensions";
 
 /** #242: one-shot, non-blocking informed-consent copy. Exported so focused
  * tests can verify the full message even when narrow status chrome clips it. */
@@ -351,6 +352,33 @@ function AppShell({
         return analyzeSession(session.sessionFile, { planFor: billingPlanResolver(session.endpointProfiles) });
       } catch {
         return { error: "session analysis failed" };
+      }
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [overlay]);
+  // #1131: the /extensions modal's snapshot — fold the session log for the
+  // shared facts, merge the live runtime facts (paths, capabilities,
+  // commands), name the ignored duplicate copies. A failed read degrades
+  // to a notice, never a crash.
+  const [extensionsReport, setExtensionsReport] = useState<ExtensionsSnapshot | null>(null);
+  type ExtensionsSnapshot =
+    | { state: ExtensionsScreenState; duplicates: { extension: string; path: string }[] }
+    | { error: string };
+  useEffect(() => {
+    if (overlay !== "extensions") return;
+    setExtensionsReport(() => {
+      try {
+        if (!session?.sessionFile) return { error: "session file unknown" };
+        const state = readExtensionsScreenState(session.sessionFile);
+        if ("error" in state) return state;
+        return {
+          state: mergeExtensionLiveInfo(state, session.extensionLiveInfo()),
+          duplicates: listInstalledExtensions({ mohHome: home ?? homedir(), cwd: process.cwd() }).flatMap((i) =>
+            (i.ignoredDuplicates ?? []).map((path) => ({ extension: i.name, path })),
+          ),
+        };
+      } catch {
+        return { error: "extension state read failed" };
       }
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1502,6 +1530,7 @@ function AppShell({
         onOpenTree: () => setOverlay("tree"),
         onOpenMpm: () => setOverlay("mpm"),
         onOpenSession: () => setOverlay("session"),
+        onOpenExtensions: () => setOverlay("extensions"),
         onOpenLanes: () => setOverlay("lanes"),
         onOpenJev: () => setOverlay("jev"),
         onOpenBrowserSetup: () => setOverlay("browser"),
@@ -1744,6 +1773,20 @@ function AppShell({
             <Text> session analysis unavailable: {sessionReport && "error" in sessionReport ? sessionReport.error : "session file unknown"}</Text>
           ))}
         {overlay === "lanes" && <LanesModal cwd={process.cwd()} onClose={() => setOverlay(null)} />}
+        {overlay === "extensions" &&
+          (extensionsReport && !("error" in extensionsReport) ? (
+            <ExtensionsModal
+              state={extensionsReport.state}
+              duplicates={extensionsReport.duplicates}
+              onClose={() => setOverlay(null)}
+            />
+          ) : (
+            <Text>
+              {" "}
+              extension state unavailable:{" "}
+              {extensionsReport && "error" in extensionsReport ? extensionsReport.error : "session file unknown"}
+            </Text>
+          ))}
         {overlay === "quota" && session && (
           <QuotaModal
             endpoints={session.endpointProfiles}
