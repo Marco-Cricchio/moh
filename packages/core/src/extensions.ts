@@ -57,6 +57,7 @@ import type { SubagentHost } from "./subagents";
 import { ExtensionSpawnRefusedError } from "./extension-scope";
 import { capabilityDiff, capabilitiesSubset, readExtensionManifest, type ManifestAuthority } from "./extension-manifest";
 import { checkHostScope, checkPathScope, hostScopesOf, isHostScope, isPathScope, MAX_FETCH_BYTES, MAX_REDIRECTS, HOST_SCOPE_REASONING_KEY, TOTAL_HOST_WILDCARD, validateHostScope, validatePathScope, pathScopesOf } from "./host-scope";
+import { credentialScopesOf, credentialScopeRef, isCredentialScope, validateCredentialScope, type CredentialStore } from "./credential-scope";
 import { newUlid } from "./session/ulid";
 
 type HostOpName = "read" | "write" | "append" | "rename" | "delete" | "readlink" | "fetch";
@@ -178,6 +179,15 @@ export interface ExtensionRuntimeOptions {
    * runs. Separate from `isPathDenied`: path rules never match hosts.
    */
   isHostDenied?: (hostname: string) => boolean;
+  /**
+   * ADR-0069: the credential store behind the `credential:<ref>` scope.
+   * Injected by session assembly (OS keychain when available, the bounded
+   * 0600-file fallback otherwise). The host resolves refs and injects the
+   * values at request time; extension code never sees one. Absent, no
+   * `credential:` grant can authenticate a request — every ref resolves
+   * as unknown, loudly.
+   */
+  credentialStore?: CredentialStore;
   /**
    * One-time enable consent. Called only when no stored consent matches the
    * module's content identity, and — for a file — BEFORE the module is
@@ -1762,6 +1772,14 @@ bindPathDeny(isDenied: (resolvedAbsPath: string) => boolean): void {
         };
       }
     }
+    // ADR-0069: a malformed `credential:<ref>` scope fails loudly at load,
+    // like its path/host siblings — a ref no `credential:` grammar can
+    // name must never reach consent, let alone a fetch.
+    for (const capability of granted) {
+      if (!isCredentialScope(capability)) continue;
+      const validity = validateCredentialScope(capability);
+      if (!validity.ok) return { ok: false, name, reason: "invalid_credential_scope", message: validity.message };
+    }
     instance.grantedCapabilities = [...granted];
     const commandSlot: { registerCommand?: ExtensionSetupContext["registerCommand"] } = granted.includes("contribute-commands")
       ? { registerCommand: (command: ExtensionCommand) => this.#registerCommand(instance, command) }
@@ -1788,13 +1806,17 @@ bindPathDeny(isDenied: (resolvedAbsPath: string) => boolean): void {
     // absence); the scope check runs per call, before the host performs.
     const scopes = pathScopesOf(granted);
     const hostScopes = hostScopesOf(granted);
+    // ADR-0069: a credential scope is a scope in its own right — the seam
+    // exists when one is granted even without a host scope, so an
+    // authenticated call is refused on the host check, not by absence.
+    const credScopes = credentialScopesOf(granted);
     const fileHost = this.#fileHostFor(instance, scopes);
-    const netHost = this.#networkHostFor(instance, hostScopes);
+    const netHost = this.#networkHostFor(instance, [...hostScopes, ...credScopes]);
     // Both scopes land on one seam object; a method absent at runtime
     // means no scope of its kind was granted (enforcement by absence).
     const hostObject = { ...fileHost, fetch: netHost.fetch } as ExtensionHost;
     const hostSlot: Pick<ExtensionSetupContext, "host"> =
-      scopes.length > 0 || hostScopes.length > 0 ? { host: hostObject } : {};
+      scopes.length > 0 || hostScopes.length > 0 || credScopes.length > 0 ? { host: hostObject } : {};
     const ctx: ExtensionSetupContext = {
       ...commandSlot,
       ...panelSlot,
@@ -2622,14 +2644,36 @@ bindPathDeny(isDenied: (resolvedAbsPath: string) => boolean): void {
    * anonymous — an authenticated request needs the matching
    * `credential:<ref>` scope too (F2b owns custody and injection).
    */
-  #networkHostFor(instance: RuntimeExtension, scopes: readonly string[]): { fetch?: (url: string) => Promise<HostFetchResult> } {
+  #networkHostFor(instance: RuntimeExtension, scopes: readonly string[]): { fetch?: (url: string, options?: { credential?: string }) => Promise<HostFetchResult> } {
     if (scopes.length === 0) return {};
     const name = instance.def.name;
     // ADR-0066: the host deny seam is its own callback — path rules never
     // match hostnames. Absent, no deny check runs.
     const isDenied = this.#options.isHostDenied ?? (() => false);
     return {
-      fetch: async (raw: string): Promise<HostFetchResult> => {
+      fetch: async (raw: string, options?: { credential?: string }): Promise<HostFetchResult> => {
+        // ADR-0069: an authenticated request needs the matching
+        // `credential:<ref>` scope granted (the intersection of two
+        // grants). Under `host:` alone the request stays anonymous.
+        let credentialRef: string | undefined;
+        let credentialValue: string | undefined;
+        if (options?.credential !== undefined) {
+          const ref = String(options.credential);
+          const granted = scopes.some((c) => isCredentialScope(c) && credentialScopeRef(c) === ref);
+          if (!granted) {
+            this.#emit({ type: "host_refused", callId: newUlid(), extension: name, op: "fetch", path: String(raw), reason: "outside_scope", credential: ref });
+            return { ok: false, reason: "outside_scope", message: `no credential:<${ref}> scope granted` };
+          }
+          // Resolve host-side, just before the request: the value lives
+          // only in this closure — never in the seam's return shape.
+          credentialValue = this.#options.credentialStore?.get(ref);
+          if (credentialValue === undefined) {
+            this.#emit({ type: "host_refused", callId: newUlid(), extension: name, op: "fetch", path: String(raw), reason: "unknown_credential", credential: ref });
+            return { ok: false, reason: "unknown_credential" };
+          }
+          credentialRef = ref;
+        }
+        const headers = credentialValue !== undefined ? { authorization: `Bearer ${credentialValue}` } : undefined;
         let current: URL;
         try {
           current = new URL(raw);
@@ -2656,8 +2700,9 @@ bindPathDeny(isDenied: (resolvedAbsPath: string) => boolean): void {
           let response: Response;
           try {
             // `redirect: "manual"`: every hop is our own scope decision,
-            // never the fetch implementation's.
-            response = await fetch(current, { redirect: "manual" });
+            // never the fetch implementation's. The credential rides
+            // every in-scope hop (ADR-0069).
+            response = await fetch(current, { redirect: "manual", ...(headers ? { headers } : {}) });
           } catch (err) {
             this.#emit({ type: "host_refused", callId, extension: name, op: "fetch", path: `${current.pathname}${current.search}`, reason: "failed" });
             return { ok: false, reason: "failed", message: errMessage(err) };
@@ -2667,7 +2712,7 @@ bindPathDeny(isDenied: (resolvedAbsPath: string) => boolean): void {
             if (location === null) {
               // A redirect with no destination: nothing to follow — serve
               // the 3xx body as the answer, like any other status.
-              return await this.#consumeFetchResponse(instance, callId, current, response);
+              return await this.#consumeFetchResponse(instance, callId, current, response, credentialRef);
             }
             let next: URL;
             try {
@@ -2694,7 +2739,7 @@ bindPathDeny(isDenied: (resolvedAbsPath: string) => boolean): void {
             current = next;
             continue;
           }
-          return await this.#consumeFetchResponse(instance, callId, current, response);
+          return await this.#consumeFetchResponse(instance, callId, current, response, credentialRef);
         }
         this.#emit({ type: "host_refused", callId: newUlid(), extension: name, op: "fetch", path: `${current.pathname}${current.search}`, reason: "outside_scope", target: current.host });
         return { ok: false, reason: "outside_scope", target: current.host, message: `more than ${MAX_REDIRECTS} redirects` };
@@ -2705,7 +2750,7 @@ bindPathDeny(isDenied: (resolvedAbsPath: string) => boolean): void {
   /** Buffers one in-scope response within the size limit and logs it.
    * The cap is enforced mid-read: a chunked response that oversizes is
    * aborted while streaming, never fully buffered first. */
-  async #consumeFetchResponse(instance: RuntimeExtension, callId: string, url: URL, response: Response): Promise<HostFetchResult> {
+  async #consumeFetchResponse(instance: RuntimeExtension, callId: string, url: URL, response: Response, credentialRef?: string): Promise<HostFetchResult> {
     const name = instance.def.name;
     const pathAndQuery = `${url.pathname}${url.search}`;
     const tooLarge = (): HostFetchResult => {
@@ -2748,6 +2793,7 @@ bindPathDeny(isDenied: (resolvedAbsPath: string) => boolean): void {
       host: url.host,
       status: response.status,
       bytes: total,
+      ...(credentialRef !== undefined ? { credential: credentialRef } : {}),
     });
     return { ok: true, status: response.status, bytes: merged, finalHost: url.host };
   }

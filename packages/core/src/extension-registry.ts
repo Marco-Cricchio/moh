@@ -20,6 +20,7 @@ import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync } 
 import { join, resolve } from "node:path";
 import { MANIFEST_FILE, readExtensionManifest, type ExtensionManifest } from "./extension-manifest";
 import { PATH_SCOPE_PREFIX, HOST_SCOPE_PREFIX } from "./host-scope";
+import { CREDENTIAL_SCOPE_PREFIX } from "./credential-scope";
 
 /** npm integrity digests (`sha512-...`) we can verify. */
 export type IntegrityAlgorithm = "sha512" | "sha1";
@@ -181,7 +182,8 @@ export function isKnownCapability(capability: string): boolean {
   return (
     KNOWN_CAPABILITY_SLOTS.includes(capability) ||
     capability.startsWith(PATH_SCOPE_PREFIX) ||
-    capability.startsWith(HOST_SCOPE_PREFIX)
+    capability.startsWith(HOST_SCOPE_PREFIX) ||
+    capability.startsWith(CREDENTIAL_SCOPE_PREFIX)
   );
 }
 

@@ -16,6 +16,7 @@
  */
 import { readdirSync, realpathSync, lstatSync } from "node:fs";
 import { isAbsolute, relative, resolve, dirname } from "node:path";
+import { isCredentialScope, credentialScopeRef, credentialEffectSentence } from "./credential-scope";
 
 /** The scope prefixes the shipped host knows (ADR-0071: a prefix becomes
  * a known slot only when its phase ships — F1 `path:`, F2 `host:`). */
@@ -164,6 +165,11 @@ export function hostMatchesScope(scope: HostScopeValidity & { ok: true }, url: U
  * existing slots render as before).
  */
 export function scopeEffectSentence(capability: string): string | null {
+  // ADR-0069: the credential scope's sentence lives in its own module;
+  // this single renderer stays the one consent reads.
+  if (isCredentialScope(capability)) {
+    return credentialEffectSentence(credentialScopeRef(capability));
+  }
   if (isHostScope(capability)) {
     if (capability === TOTAL_HOST_WILDCARD) {
       return "may contact any host on the internet over https — total network access";

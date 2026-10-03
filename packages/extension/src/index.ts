@@ -614,7 +614,7 @@ export interface HostFetchSuccess {
 
 export type HostFetchResult =
   | HostFetchSuccess
-  | { ok: false; reason: "outside_scope" | "invalid_url" | "denied" | "too_large" | "failed"; target?: string; message?: string };
+  | { ok: false; reason: "outside_scope" | "invalid_url" | "unknown_credential" | "denied" | "too_large" | "failed"; target?: string; message?: string };
 
 
 /**
@@ -642,10 +642,12 @@ export interface ExtensionHost {
    * a host covered by a granted `host:<domain>` scope. Every redirect hop
    * is re-checked against the allowlist; the response is fully buffered
    * bytes with a fixed size limit; no streaming. An authenticated request
-   * needs the matching `credential:<ref>` scope too (F2b) — under `host:`
-   * alone the request is anonymous.
+   * passes `credential: "<ref>"` and needs the matching `credential:<ref>`
+   * scope granted too; the host resolves the ref and injects the value
+   * itself — the value never crosses the seam, and no read-the-value API
+   * exists (ADR-0069).
    */
-  fetch(url: string): Promise<HostFetchResult>;
+  fetch(url: string, options?: { credential?: string }): Promise<HostFetchResult>;
 }
 
 /**
