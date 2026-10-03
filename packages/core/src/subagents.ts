@@ -193,8 +193,8 @@ export interface SubagentHostOptions {
   defaultMaxIterations?: () => number;
 }
 
-/** Simple counting semaphore: caps parallel children (default 3). */
-/** #1143: counting semaphore with permit transfer. Exported for tests. */
+/** #1143: counting semaphore with permit transfer — caps parallel children
+ * (default 3). Exported for tests. */
 export class Semaphore {
   #active = 0;
   readonly #waiting: { resolve: () => void; aborted: boolean; handedOff: boolean }[] = [];

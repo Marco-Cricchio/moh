@@ -512,13 +512,12 @@ export class ExtensionRuntime {
   readonly #uiRefusals: ExtensionUIRefusal[] = [];
   /** ADR-0062 (#1132): the overlay a client currently shows, null = none. */
   #activeOverlay: ActiveExtensionOverlay | null = null;
-  /** Only the extension whose command is currently running may open its
-   * overlay. This is set for the duration of `invokeCommand`, including
-   * async command work; hooks and retained callbacks cannot open it. */
-  /** Overlay open() guard (#1143): async-context keyed — each
-   * `invokeCommand` chains its owner through AsyncLocalStorage, so two
-   * interleaved invocations (a command awaiting input while another
-   * starts) each keep their own guard, however their promises interleave. */
+  /** Overlay open() guard: only the extension whose command is currently
+   * running may open its overlay; hooks and retained callbacks cannot.
+   * #1143: async-context keyed — each `invokeCommand` chains its owner
+   * through AsyncLocalStorage, so two interleaved invocations (a command
+   * awaiting input while another starts) each keep their own guard,
+   * however their promises interleave. */
   readonly #commandOwners = new AsyncLocalStorage<RuntimeExtension>();
   /** ADR-0062 (#1132): subscribers of overlay open requests. */
   readonly #overlayListeners = new Set<(overlay: ActiveExtensionOverlay) => void>();
