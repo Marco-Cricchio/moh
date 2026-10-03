@@ -21,6 +21,23 @@ import {
 } from "./session/from-config";
 import { type ConfirmTurnRequest, type PermissionsConfig, type PermissionAskContext, type SessionConfig } from "./session/config";
 import { builtinTools } from "./builtin-tools";
+import {
+  installExtension,
+  listInstalledExtensions,
+  parseExtensionRef,
+  removeInstalledExtension,
+  registryRoots,
+  verifyIntegrity,
+  KNOWN_CAPABILITY_SLOTS,
+  type RegistryIo,
+  type ExtensionRef,
+  type InstallOptions,
+  type InstallResult,
+  type InstalledExtension,
+  type NpmPackument,
+  type GithubRelease,
+  type IntegrityAlgorithm,
+} from "./extension-registry";
 import { ExtensionRuntime, type ExtensionConsentRequest, type RuntimeExtension } from "./extensions";
 import { PromptComposer, type SkillIndexEntry } from "./prompt-composer";
 import type {
@@ -805,6 +822,20 @@ export {
   builtinTools,
   ExtensionRuntime,
   type RuntimeExtension,
+  // #1128 (ADR-0061): the extension registry — install from immutable
+  // sources with static checks only; package code is never executed.
+  installExtension,
+  listInstalledExtensions,
+  parseExtensionRef,
+  removeInstalledExtension,
+  registryRoots,
+  verifyIntegrity,
+  KNOWN_CAPABILITY_SLOTS,
+  type RegistryIo,
+  type ExtensionRef,
+  type InstallOptions,
+  type InstallResult,
+  type InstalledExtension,
   PromptComposer,
   type SendOptions,
   type SkillPrompt,
