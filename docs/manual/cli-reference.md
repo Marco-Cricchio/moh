@@ -17,6 +17,7 @@ commands:
   tui      interactive session (same as bare moh)
   run      non-interactive session (see: moh run --help)
   mcp      manage MCP tool servers (see: moh mcp --help)
+  extension  install/list/remove extension packages (see: moh extension --help)
   init     scaffold agent docs (docs/agents/* + AGENTS.md)
   provider manage provider endpoints and auth (see: moh provider --help)
   manual   read the user manual (see: moh manual --help)
@@ -132,6 +133,26 @@ commands:
 
 scopes: project (moh.json, asks consent on first use) vs user
 (~/.moh/config, trusted). Use --user to target the user config.
+```
+
+## moh extension
+
+```
+usage: moh extension <command> [options]
+
+commands:
+  add <ref> [--user] [--cwd <dir>]
+          install an extension package from an immutable source:
+            @scope/name[@version]   npm scoped package
+            github:owner/repo[@tag] GitHub release (repo + tag)
+          Installed into <cwd>/extensions/ (project scope) or
+          ~/.moh/extensions/<name>/ with --user. Static checks only —
+          package code is never executed; installation never authorizes,
+          the load-time consent decides. Raw URLs and tarballs are refused.
+  list    show installed extensions (both scopes; duplicate identities
+          report the ignored copy — project wins over the user dotdir)
+  remove <name> [--cwd <dir>]
+          remove an installed extension by name (project scope first)
 ```
 
 ## moh provider

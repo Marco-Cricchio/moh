@@ -104,6 +104,7 @@ function renderCliPage(): string {
     { heading: "moh run", body: extractUsage("RUN_USAGE", "run.ts") },
     { heading: "moh serve", body: extractUsage("SERVE_USAGE", "serve.ts") },
     { heading: "moh mcp", body: extractUsage("MCP_USAGE", "mcp.ts") },
+    { heading: "moh extension", body: extractUsage("EXTENSION_USAGE", "extension.ts") },
     { heading: "moh provider", body: extractUsage("PROVIDER_USAGE", "provider.ts") },
     {
       heading: "moh manual",

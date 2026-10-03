@@ -6,6 +6,7 @@
 import { runCommand, RUN_USAGE } from "./run";
 import { serveCommand, SERVE_USAGE } from "./serve";
 import { mcpCommand, MCP_USAGE } from "./mcp";
+import { extensionCommand, EXTENSION_USAGE } from "./extension";
 import { initCommand } from "./init";
 import { providerCommand, PROVIDER_USAGE } from "./provider";
 import { updateCommand, UPDATE_USAGE } from "./update";
@@ -32,6 +33,7 @@ commands:
   tui      interactive session (same as bare moh)
   run      non-interactive session (see: moh run --help)
   mcp      manage MCP tool servers (see: moh mcp --help)
+  extension  install/list/remove extension packages (see: moh extension --help)
   init     scaffold agent docs (docs/agents/* + AGENTS.md)
   provider manage provider endpoints and auth (see: moh provider --help)
   manual   read the user manual (see: moh manual --help)
@@ -147,6 +149,13 @@ export async function main(
       return 0;
     }
     return mcpCommand({ argv: rest });
+  }
+  if (command === "extension") {
+    if (rest.includes("--help") || rest.includes("-h")) {
+      process.stdout.write(EXTENSION_USAGE + "\n");
+      return 0;
+    }
+    return extensionCommand({ argv: rest, home: process.env.HOME });
   }
   if (command === "init") {
     if (rest.length) {

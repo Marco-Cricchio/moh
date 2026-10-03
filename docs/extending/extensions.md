@@ -653,6 +653,45 @@ editing a file re-imports it, re-runs `setup()` with the previous
 reload keeps the previous instance and is visible on both channels (the log
 and the host's warning line).
 
+## Installing packages: `moh extension add`
+
+Beyond files you write yourself, extensions can be installed from exactly
+two **immutable sources** (ADR-0061) — immutable because the consent binds
+to the SHA-256 of what was installed, and only a fixed, checksum-verified
+artifact keeps that binding meaningful:
+
+    moh extension add @scope/name@1.2.0     # npm scoped package
+    moh extension add github:owner/repo@v1.2.0   # GitHub release (repo + tag)
+
+Without `--user` the package lands in `<project>/extensions/<name>/`;
+with `--user`, in `~/.moh/extensions/<name>/` — the two roots the loader
+already scans (see the table above).
+
+`add` performs **static checks only**; package code is never executed —
+not at install, not ever by this command:
+
+- the manifest (`moh.extension.json`) must be present and well-formed;
+- the artifact is verified against the source's own digest (npm's
+  `dist.integrity`; a GitHub release's committed `.sha256` asset). A
+  mismatch refuses with both digests, and a release that publishes no
+  digest is refused outright — an unverifiable artifact is never installed;
+- an unknown capability slot **warns** but does not refuse — the slot
+  vocabulary grows, and the load-time consent still decides what runs;
+- declared npm dependencies are **noted**, never installed (see
+  `deps_unauthorized` above).
+
+**Installation never authorizes.** The first session that loads the
+installed file asks the same consent question as any other file, naming
+the resolved path, the SHA-256 of its bytes and manifest, and the
+capabilities the manifest declares. A raw URL or tarball is refused: there
+is no third source.
+
+`moh extension list` shows what is installed in both scopes; `moh
+extension remove <name>` deletes by manifest name, project scope first.
+When the same package identity exists in both scopes, the existing
+discovery precedence decides — the project copy loads, and the ignored
+dotdir copy is reported as a visible line, not an error.
+
 ## Loading, lifecycle, failure
 
 - Loading goes through `ExtensionRuntime.registerFile(file)` (dynamic,
