@@ -17,6 +17,7 @@ import { basename, isAbsolute, resolve } from "node:path";
 import {
   MOH_EXTENSION_API_VERSION,
   parseApiVersion,
+  type ExtensionCommand,
   type ExtensionDefinition,
   type ExtensionDependencies,
   type ExtensionSetupContext,
@@ -175,6 +176,14 @@ export interface ExtensionRuntimeOptions {
    * changes silently.
    */
   replacementWindowMs?: number;
+  /**
+   * ADR-0062 (#1130): the slash names the client's own surfaces own — its
+   * native commands plus every skill alias. An extension command colliding
+   * with one is refused at registration (precedence: native > skills >
+   * extension); the core cannot know these names itself, so the client
+   * that assembles the session supplies them.
+   */
+  reservedCommandNames?: readonly string[];
 }
 
 /** `register` options: trust is a property of the code being registered,
@@ -263,7 +272,22 @@ export interface RuntimeExtension {
   readonly file?: string;
   /** ADR-0032: the extension's published footer status; null = none. Ephemeral. */
   status: string | null;
+  /** ADR-0062 (#1130): slash commands this instance registered, in call order. */
+  readonly commands: ExtensionCommand[];
 }
+
+/** One refused extension-command registration (ADR-0062): reported in
+ * `/extensions`, never silently dropped. */
+export interface ExtensionCommandRefusal {
+  readonly extension: string;
+  readonly name: string;
+  readonly reason: "reserved" | "taken" | "invalid";
+}
+
+/** The invocation outcome of one extension command (ADR-0062). */
+export type ExtensionCommandResult =
+  | { ok: true; extension: string; output: string }
+  | { ok: false; error: string };
 
 /**
  * #981: one session's ADR-0032 §3 accounting. It is keyed by *session*, not
@@ -425,6 +449,20 @@ export class ExtensionRuntime {
   readonly #replacementWindowMs: number;
   readonly #mohHome: string;
   readonly #instances: RuntimeExtension[] = [];
+  /**
+   * ADR-0062 (#1130): slash names the client reserved for its native
+   * commands and skills — an extension command matching one is refused.
+   */
+  /**
+   * ADR-0062 (#1130): the slash names the client's own surfaces own — its
+   * native commands plus every skill alias. Extension commands colliding
+   * with one are refused at registration (precedence: native > skills >
+   * extension); the core cannot know these names itself, so the client
+   * that assembles the session supplies them.
+   */
+  readonly #reservedCommandNames: ReadonlySet<string>;
+  /** ADR-0062 (#1130): refused command registrations, in refusal order. */
+  readonly #commandRefusals: ExtensionCommandRefusal[] = [];
   readonly #pending: AgentEvent[] = [];
   readonly #listeners = new Set<(event: AgentEvent) => void>();
   /**
@@ -474,6 +512,87 @@ export class ExtensionRuntime {
     this.#mohHome = options.mohHome ?? resolve(homedir(), ".moh");
     this.#hookTimeoutMs = options.hookTimeoutMs ?? DEFAULT_HOOK_TIMEOUT_MS;
     this.#replacementWindowMs = options.replacementWindowMs ?? PROMPT_REPLACEMENT_WINDOW_MS;
+    this.#reservedCommandNames = new Set((options.reservedCommandNames ?? []).map((n) => n.toLowerCase()));
+  }
+
+  /**
+   * ADR-0062 (#1130): every registered extension command, in extension
+   * registration then call order — what `/extensions` and the command
+   * completion list.
+   */
+  extensionCommands(): { extension: string; name: string; description: string }[] {
+    return this.#instances.flatMap((i) =>
+      i.commands.map((c) => ({
+        extension: i.def.name,
+        name: c.name,
+        description: typeof c.description === "string" && c.description.length > 0 ? c.description : `command by ${i.def.name}`,
+      })),
+    );
+  }
+
+  /** ADR-0062 (#1130): every refused command registration, with its reason. */
+  commandRefusals(): readonly ExtensionCommandRefusal[] {
+    return this.#commandRefusals;
+  }
+
+  /**
+   * ADR-0062 (#1130): runs one extension command by slash name. This is
+   * the headless door too: a client with no UI invokes here and prints the
+   * returned text — the same output the TUI shows, never a mock. A
+   * throwing handler refuses the invocation with a visible
+   * `extension_failed` record and never throws to the caller.
+   */
+  async invokeCommand(name: string, args: string): Promise<ExtensionCommandResult> {
+    const wanted = name.toLowerCase();
+    for (const instance of this.#instances) {
+      const command = instance.commands.find((c) => c.name === wanted);
+      if (!command) continue;
+      try {
+        const output = await command.run({ args });
+        return { ok: true, extension: instance.def.name, output: typeof output === "string" ? output : String(output ?? "") };
+      } catch (err) {
+        const message = errMessage(err);
+        this.#emitFailed(instance.def.name, "command_failed", `command "${command.name}" failed: ${message}`);
+        return { ok: false, error: message };
+      }
+    }
+    return { ok: false, error: `no extension command "${name}"` };
+  }
+
+  /** ADR-0062 (#1130): the registration path behind `ctx.registerCommand`. */
+  #registerCommand(instance: RuntimeExtension, command: ExtensionCommand): void {
+    const extension = instance.def.name;
+    const name = typeof (command as { name?: unknown } | null)?.name === "string" ? command.name : "";
+    if (!/^[a-z0-9][a-z0-9-]*$/i.test(name)) {
+      this.#refuseCommand(extension, typeof name === "string" ? name : "", "invalid");
+      return;
+    }
+    const key = name.toLowerCase();
+    if (this.#reservedCommandNames.has(key)) {
+      this.#refuseCommand(extension, name, "reserved");
+      return;
+    }
+    const taken = this.#instances.some((i) => i.commands.some((c) => c.name === key)) || instance.commands.some((c) => c.name === key);
+    if (taken) {
+      this.#refuseCommand(extension, name, "taken");
+      return;
+    }
+    if (typeof command.run !== "function") {
+      this.#refuseCommand(extension, name, "invalid");
+      return;
+    }
+    instance.commands.push(command);
+  }
+
+  #refuseCommand(extension: string, name: string, reason: ExtensionCommandRefusal["reason"]): void {
+    this.#commandRefusals.push({ extension, name, reason });
+    const why =
+      reason === "reserved"
+        ? "collides with a native command or skill (native > skills > extension)"
+        : reason === "taken"
+          ? "the name is already taken by another extension command"
+          : "the name must be letters, digits and hyphens, and the command needs a run()";
+    this.#emitFailed(extension, "command_refused", `command "/${name}" refused: ${why}`);
   }
 
   /** ADR-0056: the effective turn-path hook ceiling (ms). */
@@ -1221,8 +1340,19 @@ export class ExtensionRuntime {
       hooks: EMPTY_HOOKS(),
       file,
       status: null,
+      commands: [],
     };
+    // ADR-0053 + ADR-0062 (#1130): enforcement by absence. The
+    // registration API exists on the context only when the grant covers
+    // the slot — the manifest when there is one (the authority consent
+    // signed), otherwise the code's own declaration (an in-memory
+    // registration has no manifest to exceed).
+    const granted = authority ?? (Array.isArray((d as { capabilities?: unknown }).capabilities) ? ((d as { capabilities: string[] }).capabilities).map((c) => String(c)) : []);
+    const commandSlot: { registerCommand?: ExtensionSetupContext["registerCommand"] } = granted.includes("contribute-commands")
+      ? { registerCommand: (command: ExtensionCommand) => this.#registerCommand(instance, command) }
+      : {};
     const ctx: ExtensionSetupContext = {
+      ...commandSlot,
       state: instance.state,
       appendToPrompt: (note) => instance.notes.push(note),
       // ADR-0036: one per-turn note per instance, replacing; `null` removes.

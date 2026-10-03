@@ -99,6 +99,17 @@ moh re-imports it and runs its `setup()` again, with the state it had kept
 changed `apiVersion`, a refused consent because the bytes changed — leaves
 the previous instance running and records the failure.
 
+## What an extension may contribute
+
+An extension whose grant covers `contribute-commands` (named explicitly
+in its consent question) registers slash commands that run like native
+ones. Precedence is native commands > skills > extension commands: a
+colliding name is refused loudly, and `/extensions` lists every extension's
+commands plus each refused registration with its reason. The same command
+runs headless: `moh run "/deploy-status --env prod"` prints one
+`extension_command_result` JSON line with the command's text output — the
+same text the TUI shows, never a second behavior.
+
 ## There is no sandbox
 
 An extension runs with the same privileges as moh itself. It can read your

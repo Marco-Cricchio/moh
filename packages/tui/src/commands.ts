@@ -745,6 +745,42 @@ const copyCommand: SlashCommand = {
   },
 };
 
+/** ADR-0062 (#1130): the inspectable extension surface. The full screen is
+ * #1131; today the command lists what is in force — each extension's
+ * registered commands and every refused command registration with its
+ * reason — on the notify channel, which headless callers print too. */
+const extensionsCommand: SlashCommand = {
+  name: "extensions",
+  description: "extension state: registered commands and refused registrations",
+  usage: "/extensions",
+  run(ctx) {
+    if (!ctx.session) return ctx.notify("/extensions needs an open session");
+    const names = ctx.session.extensionNames();
+    if (names.length === 0) return ctx.notify("no extensions registered");
+    const lines: string[] = [];
+    for (const name of names) {
+      lines.push(name);
+      for (const command of ctx.session.extensionCommands().filter((c) => c.extension === name)) {
+        lines.push(`  command: /${command.name}${command.description ? ` — ${command.description}` : ""}`);
+      }
+    }
+    const refusals = ctx.session.extensionCommandRefusals();
+    if (refusals.length > 0) {
+      lines.push("refused registrations:");
+      for (const refusal of refusals) {
+        const why =
+          refusal.reason === "reserved"
+            ? "collides with a native command or skill"
+            : refusal.reason === "taken"
+              ? "name taken by another extension"
+              : "invalid command";
+        lines.push(`  ${refusal.extension}: /${refusal.name} — ${why}`);
+      }
+    }
+    ctx.notify(lines.join("\n"));
+  },
+};
+
 /** Commands available regardless of workflow mode. */
 export const BASE_COMMANDS: SlashCommand[] = [
   askMohCommand,
@@ -752,6 +788,7 @@ export const BASE_COMMANDS: SlashCommand[] = [
   commandsCommand,
   compactCommand,
   copyCommand,
+  extensionsCommand,
   forkCommand,
   helpCommand,
   jevCommand,
@@ -827,6 +864,15 @@ export function activeCommands(ctx: Pick<SlashContext, "config">): SlashCommand[
   return ctx.config.workflow.enabled ? [...BASE_COMMANDS, ...workflowCommands()] : [...BASE_COMMANDS];
 }
 
+/**
+ * ADR-0062 (#1130): resolves an extension-contributed command by slash
+ * name — the last precedence tier (native > skills > extension), reached
+ * only when the native and workflow registries have no such command.
+ */
+export function findExtensionCommand(session: NonNullable<SlashContext["session"]>, name: string) {
+  return session.extensionCommands().find((command) => command.name === name);
+}
+
 /** Popup-facing projection of one command: the slash name, a short
  * description, and the `[s]`/`[u]` provenance marker ([s] = built into
  * moh, [u] = user-custom: a moh.json `agents` preset or a user-defined
@@ -837,15 +883,24 @@ export interface CommandEntry {
   custom: boolean;
 }
 
-/** The popup list for a context, alphabetically sorted. */
-export function commandEntries(ctx: Pick<SlashContext, "config">): CommandEntry[] {
-  return activeCommands(ctx)
-    .map<CommandEntry>((command) => ({
+/** The popup list for a context, alphabetically sorted. ADR-0062 (#1130):
+ * extension commands appear too (marked `[u]`-custom — not moh's own
+ * vocabulary); they are the last precedence tier behind native commands
+ * and skills. */
+export function commandEntries(ctx: Pick<SlashContext, "config"> & { session?: SlashContext["session"] }): CommandEntry[] {
+  const extensionCommands = ctx.session?.extensionCommands() ?? [];
+  return [
+    ...activeCommands(ctx).map<CommandEntry>((command) => ({
       name: `/${command.name}`,
       description: command.description,
       custom: CUSTOM_COMMAND_NAMES.has(command.name),
-    }))
-    .sort((a, b) => a.name.localeCompare(b.name));
+    })),
+    ...extensionCommands.map<CommandEntry>((command) => ({
+      name: `/${command.name}`,
+      description: command.description,
+      custom: true,
+    })),
+  ].sort((a, b) => a.name.localeCompare(b.name));
 }
 
 /** Commands that originate from user configuration rather than moh's own
@@ -857,6 +912,11 @@ const CUSTOM_COMMAND_NAMES: ReadonlySet<string> = new Set([]);
 /**
  * Tries to run `text` as a slash command. Returns true when the text was
  * consumed (never sent to the model).
+ *
+ * ADR-0062 (#1130): after the native and workflow registries miss, an
+ * extension command runs — its returned text arrives on the same notify
+ * channel, and the invocation is the same real run the headless door
+ * prints.
  */
 export function runSlashCommand(text: string, ctx: SlashContext): boolean {
   const trimmed = text.trim();
@@ -864,7 +924,16 @@ export function runSlashCommand(text: string, ctx: SlashContext): boolean {
   const [name, ...rest] = trimmed.slice(1).split(/\s+/);
   if (!name) return false;
   const command = activeCommands(ctx).find((c) => c.name === name);
-  if (!command) return false;
-  command.run(ctx, rest.join(" "));
-  return true;
+  if (command) {
+    command.run(ctx, rest.join(" "));
+    return true;
+  }
+  const args = rest.join(" ");
+  if (ctx.session && findExtensionCommand(ctx.session, name)) {
+    void ctx.session.invokeExtensionCommand(name, args).then((result) => {
+      ctx.notify(result.ok ? result.output : `✗ ${result.error}`);
+    });
+    return true;
+  }
+  return false;
 }

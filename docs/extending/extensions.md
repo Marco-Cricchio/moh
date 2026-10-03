@@ -134,6 +134,15 @@ added slots are highlighted.
 - Hook registration: `onSessionStart`, `onSessionEnd`, `beforeTurn`,
   `beforeModelCall`, `onToolCall`, `onToolResult`, `onCompaction`,
   `onEvent`, `afterTurn`.
+- `registerCommand(command)` — contribute a slash command
+  (`/deploy-status`), **only present when the `contribute-commands`
+  capability is granted** (apiVersion 1.11, ADR-0062): without the grant
+  the property does not exist on the context. The command returns its own
+  text output — the same text the TUI shows and headless `moh run` prints
+  — so there is exactly one behavior per command. Name collisions resolve
+  native > skills > extension: a colliding or invalid registration is
+  refused visibly and reported in `/extensions`, and your extension keeps
+  running.
 
 ## Hooks and their ordering
 
@@ -162,6 +171,9 @@ permissions. Within one turn, the ordering is:
    `onModelError` — return `{ model: "<endpoint>/<model-id>" }` to propose
    an alternative the core retries the call on, within the same turn
    (apiVersion 1.10, ADR-0059).
+6b. At setup, with the `contribute-commands` grant: `registerCommand` —
+   contribute a slash command executable like a native one (apiVersion
+   1.11, ADR-0062, below).
 7. Per event-log entry: `onEvent` — every event, appended order, including
    the `tool_call`/`tool_result` pair your veto produced. Dispatch runs on a
    serial queue, so hooks see events shortly after they are appended.
@@ -565,7 +577,7 @@ extension's note.
 ## Versioning policy
 
 - The host speaks `MOH_EXTENSION_API_VERSION` (`"major.minor"`); the
-  current version is **1.10** (1.1 added `ask` and the two observation
+  current version is **1.11** (1.1 added `ask` and the two observation
   seams; 1.2 added `beforeTurn`; 1.3 added the `extension_control`
   command channel; 1.4 added `onToolResult`, `confirm.onResolved` and
   `onCompaction`; 1.5 added `setPromptNote`; 1.6 added `requestTurn`;
@@ -575,7 +587,8 @@ extension's note.
   and the `applied: false` outcome on its `onApplied` callback; 1.10
   added the `onModelError` hook, ADR-0059; still 1.10, #1110 added the
   same `endpointCooldowns` list the `beforeTurn` context already carries
-  to the `onModelError` context).
+  to the `onModelError` context; 1.11 added `registerCommand`, the
+  `contribute-commands` capability slot, #1130).
 - **Additive-only within a major**: new hooks and context fields may be
   added; existing ones never change meaning or disappear. Deprecated APIs
   survive one full major.

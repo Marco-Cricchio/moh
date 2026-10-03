@@ -79,6 +79,15 @@
  * propose an alternative model ref, which the core validates through the
  * same guards as any switch and retries the call on within the same turn.
  * No answer keeps the historical behavior (the turn ends with the error).
+ *
+ * 1.11 (#1130, ADR-0062): `registerCommand` — the `contribute-commands`
+ * capability slot. The method exists on the setup context ONLY when the
+ * grant covers the slot (manifest authority, or the code's own declared
+ * capabilities when no manifest exists): enforcement by absence, so a
+ * caller that checks finds `undefined` and never an error. A registration
+ * that collides with a reserved or already-taken command name is refused
+ * visibly and reported; commands return their own text output, which is
+ * the same output the headless door prints — never a second behavior.
  */
 
 /**
@@ -86,7 +95,7 @@
  * Minor bumps are additive (new optional hooks/fields); major bumps are
  * breaking and refuse to load older/newer extensions.
  */
-export const MOH_EXTENSION_API_VERSION = "1.10";
+export const MOH_EXTENSION_API_VERSION = "1.11";
 
 /** Structural (core-independent) view of an event-log entry. */
 export interface ExtensionEvent {
@@ -410,6 +419,28 @@ export interface EventContext {
 }
 
 /**
+ * The context of one extension-command invocation (ADR-0062,
+ * apiVersion 1.11): the arguments the user typed after the command name,
+ * verbatim. Commands return their output text — the same text every
+ * client shows, TUI toast or headless JSONL — so there is exactly one
+ * behavior per command.
+ */
+export interface ExtensionCommandContext {
+  readonly args: string;
+}
+
+/** One slash command an extension contributes (ADR-0062). */
+export interface ExtensionCommand {
+  /** The slash name, without the leading `/`: lowercase letters, digits
+   * and hyphens (`/deploy-status`). */
+  readonly name: string;
+  /** One line shown in the command completion and `/extensions`. */
+  readonly description?: string;
+  /** Runs the command; the returned text is the command's whole output. */
+  run(ctx: ExtensionCommandContext): string | Promise<string>;
+}
+
+/**
  * A client command addressed to one extension (ADR-0038, apiVersion 1.3).
  * The core carries it opaquely; the runtime delivers it to the named
  * extension's `onEvent` hooks alone, and only to that extension.
@@ -526,6 +557,18 @@ export interface ExtensionSetupContext {
    * never sees or touches the live conversation.
    */
   onCompaction(hook: CompactionHook): void;
+  /**
+   * Contribute a slash command (ADR-0062, apiVersion 1.11). **Present only
+   * when the `contribute-commands` capability is granted** — without the
+   * grant the property does not exist on the context (enforcement by
+   * absence; check with `typeof ctx.registerCommand === "function"`).
+   * Collisions are resolved native > skills > extension: a command whose
+   * name is reserved by the client's native commands or skills, or taken
+   * by another extension, is refused visibly and reported in `/extensions`
+   * — the extension itself is not failed. The command's returned text is
+   * its output in every client; nothing else is invented around it.
+   */
+  registerCommand?(command: ExtensionCommand): void;
   onEvent(hook: EventHook): void;
   afterTurn(hook: AfterTurnHook): void;
   /**

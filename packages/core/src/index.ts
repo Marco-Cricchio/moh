@@ -21,7 +21,11 @@ import {
 } from "./session/from-config";
 import { type ConfirmTurnRequest, type PermissionsConfig, type PermissionAskContext, type SessionConfig } from "./session/config";
 import { builtinTools } from "./builtin-tools";
-import { ExtensionRuntime, type ExtensionConsentRequest, type RuntimeExtension } from "./extensions";
+import {
+  ExtensionRuntime,
+  type ExtensionConsentRequest,
+  type RuntimeExtension,
+} from "./extensions";
 import { PromptComposer, type SkillIndexEntry } from "./prompt-composer";
 import type {
   AgentEvent,
@@ -292,6 +296,7 @@ export { formatModelPair } from "./model-pair";
 // with ("send" | "cancel" | "refuse") — the extension contract's type,
 // re-exported so a client needs one import for the whole seam.
 export type { TurnConfirmOutcome } from "@moh/extension";
+export type { ExtensionCommand, ExtensionCommandContext } from "@moh/extension";
 import { McpRuntime, mcpServerEntrySchema, declaredUserMcpServers, isProjectServerTrusted, persistProjectMcpTrust, type DeclaredMcpServer, type McpServerEntry, type McpRuntimeOptions } from "./mcp";
 import {
   loadMohConfig,

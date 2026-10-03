@@ -1406,6 +1406,29 @@ export class AgentSession {
   }
 
   /**
+   * ADR-0062 (#1130): every registered extension command — what the
+   * command completion and `/extensions` list. Empty without extensions.
+   */
+  extensionCommands(): { extension: string; name: string; description: string }[] {
+    return this.#extensions?.extensionCommands() ?? [];
+  }
+
+  /** ADR-0062 (#1130): refused command registrations, with their reasons. */
+  extensionCommandRefusals() {
+    return this.#extensions?.commandRefusals() ?? [];
+  }
+
+  /**
+   * ADR-0062 (#1130): runs one extension command by slash name — the same
+   * door the TUI toast and the headless JSONL line both print.
+   */
+  invokeExtensionCommand(name: string, args: string) {
+    return this.#extensions
+      ? this.#extensions.invokeCommand(name, args)
+      : Promise.resolve({ ok: false as const, error: `no extension command "${name}"` });
+  }
+
+  /**
    * ADR-0038: reads one value from a registered extension's own `state`
    * store — how a client command reports what an extension is thinking
    * (the status seam reaches the footer, and an `appendEvent` is a

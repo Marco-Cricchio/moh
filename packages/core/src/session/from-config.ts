@@ -120,6 +120,14 @@ export interface SessionConsent {
    * loads silently afterwards and an edit asks again.
    */
   onExtensionConsent?: (request: ExtensionConsentRequest) => Promise<boolean> | boolean;
+  /**
+   * ADR-0062 (#1130): the slash names the client's own surfaces own — its
+   * native commands plus every skill alias. Extension commands colliding
+   * with one of these are refused at registration (native > skills >
+   * extension); the names are a client fact, so the assembling client
+   * supplies them.
+   */
+  reservedCommandNames?: readonly string[];
 }
 
 /** Client-specific overrides the builder layers over the moh.json-derived defaults. */
@@ -163,6 +171,14 @@ export interface SessionFromConfigOptions {
   /** Explicit provider reference override (CLI `--provider`): "mock", a custom id, or endpoint/model-id. */
   providerRef?: string;
   consent?: SessionConsent;
+  /**
+   * ADR-0062 (#1130): the slash names the client's own surfaces own — its
+   * native commands plus every skill alias. Extension commands colliding
+   * with one of these are refused at registration (native > skills >
+   * extension); the names are a client fact, so the assembling client
+   * supplies them.
+   */
+  reservedCommandNames?: readonly string[];
   /**
    * #826: the bundled first-party extensions this client mounts, each with
    * the client's own activation answer (`MountedBundledExtension`). The core
@@ -274,6 +290,8 @@ export function sessionFromConfig(options: SessionFromConfigOptions): SessionFro
       mohHome,
       // ADR-0056 (#1126): the turn-path hook ceiling, from moh.json.
       ...(config.hookTimeoutMs !== undefined ? { hookTimeoutMs: config.hookTimeoutMs } : {}),
+      // ADR-0062 (#1130): the client's native + skill slash names.
+      ...(options.reservedCommandNames ? { reservedCommandNames: options.reservedCommandNames } : {}),
       ...(onExtensionConsent
         ? {
             consent: (request) => onExtensionConsent(request),

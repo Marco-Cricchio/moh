@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
   copyFileSync,
+  realpathSync,
   existsSync,
   mkdirSync,
   readdirSync,
@@ -630,5 +631,48 @@ describe("run --fork-scope (#768)", () => {
     expect(events.some((e) => e.type === "user_message" && e.text === "seed one")).toBe(true);
     expect(events.some((e) => e.type === "user_message" && e.text === "seed two")).toBe(true);
     for (const e of events.slice(0, readEvents(before).length)) expect(e.parentId).toBeUndefined();
+  });
+});
+
+describe("extension slash commands (#1130, ADR-0062)", () => {
+  test("moh run really invokes an extension command and prints one JSONL result line", () => {
+    const { cwd, home, spawn } = harness();
+    writeFileSync(join(cwd, "moh.json"), JSON.stringify({ provider: "mock", extensions: ["./ext/cmd.mjs"] }));
+    const extDir = join(cwd, "ext");
+    mkdirSync(extDir, { recursive: true });
+    writeFileSync(
+      join(extDir, "cmd.mjs"),
+      `export default { name: "cmdly", version: "1.0.0", apiVersion: "1.0", capabilities: ["contribute-commands"],
+        setup(ctx) { ctx.registerCommand({ name: "deploy-status", description: "status", run: ({ args }) => "all green " + args }); } };`,
+    );
+    writeFileSync(
+      join(extDir, "moh.extension.json"),
+      JSON.stringify({ name: "cmd.mjs", version: "1.0.0", entry: "cmd.mjs", capabilities: ["contribute-commands"] }),
+    );
+    // One-time enable consent: headless has no ask, so pre-enable by writing
+    // the content-bound grant into the fake home's extensions.json.
+    const entry = realpathSync(join(extDir, "cmd.mjs"));
+    const identity = `${entry}:${sha256(readFileSync(entry).toString())}`;
+    // The grant covers the manifest bytes too (ADR-0061): key, hash and
+    // capabilities, exactly as #ensureConsent persists them.
+    const manifestFile = realpathSync(join(extDir, "moh.extension.json"));
+    mkdirSync(join(home, ".moh"), { recursive: true });
+    writeFileSync(
+      join(home, ".moh", "extensions.json"),
+      JSON.stringify({
+        consents: { [identity]: true },
+        dependencies: {},
+        manifests: {
+          [manifestFile]: { hash: sha256(readFileSync(manifestFile).toString()), capabilities: ["contribute-commands"] },
+        },
+      }),
+    );
+    const res = spawn(["run", "/deploy-status --env prod"]);
+    expect(res.code).toBe(0);
+    const events = readEvents(res.stdout);
+    const line = events.find((e) => e.type === "extension_command_result");
+    expect(line).toMatchObject({ type: "extension_command_result", command: "deploy-status", ok: true, extension: "cmdly", output: "all green --env prod" });
+    // No model turn happened: the command *is* the action.
+    expect(events.some((e) => e.type === "model_call")).toBe(false);
   });
 });

@@ -1450,7 +1450,7 @@ function AppShell({
       replaySettled={alternateScreen}
       bufferFlipPending={bufferFlipPending}
       askGate={askGate}
-      commands={commandEntries({ config })}
+      commands={commandEntries({ config, session })}
       livePhase={(() => {
         const item = sidebar.activity.at(-1);
         if (!item) return undefined;
