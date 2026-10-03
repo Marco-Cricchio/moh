@@ -97,9 +97,9 @@ export function keychainCredentialStore(ledgerHome: string): CredentialStore | u
   // list-by-service, so a set/delete records the ref name (never the
   // value) beside the keychain item — `list()` stays truthful.
   const names = fileCredentialStore({ home: ledgerHome });
-  const run = (args: string[]): { ok: boolean; out: string } => {
+  const run = (args: string[]): { ok: boolean; out: string; err: string; exit: number | null } => {
     const proc = Bun.spawnSync(["security", ...args], { stdout: "pipe", stderr: "pipe", stdin: "ignore" });
-    return { ok: proc.exitCode === 0, out: proc.stdout.toString().trim() };
+    return { ok: proc.exitCode === 0, out: proc.stdout.toString().trim(), err: proc.stderr.toString().trim(), exit: proc.exitCode };
   };
   return {
     get: (ref) => {
@@ -108,13 +108,19 @@ export function keychainCredentialStore(ledgerHome: string): CredentialStore | u
     },
     set: (ref, value) => {
       // `-U` updates an existing item; one call covers create and replace.
-      run(["add-generic-password", "-s", service, "-a", ref, "-w", value, "-U"]);
+      // A failed write throws — the caller (CLI, TUI) shows it; a silent
+      // "stored" while nothing landed would be the one unforgivable lie
+      // on a credential surface.
+      const r = run(["add-generic-password", "-s", service, "-a", ref, "-w", value, "-U"]);
+      if (!r.ok) throw new Error(`keychain write failed (security exit ${r.exit}): ${r.err}`);
       names.set(ref, "");
     },
     delete: (ref) => {
-      const removed = run(["delete-generic-password", "-s", service, "-a", ref]).ok;
+      const r = run(["delete-generic-password", "-s", service, "-a", ref]);
+      // "not found" (exit 44) is a fine delete; any other failure is one.
+      if (!r.ok && r.exit !== 44) throw new Error(`keychain delete failed (security exit ${r.exit}): ${r.err}`);
       names.delete(ref);
-      return removed;
+      return r.ok;
     },
     list: () => names.list(),
   };

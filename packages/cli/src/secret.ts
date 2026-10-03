@@ -53,7 +53,14 @@ export async function secretCommand({
       stderr.write(`moh secret set: empty value — paste or pipe the secret on stdin\n`);
       return 2;
     }
-    store.set(ref, value);
+    try {
+      store.set(ref, value);
+    } catch (e) {
+      // A store failure (locked keychain, unwritable file) must never read
+      // as "stored": loud, with the store's own message.
+      stderr.write(`moh secret set: could not store \`${ref}\`: ${e instanceof Error ? e.message : String(e)}\n`);
+      return 2;
+    }
     stdout.write(`secret \`${ref}\` stored\n`);
     return 0;
   }
@@ -62,7 +69,14 @@ export async function secretCommand({
       stderr.write(`moh secret rm: a ref is required\n\n${SECRET_USAGE}\n`);
       return 2;
     }
-    if (store.delete(ref)) {
+    let removed: boolean;
+    try {
+      removed = store.delete(ref);
+    } catch (e) {
+      stderr.write(`moh secret rm: could not delete \`${ref}\`: ${e instanceof Error ? e.message : String(e)}\n`);
+      return 2;
+    }
+    if (removed) {
       stdout.write(`secret \`${ref}\` deleted\n`);
       return 0;
     }
@@ -70,7 +84,13 @@ export async function secretCommand({
     return 1;
   }
   if (sub === "list") {
-    const names = store.list();
+    let names: string[];
+    try {
+      names = store.list();
+    } catch (e) {
+      stderr.write(`moh secret list: could not read the store: ${e instanceof Error ? e.message : String(e)}\n`);
+      return 2;
+    }
     if (names.length === 0) stdout.write("no secrets stored\n");
     for (const name of names) stdout.write(`${name}\n`);
     return 0;
