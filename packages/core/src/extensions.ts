@@ -641,8 +641,13 @@ export class ExtensionRuntime {
     return () => this.#overlayListeners.delete(listener);
   }
 
-  /** ADR-0062 (#1132): the registration path behind `ctx.registerPanel`. */
-  #registerPanel(instance: RuntimeExtension, panel: ExtensionPanel): void {
+  /** ADR-0062 (#1132): the registration path behind `ctx.registerPanel`.
+   * `replacing` is the outgoing instance during a hot-reload: it still
+   * sits in `#instances` while the fresh instance's setup runs, and the
+   * slot it holds is the one being handed over — counting it would make
+   * an extension lose its panel on an ordinary edit whenever the rail is
+   * full (`4 + 1 > 4`). */
+  #registerPanel(instance: RuntimeExtension, panel: ExtensionPanel, replacing?: RuntimeExtension): void {
     const extension = instance.def.name;
     const name = typeof (panel as { name?: unknown } | null)?.name === "string" ? panel.name : "";
     if (!/^[a-z0-9][a-z0-9-]*$/.test(name) || typeof panel?.render !== "function") {
@@ -653,7 +658,7 @@ export class ExtensionRuntime {
       this.#refuseUI(extension, "panel", name, "taken");
       return;
     }
-    const existing = this.#instances.filter((i) => i.panel !== null).length;
+    const existing = this.#instances.filter((i) => i.panel !== null && i !== replacing).length;
     if (existing + 1 > MAX_PANELS) {
       this.#refuseUI(extension, "panel", name, "exhausted");
       return;
@@ -1366,7 +1371,7 @@ export class ExtensionRuntime {
       return;
     }
     // Seed the fresh instance with the previous state so setup() sees it.
-    const fresh = await this.#instantiate(def, file, previous.state, {}, manifest.manifest.capabilities);
+    const fresh = await this.#instantiate(def, file, previous.state, {}, manifest.manifest.capabilities, previous);
     if (!fresh.ok) {
       this.#options.onWarning?.(
         `extension ${previous.def.name}: reload refused (${fresh.reason}); previous instance kept`,
@@ -1407,6 +1412,9 @@ export class ExtensionRuntime {
     seedState?: Record<string, unknown>,
     options: RegisterOptions = {},
     manifestCaps?: readonly string[],
+    /** The instance this one replaces (a hot-reload): excluded from the
+     * rail's capacity count, whose slot is being handed over (#1132). */
+    replacing?: RuntimeExtension,
   ): Promise<
     | { ok: true; instance: RuntimeExtension }
     | ({ ok: false; name?: string; reason: string; message: string })
@@ -1530,7 +1538,7 @@ export class ExtensionRuntime {
       : {};
     // ADR-0062 (#1132): same enforcement-by-absence for the UI slots.
     const panelSlot: { registerPanel?: ExtensionSetupContext["registerPanel"] } = granted.includes("contribute-panels")
-      ? { registerPanel: (panel: ExtensionPanel) => this.#registerPanel(instance, panel) }
+      ? { registerPanel: (panel: ExtensionPanel) => this.#registerPanel(instance, panel, replacing) }
       : {};
     const overlaySlot: { registerOverlay?: ExtensionSetupContext["registerOverlay"] } = granted.includes("contribute-overlays")
       ? { registerOverlay: (overlay: ExtensionOverlay) => this.#registerOverlay(instance, overlay) }

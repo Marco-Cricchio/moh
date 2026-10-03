@@ -8,7 +8,7 @@
  * headless client contributes nothing — visible absence, never a mock.
  */
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { ExtensionRuntime, MAX_PANELS } from "../src/extensions";
@@ -328,3 +328,39 @@ describe("contribute-panels / contribute-overlays (#1132, ADR-0062)", () => {
     expect(rt.uiRefusals()).toEqual([]);
   });
 });
+
+describe("panel capacity across a hot-reload (#1132)", () => {
+  test("a full rail does not count the reloading instance out of its own slot", async () => {
+    // Four extensions from files, one panel each: the rail is exactly full.
+    const dir = tempDir();
+    const files = [1, 2, 3, 4].map((n) => {
+      const file = join(dir, `ext${n}.mjs`);
+      writeFileSync(file, panelModule(`ext${n}`, "1.0.0", `panel-${n}`));
+      return file;
+    });
+    writeFileSync(
+      join(dir, "moh.extension.json"),
+      JSON.stringify({ name: "rail", version: "1.0.0", entry: files.map((f) => f.split("/").pop()).sort(), capabilities: ["contribute-panels"] }, null, 2),
+    );
+    const rt = runtime();
+    for (const file of files) expect(await rt.registerFile(file)).toBe(true);
+    await rt.ready();
+    expect(rt.panels().map((p) => p.name).sort()).toEqual(["panel-1", "panel-2", "panel-3", "panel-4"]);
+
+    rt.startWatch();
+    // An ordinary edit to one of them: the hot-reload must swap the
+    // instance in place, not refuse its panel because the outgoing
+    // instance still occupies the slot it is replacing.
+    writeFileSync(files[3]!, panelModule("ext4", "1.1.0", "panel-4"));
+    await Bun.sleep(900);
+
+    expect(rt.panels().map((p) => p.name).sort()).toEqual(["panel-1", "panel-2", "panel-3", "panel-4"]);
+    expect(rt.uiRefusals()).toEqual([]);
+  });
+});
+
+function panelModule(name: string, version: string, panel: string): string {
+  return `export default { name: ${JSON.stringify(name)}, version: ${JSON.stringify(version)}, apiVersion: "1.0",
+    capabilities: ["contribute-panels"],
+    setup(ctx) { ctx.registerPanel({ name: ${JSON.stringify(panel)}, render: () => "x" }); } };`;
+}

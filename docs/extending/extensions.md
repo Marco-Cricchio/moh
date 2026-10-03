@@ -665,6 +665,15 @@ extension's note.
   proceeds, an unknown context method is simply absent. Fail-open, never an
   error.
 
+  **One caveat for a capability-gated method**: an *absent* method is not a
+  no-op. An extension written against 1.12 that calls `ctx.registerPanel(...)`
+  unconditionally throws a `TypeError` inside `setup()` on a 1.11 host, and a
+  throwing setup refuses the load (`extension_failed`). Guard it as the
+  contract says — `if (typeof ctx.registerPanel === "function")` — or
+  declare the method's absence as part of your extension's own
+  compatibility story. A capability you did not declare is absent by
+  design; a version gap simply widens what can be absent.
+
 ## Where a client loads extensions from
 
 Everything above is what an extension *can* do; this is what decides
