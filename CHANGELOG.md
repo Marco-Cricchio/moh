@@ -9,6 +9,16 @@ matching section here at tag time.
 
 ### Added
 
+- **`/extensions` screen** (#1131): the TUI command opens a read-only
+  extension-state snapshot — per enabled extension its version, source
+  path (or "bundled"), declared capabilities, registered commands and the
+  prompt sections it currently owns (ADR-0054); then the last failure
+  with its reason, every refused registration, and the ignored duplicate
+  copies. Headless callers keep the textual list, and the same state is
+  derivable from the session's event log alone (`extensionsScreenState`
+  fold in `@moh/core`, with `AgentSession.extensionLiveInfo()` supplying
+  the runtime-only facts).
+
 - **Prompt section replacement via `beforeModelCall`** (ADR-0054, #1129,
   apiVersion 1.11): an extension with a per-section capability grant
   (`replace-prompt-section:<name>`) may replace one of the six data prompt
