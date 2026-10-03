@@ -33,13 +33,23 @@ export interface ExtensionsModalProps {
   /** #1125: duplicate identities the loader ignored, with the ignored
    * copy's path (the project copy wins; the loser is named, not hidden). */
   duplicates: { extension: string; path: string }[];
+  /** #1132: the rail is user-toggled here; panels collapse/reopen
+   * manually — there is no automatic eviction (ADR-0062). */
+  rail?: { open: boolean; onToggleRail: () => void; collapsed: ReadonlySet<string>; onTogglePanel: (name: string) => void };
   onClose: () => void;
 }
 
-export function ExtensionsModal({ state, duplicates, onClose }: ExtensionsModalProps) {
+export function ExtensionsModal({ state, duplicates, rail, onClose }: ExtensionsModalProps) {
   const theme = useTheme();
-  useInput((_input, key) => {
-    if (key.escape || _input === "q") return onClose();
+  useInput((input, key) => {
+    if (key.escape || input === "q") return onClose();
+    if (!rail) return;
+    if (input === "r") return rail.onToggleRail();
+    const panelNames = state.extensions.flatMap((e) =>
+      e.panels.map((p) => (typeof p === "string" ? p : p.name)),
+    );
+    const index = Number(input) - 1;
+    if (Number.isInteger(index) && index >= 0 && index < panelNames.length) rail.onTogglePanel(panelNames[index]!);
   });
 
   return (
@@ -100,6 +110,55 @@ export function ExtensionsModal({ state, duplicates, onClose }: ExtensionsModalP
                 </Text>
               )),
             )}
+        </>
+      ) : null}
+
+      {rail ? (
+        <>
+          <Text> </Text>
+          <Text bold> rail</Text>
+          <Text wrap="truncate">
+            {" "}
+            [r] extensions rail: {rail.open ? <Text color={theme.accent}>open</Text> : <Dim>closed</Dim>}
+            <Dim> — 1-4 collapse/reopen a panel (manual, no eviction)</Dim>
+          </Text>
+        </>
+      ) : null}
+
+      {state.extensions.some((e) => e.panels.length > 0 || e.overlays.length > 0) ? (
+        <>
+          <Text> </Text>
+          <Text bold> panels &amp; overlays</Text>
+          {state.extensions
+            .filter((e) => e.panels.length > 0 || e.overlays.length > 0)
+            .flatMap((e) => [
+              ...e.panels.map((p) => {
+                const name = typeof p === "string" ? p : p.name;
+                const collapsed = rail?.collapsed.has(name) ?? false;
+                const max = typeof p === "string" ? undefined : p.maxHeight;
+                return (
+                  <Text key={`${e.name}:${name}`} wrap="truncate">
+                    {" "}
+                    {name}
+                    {max !== undefined ? <Dim> ·max {max}</Dim> : null} <Dim>· panel · {e.name}</Dim>
+                    {rail ? (
+                      <Text color={theme.accent}> [{collapsed ? "collapsed" : "open"}]</Text>
+                    ) : (
+                      <Dim> · not rendered headless</Dim>
+                    )}
+                  </Text>
+                );
+              }),
+              ...e.overlays.map((o) => {
+                const name = typeof o === "string" ? o : o.name;
+                return (
+                  <Text key={`${e.name}:${name}`} wrap="truncate">
+                    {" "}
+                    {name} <Dim>· overlay · opens from its command · esc closes · {e.name}</Dim>
+                  </Text>
+                );
+              }),
+            ])}
         </>
       ) : null}
 

@@ -23,8 +23,11 @@ import { type ConfirmTurnRequest, type PermissionsConfig, type PermissionAskCont
 import { builtinTools } from "./builtin-tools";
 import {
   ExtensionRuntime,
+  MAX_PANELS,
   type ExtensionConsentRequest,
   type RuntimeExtension,
+  type ExtensionUIRefusal,
+  type ActiveExtensionOverlay,
 } from "./extensions";
 import {
   installExtension,
@@ -837,7 +840,10 @@ export {
   MockProvider,
   builtinTools,
   ExtensionRuntime,
+  MAX_PANELS,
   type RuntimeExtension,
+  type ExtensionUIRefusal,
+  type ActiveExtensionOverlay,
   // #1128 (ADR-0061): the extension registry — install from immutable
   // sources with static checks only; package code is never executed.
   installExtension,

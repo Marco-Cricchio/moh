@@ -76,6 +76,7 @@ import { JEV_EXTENSION_NAME, readJevSummary, setJevUseCase, type JevStatusSummar
 import { SessionRenameModal } from "./SessionRenameModal";
 import { SessionModal } from "./SessionModal";
 import { ExtensionsModal } from "./ExtensionsModal";
+import { ExtensionsRail, ExtensionOverlayView } from "./ExtensionsRail";
 import { LanesModal } from "./LanesModal";
 import { TreePanel } from "./TreePanel";
 import { sessionTree, type TreeNode } from "@moh/core";
@@ -361,6 +362,14 @@ function AppShell({
   // commands), name the ignored duplicate copies. A failed read degrades
   // to a notice, never a crash.
   const [extensionsReport, setExtensionsReport] = useState<ExtensionsSnapshot | null>(null);
+  // #1132: the extensions rail — closed by default (byte-identical UI
+  // without extensions), user-toggled from /extensions; panels the user
+  // collapsed there, by name. No automatic eviction, ever.
+  const [railOpen, setRailOpen] = useState(false);
+  const [collapsedPanels, setCollapsedPanels] = useState<ReadonlySet<string>>(new Set());
+  /** #1132: the extension overlay currently open (opened by the
+   * extension's own command), or null. */
+  const [extensionOverlay, setExtensionOverlay] = useState<{ extension: string; name: string; render(): unknown } | null>(null);
   type ExtensionsSnapshot =
     | { state: ExtensionsScreenState; duplicates: { extension: string; path: string }[] }
     | { error: string };
@@ -1432,7 +1441,7 @@ function AppShell({
   // repaint) while the block was open, freezing the screen under arrow
   // stress. The block renders inline in the main buffer; the composer is
   // still blocked (see `blocked` above), so it keeps exclusive keys.
-  const overlayOpen = overlay !== null || pending !== null;
+  const overlayOpen = overlay !== null || pending !== null || extensionOverlay !== null;
   // #330: a flip back to the main buffer is pending from the moment the
   // overlay closes (render-phase: covers the first post-close commit,
   // before the flip effect runs) until the delayed 1049l fires. Chat
@@ -1503,6 +1512,14 @@ function AppShell({
           setComposerPrefill(`${skill} args: ${placeholders.map((p) => `${p}=`).join(" ")}`);
         },
         renameSession: (name) => session?.rename(name),
+        onExtensionOverlayOpen: (active) => {
+          if (active === null) {
+            setExtensionOverlay(null);
+            return;
+          }
+          const overlayDef = session?.extensionOverlays().find((o) => o.extension === active.extension && o.name === active.name);
+          setExtensionOverlay(overlayDef ?? null);
+        },
         onOpenFrontier: () => setOverlay("frontier"),
         onOpenModelPicker: () => setOverlay("model"),
         onOpenCommands: () => setOverlay("commands"),
@@ -1615,7 +1632,8 @@ function AppShell({
         position="relative"
         key={themeTick}
       >
-        <Box width="100%" flexDirection="column" alignItems="center">
+        <Box width="100%" flexDirection={railOpen && session !== null && session.extensionPanels().length > 0 ? "row" : "column"} alignItems="flex-start">
+        <Box flexDirection="column" flexGrow={1} width="100%" alignItems="center">
         {showChat ? (
           <Box flexDirection="column" width="100%" alignItems="center">{chat}</Box>
         ) : (
@@ -1642,7 +1660,18 @@ function AppShell({
           />
         )}
         </Box>
+        {railOpen && session !== null && session.extensionPanels().length > 0 && (
+          <ExtensionsRail
+            panels={session.extensionPanels()}
+            collapsed={collapsedPanels}
+            columns={viewport.columns}
+          />
+        )}
+        </Box>
         {overlayOpen && alternateScreen && <OverlayLayer>
+        {extensionOverlay !== null && (
+          <ExtensionOverlayView overlay={extensionOverlay} onClose={() => { session?.closeExtensionOverlay(); setExtensionOverlay(null); }} />
+        )}
         {overlay === "onboarding" && (
           <Onboarding
             cwd={cwd}
@@ -1778,6 +1807,18 @@ function AppShell({
             <ExtensionsModal
               state={extensionsReport.state}
               duplicates={extensionsReport.duplicates}
+              rail={{
+                open: railOpen,
+                onToggleRail: () => setRailOpen((v) => !v),
+                collapsed: collapsedPanels,
+                onTogglePanel: (name) =>
+                  setCollapsedPanels((prev) => {
+                    const next = new Set(prev);
+                    if (next.has(name)) next.delete(name);
+                    else next.add(name);
+                    return next;
+                  }),
+              }}
               onClose={() => setOverlay(null)}
             />
           ) : (

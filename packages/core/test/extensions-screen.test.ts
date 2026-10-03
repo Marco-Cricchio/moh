@@ -93,6 +93,22 @@ describe("extensionsScreenStateFromEvents", () => {
     expect(state.refusals).toEqual([{ extension: "jev", message: 'command "/status" refused: reserved' }]);
   });
 
+  it("lists refused panel and overlay registrations too (#1132)", () => {
+    const events: AgentEvent[] = [
+      { type: "extension_loaded", name: "ops", version: "1.0.0", panels: ["status"], overlays: ["board"] },
+      { type: "extension_failed", name: "fifth", reason: "panel_refused", message: "panel \"slot\" refused: panel slot exhausted (4/4) — disable a panel in /extensions" },
+      { type: "extension_failed", name: "ops", reason: "overlay_refused", message: 'overlay "board" refused: the overlay name is already taken by this extension' },
+    ];
+    const state = extensionsScreenStateFromEvents(events);
+    expect(state.refusals).toEqual([
+      { extension: "fifth", message: "panel \"slot\" refused: panel slot exhausted (4/4) — disable a panel in /extensions" },
+      { extension: "ops", message: 'overlay "board" refused: the overlay name is already taken by this extension' },
+    ]);
+    const ops = state.extensions.find((e) => e.name === "ops")!;
+    expect(ops.panels).toEqual(["status"]);
+    expect(ops.overlays).toEqual(["board"]);
+  });
+
   it("attributes a section to its owner even without a prior load event", () => {
     const events: AgentEvent[] = [
       { type: "prompt_override", section: "mpm", extension: "ghost", version: "9.9.9", mode: "replaced" },
@@ -111,14 +127,18 @@ describe("mergeExtensionLiveInfo", () => {
         file: "/proj/jev/index.ts",
         capabilities: ["replace-prompt-section:mpm", "contribute-commands"],
         commands: [{ name: "status", description: "show status" }],
+        panels: [{ name: "status", description: "live status", maxHeight: 5 }],
+        overlays: [{ name: "board", description: "board" }],
       },
-      { name: "not-yet-in-log", capabilities: [], commands: [] },
+      { name: "not-yet-in-log", capabilities: [], commands: [], panels: [], overlays: [] },
     ]);
     expect(merged.extensions).toHaveLength(1);
     expect(merged.extensions[0]).toMatchObject({
       file: "/proj/jev/index.ts",
       capabilities: ["replace-prompt-section:mpm", "contribute-commands"],
       commands: [{ name: "status", description: "show status" }],
+      panels: [{ name: "status", description: "live status", maxHeight: 5 }],
+      overlays: [{ name: "board", description: "board" }],
     });
   });
 });

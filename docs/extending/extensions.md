@@ -143,6 +143,25 @@ added slots are highlighted.
   native > skills > extension: a colliding or invalid registration is
   refused visibly and reported in `/extensions`, and your extension keeps
   running.
+- `registerPanel(panel)` — contribute one panel to the extensions rail,
+  **only present when the `contribute-panels` capability is granted**
+  (apiVersion 1.12, ADR-0062): without the grant the property does not
+  exist on the context. One panel per extension; at most 4 panels are
+  visible across all extensions — a further registration is refused at
+  load (`panel slot exhausted (4/4)`) and there is no automatic eviction:
+  collapsing and reopening is manual, from `/extensions`. The panel's
+  `render()` returns arbitrary Ink elements the client draws in the rail
+  zone — opaque to the core, never wrapping native components. A
+  permission-gated action triggered from a panel callback flows through
+  the existing gate (see "Interaction is gated" below) — the gated path
+  is the only path.
+- `registerOverlay(overlay)` — contribute a full-screen overlay, **only
+  present when the `contribute-overlays` capability is granted**
+  (apiVersion 1.12, ADR-0062). It returns `{ open() }`; call `open()`
+  from your own command's `run()` (the command is how the user opens the
+  overlay). The client shows it full-screen; the user closes it with
+  `Esc`. In a client with no surface (headless), `open()` contributes
+  nothing — visible absence, never a simulated rendering.
 
 ## Hooks and their ordering
 
@@ -631,7 +650,9 @@ extension's note.
   same `endpointCooldowns` list the `beforeTurn` context already carries
   to the `onModelError` context; 1.11 added the prompt-section
   replacement return value on `beforeModelCall`, ADR-0054, and
-  `registerCommand`, the `contribute-commands` capability slot, #1130).
+  `registerCommand`, the `contribute-commands` capability slot, #1130;
+  1.12 added `registerPanel` and `registerOverlay`, the
+  `contribute-panels` / `contribute-overlays` capability slots, #1132).
 - **Additive-only within a major**: new hooks and context fields may be
   added; existing ones never change meaning or disappear. Deprecated APIs
   survive one full major.

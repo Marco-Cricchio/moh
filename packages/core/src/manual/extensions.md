@@ -121,6 +121,21 @@ runs headless: `moh run "/deploy-status --env prod"` prints one
 `extension_command_result` JSON line with the command's text output — the
 same text the TUI shows, never a second behavior.
 
+An extension whose grant covers `contribute-panels` contributes one panel
+to the extensions rail (#1132, ADR-0062): a zone the user opens and
+closes, collapsing to the footer on narrow terminals. At most 4 panels
+are visible across all extensions — a fifth extension asking for a panel
+is refused visibly at load (`panel slot exhausted (4/4) — disable a panel
+in /extensions`), and there is no automatic eviction: collapsing and
+reopening a panel is manual, from `/extensions`. An extension whose grant
+covers `contribute-overlays` contributes a full-screen overlay, opened by
+the extension's own command and closed with `Esc`. A headless client has
+no rail and no overlays: panels and overlays contribute nothing there —
+visible absence in `/extensions`, never a simulated textual rendering.
+Anything a panel callback does that the permission gate covers flows
+through the same gate as any other action — the click invokes, it never
+grants.
+
 ## There is no sandbox
 
 An extension runs with the same privileges as moh itself. It can read your

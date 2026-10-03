@@ -21,7 +21,7 @@ import { persistProjectMcpTrust } from "../mcp/types";
 import { McpRuntime } from "../mcp";
 import { PromptComposer, type AssembledPrompt, type SkillIndexEntry } from "../prompt-composer";
 import { discoverSkills } from "../skills";
-import { ExtensionRuntime } from "../extensions";
+import { ExtensionRuntime, type ExtensionUIRefusal, type ActiveExtensionOverlay } from "../extensions";
 import { EventLog } from "./event-log";
 import { commercialDeclarationEvent, observationsFromQuotaReport } from "../quota/telemetry";
 import { endpointIdentity } from "../types";
@@ -1437,6 +1437,35 @@ export class AgentSession {
     return this.#extensions?.commandRefusals() ?? [];
   }
 
+  /** ADR-0062 (#1132): every registered panel, in extension order — one
+   * per extension, at most 4 across all. `render` is the extension's own
+   * Ink render function — opaque to the core, drawn only by a client with
+   * a surface (the TUI rail); a headless client never calls it. */
+  extensionPanels(): { extension: string; name: string; description: string; maxHeight?: number; render(): unknown }[] {
+    return this.#extensions?.panels() ?? [];
+  }
+
+  /** ADR-0062 (#1132): every registered overlay, in extension then call
+   * order; `render` as on panels. */
+  extensionOverlays(): { extension: string; name: string; description: string; render(): unknown }[] {
+    return this.#extensions?.overlays() ?? [];
+  }
+
+  /** ADR-0062 (#1132): refused panel/overlay registrations, with their reasons. */
+  extensionUIRefusals(): readonly ExtensionUIRefusal[] {
+    return this.#extensions?.uiRefusals() ?? [];
+  }
+
+  /** ADR-0062 (#1132): the overlay the client currently shows, null = none. */
+  extensionActiveOverlay(): ActiveExtensionOverlay | null {
+    return this.#extensions?.activeOverlay() ?? null;
+  }
+
+  /** ADR-0062 (#1132): closes the active extension overlay; a no-op when none. */
+  closeExtensionOverlay(): void {
+    this.#extensions?.closeOverlay();
+  }
+
   /**
    * #1131: what only the running runtime knows about each registered
    * instance — source file, declared capabilities, registered commands.
@@ -1450,6 +1479,17 @@ export class AgentSession {
       ...(i.file !== undefined ? { file: i.file } : {}),
       capabilities: i.def.capabilities ?? [],
       commands: i.commands.map((c) => ({ name: c.name, description: c.description ?? "" })),
+      panels: (i.panel !== null
+        ? [{
+            name: i.panel.name,
+            description: typeof i.panel.description === "string" && i.panel.description.length > 0 ? i.panel.description : `panel by ${i.def.name}`,
+            ...(typeof i.panel.maxHeight === "number" && i.panel.maxHeight > 0 ? { maxHeight: i.panel.maxHeight } : {}),
+          }]
+        : []),
+      overlays: i.overlays.map((o) => ({
+        name: o.name,
+        description: typeof o.description === "string" && o.description.length > 0 ? o.description : `overlay by ${i.def.name}`,
+      })),
     }));
   }
 

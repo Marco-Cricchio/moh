@@ -35,8 +35,8 @@ async function load(rt: ExtensionRuntime, def: ExtensionDefinition) {
 }
 
 describe("contribute-commands (#1130, ADR-0062)", () => {
-  test("apiVersion is 1.11", () => {
-    expect(parseApiVersion(MOH_EXTENSION_API_VERSION)).toEqual({ major: 1, minor: 11 });
+  test("apiVersion is 1.12", () => {
+    expect(parseApiVersion(MOH_EXTENSION_API_VERSION)).toEqual({ major: 1, minor: 12 });
   });
 
   test("with the grant, the extension registers a command and invokeCommand runs it", async () => {
