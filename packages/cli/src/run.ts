@@ -463,6 +463,10 @@ export async function runCommand(options: RunOptions): Promise<number> {
   // the command's text output. No model turn happens: the command *is*
   // the action. Anything else (native commands, unknown names, plain
   // text) keeps the normal send path untouched.
+  // `registerFiles` is fire-and-forget: the command list is only complete
+  // once every pending import settled — an eager check races it and a
+  // granted command is missed (seen on CI's slower first import).
+  await session.extensionsReady();
   const slashMatch = /^\/([a-z0-9][a-z0-9-]*)(?:\s+([\s\S]*))?$/.exec(prompt.trim());
   if (slashMatch && session.extensionCommands().some((c) => c.name === slashMatch[1])) {
     const result = await session.invokeExtensionCommand(slashMatch[1]!, slashMatch[2] ?? "");

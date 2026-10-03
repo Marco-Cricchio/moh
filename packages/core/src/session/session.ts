@@ -1419,6 +1419,16 @@ export class AgentSession {
   }
 
   /**
+   * Resolves when every pending extension registration has settled
+   * (#1130): a headless client must consult `extensionCommands()` only
+   * after this — `registerFiles` is fire-and-forget, so an eager check
+   * races the import and a granted command can be missed.
+   */
+  extensionsReady(): Promise<void> {
+    return this.#extensions ? this.#extensions.ready().then(() => undefined) : Promise.resolve();
+  }
+
+  /**
    * ADR-0062 (#1130): runs one extension command by slash name — the same
    * door the TUI toast and the headless JSONL line both print.
    */
