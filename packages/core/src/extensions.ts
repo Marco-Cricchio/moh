@@ -28,6 +28,7 @@ import {
   type HostOpResult,
   type HostReadResult,
   type HostReadLinkResult,
+  type HostFetchResult,
   type BeforeTurnHook,
   type BeforeModelCallHook,
   type BeforeModelCallResult,
@@ -54,11 +55,11 @@ import type { AgentEvent, ExtensionStatus } from "./types";
 import type { ExtensionSpawnSpec } from "@moh/extension";
 import type { SubagentHost } from "./subagents";
 import { ExtensionSpawnRefusedError } from "./extension-scope";
-import { capabilityDiff, capabilitiesSubset, readExtensionManifest, type ManifestAuthority } from "./extension-manifest";
-import { checkPathScope, isPathScope, pathScopesOf, validatePathScope } from "./host-scope";
+import { capabilityDiff, capabilitiesSubset, readExtensionManifest, MANIFEST_FILE, type ManifestAuthority } from "./extension-manifest";
+import { checkHostScope, checkPathScope, hostScopesOf, isHostScope, isPathScope, MAX_FETCH_BYTES, MAX_REDIRECTS, HOST_SCOPE_REASONING_KEY, TOTAL_HOST_WILDCARD, validateHostScope, validatePathScope, pathScopesOf } from "./host-scope";
 import { newUlid } from "./session/ulid";
 
-type HostOpName = "read" | "write" | "append" | "rename" | "delete" | "readlink";
+type HostOpName = "read" | "write" | "append" | "rename" | "delete" | "readlink" | "fetch";
 import { redactKeys } from "./redact";
 import { assertNoExtensionScope, runInExtensionScope } from "./extension-scope";
 
@@ -1716,6 +1717,27 @@ bindPathDeny(isDenied: (resolvedAbsPath: string) => boolean): void {
       const validity = validatePathScope(capability);
       if (!validity.ok) return { ok: false, name, reason: "invalid_path_scope", message: validity.message };
     }
+    // ADR-0066: a malformed `host:` scope fails loudly at load; the total
+    // wildcard `host:*` exists only with a manifest `reasoning` string —
+    // the author's justification the consent question displays. The
+    // manifest is the only source: an in-memory registration without one
+    // cannot claim the total wildcard at all.
+    for (const capability of granted) {
+      if (!isHostScope(capability)) continue;
+      const validity = validateHostScope(capability);
+      if (!validity.ok) return { ok: false, name, reason: "invalid_host_scope", message: validity.message };
+      if (capability !== TOTAL_HOST_WILDCARD) continue;
+      const reRead = file ? readExtensionManifest(file) : undefined;
+      const declared = options.manifest?.reasoning ?? (reRead?.ok ? reRead.authority.reasoning : undefined);
+      if (typeof declared !== "string" || declared.trim() === "") {
+        return {
+          ok: false,
+          name,
+          reason: "missing_reasoning",
+          message: `"${TOTAL_HOST_WILDCARD}" requires a "${HOST_SCOPE_REASONING_KEY}" string in ${MANIFEST_FILE} — the justification the consent question displays`,
+        };
+      }
+    }
     instance.grantedCapabilities = [...granted];
     const commandSlot: { registerCommand?: ExtensionSetupContext["registerCommand"] } = granted.includes("contribute-commands")
       ? { registerCommand: (command: ExtensionCommand) => this.#registerCommand(instance, command) }
@@ -1741,9 +1763,14 @@ bindPathDeny(isDenied: (resolvedAbsPath: string) => boolean): void {
     // grant covers at least one `path:<glob>` scope (enforcement by
     // absence); the scope check runs per call, before the host performs.
     const scopes = pathScopesOf(granted);
-    const hostSlot: Pick<ExtensionSetupContext, "host"> = scopes.length > 0
-      ? { host: this.#hostFor(instance, scopes) }
-      : {};
+    const hostScopes = hostScopesOf(granted);
+    const fileHost = this.#fileHostFor(instance, scopes);
+    const netHost = this.#networkHostFor(instance, hostScopes);
+    // Both scopes land on one seam object; a method absent at runtime
+    // means no scope of its kind was granted (enforcement by absence).
+    const hostObject = { ...fileHost, fetch: netHost.fetch } as ExtensionHost;
+    const hostSlot: Pick<ExtensionSetupContext, "host"> =
+      scopes.length > 0 || hostScopes.length > 0 ? { host: hostObject } : {};
     const ctx: ExtensionSetupContext = {
       ...commandSlot,
       ...panelSlot,
@@ -1831,7 +1858,7 @@ bindPathDeny(isDenied: (resolvedAbsPath: string) => boolean): void {
    * event with the resolved path. The host acted in the world; the log
    * records it.
    */
-  #hostFor(instance: RuntimeExtension, scopes: readonly string[]): ExtensionHost {
+  #fileHostFor(instance: RuntimeExtension, scopes: readonly string[]): Omit<ExtensionHost, "fetch"> {
     const name = instance.def.name;
     const root = this.#options.projectRoot ?? process.cwd();
     const isDenied = this.#pathDeny ?? this.#options.isPathDenied ?? (() => false);
@@ -2557,5 +2584,127 @@ bindPathDeny(isDenied: (resolvedAbsPath: string) => boolean): void {
     const borrowed = this.#borrowedSessions.getStore();
     if (borrowed) return borrowed.errors.splice(0, borrowed.errors.length);
     return this.#hookErrors.splice(0, this.#hookErrors.length);
+  }
+
+  /**
+   * ADR-0066: the `host:<domain>` scope's execution path. One check-scope
+   * module decides every request and every redirect hop
+   * (`checkHostScope`); a refusal is a typed result plus one
+   * `host_refused` event — never an exception, never an
+   * `extension_failed`; a completed request is one `host_op` event with
+   * the final host, path, status and byte count. The response is fully
+   * buffered bytes with a fixed size limit (`too_large` past it); no
+   * streaming in this phase. Under `host:` alone the request is
+   * anonymous — an authenticated request needs the matching
+   * `credential:<ref>` scope too (F2b owns custody and injection).
+   */
+  #networkHostFor(instance: RuntimeExtension, scopes: readonly string[]): { fetch?: (url: string) => Promise<HostFetchResult> } {
+    if (scopes.length === 0) return {};
+    const name = instance.def.name;
+    const isDenied = this.#pathDeny ?? this.#options.isPathDenied ?? (() => false);
+    return {
+      fetch: async (raw: string): Promise<HostFetchResult> => {
+        // The deny rule keys on the hostname; the grant matches host:port.
+        const denyHost = (url: URL): ((host: string) => boolean) => {
+          void url;
+          return (host: string) => isDenied(host);
+        };
+        let current: URL;
+        try {
+          current = new URL(raw);
+        } catch {
+          this.#emit({ type: "host_refused", callId: newUlid(), extension: name, op: "fetch", path: String(raw), reason: "invalid_url" });
+          return { ok: false, reason: "invalid_url", message: "not a valid URL" };
+        }
+        let origin = "";
+        for (let hop = 0; hop <= MAX_REDIRECTS; hop++) {
+          const callId = newUlid();
+          const checked = checkHostScope(current, scopes, denyHost(current));
+          if (!checked.ok) {
+            this.#emit({
+              type: "host_refused",
+              callId,
+              extension: name,
+              op: "fetch",
+              path: `${current.pathname}${current.search}`,
+              reason: checked.reason,
+              ...(checked.target !== undefined ? { target: checked.target } : {}),
+            });
+            return { ok: false, reason: checked.reason, ...(checked.target !== undefined ? { target: checked.target } : {}) };
+          }
+          let response: Response;
+          try {
+            // `redirect: "manual"`: every hop is our own scope decision,
+            // never the fetch implementation's.
+            response = await fetch(current, { redirect: "manual" });
+          } catch (err) {
+            this.#emit({ type: "host_refused", callId, extension: name, op: "fetch", path: `${current.pathname}${current.search}`, reason: "failed" });
+            return { ok: false, reason: "failed", message: errMessage(err) };
+          }
+          if (response.status >= 300 && response.status < 400) {
+            const location = response.headers.get("location");
+            if (location === null) {
+              // A redirect with no destination: nothing to follow — serve
+              // the 3xx body as the answer, like any other status.
+              return await this.#consumeFetchResponse(instance, callId, current, response);
+            }
+            let next: URL;
+            try {
+              next = new URL(location, current);
+            } catch {
+              this.#emit({ type: "host_refused", callId, extension: name, op: "fetch", path: `${current.pathname}${current.search}`, reason: "failed" });
+              return { ok: false, reason: "failed", message: `redirect target is not a valid URL: ${location}` };
+            }
+            if (next.origin === origin) {
+              // A loop back to an origin already visited: refuse rather
+              // than spin to the hop ceiling.
+              this.#emit({
+                type: "host_refused",
+                callId,
+                extension: name,
+                op: "fetch",
+                path: `${next.pathname}${next.search}`,
+                reason: "outside_scope",
+                target: next.host,
+              });
+              return { ok: false, reason: "outside_scope", target: next.host, message: "redirect loop" };
+            }
+            origin = current.origin;
+            current = next;
+            continue;
+          }
+          return await this.#consumeFetchResponse(instance, callId, current, response);
+        }
+        this.#emit({ type: "host_refused", callId: newUlid(), extension: name, op: "fetch", path: `${current.pathname}${current.search}`, reason: "outside_scope", target: current.host });
+        return { ok: false, reason: "outside_scope", target: current.host, message: `more than ${MAX_REDIRECTS} redirects` };
+      },
+    };
+  }
+
+  /** Buffers one in-scope response within the size limit and logs it. */
+  async #consumeFetchResponse(instance: RuntimeExtension, callId: string, url: URL, response: Response): Promise<HostFetchResult> {
+    const name = instance.def.name;
+    const declared = response.headers.get("content-length");
+    if (declared !== null && Number(declared) > MAX_FETCH_BYTES) {
+      this.#emit({ type: "host_refused", callId, extension: name, op: "fetch", path: `${url.pathname}${url.search}`, reason: "too_large", target: url.host });
+      return { ok: false, reason: "too_large", message: `response exceeds the ${MAX_FETCH_BYTES} byte limit` };
+    }
+    const buffer = await response.arrayBuffer();
+    if (buffer.byteLength > MAX_FETCH_BYTES) {
+      this.#emit({ type: "host_refused", callId, extension: name, op: "fetch", path: `${url.pathname}${url.search}`, reason: "too_large", target: url.host });
+      return { ok: false, reason: "too_large", message: `response exceeds the ${MAX_FETCH_BYTES} byte limit` };
+    }
+    this.#emit({
+      type: "host_op",
+      callId,
+      extension: name,
+      op: "fetch",
+      path: `${url.pathname}${url.search}`,
+      outcome: "ok",
+      host: url.host,
+      status: response.status,
+      bytes: buffer.byteLength,
+    });
+    return { ok: true, status: response.status, bytes: new Uint8Array(buffer), finalHost: url.host };
   }
 }

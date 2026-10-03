@@ -19,7 +19,7 @@ import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { MANIFEST_FILE, readExtensionManifest, type ExtensionManifest } from "./extension-manifest";
-import { PATH_SCOPE_PREFIX } from "./host-scope";
+import { PATH_SCOPE_PREFIX, HOST_SCOPE_PREFIX } from "./host-scope";
 
 /** npm integrity digests (`sha512-...`) we can verify. */
 export type IntegrityAlgorithm = "sha512" | "sha1";
@@ -178,7 +178,11 @@ export const KNOWN_CAPABILITY_SLOTS: readonly string[] = [
  * known; later prefixes are still unknown-slot warnings.
  */
 export function isKnownCapability(capability: string): boolean {
-  return KNOWN_CAPABILITY_SLOTS.includes(capability) || capability.startsWith(PATH_SCOPE_PREFIX);
+  return (
+    KNOWN_CAPABILITY_SLOTS.includes(capability) ||
+    capability.startsWith(PATH_SCOPE_PREFIX) ||
+    capability.startsWith(HOST_SCOPE_PREFIX)
+  );
 }
 
 function readNpmDependencies(pkgDir: string): string[] {

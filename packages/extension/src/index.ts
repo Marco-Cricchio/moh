@@ -596,6 +596,28 @@ export type HostReadResult = HostOpResult & { content?: string };
 export type HostReadLinkResult = HostOpResult & { target?: string };
 
 /**
+ * ADR-0066: the typed result of one `host.fetch`. A response is fully
+ * buffered bytes — never streamed — with a fixed size limit; oversize is
+ * `{ ok: false, reason: "too_large" }`. A redirect hop outside the
+ * allowlist is `{ ok: false, reason: "outside_scope", target }` where
+ * `target` names the host the redirect pointed at.
+ */
+export interface HostFetchSuccess {
+  ok: true;
+  /** The final response status after any same-allowlist redirects. */
+  status: number;
+  /** The fully buffered response body. */
+  bytes: Uint8Array;
+  /** The host:port the response actually came from (redirects may stay in scope). */
+  finalHost: string;
+}
+
+export type HostFetchResult =
+  | HostFetchSuccess
+  | { ok: false; reason: "outside_scope" | "invalid_url" | "denied" | "too_large" | "failed"; target?: string; message?: string };
+
+
+/**
  * ADR-0064 + ADR-0065: the host-performs seam. **Present only when the
  * enable consent covers at least one scope** (enforcement by absence;
  * check with `typeof ctx.host === "object"`). Every method is one ask the
@@ -615,6 +637,15 @@ export interface ExtensionHost {
   delete(path: string): Promise<HostOpResult>;
   /** Reads the target of one symlink (the target itself must be in scope). */
   readlink(path: string): Promise<HostReadLinkResult>;
+  /**
+   * ADR-0066: asks the host to make one https (https-implicit) request to
+   * a host covered by a granted `host:<domain>` scope. Every redirect hop
+   * is re-checked against the allowlist; the response is fully buffered
+   * bytes with a fixed size limit; no streaming. An authenticated request
+   * needs the matching `credential:<ref>` scope too (F2b) — under `host:`
+   * alone the request is anonymous.
+   */
+  fetch(url: string): Promise<HostFetchResult>;
 }
 
 /**

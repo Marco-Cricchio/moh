@@ -45,7 +45,7 @@ import {
   type InstalledExtension,
   type NpmPackument,
 } from "./extension-registry";
-import { scopeEffectSentence, scopeEffectSentences, isPathScope } from "./host-scope";
+import { scopeEffectSentence, scopeEffectSentences, isPathScope, isHostScope, validateHostScope, hostScopesOf, checkHostScope, MAX_FETCH_BYTES, HOST_SCOPE_REASONING_KEY, TOTAL_HOST_WILDCARD } from "./host-scope";
 import { PromptComposer, type SkillIndexEntry } from "./prompt-composer";
 import type {
   AgentEvent,
@@ -862,6 +862,13 @@ export {
   scopeEffectSentence,
   scopeEffectSentences,
   isPathScope,
+  isHostScope,
+  validateHostScope,
+  hostScopesOf,
+  checkHostScope,
+  MAX_FETCH_BYTES,
+  HOST_SCOPE_REASONING_KEY,
+  TOTAL_HOST_WILDCARD,
   type RegistryIo,
   type ExtensionRef,
   type InstallOptions,

@@ -24,6 +24,13 @@ export type CapabilitySlot = string;
 export interface ExtensionManifest {
   readonly name: string;
   readonly version: string;
+  /**
+   * ADR-0066: the author's justification for a total network wildcard
+   * (`host:*`). Required by the runtime when the manifest declares
+   * `host:*`; the consent question displays it. moh never verifies the
+   * text — the owner reads it and decides.
+   */
+  readonly reasoning?: string;
   /** The entry point(s) this manifest speaks for, relative to the manifest
    * (a basename or a relative path). A package with several entry modules
    * declares them all and shares one capability set. */
@@ -38,6 +45,8 @@ export interface ManifestAuthority {
   readonly hash: string;
   readonly path: string;
   readonly capabilities: readonly string[];
+  /** ADR-0066: the manifest's `reasoning`, when it declares one. */
+  readonly reasoning?: string;
 }
 
 export type ManifestReadResult =
@@ -59,6 +68,7 @@ function isManifestValue(value: unknown): value is ExtensionManifest {
   if (v.capabilities !== undefined) {
     if (!Array.isArray(v.capabilities) || !v.capabilities.every((c) => typeof c === "string")) return false;
   }
+  if (v.reasoning !== undefined && typeof v.reasoning !== "string") return false;
   return true;
 }
 
@@ -70,6 +80,7 @@ function normalizeManifest(value: unknown): ExtensionManifest {
     version: v.version as string,
     entry: Object.freeze((Array.isArray(entry) ? entry : [entry]) as string[]),
     capabilities: Object.freeze((v.capabilities as string[] | undefined) ?? []),
+    ...(typeof v.reasoning === "string" ? { reasoning: v.reasoning } : {}),
   };
 }
 
@@ -124,6 +135,7 @@ export function readExtensionManifest(entryFile: string): ManifestReadResult {
       hash: createHash("sha256").update(bytes).digest("hex"),
       path: file,
       capabilities: manifest.capabilities,
+      ...(manifest.reasoning !== undefined ? { reasoning: manifest.reasoning } : {}),
     },
   };
 }

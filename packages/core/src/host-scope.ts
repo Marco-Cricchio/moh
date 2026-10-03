@@ -17,12 +17,19 @@
 import { readdirSync, realpathSync, lstatSync } from "node:fs";
 import { isAbsolute, relative, resolve, dirname } from "node:path";
 
-/** The only scope prefix phase F1 (ADR-0071) makes a known slot. */
+/** The scope prefixes the shipped host knows (ADR-0071: a prefix becomes
+ * a known slot only when its phase ships — F1 `path:`, F2 `host:`). */
 export const PATH_SCOPE_PREFIX = "path:";
+export const HOST_SCOPE_PREFIX = "host:";
 
 /** True when the capability string is a path scope (`path:<glob>`). */
 export function isPathScope(capability: string): boolean {
   return capability.startsWith(PATH_SCOPE_PREFIX);
+}
+
+/** True when the capability string is a host scope (`host:<domain>`). */
+export function isHostScope(capability: string): boolean {
+  return capability.startsWith(HOST_SCOPE_PREFIX);
 }
 
 /** The glob half of a `path:<glob>` scope string. */
@@ -53,6 +60,99 @@ export function pathScopesOf(capabilities: readonly string[]): string[] {
   return capabilities.filter(isPathScope);
 }
 
+/** All host scopes in a capability grant (order preserved). */
+export function hostScopesOf(capabilities: readonly string[]): string[] {
+  return capabilities.filter(isHostScope);
+}
+
+/**
+ * The total wildcard (`host:*`) exists only with a manifest `reasoning`
+ * string (ADR-0066, the Figma model): the author's justification the
+ * consent question displays. moh never verifies the text — the owner
+ * reads it and decides.
+ */
+export const TOTAL_HOST_WILDCARD = "host:*";
+/** The manifest key carrying the total-wildcard justification. */
+export const HOST_SCOPE_REASONING_KEY = "reasoning";
+
+export type HostScopeValidity =
+  | { ok: true; host: string; port?: number; wildcard: boolean }
+  | { ok: false; reason: "malformed"; message: string };
+
+/**
+ * Load-time validation of one `host:<domain>` capability (ADR-0066).
+ * Identity is string equality with the URL host — no origin-pattern
+ * grammar. `host:*.example.com` covers one label of subdomains as
+ * written; an explicit port is allowed for development. https is
+ * implicit and never spelled inside the string.
+ */
+export function validateHostScope(capability: string): HostScopeValidity {
+  const spec = capability.slice(HOST_SCOPE_PREFIX.length);
+  if (spec.trim() === "" || spec.includes("\0")) {
+    return { ok: false, reason: "malformed", message: `invalid host scope "${capability}": empty or malformed host` };
+  }
+  // Split the optional port off the last colon (IPv6 literals are not
+  // part of this grammar — a bracketed literal refuses as malformed).
+  const colon = spec.lastIndexOf(":");
+  let hostPart = spec;
+  let port: number | undefined;
+  if (colon >= 0) {
+    hostPart = spec.slice(0, colon);
+    const portPart = spec.slice(colon + 1);
+    if (!/^\d{1,5}$/.test(portPart)) {
+      return { ok: false, reason: "malformed", message: `invalid host scope "${capability}": port must be numeric` };
+    }
+    port = Number(portPart);
+    if (port < 1 || port > 65535) {
+      return { ok: false, reason: "malformed", message: `invalid host scope "${capability}": port out of range` };
+    }
+  }
+  if (hostPart !== "*") {
+    // Lowercase letters, digits, hyphens, dots; single labels; `*.`
+    // wildcard only as a whole leftmost label.
+    if (!/^(\*\.)?([a-z0-9]([a-z0-9-]*[a-z0-9])?)(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)*$/.test(hostPart) || hostPart.includes("..")) {
+      return { ok: false, reason: "malformed", message: `invalid host scope "${capability}": not a hostname` };
+    }
+    // One wildcard label per scope: `*.*.example.com` refuses.
+    if ((hostPart.match(/\*/g) ?? []).length > 1) {
+      return { ok: false, reason: "malformed", message: `invalid host scope "${capability}": at most one wildcard label` };
+    }
+  }
+  return { ok: true, host: hostPart, port, wildcard: hostPart.startsWith("*.") };
+}
+
+/**
+ * The host a request URL must string-match against one validated scope
+ * (ADR-0066: identity stays equality). The default https port is
+ * implicit on both sides; an explicit default port in a request URL
+ * normalizes to no port.
+ */
+export function hostMatchesScope(scope: HostScopeValidity & { ok: true }, url: URL): boolean {
+  let requestHost = url.hostname.toLowerCase();
+  const requestPort = url.port === "" || (url.protocol === "https:" && url.port === "443") || (url.protocol === "http:" && url.port === "80")
+    ? undefined
+    : Number(url.port);
+  // https implicit: a scope without a port speaks https; an http request
+  // URL matches only a development scope that spelled a port (local dev
+  // servers), never a bare `host:<domain>` grant.
+  if (url.protocol !== "https:") {
+    if (scope.port === undefined) return false;
+    if (scope.port !== requestPort) return false;
+  } else if (scope.port !== undefined && scope.port !== requestPort) {
+    return false;
+  }
+  if (scope.host === "*") return true;
+  if (scope.wildcard) {
+    const suffix = scope.host.slice(2); // strip `*.`
+    // One label: the remainder before the suffix must be a single label.
+    if (!requestHost.endsWith(`.${suffix}`)) return false;
+    const prefix = requestHost.slice(0, requestHost.length - suffix.length - 1);
+    return prefix !== "" && !prefix.includes(".");
+  }
+  return requestHost === scope.host;
+}
+
+
 /**
  * The core-owned effect-sentence renderer (ADR-0064): a scope becomes one
  * concrete sentence the consent question shows — never the naked string
@@ -60,6 +160,20 @@ export function pathScopesOf(capabilities: readonly string[]): string[] {
  * existing slots render as before).
  */
 export function scopeEffectSentence(capability: string): string | null {
+  if (isHostScope(capability)) {
+    if (capability === TOTAL_HOST_WILDCARD) {
+      return "may contact any host on the internet over https — total network access";
+    }
+    const check = validateHostScope(capability);
+    if (!check.ok) return null;
+    if (check.wildcard) {
+      const parent = check.host.slice(2);
+      const base = `may contact any subdomain of \`${parent}\` over https`;
+      return check.port !== undefined ? `${base} on port ${check.port}` : base;
+    }
+    const named = `\`${check.host}${check.port !== undefined ? `:${check.port}` : ""}\` over https`;
+    return `may contact ${named}`;
+  }
   if (!isPathScope(capability)) return null;
   const check = validatePathScope(capability);
   const glob = check.ok ? check.glob : pathScopeGlob(capability);
@@ -194,4 +308,46 @@ function trueCaseRel(resolvedAbs: string, rel: string): string {
     current = `${current}/${found}`;
   }
   return cased.join("/");
+}
+
+/**
+ * ADR-0066: the fixed size limit for a buffered fetch response (1 MiB
+ * default). No streaming in this phase: the host reads the body fully or
+ * refuses it as `too_large`.
+ */
+export const MAX_FETCH_BYTES = 1024 * 1024;
+/** Redirect hops followed inside the allowlist before refusing. */
+export const MAX_REDIRECTS = 5;
+
+export type HostFetchCheck =
+  | { ok: true }
+  | { ok: false; reason: "outside_scope" | "invalid_url" | "denied"; target?: string };
+
+/**
+ * The per-call scope check for `host.fetch`: the request URL's host must
+ * string-match at least one granted `host:` scope. The user's deny rules
+ * beat the grant per call, keyed by the request host. Pure module: the
+ * runtime (extensions.ts) performs the request and logs.
+ */
+export function checkHostScope(
+  url: URL,
+  scopes: readonly string[],
+  isDenied: (host: string) => boolean,
+): HostFetchCheck {
+  if (url.protocol !== "https:" && url.protocol !== "http:") {
+    return { ok: false, reason: "invalid_url" };
+  }
+  const requestHost = url.host; // host:port as the URL states it
+  const matched = scopes.some((capability) => {
+    if (!isHostScope(capability)) return false;
+    const check = validateHostScope(capability);
+    return check.ok && hostMatchesScope(check, url);
+  });
+  if (!matched) {
+    return { ok: false, reason: "outside_scope", target: url.host };
+  }
+  if (isDenied(url.hostname)) {
+    return { ok: false, reason: "denied", target: url.host };
+  }
+  return { ok: true };
 }
