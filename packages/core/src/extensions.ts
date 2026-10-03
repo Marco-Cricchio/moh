@@ -9,11 +9,12 @@
  * session continues without the extension.
  */
 import { existsSync, watch, type FSWatcher } from "node:fs";
-import { readFileSync, realpathSync, writeFileSync, mkdirSync } from "node:fs";
-import { createHash } from "node:crypto";
+import { appendFileSync, readFileSync, realpathSync, writeFileSync, mkdirSync, renameSync, rmSync, readlinkSync, statSync } from "node:fs";
+import { createHash, randomBytes } from "node:crypto";
 import { AsyncLocalStorage } from "node:async_hooks";
 import { homedir } from "node:os";
-import { basename, isAbsolute, resolve } from "node:path";
+import { basename, dirname, isAbsolute, resolve } from "node:path";
+import { rmdirSync } from "node:fs";
 import {
   MOH_EXTENSION_API_VERSION,
   parseApiVersion,
@@ -23,6 +24,10 @@ import {
   type ExtensionDefinition,
   type ExtensionDependencies,
   type ExtensionSetupContext,
+  type ExtensionHost,
+  type HostOpResult,
+  type HostReadResult,
+  type HostReadLinkResult,
   type BeforeTurnHook,
   type BeforeModelCallHook,
   type BeforeModelCallResult,
@@ -50,6 +55,10 @@ import type { ExtensionSpawnSpec } from "@moh/extension";
 import type { SubagentHost } from "./subagents";
 import { ExtensionSpawnRefusedError } from "./extension-scope";
 import { capabilityDiff, capabilitiesSubset, readExtensionManifest, type ManifestAuthority } from "./extension-manifest";
+import { checkPathScope, isPathScope, pathScopesOf, validatePathScope } from "./host-scope";
+import { newUlid } from "./session/ulid";
+
+type HostOpName = "read" | "write" | "append" | "rename" | "delete" | "readlink";
 import { redactKeys } from "./redact";
 import { assertNoExtensionScope, runInExtensionScope } from "./extension-scope";
 
@@ -145,6 +154,17 @@ export interface ExtensionConsentRequest {
 export interface ExtensionRuntimeOptions {
   /** User-level moh dir. Consent + dependency approvals persist in `<mohHome>/extensions.json`. Default `~/.moh`. */
   mohHome?: string;
+  /**
+   * ADR-0065: the project root every `path:<glob>` scope resolves
+   * against. Absent = `process.cwd()`. Set by session assembly.
+   */
+  projectRoot?: string;
+  /**
+   * ADR-0065: the user's per-call deny answer for a resolved absolute
+   * path (the session binds its permission resolver here). A deny beats
+   * every path grant per call; absent, no deny check runs.
+   */
+  isPathDenied?: (resolvedAbsPath: string) => boolean;
   /**
    * One-time enable consent. Called only when no stored consent matches the
    * module's content identity, and — for a file — BEFORE the module is
@@ -1257,6 +1277,18 @@ export class ExtensionRuntime {
   }
 
   /**
+ * ADR-0064 + ADR-0065: the session binds its live deny answer for the path
+ * scope. A deny rule on a covered path beats every path grant per call —
+ * the grant never widens what moh itself may do. Read at call time, so a
+ * runtime rule added mid-session applies to the next host operation.
+ */
+#pathDeny: ((resolvedAbsPath: string) => boolean) | null = null;
+
+bindPathDeny(isDenied: (resolvedAbsPath: string) => boolean): void {
+  this.#pathDeny = isDenied;
+}
+
+  /**
    * Resolves when every registration started so far has settled (the
    * bundled-definition path and the client's file source register
    * fire-and-forget from the assembly; the first turn waits on this so a
@@ -1676,6 +1708,14 @@ export class ExtensionRuntime {
     // signed), otherwise the code's own declaration (an in-memory
     // registration has no manifest to exceed).
     const granted = authority ?? (Array.isArray((d as { capabilities?: unknown }).capabilities) ? ((d as { capabilities: string[] }).capabilities).map((c) => String(c)) : []);
+    // ADR-0065: an absolute path inside a `path:` capability fails loudly
+    // at load — a capability naming outside-the-project targets is exactly
+    // what consent must not hide. Checked before setup ever runs.
+    for (const capability of granted) {
+      if (!isPathScope(capability)) continue;
+      const validity = validatePathScope(capability);
+      if (!validity.ok) return { ok: false, name, reason: "invalid_path_scope", message: validity.message };
+    }
     instance.grantedCapabilities = [...granted];
     const commandSlot: { registerCommand?: ExtensionSetupContext["registerCommand"] } = granted.includes("contribute-commands")
       ? { registerCommand: (command: ExtensionCommand) => this.#registerCommand(instance, command) }
@@ -1697,11 +1737,19 @@ export class ExtensionRuntime {
           subagentActivity: (callId) => this.#subagentActivityFor(instance, callId),
         }
       : {};
+    // ADR-0064 + ADR-0065: the host-performs seam. Present only when the
+    // grant covers at least one `path:<glob>` scope (enforcement by
+    // absence); the scope check runs per call, before the host performs.
+    const scopes = pathScopesOf(granted);
+    const hostSlot: Pick<ExtensionSetupContext, "host"> = scopes.length > 0
+      ? { host: this.#hostFor(instance, scopes) }
+      : {};
     const ctx: ExtensionSetupContext = {
       ...commandSlot,
       ...panelSlot,
       ...overlaySlot,
       ...spawnSlot,
+      ...hostSlot,
       state: instance.state,
       appendToPrompt: (note) => instance.notes.push(note),
       // ADR-0036: one per-turn note per instance, replacing; `null` removes.
@@ -1739,7 +1787,6 @@ export class ExtensionRuntime {
   #emitFailed(name: string, reason: string, message: string): void {
     this.#emit({ type: "extension_failed", name, reason, message });
   }
-
   /**
    * ADR-0053 + ADR-0055: the `spawn-subagent` capability's execution path.
    * The envelope is the host's business; here we enforce the structural
@@ -1774,6 +1821,127 @@ export class ExtensionRuntime {
       }
       return refuse("spawn_failed", errMessage(err));
     }
+  }
+
+  /**
+   * ADR-0064 + ADR-0065: the `path:<glob>` scope's execution path. One
+   * check-scope module decides every call (`checkPathScope`); a refusal
+   * is a typed result plus one `host_refused` event — never an exception,
+   * never an `extension_failed`; a performed operation is one `host_op`
+   * event with the resolved path. The host acted in the world; the log
+   * records it.
+   */
+  #hostFor(instance: RuntimeExtension, scopes: readonly string[]): ExtensionHost {
+    const name = instance.def.name;
+    const root = this.#options.projectRoot ?? process.cwd();
+    const isDenied = this.#pathDeny ?? this.#options.isPathDenied ?? (() => false);
+    const opEvent = (
+      op: HostOpName,
+      resolved: string,
+      extra: { bytes?: number; to?: string } = {},
+    ): AgentEvent =>
+      ({
+        type: "host_op",
+        callId: newUlid(),
+        extension: name,
+        op,
+        path: resolved,
+        outcome: "ok",
+        ...(extra.bytes !== undefined ? { bytes: extra.bytes } : {}),
+        ...(extra.to !== undefined ? { to: extra.to } : {}),
+      }) as AgentEvent;
+    const check = (op: HostOpName, requested: string): { ok: true; resolved: string } | { ok: false; result: HostOpResult } => {
+      const checked = checkPathScope(requested, scopes, root, isDenied);
+      const callId = newUlid();
+      if (!checked.ok) {
+        this.#emit({
+          type: "host_refused",
+          callId,
+          extension: name,
+          op,
+          path: requested,
+          reason: checked.reason,
+          ...(checked.resolved !== undefined ? { resolved: checked.resolved } : {}),
+        });
+        return { ok: false, result: { ok: false, reason: checked.reason, ...(checked.resolved !== undefined ? { resolved: checked.resolved } : {}) } };
+      }
+      return { ok: true, resolved: checked.resolved };
+    };
+    const performed = (op: HostOpName, resolved: string, bytes?: number, to?: string): HostOpResult => {
+      this.#emit(opEvent(op, resolved, { ...(bytes !== undefined ? { bytes } : {}), ...(to !== undefined ? { to } : {}) }));
+      return { ok: true, resolved, ...(bytes !== undefined ? { bytes } : {}) };
+    };
+    return {
+      readFile: (path) => {
+        const gate = check("read", path);
+        if (!gate.ok) return Promise.resolve(gate.result as HostReadResult);
+        try {
+          const content = readFileSync(gate.resolved, "utf8");
+          this.#emit(opEvent("read", gate.resolved));
+          return Promise.resolve({ ok: true, resolved: gate.resolved, content });
+        } catch (err) {
+          return Promise.resolve({ ok: false as const, reason: "failed", resolved: gate.resolved, message: errMessage(err) });
+        }
+      },
+      writeFile: (path, content) => {
+        const gate = check("write", path);
+        if (!gate.ok) return Promise.resolve(gate.result);
+        try {
+          mkdirSync(dirname(gate.resolved), { recursive: true });
+          writeFileSync(gate.resolved, content, "utf8");
+          return Promise.resolve(performed("write", gate.resolved, Buffer.byteLength(content, "utf8")));
+        } catch (err) {
+          return Promise.resolve({ ok: false as const, reason: "failed", resolved: gate.resolved, message: errMessage(err) });
+        }
+      },
+      appendFile: (path, content) => {
+        const gate = check("append", path);
+        if (!gate.ok) return Promise.resolve(gate.result);
+        try {
+          mkdirSync(dirname(gate.resolved), { recursive: true });
+          appendFileSync(gate.resolved, content, "utf8");
+          return Promise.resolve(performed("append", gate.resolved, Buffer.byteLength(content, "utf8")));
+        } catch (err) {
+          return Promise.resolve({ ok: false as const, reason: "failed", resolved: gate.resolved, message: errMessage(err) });
+        }
+      },
+      rename: (from, to) => {
+        const fromGate = check("rename", from);
+        if (!fromGate.ok) return Promise.resolve(fromGate.result);
+        const toGate = check("rename", to);
+        if (!toGate.ok) return Promise.resolve(toGate.result);
+        try {
+          mkdirSync(dirname(toGate.resolved), { recursive: true });
+          renameSync(fromGate.resolved, toGate.resolved);
+          return Promise.resolve(performed("rename", fromGate.resolved, undefined, toGate.resolved));
+        } catch (err) {
+          return Promise.resolve({ ok: false as const, reason: "failed", resolved: fromGate.resolved, message: errMessage(err) });
+        }
+      },
+      delete: (path) => {
+        const gate = check("delete", path);
+        if (!gate.ok) return Promise.resolve(gate.result);
+        try {
+          const stats = statSync(gate.resolved);
+          if (stats.isDirectory()) rmdirSync(gate.resolved);
+          else rmSync(gate.resolved);
+          return Promise.resolve(performed("delete", gate.resolved));
+        } catch (err) {
+          return Promise.resolve({ ok: false as const, reason: "failed", resolved: gate.resolved, message: errMessage(err) });
+        }
+      },
+      readlink: (path): Promise<HostReadLinkResult> => {
+        const gate = check("readlink", path);
+        if (!gate.ok) return Promise.resolve(gate.result);
+        try {
+          const target = readlinkSync(gate.resolved);
+          this.#emit(opEvent("readlink", gate.resolved));
+          return Promise.resolve({ ok: true, resolved: gate.resolved, target });
+        } catch (err) {
+          return Promise.resolve({ ok: false as const, reason: "failed", resolved: gate.resolved, message: errMessage(err) });
+        }
+      },
+    };
   }
 
   /** ADR-0055: bounded activity of a child this extension spawned. */

@@ -19,6 +19,7 @@ import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { MANIFEST_FILE, readExtensionManifest, type ExtensionManifest } from "./extension-manifest";
+import { PATH_SCOPE_PREFIX } from "./host-scope";
 
 /** npm integrity digests (`sha512-...`) we can verify. */
 export type IntegrityAlgorithm = "sha512" | "sha1";
@@ -150,7 +151,7 @@ function checkManifest(pkgDir: string): { manifest: ExtensionManifest; warnings:
   const warnings: string[] = [];
   const notes: string[] = [];
   for (const capability of result.manifest.capabilities) {
-    if (!KNOWN_CAPABILITY_SLOTS.includes(capability)) {
+    if (!isKnownCapability(capability)) {
       warnings.push(`unknown capability slot "${capability}" — the load-time consent still decides what it grants`);
     }
   }
@@ -170,6 +171,15 @@ export const KNOWN_CAPABILITY_SLOTS: readonly string[] = [
   "contribute-panels",
   "contribute-overlays",
 ];
+
+/**
+ * ADR-0071: a scope prefix becomes a known slot only when its phase
+ * ships. Phase F1 ships `path:<glob>` (ADR-0065) — any glob it carries is
+ * known; later prefixes are still unknown-slot warnings.
+ */
+export function isKnownCapability(capability: string): boolean {
+  return KNOWN_CAPABILITY_SLOTS.includes(capability) || capability.startsWith(PATH_SCOPE_PREFIX);
+}
 
 function readNpmDependencies(pkgDir: string): string[] {
   const file = join(pkgDir, "package.json");

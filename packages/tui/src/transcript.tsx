@@ -1135,6 +1135,12 @@ export function projectTranscript(events: ReadonlyArray<AgentEvent>, options: { 
         // version and mode only, never the words. The transcript has no
         // projection today; /session and the log carry the record.
         break;
+      case "host_op":
+      case "host_refused":
+        // ADR-0064/0065: host-performed operations and their refusals.
+        // Chrome — audit only; the transcript has no projection today,
+        // the log carries the record.
+        break;
       default: {
         const exhaustive: never = event;
         throw new Error(`unhandled AgentEvent: ${JSON.stringify(exhaustive)}`);

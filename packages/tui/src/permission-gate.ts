@@ -7,7 +7,7 @@
  * runtime-rule tier, for client-initiated asks (Frontier claims) that
  * don't travel through a tool call.
  */
-import { formatRule, splitCommandSegments, type PermissionAskContext } from "@moh/core";
+import { formatRule, splitCommandSegments, scopeEffectSentence, type PermissionAskContext } from "@moh/core";
 import { sanitizeForDisplay } from "./render-sanitize";
 
 export type PermissionAnswer = "yes" | "always" | "always_for_site" | "no";
@@ -124,11 +124,25 @@ function describeOwnRequest(tool: string, args: unknown): PermissionRequestView 
     if (typeof a.hash === "string") detail.push(`sha256: ${sanitizeForDisplay(a.hash)}`);
     // ADR-0061: the manifest's declared capabilities are what a yes grants,
     // so they are in the question; a widening re-ask shows the diff.
+    // ADR-0064/0065: scope strings render as the core-owned effect
+    // sentence — the user approves what it does, not what it's called.
     if (Array.isArray(a.capabilities) && a.capabilities.length > 0) {
-      detail.push(`capabilities: ${a.capabilities.map((c) => sanitizeForDisplay(String(c))).join(", ")}`);
+      detail.push(
+        `capabilities: ${a.capabilities.map((c) => {
+          const raw = sanitizeForDisplay(String(c));
+          const sentence = scopeEffectSentence(String(c));
+          return sentence ? `${raw} — ${sentence}` : raw;
+        }).join(", ")}`,
+      );
     }
     if (Array.isArray(a.addedCapabilities) && a.addedCapabilities.length > 0) {
-      detail.push(`new since last approval: ${a.addedCapabilities.map((c) => sanitizeForDisplay(String(c))).join(", ")}`);
+      detail.push(
+        `new since last approval: ${a.addedCapabilities.map((c) => {
+          const raw = sanitizeForDisplay(String(c));
+          const sentence = scopeEffectSentence(String(c));
+          return sentence ? `${raw} — ${sentence}` : raw;
+        }).join(", ")}`,
+      );
     }
     // #834 (security): a first-time file is asked about BEFORE it is imported
     // — the question has to come before the code runs — so it has made no

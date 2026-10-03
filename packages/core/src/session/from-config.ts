@@ -288,6 +288,11 @@ export function sessionFromConfig(options: SessionFromConfigOptions): SessionFro
     // path-loaded files go through the content-bound consent.
     extensions = new ExtensionRuntime({
       mohHome,
+      // ADR-0065: the project root the `path:<glob>` scopes resolve
+      // against. The user's deny rules ride the session: the resolver is
+      // not built yet at assembly time, so the deny answer is read live
+      // through the session's overrides channel below (bindPathDeny).
+      ...(options.cwd ? { projectRoot: options.cwd } : {}),
       // ADR-0056 (#1126): the turn-path hook ceiling, from moh.json.
       ...(config.hookTimeoutMs !== undefined ? { hookTimeoutMs: config.hookTimeoutMs } : {}),
       // ADR-0062 (#1130): the client's native + skill slash names.

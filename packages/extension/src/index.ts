@@ -574,12 +574,63 @@ export type AfterTurnHook = (ctx: AfterTurnContext) => void | Promise<void>;
 export type ExtensionDependencies = string[];
 
 /**
+ * ADR-0064: the typed result of one host-performed operation. A policy
+ * refusal is a normal outcome — `{ ok: false, reason: "outside_scope" }`
+ * — never an exception and never an `extension_failed` (refusals are
+ * recorded as their own `host_refused` log event by the host).
+ */
+export interface HostOpSuccess {
+  ok: true;
+  /** The resolved (real) path the host actually touched. */
+  resolved: string;
+  /** Content bytes touched, present when the operation wrote content. */
+  bytes?: number;
+}
+
+export type HostOpResult =
+  | HostOpSuccess
+  | { ok: false; reason: "outside_scope" | "invalid_path" | "denied" | "failed"; resolved?: string; message?: string };
+
+export type HostReadResult = HostOpResult & { content?: string };
+
+export type HostReadLinkResult = HostOpResult & { target?: string };
+
+/**
+ * ADR-0064 + ADR-0065: the host-performs seam. **Present only when the
+ * enable consent covers at least one scope** (enforcement by absence;
+ * check with `typeof ctx.host === "object"`). Every method is one ask the
+ * host performs itself under the granted `path:<glob>` scopes — one grant
+ * covers the whole file family; there is no read/write split. The user's
+ * deny rules beat the grant per call. No OS sandbox: consent is the whole
+ * boundary, and the scope constrains requests to the seam, not extension
+ * code. Every performed operation lands in the log as `host_op` with the
+ * resolved path; every refusal as `host_refused`.
+ */
+export interface ExtensionHost {
+  readFile(path: string): Promise<HostReadResult>;
+  writeFile(path: string, content: string): Promise<HostOpResult>;
+  appendFile(path: string, content: string): Promise<HostOpResult>;
+  rename(from: string, to: string): Promise<HostOpResult>;
+  /** Deletes one file or one empty directory. */
+  delete(path: string): Promise<HostOpResult>;
+  /** Reads the target of one symlink (the target itself must be in scope). */
+  readlink(path: string): Promise<HostReadLinkResult>;
+}
+
+/**
  * The setup context injected into `setup(ctx)`. `state` is a per-extension
  * key/value store preserved across hot-reloads.
  */
 export interface ExtensionSetupContext {
   /** Per-extension durable state; carried over hot-reloads. */
   readonly state: Record<string, unknown>;
+  /**
+   * ADR-0064 + ADR-0065 (apiVersion 1.13): the host-performs seam.
+   * **Present only when the enable consent covers at least one scope**
+   * (enforcement by absence, like `registerCommand`) — check with
+   * `typeof ctx.host === "object"`. See `ExtensionHost`.
+   */
+  readonly host?: ExtensionHost;
   /** Append a note to the trailing `extension_notes` prompt section. */
   appendToPrompt(note: string): void;
   /**
