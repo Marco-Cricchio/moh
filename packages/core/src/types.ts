@@ -547,8 +547,8 @@ type AgentEventBase =
    * rename names the resolved destination. Chrome only — never model
    * context, never a turn error. Secret redaction applies downstream.
    */
-  | { type: "host_op"; callId: string; extension: string; op: "read" | "write" | "append" | "rename" | "delete" | "readlink" | "fetch";
-      path: string; outcome: "ok"; bytes?: number; to?: string; host?: string; status?: number; credential?: string; method?: string }
+  | { type: "host_op"; callId: string; extension: string; op: "read" | "write" | "append" | "rename" | "delete" | "readlink" | "fetch" | "run_tool";
+      path?: string; outcome: "ok" | "denied" | "failed"; bytes?: number; to?: string; host?: string; status?: number; credential?: string; method?: string; tool?: string }
   /**
    * ADR-0064: one host-performed operation was refused by the scope check.
    * Distinct from `extension_failed` (extension faults): a refusal is a
@@ -556,8 +556,8 @@ type AgentEventBase =
    * `target` (ADR-0066) names the request or redirect host a fetch was
    * refused for.
    */
-  | { type: "host_refused"; callId: string; extension: string; op: "read" | "write" | "append" | "rename" | "delete" | "readlink" | "fetch";
-      path: string; reason: "outside_scope" | "invalid_path" | "invalid_url" | "unknown_credential" | "denied" | "too_large" | "failed"; resolved?: string; target?: string; credential?: string; method?: string }
+  | { type: "host_refused"; callId: string; extension: string; op: "read" | "write" | "append" | "rename" | "delete" | "readlink" | "fetch" | "run_tool";
+      path?: string; reason: "outside_scope" | "invalid_path" | "invalid_url" | "unknown_credential" | "unknown_tool" | "denied" | "too_large" | "failed"; resolved?: string; target?: string; credential?: string; method?: string; tool?: string }
   /**
    * ADR-0054 (#1129): a prompt-section composition change — a section
    * replaced or hidden by an extension, or restored to core text. Chrome

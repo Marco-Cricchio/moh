@@ -106,7 +106,7 @@
  * Minor bumps are additive (new optional hooks/fields); major bumps are
  * breaking and refuse to load older/newer extensions.
  */
-export const MOH_EXTENSION_API_VERSION = "1.13";
+export const MOH_EXTENSION_API_VERSION = "1.14";
 
 /** One spawn an orchestration extension requests (ADR-0055, apiVersion 1.13).
  * `preset` resolves against the host's subagent presets (built-ins and
@@ -617,6 +617,23 @@ export type HostFetchResult =
   | { ok: false; reason: "outside_scope" | "invalid_url" | "unknown_credential" | "denied" | "too_large" | "failed"; target?: string; message?: string };
 
 /**
+ * ADR-0067: the typed result of one `ctx.host.runTool`. The tool ran (or
+ * was refused) through moh's normal runner and gate — a gate refusal
+ * (user rule, denied ask, headless) is `{ ok: false, reason: "denied" }`,
+ * never an exception; a tool the session does not register is
+ * `{ ok: false, reason: "unknown_tool" }`.
+ */
+export interface HostRunToolSuccess {
+  ok: true;
+  /** The tool's textual output, exactly what a model-initiated call returns. */
+  output: string;
+}
+
+export type HostRunToolResult =
+  | HostRunToolSuccess
+  | { ok: false; reason: "outside_scope" | "unknown_tool" | "denied" | "failed"; message?: string };
+
+/**
  * #1162: what one `ctx.host.fetch` may ask for. The seam's first consumer
  * with a request body (Jev's TypeSafe POST) grew the request side from the
  * anonymous GET ADR-0066 shipped — same scope rules, same buffered
@@ -675,6 +692,15 @@ export interface ExtensionHost {
    * `application/json` with a body) and `signal` (host-side abort).
    */
   fetch(url: string, options?: HostFetchOptions): Promise<HostFetchResult>;
+  /**
+   * ADR-0067: asks the host to run one registered session tool through
+   * the normal ToolRunner and PermissionGate — the model's exact gate
+   * path (veto > user rules > mode); an ask names this extension as the
+   * requester. Whole-tool grant: a `tool:<name>` capability authorizes
+   * the tool entire, no argv sub-scoping; the user's rules decide each
+   * call. `tool:*` covers every session tool, built-in and MCP.
+   */
+  runTool(name: string, args: unknown): Promise<HostRunToolResult>;
 }
 
 /**

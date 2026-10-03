@@ -35,6 +35,8 @@ export interface GateCheck {
     tool: string,
     callId: string,
     args: unknown,
+    /** ADR-0067: the host-seam requester — names the ask prompt only. */
+    requester?: { extension: string },
   ): Promise<{ allowed: true } | { allowed: false; denial: string }>;
 }
 
@@ -363,6 +365,54 @@ export class ToolRunner {
     if (!gate.allowed) {
       return { callId: call.callId, ok: false, output: gate.denial, errorKind: "permission" };
     }
+    return this.#runValidated(tool, call.name, call.callId, args, signal);
+  }
+
+  /**
+   * ADR-0067: one host-seam tool invocation (`ctx.host.runTool`). Same
+   * schema validation, gate and execution as a model-initiated call — the
+   * exact gate path (veto > user rules > mode), with the extension named
+   * as the ask's requester — but no `tool_call`/`tool_result` events:
+   * the runtime logs the seam call as `host_op { op: "run_tool" }`.
+   */
+  async runSeamCall(
+    name: string,
+    args: unknown,
+    callId: string,
+    signal: AbortSignal,
+    requester: { extension: string },
+  ): Promise<ToolOutcome> {
+    const tool = this.#tools()[name];
+    if (!tool) {
+      return { callId, ok: false, output: `unknown tool: ${name}`, errorKind: "schema-validation" };
+    }
+    let validated: unknown = args;
+    if (tool.inputSchema) {
+      const parsed = tool.inputSchema.safeParse(args);
+      if (!parsed.success) {
+        const issues = parsed.error.issues
+          .map((i) => `${i.path.join(".") || "(root)"}: ${i.message}`)
+          .join("; ");
+        return { callId, ok: false, output: `invalid arguments for ${name}: ${issues}`, errorKind: "schema-validation" };
+      }
+      validated = parsed.data;
+    }
+    const gateArgs = tool.gateArgs ? tool.gateArgs(validated) : validated;
+    const gate = await this.#gate.check(name, callId, gateArgs, requester);
+    if (!gate.allowed) {
+      return { callId, ok: false, output: gate.denial, errorKind: "permission" };
+    }
+    return this.#runValidated(tool, name, callId, validated, signal);
+  }
+
+  /** Shared execution body: the gate said yes, run the tool. Never throws. */
+  async #runValidated(
+    tool: Tool,
+    name: string,
+    callId: string,
+    args: unknown,
+    signal: AbortSignal,
+  ): Promise<ToolOutcome> {
     const ctx: ToolContext = {
       signal,
       cwd: this.#cwd,
@@ -371,7 +421,7 @@ export class ToolRunner {
       // best-effort — a listener throwing must not fail the tool.
       onProgress: (chunk) => {
         try {
-          this.#emitLive?.({ type: "tool_progress", callId: call.callId, tool: call.name, chunk });
+          this.#emitLive?.({ type: "tool_progress", callId, tool: name, chunk });
         } catch { /* live listeners are presentation-only */ }
       },
       skillDirs: this.#skillDirs(),
@@ -388,18 +438,18 @@ export class ToolRunner {
       // tool_result and the feedback parts both carry it.
       if (isScreenshotToolResult(output)) {
         if (this.#imageCapable?.() === true) {
-          return { callId: call.callId, ok: true, output: `[screenshot: ${output.target}]`, image: { mime: output.mime, base64: output.base64 } };
+          return { callId, ok: true, output: `[screenshot: ${output.target}]`, image: { mime: output.mime, base64: output.base64 } };
         }
-        return { callId: call.callId, ok: true, output: renderScreenshotChip(output) };
+        return { callId, ok: true, output: renderScreenshotChip(output) };
       }
-      return { callId: call.callId, ok: true, output: String(output) };
+      return { callId, ok: true, output: String(output) };
     } catch (err) {
       const output = err instanceof Error ? err.message : String(err);
       return {
-        callId: call.callId,
+        callId,
         ok: false,
         output,
-        errorKind: classifyToolError(call.name, output),
+        errorKind: classifyToolError(name, output),
       };
     }
   }

@@ -61,6 +61,13 @@ export class PermissionGate {
     tool: string,
     callId: string,
     args: unknown,
+    /**
+     * ADR-0067: the host-tool seam's requester — an extension calling
+     * `ctx.host.runTool`. The gate path is the model's exact path (veto >
+     * user rules > mode); the requester only names the ask prompt when an
+     * ask happens anyway. A hook-driven extension ask keeps precedence.
+     */
+    requester?: { extension: string },
   ): Promise<{ allowed: true } | { allowed: false; denial: string }> {
     // Extension hook check first (#34, ADR-0031): a veto beats user rules,
     // defaults, yolo and auto-accept — extensions can only restrict, never
@@ -119,11 +126,11 @@ export class PermissionGate {
       tool,
       ...(extensionAsk ? { reason: "extension" } : {}),
     });
-    const answer = await this.#onPermissionRequest(
-      tool,
-      args,
-      extensionAsk ? { source: "extension" as const, ...extensionAsk } : undefined,
-    );
+    const askContext =
+      extensionAsk ? { source: "extension" as const, ...extensionAsk }
+      : requester ? { source: "extension" as const, extension: requester.extension, reason: "host seam tool invocation" }
+      : undefined;
+    const answer = await this.#onPermissionRequest(tool, args, askContext);
     if (answer === "no") {
       this.#append({ type: "permission_denied", callId, tool, reason: "user" });
       return { allowed: false, denial: `permission denied: ${tool} requires user consent` };

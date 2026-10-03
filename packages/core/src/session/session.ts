@@ -422,6 +422,29 @@ export class AgentSession {
       });
     }
     if (this.#extensions) this.#extensions.bindRequestTurn((text) => this.runSyntheticTurn(text).then((r) => r.ok));
+    // ADR-0067: the tool-execution seam behind `ctx.host.runTool`. The
+    // runtime owns scope + logging; here is lookup, gate and execution —
+    // the normal ToolRunner path, the extension named as the ask's
+    // requester, no tool_call/tool_result events (the seam logs host_op).
+    if (this.#extensions && typeof (this.#extensions as { bindToolSeam?: unknown }).bindToolSeam === "function") {
+      (this.#extensions as { bindToolSeam(s: unknown): void }).bindToolSeam({
+        runTool: async (request: { extension: string; tool: string; args: unknown }) => {
+          const tool = this.#allTools()[request.tool];
+          if (!tool) return { ok: false as const, reason: "unknown_tool" as const, message: `no session tool named "${request.tool}"` };
+          const outcome = await this.#toolRunner.runSeamCall(
+            request.tool,
+            request.args,
+            newUlid(),
+            new AbortController().signal,
+            { extension: request.extension },
+          );
+          if (outcome.ok) return { ok: true as const, output: outcome.output };
+          if (outcome.errorKind === "permission") return { ok: false as const, reason: "denied" as const, message: outcome.output };
+          if (outcome.output.startsWith(`unknown tool:`)) return { ok: false as const, reason: "unknown_tool" as const, message: outcome.output };
+          return { ok: false as const, reason: "failed" as const, message: outcome.output };
+        },
+      });
+    }
     this.#onDispose = config.onDispose;
     // Extension load results (including hot-reload outcomes) land in the log
     // — held until the session's own start chrome is in (#834). A load can
