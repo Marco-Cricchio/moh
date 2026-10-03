@@ -671,7 +671,7 @@ describe("extension slash commands (#1130, ADR-0062)", () => {
     expect(res.code).toBe(0);
     const events = readEvents(res.stdout);
     const line = events.find((e) => e.type === "extension_command_result");
-    expect(line).toMatchObject({ type: "extension_command_result", command: "deploy-status", ok: true, extension: "cmdly", output: "all green --env prod" });
+    expect(line, `stdout events: ${res.stdout}\nstderr: ${res.stderr}`).toMatchObject({ type: "extension_command_result", command: "deploy-status", ok: true, extension: "cmdly", output: "all green --env prod" });
     // No model turn happened: the command *is* the action.
     expect(events.some((e) => e.type === "model_call")).toBe(false);
   });
