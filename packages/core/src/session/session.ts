@@ -28,7 +28,7 @@ import { PermissionGate, type ToolHookChecker } from "./permission-gate";
 import { ToolRunner, type ToolResultHookChecker } from "./tool-runner";
 import { TurnQueue } from "./turn-queue";
 import { AgentLoop } from "./agent-loop";
-import { SubagentHost } from "../subagents";
+import { SubagentHost, type SubagentSpawnRequester, type SubagentSpawnLimits } from "../subagents";
 import { replayMessages, replayWarnings } from "../session-store";
 import { MemoryRunner, MemoryStore, createMaintenanceExtractor } from "../memory";
 import type { CompactionHookContext } from "@moh/extension";
@@ -118,6 +118,11 @@ export class AgentSession {
   #lastPrompt: AssembledPrompt | null = null;
   #disposed = false;
   readonly #promptComposer: PromptComposer;
+  /** ADR-0055 (#1127): the spawn host, when subagents are on — the stop
+   * control and the live-children listing read it. */
+  #subagentHost: SubagentHost | null = null;
+  /** ADR-0055 (#1127): who is asking for spawns right now. */
+  #spawnRequester: () => SubagentSpawnRequester = () => ({ kind: "model" });
   #skills: SkillIndexEntry[];
   #skillDirs: string[];
   readonly #mohHome: string;
@@ -375,7 +380,13 @@ export class AgentSession {
           ? { mpm: { snapshotFor: (task: string) => this.#mpmOrientation?.planFor(task) ?? null } }
           : {}),
         ...(subagents.lanes ? { lanes: subagents.lanes } : {}),
+        // ADR-0055 (#1127): the spawn event's requester — the model, or the
+        // orchestration extension currently in scope. Default: the model.
+        requester: () => this.#spawnRequester(),
+        // The applied limits record the cap the child actually gets.
+        defaultMaxIterations: () => maxIterations,
       });
+      this.#subagentHost = host;
       this.#tools = { ...this.#tools, spawn: host.spawnTool() };
     }
     this.#extensions = config.extensions;
@@ -959,6 +970,34 @@ export class AgentSession {
   /** Cancels the active turn (the loop appends the `cancelled` event). No-op if idle. */
   abort(): void {
     this.#queue.abort();
+  }
+
+  /**
+   * ADR-0055 (#1127): the live children this session spawned, each with its
+   * spawn requester/limits — the list the stop control shows before acting.
+   */
+  liveSubagents(): { callId: string; name: string; requester: SubagentSpawnRequester; limits: SubagentSpawnLimits }[] {
+    return this.#subagentHost?.liveSubagents() ?? [];
+  }
+
+  /**
+   * ADR-0055 "one stop": stop everything this session's orchestrations
+   * started — aborts every live child, records one `orchestration_stopped`
+   * chrome event with the aborted callIds, and returns them. Children that
+   * already settled contribute nothing; the extension itself stays enabled.
+   */
+  stopSubagents(): string[] {
+    const stopped = this.#subagentHost?.stop() ?? [];
+    if (stopped.length > 0) {
+      this.#append({ type: "orchestration_stopped", callIds: stopped, stoppedAt: new Date().toISOString() });
+    }
+    return stopped;
+  }
+
+  /** ADR-0055 (#1127): set who the next spawns are attributed to — the
+   * model (default) or a named orchestration extension. */
+  setSpawnRequester(requester: () => SubagentSpawnRequester): void {
+    this.#spawnRequester = requester;
   }
 
   /** Registry snapshot this session was created with (frozen). */

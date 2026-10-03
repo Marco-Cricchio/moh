@@ -1,0 +1,6 @@
+{
+  "name": "no-rm-rf",
+  "version": "0.1.0",
+  "entry": "no-rm-rf.mjs",
+  "capabilities": []
+}

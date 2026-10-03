@@ -556,6 +556,13 @@ export interface ExtensionDefinition {
   readonly version: string;
   /** moh extension apiVersion ("major.minor"); major must match. */
   readonly apiVersion: string;
+  /**
+   * The capability slots this code uses (ADR-0053, as amended by ADR-0061).
+   * The manifest is the authority the consent signs; at import the runtime
+   * verifies every capability here is declared in `moh.extension.json` —
+   * a superset is a loud refusal naming the offending slot, never a crash.
+   */
+  readonly capabilities?: readonly string[];
   /** npm specs moh installs for the extension, with per-change authorization. */
   readonly dependencies?: ExtensionDependencies;
   setup(ctx: ExtensionSetupContext): void | Promise<void>;

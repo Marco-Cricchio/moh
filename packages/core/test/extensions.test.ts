@@ -8,7 +8,7 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { existsSync, mkdtempSync, mkdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import { createSession, ExtensionRuntime, MockProvider, PromptComposer } from "../src/index";
 import { canonicalModulePath, DEFAULT_HOOK_TIMEOUT_MS, PROMPT_REPLACEMENT_WINDOW_MS } from "../src/extensions";
 import { defineExtension, MOH_EXTENSION_API_VERSION, parseApiVersion } from "@moh/extension";
@@ -30,6 +30,25 @@ const dirs: string[] = [];
 afterEach(() => {
   for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true });
 });
+
+/** Writes an extension module AND its directory's `moh.extension.json`
+ * (ADR-0061: a file extension loads only with a manifest beside it). Every
+ * module written through this helper joins the same directory's manifest
+ * entry list, so multi-extension test dirs share one manifest. */
+const manifestEntries = new Map<string, Set<string>>();
+function writeExt(path: string, body: string): string {
+  writeFileSync(path, body);
+  const dir = dirname(path);
+  const base = basename(path);
+  const entries = manifestEntries.get(dir) ?? new Set<string>();
+  entries.add(base);
+  manifestEntries.set(dir, entries);
+  writeFileSync(
+    join(dir, "moh.extension.json"),
+    JSON.stringify({ name: base, version: "1.0.0", entry: [...entries].sort(), capabilities: [] }, null, 2),
+  );
+  return path;
+}
 
 /** Runtime with auto-approving consent + dep authorization (policy tests override). */
 function runtime(dir: string, overrides: Partial<ConstructorParameters<typeof ExtensionRuntime>[0]> = {}) {
@@ -430,8 +449,8 @@ describe("content-bound file consent", () => {
     const first = join(dir, "first.mjs");
     const second = join(dir, "second.mjs");
     const marker = join(dir, "setup-ran");
-    writeFileSync(first, `export default { name: "same", version: "1.0.0", apiVersion: "1.0", setup() {} };`);
-    writeFileSync(second, `import { writeFileSync } from "node:fs"; export default { name: "same", version: "9.9.9", apiVersion: "1.0", setup() { writeFileSync(${JSON.stringify(marker)}, "ran"); } };`);
+    writeExt(first, `export default { name: "same", version: "1.0.0", apiVersion: "1.0", setup() {} };`);
+    writeExt(second, `import { writeFileSync } from "node:fs"; export default { name: "same", version: "9.9.9", apiVersion: "1.0", setup() { writeFileSync(${JSON.stringify(marker)}, "ran"); } };`);
 
     const approved = new ExtensionRuntime({ mohHome: dir, consent: () => true });
     expect(await approved.registerFile(first)).toBe(true);
@@ -445,13 +464,13 @@ describe("content-bound file consent", () => {
     const dir = tempDir();
     const file = join(dir, "extension.mjs");
     const source = (deps: string[]) => `export default { name: "stable", version: "1.0.0", apiVersion: "1.0", dependencies: ${JSON.stringify(deps)}, setup() {} };`;
-    writeFileSync(file, source(["left@1"]));
+    writeExt(file, source(["left@1"]));
     const dependencyRequests: string[][] = [];
     const first = new ExtensionRuntime({ mohHome: dir, consent: () => true, authorizeDependencies: (_name, deps) => { dependencyRequests.push(deps); return true; } });
     expect(await first.registerFile(file)).toBe(true);
     const unchanged = new ExtensionRuntime({ mohHome: dir, consent: () => false, authorizeDependencies: () => false });
     expect(await unchanged.registerFile(file)).toBe(true);
-    writeFileSync(file, source(["right@2"]));
+    writeExt(file, source(["right@2"]));
     const changed = new ExtensionRuntime({ mohHome: dir, consent: () => true, authorizeDependencies: (_name, deps) => { dependencyRequests.push(deps); return true; } });
     expect(await changed.registerFile(file)).toBe(true);
     expect(dependencyRequests).toEqual([["left@1"], ["right@2"]]);
@@ -462,7 +481,7 @@ describe("hot-reload", () => {
   test("preserves ctx.state and re-registers hooks; a mismatched reload keeps the previous instance", async () => {
     const dir = tempDir();
     const file = join(dir, "ext.mjs");
-    writeFileSync(
+    writeExt(
       file,
       `export default { name: "hot", version: "1.0.0", apiVersion: "1.0",
         setup(ctx) { ctx.state.loads = ((ctx.state.loads ?? 0) + 1); ctx.onToolCall(() => ({ veto: true, reason: "v" + ctx.state.loads })); } };
@@ -473,7 +492,7 @@ describe("hot-reload", () => {
     expect(rt.instances[0]!.state.loads).toBe(1);
 
     rt.startWatch();
-    writeFileSync(
+    writeExt(
       file,
       `export default { name: "hot", version: "1.1.0", apiVersion: "1.0",
         setup(ctx) { ctx.state.loads = ((ctx.state.loads ?? 0) + 1); ctx.onToolCall(() => ({ veto: true, reason: "v" + ctx.state.loads })); } };
@@ -485,7 +504,7 @@ describe("hot-reload", () => {
     expect(rt.instances[0]!.hooks.onToolCall.length).toBe(1); // re-registered
 
     // Major mismatch on reload: previous instance kept.
-    writeFileSync(
+    writeExt(
       file,
       `export default { name: "hot", version: "2.0.0", apiVersion: "2.0", setup() {} };
       `,
@@ -499,12 +518,12 @@ describe("hot-reload", () => {
     const dir = tempDir();
     const file = join(dir, "consented.mjs");
     const source = (version: string) => `export default { name: "watch", version: ${JSON.stringify(version)}, apiVersion: "1.0", setup() {} };`;
-    writeFileSync(file, source("1.0.0"));
+    writeExt(file, source("1.0.0"));
     let asks = 0;
     const rt = new ExtensionRuntime({ mohHome: dir, consent: () => ++asks <= 2 });
     expect(await rt.registerFile(file)).toBe(true);
     rt.startWatch();
-    writeFileSync(file, source("2.0.0"));
+    writeExt(file, source("2.0.0"));
     await Bun.sleep(400);
     expect(asks).toBe(2);
     expect(rt.instances[0]!.def.version).toBe("2.0.0");
@@ -793,7 +812,7 @@ describe("consent precedes execution (#834 security)", () => {
    * registration and would hide the bug. */
   function payloadFile(dir: string, marker: string): string {
     const file = join(dir, "payload.mjs");
-    writeFileSync(
+    writeExt(
       file,
       `import { writeFileSync } from "node:fs";\n` +
         `writeFileSync(${JSON.stringify(marker)}, "top-level code ran");\n` +
@@ -849,12 +868,12 @@ describe("consent precedes execution (#834 security)", () => {
     const file = join(dir, "edit.mjs");
     const source = (body: string) =>
       `export default { name: "edit", version: "1.0.0", apiVersion: "1.0", setup() {} };\n${body}`;
-    writeFileSync(file, source(""));
+    writeExt(file, source(""));
     expect(await rt.registerFile(file)).toBe(true);
 
     // The edited bytes carry a payload and the user declines the re-ask: the
     // previous instance stays and the new top level never runs.
-    writeFileSync(file, source(`import { writeFileSync } from "node:fs";\nwriteFileSync(${JSON.stringify(marker)}, "edit ran");`));
+    writeExt(file, source(`import { writeFileSync } from "node:fs";\nwriteFileSync(${JSON.stringify(marker)}, "edit ran");`));
     const strict = new ExtensionRuntime({ mohHome: home, consent: () => false });
     expect(await strict.registerFile(file)).toBe(false);
     expect(existsSync(marker)).toBe(false);

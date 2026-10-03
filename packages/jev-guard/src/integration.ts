@@ -50,6 +50,16 @@ const readFile = (file: string): string => readFileSync(file, "utf8");
 export const jevBundledSource = {
   name: NAME,
 
+  /**
+   * ADR-0061 (#1125): this package's own manifest, mirrored in
+   * `moh.extension.json` at the package root (the physical file is what a
+   * registry install verifies; this descriptor is what a bundled
+   * registration checks the subset rule against). Jev uses no capability
+   * slot in code — its `wire` slots are core-owned generic plumbing, not
+   * extension capabilities — so the declaration is empty.
+   */
+  manifest: { capabilities: [] as string[] },
+
   /** Effect-free: a stored, non-empty API key is the only activation switch.
    * The **client** evaluates this (see `packages/tui/src/bundled-extensions.ts`);
    * the core never calls it over the user's config. */

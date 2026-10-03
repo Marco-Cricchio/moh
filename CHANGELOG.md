@@ -7,6 +7,19 @@ matching section here at tag time.
 
 ## [Unreleased]
 
+### Added
+
+- **Subagent spawn attribution and the orchestration stop** (ADR-0055,
+  #1127): every `subagent_spawn` event now records who asked — the model,
+  or a named orchestration extension — and the limits actually applied to
+  the child (tool allow-list, effective permission mode, iteration cap),
+  so an orchestration's children are derivable from the log across
+  restarts. New doors: `liveSubagents()` lists the children in flight and
+  `stopSubagents()` is the one stop — it aborts every live child the
+  session spawned and appends one `orchestration_stopped` chrome event,
+  without touching the owner's own turn; `setSpawnRequester()` attributes
+  subsequent spawns to an orchestration extension.
+
 ## [0.56.0] - 2026-10-01
 
 ### Added

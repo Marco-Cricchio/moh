@@ -10,7 +10,7 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { dirname, join, basename } from "node:path";
 import { createSession, ExtensionRuntime, MockProvider } from "../src/index";
 import { extensionSourceFiles } from "../src/extension-source";
 import { sessionFromConfig } from "../src/session/from-config";
@@ -36,10 +36,25 @@ function tempProject(): { cwd: string; home: string; mohHome: string } {
  * symlinked: `/var` is `/private/var`), so tests compare through realpath. */
 const canonical = (file: string) => realpathSync(file);
 
-/** Writes a module; returns its path. */
+/** Writes a module; returns its path. Every module written through this
+ * helper is also registered in its directory's `moh.extension.json`
+ * (ADR-0061: a file extension loads only with a manifest beside it), so
+ * tests exercise the same contract production does. */
+const manifestEntries = new Map<string, Set<string>>();
 function writeModule(path: string, body: string): string {
   mkdirSync(dirname(path), { recursive: true });
   writeFileSync(path, body);
+  const dir = dirname(path);
+  const base = basename(path);
+  if (/\.(m|c)?[jt]s$/.test(base) && !base.endsWith(".d.ts")) {
+    const entries = manifestEntries.get(dir) ?? new Set<string>();
+    entries.add(base);
+    manifestEntries.set(dir, entries);
+    writeFileSync(
+      join(dir, "moh.extension.json"),
+      JSON.stringify({ name: base, version: "1.0.0", entry: [...entries].sort(), capabilities: [] }, null, 2),
+    );
+  }
   return path;
 }
 

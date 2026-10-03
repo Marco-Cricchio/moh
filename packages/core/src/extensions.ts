@@ -43,6 +43,8 @@ import {
 } from "@moh/extension";
 import type { BeforeTurnResult } from "@moh/extension";
 import type { AgentEvent, ExtensionStatus } from "./types";
+import { capabilityDiff, capabilitiesSubset, readExtensionManifest, type ManifestAuthority } from "./extension-manifest";
+import { redactKeys } from "./redact";
 
 /**
  * ADR-0054 + ADR-0056 (#1126): what one `beforeModelCall` dispatch
@@ -62,7 +64,6 @@ export interface BeforeModelCallDispatch {
   readonly timeouts: { by: string; window: "replacement" | "hook" }[];
   readonly errors: AgentEvent[];
 }
-import { redactKeys } from "./redact";
 
 /**
  * ADR-0033: what one `beforeTurn` dispatch produced. `model`/`confirm` are
@@ -113,6 +114,15 @@ export interface ExtensionConsentRequest {
    * knows them); absent on a first-time file, where nothing has run yet. */
   name?: string;
   version?: string;
+  /** The manifest's declared capabilities (ADR-0061): what the user is
+   * being asked to grant. Present when a `moh.extension.json` was read —
+   * which is every file load, since a file without one is refused before
+   * this question exists. */
+  capabilities?: readonly string[];
+  /** The widening of a re-ask (ADR-0061): capabilities the new manifest
+   * declares that the previously granted manifest did not. Empty or absent
+   * means no new powers. */
+  addedCapabilities?: readonly string[];
 }
 
 export interface ExtensionRuntimeOptions {
@@ -173,6 +183,14 @@ export interface RegisterOptions {
   /** The host shipped these bytes (bundled first-party code): consent and
    * dependency authorization are skipped. Never for a path-loaded module. */
   bundled?: boolean;
+  /**
+   * ADR-0061: the manifest authority for an in-memory registration (a
+   * bundled extension whose package ships `moh.extension.json`). When
+   * present, the same subset rule applies: code capabilities not declared
+   * here refuse the load. File loads derive their own manifest and never
+   * need this.
+   */
+  manifest?: ManifestAuthority;
 }
 
 /**
@@ -274,6 +292,12 @@ interface ExtensionStore {
   consents: Record<string, true>;
   /** `absolute-path:content-hash` -> approved dependency list. */
   dependencies: Record<string, ExtensionDependencies>;
+  /** The manifest file's path -> the manifest the grant covers: its own
+   * SHA-256 and the capabilities it declared. Keyed by manifest *path*
+   * (not content identity): a widening edit usually edits the code too, so
+   * the identity changes and only the path is stable across the diff
+   * (ADR-0061). */
+  manifests: Record<string, { hash: string; capabilities: string[] }>;
 }
 
 const EMPTY_HOOKS = (): HookSet => ({
@@ -863,15 +887,33 @@ export class ExtensionRuntime {
    * never-answered file must not execute a single line, headless included.
    * A granted answer is persisted against the identity (path + bytes), so an
    * unchanged file never asks again and an edited one always does.
+   *
+   * ADR-0061: for a file load the grant also covers the **manifest** — its
+   * own SHA-256 and the capabilities it declared. An unchanged manifest is
+   * part of the silent load; a manifest whose hash changed re-asks, and a
+   * widening edit shows the capability diff in the question.
    */
   async #ensureConsent(
     identity: string,
-    info: { file?: string; hash?: string; name?: string; version?: string },
+    info: {
+      file?: string;
+      hash?: string;
+      name?: string;
+      version?: string;
+      capabilities?: readonly string[];
+    },
     bundled: boolean,
+    manifest?: ManifestAuthority,
   ): Promise<{ ok: true } | { ok: false; reason: string; message: string }> {
     if (bundled) return { ok: true };
     const store = this.#readStore();
-    if (store.consents[identity]) return { ok: true };
+    // The grant is (code bytes, manifest bytes): either half changing means
+    // a new question. The manifest record is keyed by manifest path because
+    // the content identity is not stable across a widening edit — the code
+    // usually changes with the manifest.
+    const stored = manifest ? store.manifests[manifest.path] : undefined;
+    const manifestUnchanged = manifest ? stored?.hash === manifest.hash : true;
+    if (store.consents[identity] && manifestUnchanged) return { ok: true };
     if (!this.#options.consent) {
       const message = "extension not previously enabled and no consent flow is available";
       // The host's own channel (a headless client's stderr): the log
@@ -879,6 +921,9 @@ export class ExtensionRuntime {
       this.#options.onWarning?.(`extension ${info.name ?? info.file ?? identity}: not loaded — ${message}`);
       return { ok: false, reason: "consent", message };
     }
+    // The widening the user must see: what the new manifest declares that
+    // the previously granted one did not.
+    const added = manifest && stored ? capabilityDiff(stored.capabilities, info.capabilities ?? []).added : [];
     let granted: boolean;
     try {
       granted = await this.#options.consent({
@@ -886,12 +931,17 @@ export class ExtensionRuntime {
         ...(info.hash ? { hash: info.hash } : {}),
         ...(info.name ? { name: info.name } : {}),
         ...(info.version ? { version: info.version } : {}),
+        ...(info.capabilities?.length ? { capabilities: info.capabilities } : {}),
+        ...(added.length ? { addedCapabilities: added } : {}),
       });
     } catch (err) {
       return { ok: false, reason: "consent", message: errMessage(err) };
     }
     if (!granted) return { ok: false, reason: "consent", message: "user declined to enable the extension" };
     store.consents[identity] = true;
+    if (manifest && info.capabilities) {
+      store.manifests[manifest.path] = { hash: manifest.hash, capabilities: [...info.capabilities] };
+    }
     this.#writeStore(store);
     return { ok: true };
   }
@@ -910,7 +960,21 @@ export class ExtensionRuntime {
       this.#emitFailed(basename(abs), "load_failed", "extension file could not be read");
       return false;
     }
-    const gate = await this.#ensureConsent(identity, { file: abs, hash: identityHash(identity) }, false);
+    // ADR-0061: the manifest before everything — it is what consent reads,
+    // so a file with no (or a malformed, or a not-its-own) manifest refuses
+    // here, asking nothing and importing nothing. Not even top-level code
+    // of an unmanifested module runs.
+    const manifest = readExtensionManifest(abs);
+    if (!manifest.ok) {
+      this.#emitFailed(basename(abs), "manifest", manifest.message);
+      return false;
+    }
+    const gate = await this.#ensureConsent(
+      identity,
+      { file: abs, hash: identityHash(identity), capabilities: manifest.manifest.capabilities },
+      false,
+      manifest.authority,
+    );
     if (!gate.ok) {
       this.#emitFailed(basename(abs), gate.reason, gate.message);
       return false;
@@ -922,7 +986,7 @@ export class ExtensionRuntime {
       this.#emitFailed(basename(abs), "load_failed", errMessage(err));
       return false;
     }
-    return this.#load(def, abs);
+    return this.#load(def, abs, {}, manifest.manifest.capabilities);
   }
 
   /** Watch registered files and hot-reload on change (state preserved). */
@@ -958,17 +1022,37 @@ export class ExtensionRuntime {
     const index = this.#instances.findIndex((i) => i.file === file);
     if (index === -1) return;
     const previous = this.#instances[index]!;
+    // Everything below speaks about the canonical path, like the load path —
+    // the manifest lookup and the consent store key must match it.
+    file = canonicalModulePath(file);
+    // ADR-0061: the manifest is re-read before anything else — a missing or
+    // malformed one keeps the previous instance, exactly like a refused
+    // consent would: what serves is the last state the user approved.
+    const manifest = readExtensionManifest(file);
+    if (!manifest.ok) {
+      this.#options.onWarning?.(`extension ${previous.def.name}: reload refused (${manifest.message}); previous instance kept`);
+      this.#emitFailed(previous.def.name, "reload_failed", `${manifest.message}; previous instance kept`);
+      return;
+    }
     // #834 (security): the edited bytes are consented BEFORE they are
     // imported. A reload evaluates the new file, so an edit the user has not
     // answered for must not run: the ask names the extension (the previous
     // instance knows it) and its new hash, and a refusal keeps the previous
-    // instance in place.
+    // instance in place. A widening manifest edit shows the capability diff
+    // in the question (#1125).
     const identity = contentIdentity(file);
     if (identity) {
       const gate = await this.#ensureConsent(
         identity,
-        { file, hash: identityHash(identity), name: previous.def.name, version: previous.def.version },
+        {
+          file,
+          hash: identityHash(identity),
+          name: previous.def.name,
+          version: previous.def.version,
+          capabilities: manifest.manifest.capabilities,
+        },
         false,
+        manifest.authority,
       );
       if (!gate.ok) {
         this.#options.onWarning?.(`extension ${previous.def.name}: reload refused (${gate.reason}); previous instance kept`);
@@ -988,7 +1072,7 @@ export class ExtensionRuntime {
       return;
     }
     // Seed the fresh instance with the previous state so setup() sees it.
-    const fresh = await this.#instantiate(def, file, previous.state);
+    const fresh = await this.#instantiate(def, file, previous.state, {}, manifest.manifest.capabilities);
     if (!fresh.ok) {
       this.#options.onWarning?.(
         `extension ${previous.def.name}: reload refused (${fresh.reason}); previous instance kept`,
@@ -1006,8 +1090,13 @@ export class ExtensionRuntime {
     this.#emit({ type: "extension_loaded", name: fresh.instance.def.name, version: fresh.instance.def.version });
   }
 
-  async #load(def: unknown, file: string | undefined, options: RegisterOptions = {}): Promise<boolean> {
-    const result = await this.#instantiate(def, file, undefined, options);
+  async #load(
+    def: unknown,
+    file: string | undefined,
+    options: RegisterOptions = {},
+    manifestCaps?: readonly string[],
+  ): Promise<boolean> {
+    const result = await this.#instantiate(def, file, undefined, options, manifestCaps);
     if (!result.ok) {
       this.#emitFailed(result.name ?? basename(file ?? "(unknown)"), result.reason, result.message);
       return false;
@@ -1023,6 +1112,7 @@ export class ExtensionRuntime {
     file: string | undefined,
     seedState?: Record<string, unknown>,
     options: RegisterOptions = {},
+    manifestCaps?: readonly string[],
   ): Promise<
     | { ok: true; instance: RuntimeExtension }
     | ({ ok: false; name?: string; reason: string; message: string })
@@ -1060,12 +1150,46 @@ export class ExtensionRuntime {
     // candidate definition exists the grant is already stored and this is a
     // lookup — which also re-checks the bytes, catching a file swapped in
     // between. For an in-memory registration it is the question itself.
+    const recheck = file ? readExtensionManifest(file) : undefined;
     const consent = await this.#ensureConsent(
       identity,
-      { ...(file ? { file } : {}), ...(hash ? { hash } : {}), name, version: d.version },
+      {
+        ...(file ? { file } : {}),
+        ...(hash ? { hash } : {}),
+        name,
+        version: d.version,
+        // Re-derives the manifest here too: a file swapped in between the
+        // pre-import ask and this lookup is caught rather than trusted.
+        ...(recheck?.ok ? { capabilities: recheck.manifest.capabilities } : {}),
+      },
       bundled,
+      // ADR-0061: the grant covers manifest bytes too; re-derived here so a
+      // manifest swapped in between ask and import is caught.
+      file
+        ? (recheck?.ok ? recheck.authority : undefined)
+        : options.manifest?.hash
+          ? { hash: options.manifest.hash, path: options.manifest.path ?? options.manifest.hash, capabilities: options.manifest.capabilities }
+          : undefined,
     );
     if (!consent.ok) return { ok: false, name, reason: consent.reason, message: consent.message };
+    // The subset check itself: only where a manifest exists to check against
+    // (every file load; a bundled source that declares one).
+    const authority = manifestCaps ?? options.manifest?.capabilities;
+    if (authority) {
+      const defCaps: unknown = (d as { capabilities?: unknown }).capabilities;
+      // A non-string entry is not dropped: it coerces into a slot the
+      // manifest will not have declared, so the refusal names it.
+      const codeCaps = (Array.isArray(defCaps) ? defCaps : []).map((c) => (typeof c === "string" ? c : String(c)));
+      const subset = capabilitiesSubset(codeCaps, authority);
+      if (!subset.ok) {
+        return {
+          ok: false,
+          name,
+          reason: "capability_undeclared",
+          message: `extension uses capabilities not declared in its manifest: ${subset.undeclared.join(", ")}`,
+        };
+      }
+    }
     // Per-change dependency authorization, bound to the same content identity.
     const deps = d.dependencies ?? [];
     const approved = store.dependencies[identity] ?? [];
@@ -1250,12 +1374,18 @@ export class ExtensionRuntime {
 
   #readStore(): ExtensionStore {
     const file = this.#storeFile();
-    if (!existsSync(file)) return { consents: {}, dependencies: {} };
+    if (!existsSync(file)) return { consents: {}, dependencies: {}, manifests: {} };
     try {
       const parsed = JSON.parse(readFileSync(file, "utf8")) as Partial<ExtensionStore>;
-      return { consents: parsed.consents ?? {}, dependencies: parsed.dependencies ?? {} };
+      return {
+        consents: parsed.consents ?? {},
+        dependencies: parsed.dependencies ?? {},
+        // ADR-0061: stores written before manifests existed simply have none
+        // recorded — the next load records the manifest it was asked about.
+        manifests: parsed.manifests ?? {},
+      };
     } catch {
-      return { consents: {}, dependencies: {} };
+      return { consents: {}, dependencies: {}, manifests: {} };
     }
   }
 
