@@ -122,6 +122,14 @@ function describeOwnRequest(tool: string, args: unknown): PermissionRequestView 
     if (typeof a.version === "string") detail.push(`version: ${sanitizeForDisplay(a.version)}`);
     if (typeof a.file === "string") detail.push(`source: ${sanitizeForDisplay(a.file)}`);
     if (typeof a.hash === "string") detail.push(`sha256: ${sanitizeForDisplay(a.hash)}`);
+    // ADR-0061: the manifest's declared capabilities are what a yes grants,
+    // so they are in the question; a widening re-ask shows the diff.
+    if (Array.isArray(a.capabilities) && a.capabilities.length > 0) {
+      detail.push(`capabilities: ${a.capabilities.map((c) => sanitizeForDisplay(String(c))).join(", ")}`);
+    }
+    if (Array.isArray(a.addedCapabilities) && a.addedCapabilities.length > 0) {
+      detail.push(`new since last approval: ${a.addedCapabilities.map((c) => sanitizeForDisplay(String(c))).join(", ")}`);
+    }
     // #834 (security): a first-time file is asked about BEFORE it is imported
     // — the question has to come before the code runs — so it has made no
     // claims to show. Saying so is the honest prompt, not a defect.

@@ -49,7 +49,9 @@ export default defineExtension({
 A host loads it with `ExtensionRuntime.registerFile()` and passes the
 runtime into the session — the full runnable host script is at
 [examples/run-extension.ts](examples/run-extension.ts) (`bun
-docs/extending/examples/run-extension.ts` from the repo root). Its core:
+docs/extending/examples/run-extension.ts` from the repo root; the example
+also ships its [manifest](examples/moh.extension.json), which a file load
+requires — see "The manifest" below). Its core:
 
 ```ts
 import { builtinTools, createSession, ExtensionRuntime, MockProvider } from "@moh/core";
@@ -76,8 +78,48 @@ await session.dispose();
 | `name` | `string` | unique extension name |
 | `version` | `string` | extension's own version |
 | `apiVersion` | `string` | `"major.minor"`; **mandatory**, major must match the host |
+| `capabilities` | `string[]` | optional capability slots this code uses; every entry must be declared in the manifest (below) or the load refuses |
 | `dependencies` | `string[]` | optional npm specs; installed by the host, per-change authorization |
 | `setup(ctx)` | function | receives the `ExtensionSetupContext` |
+
+## The manifest (`moh.extension.json`, ADR-0061)
+
+A file extension loads only with a **static manifest** beside its entry
+point — `moh.extension.json` in the same directory, naming the file:
+
+```json
+{
+  "name": "no-rm-rf",
+  "version": "0.1.0",
+  "entry": "no-rm-rf.mjs",
+  "capabilities": []
+}
+```
+
+- `name`, `version` — the extension's identity, declared *outside* the
+  code so the consent question can state it before anything runs.
+- `entry` — the file (or files: an array shares one capability set across
+  several entry modules) this manifest speaks for. A manifest whose entry
+  names another file is not your module's, and your module loads as if
+  there were none.
+- `capabilities` — the slots the user is being asked to grant.
+
+The manifest is the **authority**: the consent question reads and signs it
+(the SHA-256 of the manifest joins the entry file's hash in what a yes
+covers), and at import the runtime verifies every capability your
+`defineExtension` declares is declared in the manifest — a **superset
+refuses the load loudly**, naming the offending slot
+(`extension_failed { reason: "capability_undeclared" }`), never silently
+works. A **missing or malformed manifest refuses the load before consent
+is even asked and before the module is imported**: not one line of your
+code — top level included — runs. A package with several entry modules
+declares them all in one manifest's `entry` array.
+
+A **widening edit** — a manifest that adds capabilities, usually together
+with the code that uses them — is a new question, and the question shows
+the **capability diff**: `new since last approval: contribute-panels`.
+Narrowing edits also re-ask (any manifest byte change does); only the
+added slots are highlighted.
 
 ## ExtensionSetupContext
 
@@ -548,12 +590,15 @@ every hook, that order is part of the contract.
 
 **Consent is content-bound, and it comes before the code runs.** An
 extension is arbitrary code running in-process, so the first load asks: a
-modal in the TUI naming the file and a SHA-256 of its exact bytes, and
-stating that there is no sandbox. A `true` answer is remembered in
-`~/.moh/extensions.json` against the **resolved path plus that hash** — so
-the same file loads silently afterwards, and editing it asks again (the
-hash changed). There is nothing to remember a *name*: two files claiming
-the same extension name are two different pieces of code.
+modal in the TUI naming the file, a SHA-256 of its exact bytes, the
+capabilities its manifest declares, and a statement that there is no
+sandbox. A `true` answer is remembered in `~/.moh/extensions.json` against
+the **resolved path plus the module's hash and the manifest's hash** (ADR-0061)
+— so the same bytes load silently afterwards, and editing the module *or*
+its manifest asks again (a hash changed; a widening edit shows the
+capability diff in the question). There is nothing to remember a *name*:
+two files claiming the same extension name are two different pieces of
+code.
 
 The order matters and is the point: **the question is answered before the
 file is imported**, because importing a module evaluates it. A file you
@@ -573,7 +618,9 @@ field is ignored).
 nobody to ask: an extension that was never enabled is skipped — never
 imported, so never executed — with a visible
 `extension_failed { reason: "consent" }` in the log and one line on stderr.
-The session continues and the exit code is untouched.
+A file with no (or a malformed) `moh.extension.json` is refused the same
+way (`reason: "manifest"`) before any question could be asked. The session
+continues and the exit code is untouched.
 
 **There is no sandbox.** An extension runs with the same privileges as moh:
 it can read `~/.moh/config`, your credentials and the network. Consent is
@@ -596,14 +643,17 @@ and the host's warning line).
 - Loading goes through `ExtensionRuntime.registerFile(file)` (dynamic,
   cache-busted import), `registerFiles(files)` (several files in order, as
   one pending registration) or `register(def)` (in-memory). For file
-  modules, the runtime binds enable consent to the resolved absolute path
-  and a SHA-256 hash of its contents, persisted in
-  `<mohHome>/extensions.json`. Editing a file or loading another file that
-  claims the same name requires consent again; an unchanged file loads
-  silently. The approved npm dependency list is bound to that same content
-  identity and is authorized again after a changed module requests
-  dependencies. Both are host-supplied seams; with no consent seam and
-  nothing stored, the load is refused.
+  modules, the runtime binds enable consent to the resolved absolute path,
+  a SHA-256 hash of the module's contents **and a SHA-256 of the manifest**
+  (ADR-0061), persisted in `<mohHome>/extensions.json`. Editing the module
+  or its manifest requires consent again; unchanged bytes load silently.
+  A widening manifest edit shows the capability diff in the question. The
+  approved npm dependency list is bound to that same content identity and
+  is authorized again after a changed module requests dependencies. All
+  are host-supplied seams; with no consent seam and nothing stored, the
+  load is refused. A grant recorded before manifests existed (an earlier
+  moh version) is not silently honored: the first load after the upgrade
+  asks once, with the manifest in the question, and re-remembers.
 - `register(def, { bundled: true })` marks code the *host shipped*
   (first-party bundled code, the Jev extension): consent and dependency
   authorization are skipped, because those bytes never came from the user's
@@ -628,11 +678,14 @@ and the host's warning line).
   before the first turn, so a snapshot taken at wiring time would be empty.
 - Hot-reload: `startWatch()` watches the registered files; on change the
   module is re-imported and `setup()` re-runs with the previous `ctx.state`
-  seeded in. A failed reload keeps the previous instance running and is
-  reported as an `extension_failed` log event, plus the host's own warning
-  line when it has one (`onWarning` — a headless client's stderr; a TUI
-  renders the log line itself). A client's session starts the watch itself
-  and stops it at dispose.
+  seeded in. The manifest is re-read first: a missing or malformed one, or
+  a widening edit the user declines, keeps the previous instance serving
+  (ADR-0061 — the last approved state is what runs). A failed reload keeps
+  the previous instance running and is reported as an `extension_failed`
+  log event, plus the host's own warning line when it has one
+  (`onWarning` — a headless client's stderr; a TUI renders the log line
+  itself). A client's session starts the watch itself and stops it at
+  dispose.
 - `ready()` resolves when every registration started so far has settled;
   file loads register their promise synchronously, so a caller that awaits
   `ready()` before its first turn never runs with half its extensions

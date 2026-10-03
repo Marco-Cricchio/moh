@@ -24,6 +24,12 @@ function homeWithExtension(name: string, body: string): string {
   const home = mkdtempSync(join(tmpdir(), "moh-ext-consent-"));
   mkdirSync(join(home, ".moh", "extensions"), { recursive: true });
   writeFileSync(join(home, ".moh", "extensions", `${name}.mjs`), body);
+  // ADR-0061: a file extension loads only with a manifest beside it — the
+  // manifest is what consent reads, so the fixture writes one.
+  writeFileSync(
+    join(home, ".moh", "extensions", "moh.extension.json"),
+    JSON.stringify({ name, version: "0.3.0", entry: `${name}.mjs`, capabilities: [] }),
+  );
   return home;
 }
 
@@ -42,6 +48,22 @@ describe("extension enable consent (#834)", () => {
     ]);
     expect(view.rulePreview).toBeNull();
     expect(view.extensionAsk).toEqual({ extension: "guard" });
+  });
+
+  test("a widening manifest edit shows the capability diff in the question (ADR-0061)", () => {
+    const view = describePermissionRequest(
+      "extension",
+      {
+        name: "guard",
+        version: "0.4.0",
+        file: "/home/u/.moh/extensions/guard.mjs",
+        capabilities: ["contribute-commands", "contribute-panels"],
+        addedCapabilities: ["contribute-panels"],
+      },
+      { source: "extension", extension: "guard" },
+    );
+    expect(view.detail).toContain("capabilities: contribute-commands, contribute-panels");
+    expect(view.detail).toContain("new since last approval: contribute-panels");
   });
 
   test("a first-time file is asked about with its path and bytes, before it runs", () => {

@@ -28,12 +28,15 @@ disagree about a tool call, the first one wins.
 
 An extension is arbitrary code running inside the moh process, so moh never
 enables one silently. A file that has not been allowed yet raises a prompt
-that names the file and a SHA-256 of its exact bytes, and says plainly that
-there is no sandbox. Answer `y` to enable it, `n` to leave it alone.
+that names the file, a SHA-256 of its exact bytes, the capabilities its
+`moh.extension.json` manifest declares, and says plainly that there is no
+sandbox. Answer `y` to enable it, `n` to leave it alone.
 
 The question comes **before the file is loaded**, because loading a module
 runs it: a file you decline — or that nobody could ask you about — never
-executes a single line. That is also why the prompt shows no name or
+executes a single line. A file with no (or a malformed) manifest is
+refused before the question even exists (ADR-0061). That is also why the
+prompt shows no name or
 version of its own: those are the module's claims, and at the moment it is
 asked about the file has not run yet, so it has made none (they are not the
 trusted part anyway — your answer is bound to the bytes). Once an allowed
@@ -42,11 +45,12 @@ file loads, its name and version appear in the session log
 the previous instance already knew.
 
 Your answer is remembered in `~/.moh/extensions.json`, tied to the file's
-path **and its exact contents**:
+path, its exact contents **and the manifest's**:
 
-- the same file, unchanged, loads without asking ever again;
-- edit the file and the next session asks again — the code you approved is
-  not the code that is there now;
+- the same file and manifest, unchanged, load without asking ever again;
+- edit the file or its manifest and the next session asks again — the code
+  you approved is not the code that is there now; a widening manifest edit
+  shows the capability diff in the question;
 - delete the folder entry (or the `moh.json` declaration) and the extension
   simply stops being loaded; the remembered answer stays but does nothing.
 
@@ -57,7 +61,10 @@ proposal, and a clone you never answered a prompt for loads nothing.
 
 `moh run`, `moh serve` and `moh compact` cannot prompt. An extension that
 was never enabled is skipped there too — and "skipped" here means **never
-loaded**: the file is not imported, so not one line of it runs. The session
+loaded**: the file is not imported, so not one line of it runs. The same
+holds for a file with no (or a malformed) `moh.extension.json` — the
+manifest is what the consent question reads, so without one nothing is
+asked and nothing runs (ADR-0061). The session
 records a visible `extension_failed` with reason `consent`, prints one line
 on stderr, and carries on. The exit code is not affected — a skipped
 extension is not an error.
@@ -68,6 +75,8 @@ Every failure is visible and none of them aborts the session:
 
 | Situation | What you see |
 | --- | --- |
+| the file has no — or a malformed — `moh.extension.json` beside it | `extension_failed` with reason `manifest`; nothing is asked and the file is never imported |
+| the code uses a capability its manifest does not declare | `extension_failed` with reason `capability_undeclared`, naming the offending slot |
 | the file has a syntax error or a missing import | `extension_failed` with reason `load_failed` |
 | the module's default export is not a valid extension | `extension_failed` with reason `invalid` |
 | its `apiVersion` major does not match this moh | `extension_failed` with reason `api_version_mismatch` |
