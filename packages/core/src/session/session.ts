@@ -11,7 +11,6 @@ import { localTipAt, fileTailId, resolveEventRef } from "../session-store";
 import { activePath, pathTo, resolveHead } from "./event-log";
 import type { SessionConfig } from "./config";
 import { resolveProviderRef, defaultRegistry, type FrozenProviderRegistry, type RouteResolutionOptions } from "../provider-registry";
-import { resolveApiKey } from "../route";
 import { contextFitFor } from "../context-fit";
 // ADR-0050 (#974): the selected/serving pair — one formatter, one accessor
 // pair, shared by every surface that states or derives from the model in use.
@@ -58,6 +57,7 @@ import { isOnWindowsMount } from "../windows-mount";
 import { userConfigFile } from "../user-config";
 import { getStoredApiKey } from "../auth/store";
 import { listProviderModels } from "../live-model-catalog";
+import { listOpenAiCompatModels } from "../endpoint-models";
 import { DeclaredWindows, declaredWindowOf } from "../declared-window";
 import { noteUnrecognizedContextRefusal } from "../context-refusal-trace";
 
@@ -554,9 +554,14 @@ export class AgentSession {
             return { ok: false as const, reason: "unknown_endpoint" as const, message: `no endpoint named "${request.endpoint}" in moh.json` };
           }
           try {
-            const apiKey = profile.apiKey ?? resolveApiKey(profile.name, profile.type) ?? getStoredApiKey(userConfigFile(), profile.name);
-            const models = await listProviderModels(profile.type, profile.name, { ...(profile.baseUrl ? { baseUrl: profile.baseUrl } : {}), ...(apiKey ? { apiKey } : {}) });
-            return { ok: true as const, models: models.map((m) => m.id) };
+            // openai-compat has its own plain listing (endpoint-models.ts);
+            // every other kind goes through the verified live-models
+            // contracts. Either way the credential is resolved host-side
+            // and the ids are all the extension sees.
+            const models = profile.type === "openai-compat"
+              ? await listOpenAiCompatModels(profile.baseUrl!, profile.apiKey)
+              : await listProviderModels(profile.type, profile.name, { ...(profile.baseUrl ? { baseUrl: profile.baseUrl } : {}), ...(profile.apiKey ? { apiKey: profile.apiKey } : {}) });
+            return { ok: true as const, models };
           } catch (err) {
             return { ok: false as const, reason: "failed" as const, message: err instanceof Error ? err.message : String(err) };
           }
