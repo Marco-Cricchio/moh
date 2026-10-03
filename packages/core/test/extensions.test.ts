@@ -10,7 +10,7 @@ import { existsSync, mkdtempSync, mkdirSync, rmSync, statSync, writeFileSync } f
 import { tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
 import { createSession, ExtensionRuntime, MockProvider, PromptComposer } from "../src/index";
-import { canonicalModulePath } from "../src/extensions";
+import { canonicalModulePath, DEFAULT_HOOK_TIMEOUT_MS, PROMPT_REPLACEMENT_WINDOW_MS } from "../src/extensions";
 import { defineExtension, MOH_EXTENSION_API_VERSION, parseApiVersion } from "@moh/extension";
 import type { AgentEvent, ExtensionConsentRequest, Tool } from "../src/index";
 import type { ExtensionDefinition, ExtensionSetupContext } from "@moh/extension";
@@ -1077,5 +1077,132 @@ describe("#981: the event budget is per session", () => {
     expect(records(session)).toHaveLength(50);
     // The session's own first turn is its own budget again — named from here.
     expect(await session.send("again")).toMatchObject({ status: "done" });
+  });
+});
+
+describe("ADR-0056 hook deadlines (#1126)", () => {
+  const bmcCtx = { prompt: { sections: {}, system: "", version: "x" }, messages: [] };
+
+  function deadlineRuntime(overrides: Partial<ConstructorParameters<typeof ExtensionRuntime>[0]> = {}) {
+    return runtime(tempDir(), { hookTimeoutMs: 80, replacementWindowMs: 40, ...overrides });
+  }
+
+  test("a hook sleeping past the ceiling contributes nothing; one visible record says so", async () => {
+    const { rt } = await setup(
+      defineExtension({
+        name: "slow",
+        version: "1.0.0",
+        apiVersion: MOH_EXTENSION_API_VERSION,
+        setup: (ctx) => {
+          ctx.onToolCall(async () => {
+            await Bun.sleep(200);
+            return { veto: true, reason: "too late" };
+          });
+        },
+      }),
+      { runtime: deadlineRuntime() },
+    );
+    // The veto never lands: silence is never authority.
+    const verdict = await rt.checkToolHooks({ callId: "c1", name: "echo", args: {} });
+    expect(verdict.veto).toBe(false);
+    expect(verdict.ask).toBe(false);
+    expect(verdict.errors).toHaveLength(1);
+    expect(verdict.errors[0]).toMatchObject({ type: "extension_failed", name: "slow", reason: "hook_timeout" });
+    expect((verdict.errors[0] as any).message).toContain("80ms");
+  });
+
+  test("a throwing hook is still one fail-open record (ceiling does not change the throw path)", async () => {
+    // No session: createSession fire-and-forgets a dispatchSessionStart
+    // whose drain would race with this direct dispatch over the error
+    // bucket (the same reason test-level sends append their own records).
+    const rt = deadlineRuntime();
+    await rt.register(
+      defineExtension({
+        name: "boom",
+        version: "1.0.0",
+        apiVersion: MOH_EXTENSION_API_VERSION,
+        setup: (ctx) => ctx.onToolCall(() => { throw new Error("no"); }),
+      }),
+    );
+    const verdict = await rt.checkToolHooks({ callId: "c1", name: "echo", args: {} });
+    expect(verdict.veto).toBe(false);
+    expect(verdict.errors).toMatchObject([{ type: "extension_failed", name: "boom", reason: "hook" }]);
+  });
+
+  test("a replacement returned within the window counts; past it, the core's text wins but the hook's work still counts", async () => {
+    let sideEffect = 0;
+    const { rt } = await setup(
+      [
+        defineExtension({
+          name: "fast",
+          version: "1.0.0",
+          apiVersion: MOH_EXTENSION_API_VERSION,
+          setup: (ctx) => ctx.beforeModelCall(() => ({ sections: { memory: "fast text" } })),
+        }),
+        defineExtension({
+          name: "slowish",
+          version: "1.0.0",
+          apiVersion: MOH_EXTENSION_API_VERSION,
+          setup: (ctx) =>
+            ctx.beforeModelCall(async () => {
+              await Bun.sleep(60); // inside the 80ms ceiling, past the 40ms window
+              sideEffect += 1;
+              return { sections: { memory: "too late" } };
+            }),
+        }),
+      ],
+      { runtime: deadlineRuntime() },
+    );
+    const dispatch = await rt.dispatchBeforeModelCall(bmcCtx as any);
+    expect(dispatch.replacements).toEqual([{ by: "fast", sections: { memory: "fast text" } }]);
+    expect(dispatch.timeouts).toEqual([{ by: "slowish", window: "replacement" }]);
+    expect(sideEffect).toBe(1); // the hook's non-replacement work still counted
+    expect(dispatch.errors).toMatchObject([{ type: "extension_failed", name: "slowish", reason: "replacement_timeout" }]);
+  });
+
+  test("a hook that never answers inside the ceiling contributes nothing and is marked hook-level", async () => {
+    const { rt } = await setup(
+      defineExtension({
+        name: "gone",
+        version: "1.0.0",
+        apiVersion: MOH_EXTENSION_API_VERSION,
+        setup: (ctx) => ctx.beforeModelCall(() => Bun.sleep(500).then(() => ({ sections: { memory: "never" } }))),
+      }),
+      { runtime: deadlineRuntime() },
+    );
+    const dispatch = await rt.dispatchBeforeModelCall(bmcCtx as any);
+    expect(dispatch.replacements).toEqual([]);
+    // Both clocks fired: the window was lost at 40ms (the replacement is
+    // forfeit), the ceiling at 80ms (the hook itself contributed nothing).
+    expect(dispatch.timeouts).toEqual([
+      { by: "gone", window: "replacement" },
+      { by: "gone", window: "hook" },
+    ]);
+    expect(dispatch.errors).toMatchObject([
+      { type: "extension_failed", name: "gone", reason: "replacement_timeout" },
+      { type: "extension_failed", name: "gone", reason: "hook_timeout" },
+    ]);
+  });
+
+  test("a void-returning hook inside the window is neither a replacement nor a timeout", async () => {
+    const { rt } = await setup(
+      defineExtension({
+        name: "observer",
+        version: "1.0.0",
+        apiVersion: MOH_EXTENSION_API_VERSION,
+        setup: (ctx) => ctx.beforeModelCall(() => {}),
+      }),
+      { runtime: deadlineRuntime() },
+    );
+    const dispatch = await rt.dispatchBeforeModelCall(bmcCtx as any);
+    expect(dispatch.replacements).toEqual([]);
+    expect(dispatch.timeouts).toEqual([]);
+    expect(dispatch.errors).toEqual([]);
+  });
+
+  test("the ceilings default to 30 s and a 5 s replacement window", () => {
+    expect(DEFAULT_HOOK_TIMEOUT_MS).toBe(30_000);
+    expect(PROMPT_REPLACEMENT_WINDOW_MS).toBe(5_000);
+    expect(runtime(tempDir()).hookTimeoutMs).toBe(30_000);
   });
 });

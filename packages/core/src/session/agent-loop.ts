@@ -646,7 +646,7 @@ export class AgentLoop {
       this.#assemblePrompt(); // reassembled every call
       const lastPrompt = this.#lastPrompt();
       if (this.#extensions && lastPrompt) {
-        const errors = await this.#extensions.dispatchBeforeModelCall({
+        const dispatch = await this.#extensions.dispatchBeforeModelCall({
           prompt: {
             sections: lastPrompt.sections,
             system: lastPrompt.system,
@@ -654,7 +654,12 @@ export class AgentLoop {
           },
           messages: this.#messages,
         });
-        for (const e of errors) this.#append(e);
+        for (const e of dispatch.errors) this.#append(e);
+        // ADR-0054: applying the replacements (capability checks, one
+        // author per section, the provenance line, `prompt_override`) is
+        // the composer's work — #1129. The deadline composition (which
+        // returns beat the 5 s window, which lost a clock) is decided
+        // here, in the dispatch.
       }
       const toolCalls: ToolCall[] = [];
       // #853: a bare (non-routed) provider's empty completion must end

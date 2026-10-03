@@ -169,6 +169,21 @@ permissions. Within one turn, the ordering is:
    (`{ status, reason?, message? }`).
 9. `onSessionEnd` — once, when the client disposes the session.
 
+**Deadlines (ADR-0056).** Every turn-path hook invocation — `beforeTurn`,
+`beforeModelCall`, `onToolCall`, `onToolResult`, `afterTurn` — runs under a
+wall-clock ceiling, default 30 s and configurable via moh.json
+`hookTimeoutMs`. Expired or thrown, the hook contributes nothing and the
+turn proceeds with one visible `extension_failed` record
+(`reason: "hook_timeout"`); the hook is not retried within the turn. A
+silence never vetoes, never asks. Within `beforeModelCall`, a returned
+`sections` replacement is judged against a separate, shorter 5 s window
+(ADR-0054): returned past it, the core's own text serves that call
+(`reason: "replacement_timeout"`) — but the hook's other work still counts
+to the ceiling. The dispatch hands the composer the replacements that beat
+the window and the hooks that lost a clock; applying them (capability
+checks, one author per section, the provenance line, the `prompt_override`
+record) is the composer's work.
+
 A veto outranks user permission rules and applies even in
 yolo mode — extensions can only restrict, never widen. The denial
 produces the same denied `tool_result` the model sees for any denial, so

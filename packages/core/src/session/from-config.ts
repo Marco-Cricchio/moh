@@ -272,6 +272,8 @@ export function sessionFromConfig(options: SessionFromConfigOptions): SessionFro
     // path-loaded files go through the content-bound consent.
     extensions = new ExtensionRuntime({
       mohHome,
+      // ADR-0056 (#1126): the turn-path hook ceiling, from moh.json.
+      ...(config.hookTimeoutMs !== undefined ? { hookTimeoutMs: config.hookTimeoutMs } : {}),
       ...(onExtensionConsent
         ? {
             consent: (request) => onExtensionConsent(request),
