@@ -180,6 +180,58 @@ added slots are highlighted.
   reasoning. A callId you did not spawn resolves to `null`: a session you
   did not create does not exist for you, and there is no API that reads
   or resumes one.
+- `registerTool(tool)` — contribute a tool the session's model can call,
+  **only present when a `contribute-tool:<name>` capability is granted**
+  (apiVersion 1.14, ADR-0067). The registered tool's `name` must be one
+  the consent named — anything else is refused visibly
+  (`extension_failed`) and the tool never reaches the model. The
+  contributed tool rides the same runner and permission gate as every
+  session tool: the model sees and calls it like any tool, and your code
+  runs when the model invokes it — a different trust shape from asking
+  the host to run an existing tool (see "The host seam" below).
+
+## The host seam (ADR-0064–0067)
+
+`ctx.host` is the one surface through which your extension asks the host
+to perform an operation — moh's own code executing under the scopes your
+manifest declares. **It is present only when the enable consent covers at
+least one scope** (enforcement by absence; check with
+`typeof ctx.host === "object"`). No OS sandbox: consent is the whole
+boundary, the scope constrains requests to the seam — not your code —
+and every performed operation lands in the log as `host_op`, every
+refusal as `host_refused` (typed reasons, never exceptions).
+
+- `path:<glob>` (ADR-0065, apiVersion 1.13) — `readFile`, `writeFile`,
+  `appendFile`, `rename`, `delete`, `readlink` over project-root-relative
+  globs. One grant covers the whole file family; the user's deny rules
+  beat the grant per call; the log records the real (symlink-resolved)
+  target.
+- `host:<domain>` (ADR-0066, apiVersion 1.13) — `fetch(url, options)`:
+  https only, every redirect hop re-checked against the allowlist, fully
+  buffered responses with a fixed size limit. `host:*` exists only with a
+  manifest `reasoning` the consent displays.
+- `credential:<ref>` (ADR-0069, apiVersion 1.13) — an authenticated fetch
+  passes `credential: "<ref>"`; the host resolves the ref and injects the
+  value itself. The value never crosses the seam; there is no
+  read-the-value API.
+- `tool:<name|*>` (ADR-0067, apiVersion 1.14) —
+  `runTool(name, args)` asks the host to run one registered session tool
+  through the normal runner and permission gate: the model's exact gate
+  path (extension veto > user rules > mode), and an ask names your
+  extension as the requester. Whole-tool grant — `tool:bash` authorizes
+  Bash entire; no argv sub-scoping; the user's rules decide each call.
+  `tool:*` covers every session tool, built-in and MCP, and its consent
+  sentence says so plainly. A tool outside the grant refuses
+  `{ ok: false, reason: "outside_scope" }`; a tool the session does not
+  register refuses `unknown_tool`; a refused ask refuses `denied`.
+- `contribute-tool:<name>` (ADR-0067, apiVersion 1.14) — the
+  contribution slot, a different power with a different consent sentence
+  ("will add a `<name>` tool the model can call; its code runs when the
+  model invokes it"). See `registerTool` above. There is no reserved
+  `custom:` marker; the two shapes never share one string.
+
+Scope prefixes are known capability slots only once their phase ships:
+a typo in a declared scope is a manifest error (ADR-0071).
 
 ## Hooks and their ordering
 
@@ -674,7 +726,9 @@ extension's note.
   1.13 added `spawnSubagent` and `subagentActivity`, the
   `spawn-subagent` capability slot — delegation per ADR-0053/ADR-0055,
   #998 — and the `capabilities` list on `extension_loaded` (the startup
-  announcement of what each enabled extension holds).
+  announcement of what each enabled extension holds); 1.14 added the
+  tool scopes per ADR-0067, #1163 — `ctx.host.runTool` under
+  `tool:<name|*>` and `ctx.registerTool` under `contribute-tool:<name>`.
 - **Additive-only within a major**: new hooks and context fields may be
   added; existing ones never change meaning or disappear. Deprecated APIs
   survive one full major.
