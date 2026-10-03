@@ -525,6 +525,9 @@ type AgentEventBase =
        * client-side (visible absence, never a mock). */
       panels?: string[];
       overlays?: string[];
+      /** ADR-0053: the startup announcement — the capability slots this
+       * enabled extension holds, present only when there are any. */
+      capabilities?: string[];
     }
   | { type: "extension_failed"; name: string; reason: string; message: string }
   /**

@@ -1,5 +1,6 @@
 import { realpathSync } from "node:fs";
 import { isAbsolute, relative, resolve as pathResolve } from "node:path";
+import { assertNoExtensionScope } from "./extension-scope";
 
 export type PermissionDecision = "allow" | "ask" | "deny";
 export type PermissionTier = "builtin" | "config" | "runtime";
@@ -409,6 +410,9 @@ export class PermissionResolver {
 
   /** #849: rotates the mode in-session; the session appends the chrome event. */
   setMode(mode: SessionMode): void {
+    // ADR-0053 absolute prohibition (grant/alter permissions): the mode is
+    // the user's or the client's decision — extension code never moves it.
+    assertNoExtensionScope("permissions", "alter the permission mode");
     this.#mode = mode;
   }
 
@@ -419,6 +423,11 @@ export class PermissionResolver {
 
   /** Stores a rule granted by an "always" answer (tier forced to runtime). */
   addRuntimeRule(rule: Omit<PermissionRule, "tier"> & Partial<Pick<PermissionRule, "tier">>): void {
+    // ADR-0053 absolute prohibition (grant/alter permissions): a rule is
+    // the user's grammar — an "always" answer's or the client's, never an
+    // extension's. Entered from extension code, this throws the typed
+    // refusal and no rule is written.
+    assertNoExtensionScope("permissions", "add a permission rule");
     const { tier: _ignored, ...rest } = rule;
     this.#rules.push({ ...rest, tier: "runtime" });
     if (rest.tool === "bash" && rest.effect === "allow" && !rest.tokens && !rest.path) {

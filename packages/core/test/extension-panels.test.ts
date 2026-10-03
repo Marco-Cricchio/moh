@@ -49,7 +49,7 @@ function failedReasons(rt: ExtensionRuntime): { name: string; reason: string; me
 
 describe("contribute-panels / contribute-overlays (#1132, ADR-0062)", () => {
   test("apiVersion is 1.12", () => {
-    expect(parseApiVersion(MOH_EXTENSION_API_VERSION)).toEqual({ major: 1, minor: 12 });
+    expect(parseApiVersion(MOH_EXTENSION_API_VERSION)).toEqual({ major: 1, minor: 13 });
   });
 
   test("with the grants, the extension registers a panel and an overlay; the runtime reports them", async () => {

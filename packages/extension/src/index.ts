@@ -106,7 +106,48 @@
  * Minor bumps are additive (new optional hooks/fields); major bumps are
  * breaking and refuse to load older/newer extensions.
  */
-export const MOH_EXTENSION_API_VERSION = "1.12";
+export const MOH_EXTENSION_API_VERSION = "1.13";
+
+/** One spawn an orchestration extension requests (ADR-0055, apiVersion 1.13).
+ * `preset` resolves against the host's subagent presets (built-ins and
+ * moh.json `agents`); the other fields override the preset exactly like the
+ * model-facing spawn tool. */
+export interface ExtensionSpawnSpec {
+  /** Preset name; inline fields override it. */
+  readonly preset?: string;
+  /** Display name when no preset is used. */
+  readonly name?: string;
+  /** The task — the child's first user message. */
+  readonly task: string;
+  /** Role prompt (no preset). */
+  readonly systemPrompt?: string;
+  /** Strict subset of the host session's tools; MCP tools are never
+   * inherited and a name the session does not have refuses the spawn. */
+  readonly allowedTools?: readonly string[];
+  /** Per-turn iteration cap for the child; above the envelope's ceiling
+   * the spawn is refused, never silently narrowed. */
+  readonly maxIterations?: number;
+}
+
+/** The settled outcome of one extension spawn (apiVersion 1.13). */
+export interface ExtensionSpawnResult {
+  /** The child's callId — the same id `subagent_spawn` recorded. */
+  readonly callId: string;
+  readonly status: "done" | "error" | "cancelled";
+  /** The child's final assistant text (empty unless done). */
+  readonly output: string;
+  /** Present when status is "error". */
+  readonly error?: string;
+}
+
+/** Bounded activity of one child this extension spawned (apiVersion 1.13):
+ * the child-tail shape's activity — never the provider reasoning. */
+export interface ExtensionSubagentActivity {
+  /** The tool currently in flight, when one is. */
+  readonly currentTool: string | null;
+  /** Monotonic ms timestamp of the child log's last appended event. */
+  readonly lastActivityAt: number | null;
+}
 
 /** Structural (core-independent) view of an event-log entry. */
 export interface ExtensionEvent {
@@ -638,6 +679,36 @@ export interface ExtensionSetupContext {
   registerOverlay?(overlay: ExtensionOverlay): { open(): void };
   onEvent(hook: EventHook): void;
   afterTurn(hook: AfterTurnHook): void;
+  /**
+   * Spawn one subagent child session (ADR-0053 + ADR-0055, apiVersion
+   * 1.13). **Present only when the `spawn-subagent` capability is
+   * granted** (enforcement by absence; check with
+   * `typeof ctx.spawnSubagent === "function"`).
+   *
+   * The enable consent granted an **envelope** — at most ten children per
+   * extension per session, each within the session's own iteration
+   * ceiling. Every request is intersected with that envelope at spawn
+   * time: a request outside it is refused loudly (a visible
+   * `extension_failed`, and the promise resolves with an error result —
+   * the child is not created), never silently narrowed. What the task did
+   * not name does not exist for the child, and a child can never hold
+   * more than the session that spawned it.
+   *
+   * No grandchildren: called from inside a child's dispatch (a hook that
+   * runs on a borrowed session), the spawn is refused. `subagentActivity`
+   * reads only sessions this extension spawned, in the child-tail shape.
+   * One stop — the owner's — aborts every child this extension started.
+   */
+  spawnSubagent?(spec: ExtensionSpawnSpec): Promise<ExtensionSpawnResult>;
+  /**
+   * Bounded turn-activity read (apiVersion 1.13) of one child this
+   * extension spawned — messages, tool calls and outcomes, the turn's
+   * outcome, status, usage-derived activity. **Present only when the
+   * `spawn-subagent` capability is granted.** A callId this extension did
+   * not spawn resolves to `null`: a session the extension did not create
+   * does not exist for it, and there is no API that reads or resumes one.
+   */
+  subagentActivity?(callId: string): Promise<ExtensionSubagentActivity | null>;
   /**
    * Ask the core to run one turn with a synthetic user-side message
    * (ADR-0037, apiVersion 1.6). You supply the text — deterministic,
