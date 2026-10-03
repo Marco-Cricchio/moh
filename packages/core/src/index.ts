@@ -26,6 +26,21 @@ import {
   type ExtensionConsentRequest,
   type RuntimeExtension,
 } from "./extensions";
+import {
+  installExtension,
+  listInstalledExtensions,
+  parseExtensionRef,
+  removeInstalledExtension,
+  registryRoots,
+  verifyIntegrity,
+  KNOWN_CAPABILITY_SLOTS,
+  type RegistryIo,
+  type ExtensionRef,
+  type InstallOptions,
+  type InstallResult,
+  type InstalledExtension,
+  type NpmPackument,
+} from "./extension-registry";
 import { PromptComposer, type SkillIndexEntry } from "./prompt-composer";
 import type {
   AgentEvent,
@@ -810,6 +825,21 @@ export {
   builtinTools,
   ExtensionRuntime,
   type RuntimeExtension,
+  // #1128 (ADR-0061): the extension registry — install from immutable
+  // sources with static checks only; package code is never executed.
+  installExtension,
+  listInstalledExtensions,
+  parseExtensionRef,
+  removeInstalledExtension,
+  registryRoots,
+  verifyIntegrity,
+  KNOWN_CAPABILITY_SLOTS,
+  type RegistryIo,
+  type ExtensionRef,
+  type InstallOptions,
+  type InstallResult,
+  type InstalledExtension,
+  type NpmPackument,
   PromptComposer,
   type SendOptions,
   type SkillPrompt,

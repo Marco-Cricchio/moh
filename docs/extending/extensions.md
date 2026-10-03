@@ -160,7 +160,10 @@ permissions. Within one turn, the ordering is:
    It fires before the turn's provider is read and before anything is
    logged, so a turn that is never sent leaves no trace.
 3. Per model call: `beforeModelCall` — read the assembled prompt
-   (`{ sections, system, version }`) and messages; read-only.
+   (`{ sections, system, version }`) and messages; optionally return
+   `{ sections: { <name>: "<replacement>" | null } }` to replace a prompt
+   section (apiVersion 1.11, ADR-0054 — see "Replacing a prompt section"
+   below).
 4. Per tool call: `onToolCall` — return `{ veto: true, reason? }` to deny,
    or `{ ask: true, reason? }` to hand the call to the human consent flow;
    runs before the permission gate's user-rule tiers.
@@ -200,6 +203,45 @@ A veto outranks user permission rules and applies even in
 yolo mode — extensions can only restrict, never widen. The denial
 produces the same denied `tool_result` the model sees for any denial, so
 the loop can react to it.
+
+## Replacing a prompt section (ADR-0054)
+
+`beforeModelCall` may return `{ sections: Partial<Record<SectionName, string | null>> }`:
+each entry replaces that section's text for the call about to be made,
+with `null` meaning *hidden*. Six data sections are replaceable —
+`environment`, `tools`, `skills`, `memory`, `session_state`, `mpm` —
+plus your own contribution sections; `base` and the project's
+instruction files are never replaceable (they are moh's identity and the
+user's own words), and a section added later defaults to not
+replaceable.
+
+- **Capability, per section.** Replacing `memory` needs the capability
+  slot `replace-prompt-section:memory` declared in your code and your
+  manifest (one slot per section, so the consent question names exactly
+  what you may touch). Without the grant the replacement is refused at
+  runtime — a visible `extension_failed { reason: "section_not_granted" }`
+  — and the core's own text serves that call.
+- **One author per section.** A second extension returning a replacement
+  for an already-replaced section is refused with
+  `extension_failed { reason: "section_contested" }`; the first author's
+  text stands. Dispatch stays in registration order.
+- **Provenance.** The core writes one line at the head of a replaced
+  section (`[extension: your-ext v1.2.0 — section replaced]`), so the
+  model can tell which text is not moh's voice. Hiding a section is
+  recorded as `hidden`, never a silent omission.
+- **The record.** When the set of contributions in force changes — a
+  section replaced, hidden, or restored to core text — the session log
+  gains one `prompt_override` chrome event naming section, author,
+  version and mode. It never records the words; replay reconstructs what
+  was in force from these events alone.
+- **It follows the runtime into children.** A subagent child borrows the
+  dispatch too: the same replacements shape the child's prompt, and the
+  refusals and `prompt_override` records land in the child's own log.
+- **Disengaging.** Nothing is persisted: the replacement is a per-call
+  projection of what your hook returns. Stop returning it and the core's
+  text stands, recorded once as `restored`; disabling the extension
+  removes it entirely. A slow hook that misses the 5 s window loses only
+  the replacement (the deadline composition above).
 
 ## Choosing the model of a turn
 
@@ -587,8 +629,9 @@ extension's note.
   and the `applied: false` outcome on its `onApplied` callback; 1.10
   added the `onModelError` hook, ADR-0059; still 1.10, #1110 added the
   same `endpointCooldowns` list the `beforeTurn` context already carries
-  to the `onModelError` context; 1.11 added `registerCommand`, the
-  `contribute-commands` capability slot, #1130).
+  to the `onModelError` context; 1.11 added the prompt-section
+  replacement return value on `beforeModelCall`, ADR-0054, and
+  `registerCommand`, the `contribute-commands` capability slot, #1130).
 - **Additive-only within a major**: new hooks and context fields may be
   added; existing ones never change meaning or disappear. Deprecated APIs
   survive one full major.
@@ -665,6 +708,45 @@ editing a file re-imports it, re-runs `setup()` with the previous
 `ctx.state` seeded in, and re-asks consent when the bytes changed. A failed
 reload keeps the previous instance and is visible on both channels (the log
 and the host's warning line).
+
+## Installing packages: `moh extension add`
+
+Beyond files you write yourself, extensions can be installed from exactly
+two **immutable sources** (ADR-0061) — immutable because the consent binds
+to the SHA-256 of what was installed, and only a fixed, checksum-verified
+artifact keeps that binding meaningful:
+
+    moh extension add @scope/name@1.2.0     # npm scoped package
+    moh extension add github:owner/repo@v1.2.0   # GitHub release (repo + tag)
+
+Without `--user` the package lands in `<project>/extensions/<name>/`;
+with `--user`, in `~/.moh/extensions/<name>/` — the two roots the loader
+already scans (see the table above).
+
+`add` performs **static checks only**; package code is never executed —
+not at install, not ever by this command:
+
+- the manifest (`moh.extension.json`) must be present and well-formed;
+- the artifact is verified against the source's own digest (npm's
+  `dist.integrity`; a GitHub release's committed `.sha256` asset). A
+  mismatch refuses with both digests, and a release that publishes no
+  digest is refused outright — an unverifiable artifact is never installed;
+- an unknown capability slot **warns** but does not refuse — the slot
+  vocabulary grows, and the load-time consent still decides what runs;
+- declared npm dependencies are **noted**, never installed (see
+  `deps_unauthorized` above).
+
+**Installation never authorizes.** The first session that loads the
+installed file asks the same consent question as any other file, naming
+the resolved path, the SHA-256 of its bytes and manifest, and the
+capabilities the manifest declares. A raw URL or tarball is refused: there
+is no third source.
+
+`moh extension list` shows what is installed in both scopes; `moh
+extension remove <name>` deletes by manifest name, project scope first.
+When the same package identity exists in both scopes, the existing
+discovery precedence decides — the project copy loads, and the ignored
+dotdir copy is reported as a visible line, not an error.
 
 ## Loading, lifecycle, failure
 

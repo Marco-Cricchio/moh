@@ -1154,7 +1154,9 @@ describe("ADR-0056 hook deadlines (#1126)", () => {
       { runtime: deadlineRuntime() },
     );
     const dispatch = await rt.dispatchBeforeModelCall(bmcCtx as any);
-    expect(dispatch.replacements).toEqual([{ by: "fast", sections: { memory: "fast text" } }]);
+    expect(dispatch.replacements).toEqual([
+      { by: "fast", version: "1.0.0", capabilities: [], sections: { memory: "fast text" } },
+    ]);
     expect(dispatch.timeouts).toEqual([{ by: "slowish", window: "replacement" }]);
     expect(sideEffect).toBe(1); // the hook's non-replacement work still counted
     expect(dispatch.errors).toMatchObject([{ type: "extension_failed", name: "slowish", reason: "replacement_timeout" }]);

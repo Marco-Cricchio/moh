@@ -2,9 +2,12 @@
 
 An extension is a module that observes and constrains a running session:
 it can veto a tool call, ask you before one runs, inspect a tool result,
-shape a compaction, add a note to the prompt. It can never grant a
-permission — everything an extension does is additive and can only make moh
-more careful, never less.
+shape a compaction, add a note to the prompt — or, with a per-section
+capability grant, replace one of the six data prompt sections entirely
+(the core writes a provenance line into whatever it replaced, and one
+`prompt_override` log line per composition change so you can always see
+what was in force). It can never grant a permission — everything an
+extension does is additive and can only make moh more careful, never less.
 
 This page is the *user's* side of that contract: where extensions come
 from, what you are asked before one runs, and what happens when one breaks.

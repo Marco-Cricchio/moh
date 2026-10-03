@@ -610,7 +610,22 @@ export class AgentSession {
       maxIterations,
       tools: () => this.#allTools(),
       toolRunner: this.#toolRunner,
-      ...(this.#extensions ? { extensions: this.#extensions } : {}),
+      ...(this.#extensions
+        ? { extensions: this.#extensions }
+        : // ADR-0054 (#1129): a child with no runtime borrows the
+          // beforeModelCall dispatch from its parent (scoped, so the
+          // chrome — refusals and `prompt_override` — lands in the
+          // child's log, #944). The borrowed surface widens per ADR-0054.
+          typeof config.toolHooks?.dispatchBeforeModelCall === "function"
+          ? {
+              extensions: {
+                dispatchBeforeModelCall: (ctx: Parameters<ExtensionRuntime["dispatchBeforeModelCall"]>[0]) =>
+                  this.#scopedDispatch(() =>
+                    (config.toolHooks as Pick<ExtensionRuntime, "dispatchBeforeModelCall">).dispatchBeforeModelCall(ctx),
+                  ),
+              },
+            }
+          : {}),
       ...(dispatchBeforeTurn
         ? {
             beforeTurn: {
@@ -655,6 +670,9 @@ export class AgentSession {
       messages: this.#messages,
       assemblePrompt: () => this.#assemblePrompt(),
       lastPrompt: () => this.#lastPrompt,
+      // ADR-0054 (#1129): the ADR-0011 skill prompt holds the skills
+      // section while it is in force — a replacement for it is refused.
+      skillsProtected: () => this.#skillPrompt !== null,
       append: (event) => this.#append(event),
       // #488: mention expansion — `@path` tokens in user messages become
       // structured attachments at turn start, gated by the read-permission

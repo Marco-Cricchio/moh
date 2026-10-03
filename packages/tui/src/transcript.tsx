@@ -1130,6 +1130,11 @@ export function projectTranscript(events: ReadonlyArray<AgentEvent>, options: { 
         // keep their own spawn/result blocks; the stop itself needs no
         // transcript block.
         break;
+      case "prompt_override":
+        // ADR-0054: prompt-section composition change — section, author,
+        // version and mode only, never the words. The transcript has no
+        // projection today; /session and the log carry the record.
+        break;
       default: {
         const exhaustive: never = event;
         throw new Error(`unhandled AgentEvent: ${JSON.stringify(exhaustive)}`);
