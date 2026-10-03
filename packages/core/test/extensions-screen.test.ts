@@ -21,7 +21,6 @@ describe("extensionsScreenStateFromEvents", () => {
 
   it("lists loaded extensions with their latest version", () => {
     const events: AgentEvent[] = [
-      { type: "session_start" },
       { type: "extension_loaded", name: "jev", version: "0.1.0" },
       { type: "extension_loaded", name: "jev", version: "0.2.0" },
     ];

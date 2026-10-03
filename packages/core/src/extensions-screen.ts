@@ -28,6 +28,16 @@ export interface ExtensionsScreenExtension {
   name: string;
   /** The latest `extension_loaded` version (a hot-reload re-records it). */
   version: string;
+  /** Source file when loaded from a path; undefined for bundled code
+   * (ADR-0039). Fold-only state leaves it undefined; the live merge
+   * fills it. */
+  file?: string;
+  /** The capabilities the code declared (ADR-0053). Not in the log: the
+   * fold leaves it empty, the live merge fills it. */
+  capabilities: readonly string[];
+  /** ADR-0062 (#1130): registered slash commands. Same fold/merge split
+   * as `capabilities`. */
+  commands: readonly { name: string; description: string }[];
   /** Sections this extension currently owns (ADR-0054), in section order. */
   sections: ExtensionsScreenSection[];
   /** The last `extension_failed` record naming this extension, with the
@@ -65,7 +75,7 @@ export function extensionsScreenStateFromEvents(events: readonly AgentEvent[]): 
   const record = (name: string, version: string): ExtensionsScreenExtension => {
     let row = byName.get(name);
     if (!row) {
-      row = { name, version, sections: [], failureCount: 0 };
+      row = { name, version, sections: [], failureCount: 0, capabilities: [], commands: [] };
       byName.set(name, row);
       order.push(name);
     }
@@ -135,7 +145,7 @@ export function mergeExtensionLiveInfo(state: ExtensionsScreenState, live: reado
       if (!info) return row;
       return {
         ...row,
-        file: info.file,
+        ...(info.file !== undefined ? { file: info.file } : {}),
         capabilities: [...info.capabilities],
         commands: info.commands.map((c) => ({ name: c.name, description: c.description ?? "" })),
       };
