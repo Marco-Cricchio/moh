@@ -163,9 +163,17 @@ describe("moh extension", () => {
       writeFileSync(join(dir, "moh.extension.json"), JSON.stringify(MANIFEST));
       writeFileSync(join(dir, "index.mjs"), "export default {};\n");
     }
+    // a dependency-declaring package shows its noted deps in list
+    const dir = join(home, ".moh", "extensions", "with-deps");
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, "moh.extension.json"), JSON.stringify({ ...MANIFEST, name: "with-deps" }));
+    writeFileSync(join(dir, "index.mjs"), "export default {};\n");
+    writeFileSync(join(dir, "package.json"), JSON.stringify({ dependencies: { zod: "^4" } }));
     const r = await run(["list"], cwd, home);
     expect(r.code).toBe(0);
     expect(r.out).toContain("no-rm-rf@1.2.0");
+    expect(r.out).toContain("with-deps@1.2.0");
+    expect(r.out).toContain("dependencies (noted, not installed): zod");
     expect(r.out).toContain("[project");
     expect(r.out).toContain("ignored duplicate");
     expect(r.out).toContain("project scope wins");
@@ -187,6 +195,18 @@ describe("moh extension", () => {
     r = await run(["remove", "no-rm-rf"], cwd, home);
     expect(r.code).toBe(1);
     expect(r.err).toContain('no installed extension named "no-rm-rf"');
+  });
+
+  test("reinstalling over an existing package refuses instead of silently replacing consented bytes", async () => {
+    const cwd = tmp();
+    const home = fakeHome();
+    const tgz = new TextEncoder().encode("reinstall-bytes");
+    const io = fakeIo({ packument: npmPackument(tgz), tgzBytes: tgz });
+    expect((await run(["add", "@scope/name@1.2.0"], cwd, home, io)).code).toBe(0);
+    const r = await run(["add", "@scope/name@1.2.0"], cwd, home, io);
+    expect(r.code).toBe(1);
+    expect(r.err).toContain("already installed");
+    expect(r.err).toContain("remove");
   });
 
   test("help and unknown commands behave like the other command groups", async () => {

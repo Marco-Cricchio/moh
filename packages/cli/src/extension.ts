@@ -147,6 +147,7 @@ function list(
   for (const ext of installed) {
     const caps = ext.capabilities.length ? ext.capabilities.join(", ") : "no capabilities declared";
     ctx.out.write(`${ext.name}@${ext.version}  [${ext.scope}, ${ext.path}]\n  entry: ${ext.entry.join(", ")} · capabilities: ${caps}\n`);
+    if (ext.dependencies.length) ctx.out.write(`  dependencies (noted, not installed): ${ext.dependencies.join(", ")}\n`);
     for (const ignored of ext.ignoredDuplicates ?? []) {
       ctx.out.write(`  ignored duplicate: ${ignored} (project scope wins over the user dotdir)\n`);
     }

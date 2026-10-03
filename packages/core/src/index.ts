@@ -35,8 +35,6 @@ import {
   type InstallResult,
   type InstalledExtension,
   type NpmPackument,
-  type GithubRelease,
-  type IntegrityAlgorithm,
 } from "./extension-registry";
 import { ExtensionRuntime, type ExtensionConsentRequest, type RuntimeExtension } from "./extensions";
 import { PromptComposer, type SkillIndexEntry } from "./prompt-composer";
@@ -836,6 +834,7 @@ export {
   type InstallOptions,
   type InstallResult,
   type InstalledExtension,
+  type NpmPackument,
   PromptComposer,
   type SendOptions,
   type SkillPrompt,

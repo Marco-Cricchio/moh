@@ -273,7 +273,9 @@ async function extractAndCheck(input: {
     const checked = checkManifest(pkgDir);
     if ("reason" in checked) return { ok: false, reason: checked.reason };
     const finalDir = join(input.destRoot, checked.manifest.name);
-    rmSync(finalDir, { recursive: true, force: true });
+    if (existsSync(finalDir)) {
+      return { ok: false, reason: `${checked.manifest.name}@${checked.manifest.version} is already installed at ${finalDir} — remove it first (moh extension remove ${checked.manifest.name}) to replace it: overwriting would silently change bytes an earlier consent signed` };
+    }
     renameSync(pkgDir, finalDir);
     rmSync(staging, { recursive: true, force: true });
     return {
@@ -297,6 +299,18 @@ export function registryRoots(options: { mohHome: string; cwd: string }): { scop
   ];
 }
 
+/** The installed package directories under one root, sorted; hidden dirs (the staging dir) are never packages. */
+function installedPackageDirs(root: string): string[] {
+  try {
+    return readdirSync(root, { withFileTypes: true })
+      .filter((e) => e.isDirectory() && !e.name.startsWith("."))
+      .map((e) => e.name)
+      .sort();
+  } catch {
+    return []; // an unreadable root is "nothing installed", never a listing error
+  }
+}
+
 /**
  * Lists the installed extensions across both roots, reading only
  * manifests. The same package identity (manifest `name`) installed in
@@ -308,13 +322,7 @@ export function listInstalledExtensions(options: { mohHome: string; cwd: string 
   const duplicates = new Map<string, string[]>();
   for (const { scope, root } of registryRoots(options)) {
     if (!existsSync(root)) continue;
-    let dirs: string[] = [];
-    try {
-      dirs = readdirSync(root, { withFileTypes: true }).filter((e) => e.isDirectory() && !e.name.startsWith(".")).map((e) => e.name).sort();
-    } catch {
-      continue;
-    }
-    for (const dir of dirs) {
+    for (const dir of installedPackageDirs(root)) {
       const path = join(root, dir);
       const checked = checkManifest(path);
       if ("reason" in checked) continue; // a broken dir is not a listing error
@@ -356,12 +364,16 @@ function toInstalled(manifest: ExtensionManifest, path: string, scope: "user" | 
 export function removeInstalledExtension(name: string, options: { mohHome: string; cwd: string }): { ok: true; path: string; scope: "user" | "project" } | { ok: false; reason: string } {
   for (const { scope, root } of [...registryRoots(options)].sort((a, b) => scopeRank(a.scope) - scopeRank(b.scope))) {
     if (!existsSync(root)) continue;
-    for (const dir of readdirSync(root, { withFileTypes: true }).filter((e) => e.isDirectory() && !e.name.startsWith(".")).map((e) => e.name)) {
+    for (const dir of installedPackageDirs(root)) {
       const path = join(root, dir);
       const checked = checkManifest(path);
       if ("reason" in checked) continue;
       if (checked.manifest.name === name) {
-        rmSync(path, { recursive: true, force: true });
+        try {
+          rmSync(path, { recursive: true, force: true });
+        } catch (err) {
+          return { ok: false, reason: `cannot remove ${path}: ${err instanceof Error ? err.message : String(err)}` };
+        }
         return { ok: true, path, scope };
       }
     }
