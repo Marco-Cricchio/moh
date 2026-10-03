@@ -46,6 +46,7 @@ import {
   type NpmPackument,
 } from "./extension-registry";
 import { scopeEffectSentence, scopeEffectSentences, isPathScope, isHostScope, validateHostScope, hostScopesOf, checkHostScope, MAX_FETCH_BYTES, HOST_SCOPE_REASONING_KEY, TOTAL_HOST_WILDCARD } from "./host-scope";
+import { fileCredentialStore, isCredentialScope, validateCredentialScope, credentialScopeRef, credentialScopesOf, SECRETS_FILE, type CredentialStore } from "./credential-scope";
 import { PromptComposer, type SkillIndexEntry } from "./prompt-composer";
 import type {
   AgentEvent,
