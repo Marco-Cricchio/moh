@@ -10,6 +10,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { MpmService, projectMapDir } from "@moh/core";
 import { extractWorkspace } from "../../core/src/mpm/extractor";
+import { runCli, SPAWN_TEST_TIMEOUT_MS } from "./spawn-harness";
 
 const TMP_ROOT = join(tmpdir(), "moh-mpm-cli");
 
@@ -29,15 +30,7 @@ function harness(userConfig?: object) {
     writeFileSync(join(home, ".moh", "config"), JSON.stringify(userConfig));
   }
   const spawn = (argv: string[]) => {
-    const proc = Bun.spawnSync(
-      ["bun", join(import.meta.dir, "..", "src", "cli.ts"), ...argv],
-      { cwd, env: { ...process.env, HOME: home }, stdout: "pipe", stderr: "pipe" },
-    );
-    return {
-      code: proc.exitCode,
-      stdout: new TextDecoder().decode(proc.stdout),
-      stderr: new TextDecoder().decode(proc.stderr),
-    };
+    return runCli(argv, { cwd, home });
   };
   return { home, cwd, spawn, source };
 }
@@ -49,7 +42,7 @@ describe("moh mpm (#618)", () => {
     expect(code).toBe(0);
     expect(stdout).toContain("usage: moh mpm");
     rmSync(TMP_ROOT, { recursive: true, force: true });
-  });
+  }, SPAWN_TEST_TIMEOUT_MS);
 
   test("ready projection: status, coverage, budgets — no source content", () => {
     const { spawn, source } = harness({ mpm: { enabled: true } });
@@ -62,7 +55,7 @@ describe("moh mpm (#618)", () => {
     expect(stdout).not.toContain("markerConstA");
     expect(stdout).not.toContain(source);
     rmSync(TMP_ROOT, { recursive: true, force: true });
-  });
+  }, SPAWN_TEST_TIMEOUT_MS);
 
   test("user disablement: 'MPM — disabled (user config)'", () => {
     const { spawn } = harness({ mpm: { enabled: false } });
@@ -70,7 +63,7 @@ describe("moh mpm (#618)", () => {
     expect(code).toBe(0);
     expect(stdout).toContain("disabled (user config)");
     rmSync(TMP_ROOT, { recursive: true, force: true });
-  });
+  }, SPAWN_TEST_TIMEOUT_MS);
 
   test("project disablement: reason names the project side", () => {
     const { home, cwd, spawn } = harness();
@@ -80,7 +73,7 @@ describe("moh mpm (#618)", () => {
     expect(stdout).toContain("disabled (project config)");
     rmSync(home, { recursive: true, force: true });
     rmSync(cwd, { recursive: true, force: true });
-  });
+  }, SPAWN_TEST_TIMEOUT_MS);
 
   test("--json emits the full diagnostics object", () => {
     const { spawn } = harness({ mpm: { enabled: true, quota: { maxFiles: 500 } } });
@@ -91,5 +84,5 @@ describe("moh mpm (#618)", () => {
     expect(diag.budget.maxFiles).toBe(500);
     expect(diag.fileCount).toBeGreaterThan(0);
     rmSync(TMP_ROOT, { recursive: true, force: true });
-  });
+  }, SPAWN_TEST_TIMEOUT_MS);
 });
