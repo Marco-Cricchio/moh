@@ -41,8 +41,27 @@ import { extensionSourceFiles } from "../extension-source";
 import { resolveBundledExtensions, type BundledWiring, type MountedBundledExtension } from "../bundled-extensions";
 import { discoverSkills } from "../skills";
 import { userConfigFile } from "../user-config";
+import { mainCheckoutFor } from "../development-lane-service";
 import { createModelPool } from "../model-pool";
 import type { PermissionAskContext, PermissionsConfig } from "./config";
+
+/**
+ * Project-scoped reads resolve here. A lane worktree has no `moh.json`
+ * (it is gitignored, so `git worktree add` leaves it out) — and would
+ * otherwise silently assemble with the empty config: default provider,
+ * no mpm, the 50-turn default cap. When the cwd sits inside a lane
+ * worktree and carries no moh.json of its own, the owning main checkout
+ * (`mainCheckoutFor`) supplies the project config surface. A worktree
+ * with its own moh.json keeps it (it wins, as any nearer file does).
+ */
+export function projectRootFor(cwd: string): string {
+  try {
+    if (existsSync(join(cwd, "moh.json"))) return cwd;
+  } catch {
+    // Unreadable cwd: keep it, like loadMohConfig's missing-file path.
+  }
+  return mainCheckoutFor(cwd) ?? cwd;
+}
 
 /**
  * Initial projection build for a never-mapped project (MPM activation
@@ -242,7 +261,7 @@ export function sessionFromConfig(options: SessionFromConfigOptions): SessionFro
   const home = options.home ?? homedir();
   let config: MohConfig;
   try {
-    const project = options.config ?? loadMohConfig(join(options.cwd, "moh.json"));
+    const project = options.config ?? loadMohConfig(join(projectRootFor(options.cwd), "moh.json"));
     // User-level provider layering (#129): strict when the sections are
     // present — a broken user config fails loudly like a broken moh.json.
     const user = readUserProviderConfig(userConfigFile(home));
@@ -268,6 +287,9 @@ export function sessionFromConfig(options: SessionFromConfigOptions): SessionFro
   }
 
   const o = options.overrides ?? {};
+  // Project-scoped reads (skills, prompt files, mpm identity) resolve against
+  // the owning checkout when the cwd is a lane worktree without moh.json.
+  const projectRoot = projectRootFor(options.cwd);
   const mohHome = join(home, ".moh");
   // The user config (guardian-owned) is read once and used by every
   // section that lives there: the bundled extensions' activation predicate
@@ -282,7 +304,7 @@ export function sessionFromConfig(options: SessionFromConfigOptions): SessionFro
   // run fails closed through the same code the TUI asks through.
   const extensionSources = extensionSourceFiles({
     mohHome,
-    cwd: options.cwd,
+    cwd: projectRoot,
     declared: config.extensions ?? [],
   });
   // The consent seam is the client's: with one, the user is asked; without
@@ -350,7 +372,7 @@ export function sessionFromConfig(options: SessionFromConfigOptions): SessionFro
         ...(config.routingPool !== undefined ? { routingPool: config.routingPool } : {}),
         skillRoster: () =>
           Promise.resolve(
-            discoverSkills({ mohHome, projectDir: options.cwd, firstParty: o.firstParty ?? "include" }).map((s) => ({
+            discoverSkills({ mohHome, projectDir: projectRoot, firstParty: o.firstParty ?? "include" }).map((s) => ({
               name: s.name,
               description: s.description,
             })),
@@ -375,7 +397,7 @@ export function sessionFromConfig(options: SessionFromConfigOptions): SessionFro
   // session file behind. Project trust is resolved from the user config's
   // `mcpTrust` section (#352/SEC-01): the repo's own `trusted` field is ignored.
   const servers = [
-    ...declaredMcpServers(config).map((s) => (isProjectServerTrusted(userFile, options.cwd, s.name) ? { ...s, trusted: true } : s)),
+    ...declaredMcpServers(config).map((s) => (isProjectServerTrusted(userFile, projectRoot, s.name) ? { ...s, trusted: true } : s)),
     ...declaredUserMcpServers(userFile),
   ];
 
@@ -420,7 +442,7 @@ export function sessionFromConfig(options: SessionFromConfigOptions): SessionFro
   try {
     const mpmConfig = resolveMpmConfig(readMpmUserConfig(userConfigFile(home)), config.mpm);
     if (mpmConfig.enabled) {
-      const mapDir = projectMapDir(mohHome, options.cwd);
+      const mapDir = projectMapDir(mohHome, projectRoot);
       if (!existsSync(join(mapDir, "manifest.json"))) {
         buildInitialProjection(mapDir, options.cwd, mpmConfig.exclude);
       }
@@ -488,7 +510,7 @@ export function sessionFromConfig(options: SessionFromConfigOptions): SessionFro
       // prepared for this session's home. Passing the assembly's own
       // `mohHome` also keeps the two in agreement (the gate pins this
       // home's identity; the composer reads the same one).
-      promptComposer: new PromptComposer({ projectDir: options.cwd, mohHome }),
+      promptComposer: new PromptComposer({ projectDir: projectRoot, mohHome }),
       ...(mpm
         ? {
             mpm: {
