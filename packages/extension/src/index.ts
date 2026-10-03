@@ -106,7 +106,7 @@
  * Minor bumps are additive (new optional hooks/fields); major bumps are
  * breaking and refuse to load older/newer extensions.
  */
-export const MOH_EXTENSION_API_VERSION = "1.13";
+export const MOH_EXTENSION_API_VERSION = "1.14";
 
 /** One spawn an orchestration extension requests (ADR-0055, apiVersion 1.13).
  * `preset` resolves against the host's subagent presets (built-ins and
@@ -617,6 +617,62 @@ export type HostFetchResult =
   | { ok: false; reason: "outside_scope" | "invalid_url" | "unknown_credential" | "denied" | "too_large" | "failed"; target?: string; message?: string };
 
 /**
+ * ADR-0067: the typed result of one `ctx.host.runTool`. The tool ran (or
+ * was refused) through moh's normal runner and gate — a gate refusal
+ * (user rule, denied ask, headless) is `{ ok: false, reason: "denied" }`,
+ * never an exception; a tool the session does not register is
+ * `{ ok: false, reason: "unknown_tool" }`.
+ */
+export interface HostRunToolSuccess {
+  ok: true;
+  /** The tool's textual output, exactly what a model-initiated call returns. */
+  output: string;
+}
+
+export type HostRunToolResult =
+  | HostRunToolSuccess
+  | { ok: false; reason: "outside_scope" | "unknown_tool" | "denied" | "failed"; message?: string };
+
+/**
+ * The arg validator a contributed tool may declare. Structurally the
+ * slice of a zod schema the core's runner needs (`safeParse`); a plain
+ * object validator works too. Absent = the args pass through unvalidated.
+ */
+export interface ContributedToolSchema {
+  safeParse(args: unknown):
+    | { success: true; data: unknown }
+    | { success: false; error: { issues: readonly { path: readonly (string | number | symbol)[]; message: string }[] } };
+}
+
+/** Runtime context handed to a contributed tool's execute. */
+export interface ContributedToolContext {
+  /** Aborts when the calling turn is cancelled. */
+  readonly signal: AbortSignal;
+  /** The session's working directory. */
+  readonly cwd: string;
+}
+
+/**
+ * ADR-0067: one tool an extension contributes to the session's model.
+ * The name is fixed by the granted `contribute-tool:<name>` capability —
+ * consent, manifest and log name the same tool the model will see.
+ */
+export interface ExtensionContributedTool {
+  /** The tool name — must equal the granted contribution's name. */
+  name: string;
+  /** One-line description the model sees in the tools prompt. */
+  description: string;
+  /** Optional arg validator (see `ContributedToolSchema`). */
+  inputSchema?: ContributedToolSchema;
+  /**
+   * The extension's own code, run when the model invokes the tool —
+   * after the call passes the normal permission gate. Never throws into
+   * the turn: a thrown error becomes a failed tool result.
+   */
+  execute(args: unknown, ctx: ContributedToolContext): Promise<string> | string;
+}
+
+/**
  * #1162: what one `ctx.host.fetch` may ask for. The seam's first consumer
  * with a request body (Jev's TypeSafe POST) grew the request side from the
  * anonymous GET ADR-0066 shipped — same scope rules, same buffered
@@ -675,6 +731,15 @@ export interface ExtensionHost {
    * `application/json` with a body) and `signal` (host-side abort).
    */
   fetch(url: string, options?: HostFetchOptions): Promise<HostFetchResult>;
+  /**
+   * ADR-0067: asks the host to run one registered session tool through
+   * the normal ToolRunner and PermissionGate — the model's exact gate
+   * path (veto > user rules > mode); an ask names this extension as the
+   * requester. Whole-tool grant: a `tool:<name>` capability authorizes
+   * the tool entire, no argv sub-scoping; the user's rules decide each
+   * call. `tool:*` covers every session tool, built-in and MCP.
+   */
+  runTool(name: string, args: unknown): Promise<HostRunToolResult>;
 }
 
 /**
@@ -788,6 +853,17 @@ export interface ExtensionSetupContext {
    * visible absence, never a simulated rendering.
    */
   registerOverlay?(overlay: ExtensionOverlay): { open(): void };
+  /**
+   * Contribute a tool the session's model can call (ADR-0067, apiVersion
+   * 1.14). **Present only when a `contribute-tool:<name>` capability is
+   * granted** (enforcement by absence); the registered tool's `name` must
+   * be one the consent named — anything else is refused visibly, and the
+   * tool never reaches the model. A contributed tool rides the same
+   * runner and gate as every session tool: the model sees and calls it
+   * like any tool, and this extension's code runs when the model invokes
+   * it — the different trust shape `contribute-tool:` names.
+   */
+  registerTool?(tool: ExtensionContributedTool): void;
   onEvent(hook: EventHook): void;
   afterTurn(hook: AfterTurnHook): void;
   /**

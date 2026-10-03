@@ -17,6 +17,7 @@
 import { readdirSync, realpathSync, lstatSync } from "node:fs";
 import { isAbsolute, relative, resolve, dirname } from "node:path";
 import { isCredentialScope, credentialScopeRef, credentialEffectSentence } from "./credential-scope";
+import { isToolScope, toolEffectSentence, isContributeToolScope, contributeToolName, contributeToolEffectSentence } from "./tool-scope";
 
 /** The scope prefixes the shipped host knows (ADR-0071: a prefix becomes
  * a known slot only when its phase ships — F1 `path:`, F2 `host:`). */
@@ -183,6 +184,12 @@ export function scopeEffectSentence(capability: string): string | null {
     }
     const named = `\`${check.host}${check.port !== undefined ? `:${check.port}` : ""}\` over https`;
     return `may contact ${named}`;
+  }
+  if (isContributeToolScope(capability)) {
+    return contributeToolEffectSentence(contributeToolName(capability));
+  }
+  if (isToolScope(capability)) {
+    return toolEffectSentence(capability);
   }
   if (!isPathScope(capability)) return null;
   const check = validatePathScope(capability);

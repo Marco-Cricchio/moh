@@ -29,7 +29,9 @@ import {
   type HostReadResult,
   type HostReadLinkResult,
   type HostFetchResult,
+  type HostRunToolResult,
   type HostFetchOptions,
+  type ExtensionContributedTool,
   type BeforeTurnHook,
   type BeforeModelCallHook,
   type BeforeModelCallResult,
@@ -59,9 +61,22 @@ import { ExtensionSpawnRefusedError } from "./extension-scope";
 import { capabilityDiff, capabilitiesSubset, readExtensionManifest, type ManifestAuthority } from "./extension-manifest";
 import { checkHostScope, checkPathScope, hostScopesOf, isHostScope, isPathScope, MAX_FETCH_BYTES, MAX_REDIRECTS, HOST_SCOPE_REASONING_KEY, TOTAL_HOST_WILDCARD, validateHostScope, validatePathScope, pathScopesOf } from "./host-scope";
 import { credentialScopesOf, credentialScopeRef, isCredentialScope, validateCredentialScope, type CredentialStore } from "./credential-scope";
+import { isToolScope, validateToolScope, toolScopesOf, checkToolScope, isContributeToolScope, validateContributeToolScope, contributesTool, toolScopeName, contributeToolScopesOf, contributeToolName, CONTRIBUTE_TOOL_SCOPE_PREFIX } from "./tool-scope";
 import { newUlid } from "./session/ulid";
 
-type HostOpName = "read" | "write" | "append" | "rename" | "delete" | "readlink" | "fetch";
+type HostOpName = "read" | "write" | "append" | "rename" | "delete" | "readlink" | "fetch" | "run_tool";
+
+/**
+ * ADR-0067: the tool-execution seam the session binds — the host-side
+ * half of `ctx.host.runTool`. The runtime owns scope + logging; the
+ * session owns lookup, gate and execution (the normal ToolRunner path).
+ */
+export interface ToolSeam {
+  runTool(request: { extension: string; tool: string; args: unknown }): Promise<
+    | { ok: true; output: string }
+    | { ok: false; reason: "unknown_tool" | "denied" | "failed"; message?: string }
+  >;
+}
 import { redactKeys } from "./redact";
 import { assertNoExtensionScope, runInExtensionScope } from "./extension-scope";
 
@@ -1313,6 +1328,75 @@ bindPathDeny(isDenied: (resolvedAbsPath: string) => boolean): void {
 }
 
   /**
+   * ADR-0067: the session binds its tool-execution seam. The `runTool`
+   * host method exists only when a `tool:` scope was granted, but the
+   * session (which owns the runner and the gate) may not exist yet at
+   * load time — the seam binds later, like the deny answers.
+   */
+  #toolSeam: ToolSeam | null = null;
+
+  bindToolSeam(seam: ToolSeam): void {
+    this.#toolSeam = seam;
+  }
+
+  /**
+   * ADR-0067: the session binds its contributed-tool sink. A registration
+   * made before a session exists (setup runs during load) is held and
+   * applied — and logged — at bind time, so the `tool_contributed` event
+   * lands inside the session's log deterministically.
+   */
+  #toolContributor: ((registration: { extension: string; tool: unknown }) => void) | null = null;
+  #pendingContributed: { extension: string; tool: unknown }[] = [];
+
+  bindToolContributor(contributor: (registration: { extension: string; tool: unknown }) => void): void {
+    this.#toolContributor = contributor;
+    const pending = this.#pendingContributed.splice(0);
+    for (const registration of pending) {
+      contributor(registration);
+      // ADR-0067: the registration record lands with the session's log —
+      // emitted at bind time, never during setup, so a replay sees it
+      // where the tool became callable.
+      this.#emit({ type: "tool_contributed", extension: registration.extension, tool: (registration.tool as { name: string }).name });
+    }
+  }
+
+  /** True when any loaded extension holds a `contribute-tool:<name>` grant. */
+  hasContributedToolScopes(): boolean {
+    return this.#instances.some((e) => contributeToolScopesOf(e.grantedCapabilities).length > 0);
+  }
+
+  /**
+   * ADR-0067 `registerTool`: the name must be one the consent named; a
+   * mismatch is a loud `extension_failed` and the tool never reaches the
+   * model. With a session bound, the tool registers immediately (and the
+   * `tool_contributed` record rides the session's log); without one, the
+   * registration is held for `bindToolContributor`.
+   */
+  #registerContributedTool(instance: RuntimeExtension, tool: ExtensionContributedTool, grantedNames: readonly string[]): void {
+    const extension = instance.def.name;
+    const name = typeof (tool as { name?: unknown } | null)?.name === "string" ? tool.name : "";
+    if (name === "" || !contributesTool(name, [...grantedNames.map((n) => `${CONTRIBUTE_TOOL_SCOPE_PREFIX}${n}`)])) {
+      this.#emitFailed(extension, "register_tool_refused", `contribute-tool: the registered tool name "${name}" is not one the consent granted (${grantedNames.map((n) => `"${n}"`).join(", ") || "none"})`);
+      return;
+    }
+    if (typeof tool.execute !== "function") {
+      this.#emitFailed(extension, "register_tool_refused", `contribute-tool: "${name}" has no execute()`);
+      return;
+    }
+    const registration = { extension, tool };
+    if (this.#toolContributor) this.#toolContributor(registration);
+    else this.#pendingContributed.push(registration);
+    // The `tool_contributed` record is emitted by `bindToolContributor`
+    // at bind time — the log of the session where the tool became
+    // callable, never a setup-time orphan event.
+  }
+
+  /** True when any loaded extension holds a `tool:<name|*>` grant. */
+  hasToolScopes(): boolean {
+    return this.#instances.some((e) => toolScopesOf(e.grantedCapabilities).length > 0);
+  }
+
+  /**
    * Resolves when every registration started so far has settled (the
    * bundled-definition path and the client's file source register
    * fire-and-forget from the assembly; the first turn waits on this so a
@@ -1781,6 +1865,20 @@ bindPathDeny(isDenied: (resolvedAbsPath: string) => boolean): void {
       const validity = validateCredentialScope(capability);
       if (!validity.ok) return { ok: false, name, reason: "invalid_credential_scope", message: validity.message };
     }
+    // ADR-0067: the tool scopes validate at load like their scope
+    // siblings. An invocation name must be a name a session can look up
+    // (the wildcard is its own grammar); a contribution is always named
+    // exactly — a wildcard contribution would hide which tools the
+    // extension's code actually adds.
+    for (const capability of granted) {
+      if (isToolScope(capability)) {
+        const validity = validateToolScope(capability);
+        if (!validity.ok) return { ok: false, name, reason: "invalid_tool_scope", message: validity.message };
+      } else if (isContributeToolScope(capability)) {
+        const validity = validateContributeToolScope(capability);
+        if (!validity.ok) return { ok: false, name, reason: "invalid_tool_scope", message: validity.message };
+      }
+    }
     instance.grantedCapabilities = [...granted];
     const commandSlot: { registerCommand?: ExtensionSetupContext["registerCommand"] } = granted.includes("contribute-commands")
       ? { registerCommand: (command: ExtensionCommand) => this.#registerCommand(instance, command) }
@@ -1792,6 +1890,16 @@ bindPathDeny(isDenied: (resolvedAbsPath: string) => boolean): void {
     const overlaySlot: { registerOverlay?: ExtensionSetupContext["registerOverlay"] } = granted.includes("contribute-overlays")
       ? { registerOverlay: (overlay: ExtensionOverlay) => this.#registerOverlay(instance, overlay) }
       : {};
+    // ADR-0067: the contributed-tool slot. Present only when the grant
+    // covers at least one `contribute-tool:<name>` scope (enforcement by
+    // absence); the registered name must be one the consent named, and
+    // the tool lands in the session via the bound contributor — the same
+    // runner and gate as every session tool.
+    const contributedNames = contributeToolScopesOf(granted).map(contributeToolName);
+    const toolSlot: { registerTool?: ExtensionSetupContext["registerTool"] } =
+      contributedNames.length > 0
+        ? { registerTool: (tool) => this.#registerContributedTool(instance, tool, contributedNames) }
+        : {};
     // ADR-0053 + ADR-0055 (#998 follow-up): the spawn-subagent slot.
     // Present only when granted (enforcement by absence); the envelope is
     // intersected at every call, and a refusal is a loud
@@ -1811,17 +1919,25 @@ bindPathDeny(isDenied: (resolvedAbsPath: string) => boolean): void {
     // exists when one is granted even without a host scope, so an
     // authenticated call is refused on the host check, not by absence.
     const credScopes = credentialScopesOf(granted);
+    // ADR-0067: the tool scopes. `runTool` rides the same seam object —
+    // present only when a `tool:<name|*>` scope was granted; the per-call
+    // check is whole-tool, the execution and gate live in the session.
+    const toolScopes = toolScopesOf(granted);
+    const toolHost = this.#toolHostFor(instance, toolScopes);
     const fileHost = this.#fileHostFor(instance, scopes);
     const netHost = this.#networkHostFor(instance, [...hostScopes, ...credScopes]);
     // Both scopes land on one seam object; a method absent at runtime
     // means no scope of its kind was granted (enforcement by absence).
-    const hostObject = { ...fileHost, fetch: netHost.fetch } as ExtensionHost;
+    const hostObject = { ...fileHost, fetch: netHost.fetch, runTool: toolHost.runTool } as ExtensionHost;
     const hostSlot: Pick<ExtensionSetupContext, "host"> =
-      scopes.length > 0 || hostScopes.length > 0 || credScopes.length > 0 ? { host: hostObject } : {};
+      scopes.length > 0 || hostScopes.length > 0 || credScopes.length > 0 || toolScopes.length > 0
+        ? { host: hostObject }
+        : {};
     const ctx: ExtensionSetupContext = {
       ...commandSlot,
       ...panelSlot,
       ...overlaySlot,
+      ...toolSlot,
       ...spawnSlot,
       ...hostSlot,
       state: instance.state,
@@ -1905,7 +2021,51 @@ bindPathDeny(isDenied: (resolvedAbsPath: string) => boolean): void {
    * event with the resolved path. The host acted in the world; the log
    * records it.
    */
-  #fileHostFor(instance: RuntimeExtension, scopes: readonly string[]): Omit<ExtensionHost, "fetch"> {
+  /**
+   * ADR-0067: the `runTool` half of the host seam. Scope + logging live
+   * here (the runtime stamps the extension and writes `host_op` /
+   * `host_refused`); lookup, gate and execution live in the session
+   * behind `#toolSeam` — the model's exact gate path, with this
+   * extension named as the ask's requester.
+   */
+  #toolHostFor(instance: RuntimeExtension, scopes: readonly string[]): { runTool?: (name: string, args: unknown) => Promise<HostRunToolResult> } {
+    if (scopes.length === 0) return {};
+    const name = instance.def.name;
+    return {
+      runTool: async (tool, args): Promise<HostRunToolResult> => {
+        const callId = newUlid();
+        // Whole-tool grant, per call: the wildcard or an exact name —
+        // never argv sub-scoping (ADR-0067).
+        const checked = checkToolScope(tool, scopes);
+        if (!checked.ok) {
+          this.#emit({ type: "host_refused", callId, extension: name, op: "run_tool", tool, reason: "outside_scope" });
+          return { ok: false, reason: "outside_scope" };
+        }
+        const seam = this.#toolSeam;
+        if (!seam) {
+          // No session bound (a bare runtime, a test): the tool cannot
+          // run — refused loudly, never silently dropped.
+          this.#emit({ type: "host_refused", callId, extension: name, op: "run_tool", tool, reason: "failed" });
+          return { ok: false, reason: "failed", message: "no session is bound to this extension runtime" };
+        }
+        const result = await seam.runTool({ extension: name, tool, args });
+        if (result.ok) {
+          this.#emit({ type: "host_op", callId, extension: name, op: "run_tool", tool, outcome: "ok" });
+          return { ok: true, output: result.output };
+        }
+        // An unknown tool is a scope-answer-shaped refusal; a gate refusal
+        // ("denied") is a policy answer, not a fault — both log visibly.
+        this.#emit(
+          result.reason === "unknown_tool"
+            ? { type: "host_refused", callId, extension: name, op: "run_tool", tool, reason: "unknown_tool" }
+            : { type: "host_op", callId, extension: name, op: "run_tool", tool, outcome: result.reason, ...(result.message !== undefined ? { message: result.message } : {}) },
+        );
+        return { ok: false, reason: result.reason, ...(result.message !== undefined ? { message: result.message } : {}) };
+      },
+    };
+  }
+
+  #fileHostFor(instance: RuntimeExtension, scopes: readonly string[]): Omit<ExtensionHost, "fetch" | "runTool"> {
     const name = instance.def.name;
     const root = this.#options.projectRoot ?? process.cwd();
     const isDenied = this.#pathDeny ?? this.#options.isPathDenied ?? (() => false);

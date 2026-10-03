@@ -143,6 +143,13 @@ export interface SessionOverrides {
   permissionFlags?: PermissionOverrides;
   /** First-party skills (#36): "include" (default) or "exclude". */
   firstParty?: "include" | "exclude";
+  /**
+   * ADR-0067: a pre-assembled extension runtime (tests, clients that host
+   * the runtime themselves). Wins over the runtime the builder would
+   * assemble from `bundledExtensions` + the declared sources; the builder
+   * then only wires it (deny answers, the tool seam, load events).
+   */
+  extensions?: ExtensionRuntime;
   /** Extra event sink (e.g. CLI stdout streaming); the store append always runs. */
   sink?: (event: AgentEvent) => void;
   /** Existing store to append to (resume); default: a fresh SessionStore. */
@@ -501,7 +508,7 @@ export function sessionFromConfig(options: SessionFromConfigOptions): SessionFro
       sessionFile: store.file,
       externalGrowth: () => store.externalGrowth(),
       ...(o.firstParty ? { firstParty: o.firstParty } : {}),
-      ...(extensions ? { extensions } : {}),
+      ...(o.extensions || extensions ? { extensions: o.extensions ?? extensions } : {}),
       ...(notes.length ? { notes } : {}),
       ...(servers.length
         ? {

@@ -47,6 +47,7 @@ import {
 } from "./extension-registry";
 import { scopeEffectSentence, scopeEffectSentences, isPathScope, isHostScope, validateHostScope, hostScopesOf, checkHostScope, MAX_FETCH_BYTES, HOST_SCOPE_REASONING_KEY, TOTAL_HOST_WILDCARD } from "./host-scope";
 import { fileCredentialStore, isCredentialScope, validateCredentialScope, credentialScopeRef, credentialScopesOf, keychainCredentialStore, defaultCredentialStore, SECRETS_FILE, type CredentialStore } from "./credential-scope";
+import { isToolScope, validateToolScope, toolScopeName, toolScopesOf, checkToolScope, toolEffectSentence, TOOL_SCOPE_PREFIX, TOOL_SCOPE_WILDCARD, isContributeToolScope, validateContributeToolScope, contributeToolName, contributeToolScopesOf, contributesTool, contributeToolEffectSentence, CONTRIBUTE_TOOL_SCOPE_PREFIX } from "./tool-scope";
 import { PromptComposer, type SkillIndexEntry } from "./prompt-composer";
 import type {
   AgentEvent,
@@ -881,6 +882,21 @@ export {
   credentialScopesOf,
   SECRETS_FILE,
   type CredentialStore,
+  isToolScope,
+  validateToolScope,
+  toolScopeName,
+  toolScopesOf,
+  checkToolScope,
+  toolEffectSentence,
+  TOOL_SCOPE_PREFIX,
+  TOOL_SCOPE_WILDCARD,
+  isContributeToolScope,
+  validateContributeToolScope,
+  contributeToolName,
+  contributeToolScopesOf,
+  contributesTool,
+  contributeToolEffectSentence,
+  CONTRIBUTE_TOOL_SCOPE_PREFIX,
   type RegistryIo,
   type ExtensionRef,
   type InstallOptions,
