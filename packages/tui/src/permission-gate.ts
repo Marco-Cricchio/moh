@@ -128,13 +128,11 @@ function describeOwnRequest(tool: string, args: unknown): PermissionRequestView 
     // sentence — the user approves what it does, not what it's called.
     if (Array.isArray(a.capabilities) && a.capabilities.length > 0) {
       detail.push(
-        a.capabilities
-          .map((c) => {
-            const raw = sanitizeForDisplay(String(c));
-            const sentence = scopeEffectSentence(String(c));
-            return sentence ? `${raw} — ${sentence}` : raw;
-          })
-          .join(", "),
+        `capabilities: ${a.capabilities.map((c) => {
+          const raw = sanitizeForDisplay(String(c));
+          const sentence = scopeEffectSentence(String(c));
+          return sentence ? `${raw} — ${sentence}` : raw;
+        }).join(", ")}`,
       );
     }
     if (Array.isArray(a.addedCapabilities) && a.addedCapabilities.length > 0) {
