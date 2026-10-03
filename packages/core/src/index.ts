@@ -37,6 +37,7 @@ import {
   registryRoots,
   verifyIntegrity,
   KNOWN_CAPABILITY_SLOTS,
+  isKnownCapability,
   type RegistryIo,
   type ExtensionRef,
   type InstallOptions,
@@ -44,6 +45,7 @@ import {
   type InstalledExtension,
   type NpmPackument,
 } from "./extension-registry";
+import { scopeEffectSentence, scopeEffectSentences, isPathScope } from "./host-scope";
 import { PromptComposer, type SkillIndexEntry } from "./prompt-composer";
 import type {
   AgentEvent,
@@ -854,6 +856,12 @@ export {
   registryRoots,
   verifyIntegrity,
   KNOWN_CAPABILITY_SLOTS,
+  isKnownCapability,
+  // ADR-0064/0065: the core-owned scope effect-sentence renderer the
+  // clients' consent surfaces show instead of the naked scope string.
+  scopeEffectSentence,
+  scopeEffectSentences,
+  isPathScope,
   type RegistryIo,
   type ExtensionRef,
   type InstallOptions,

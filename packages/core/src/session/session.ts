@@ -406,6 +406,21 @@ export class AgentSession {
     this.#borrowedHooks = typeof borrowedRuntime?.withSession === "function" ? borrowedRuntime : undefined;
     // ADR-0037: the session is the runtime's turn entry — an extension's
     // `ctx.requestTurn` lands here, through the queue.
+    // ADR-0065: the session owns the live deny answer — its resolver is
+    // the user's rule set; a deny rule on a covered path beats every path
+    // grant per call.
+    if (this.#extensions && typeof (this.#extensions as { bindPathDeny?: unknown }).bindPathDeny === "function") {
+      (this.#extensions as { bindPathDeny(f: (abs: string) => boolean): void }).bindPathDeny((absPath: string) => {
+        const rel = this.#permissions.relativeInRoot(absPath);
+        if (rel === null) return false;
+        return this.#permissions.rules.some(
+          (rule) =>
+            rule.effect === "deny" &&
+            typeof rule.path === "string" &&
+            (rule.path === rel || new Bun.Glob(rule.path).match(rel)),
+        );
+      });
+    }
     if (this.#extensions) this.#extensions.bindRequestTurn((text) => this.runSyntheticTurn(text).then((r) => r.ok));
     this.#onDispose = config.onDispose;
     // Extension load results (including hot-reload outcomes) land in the log

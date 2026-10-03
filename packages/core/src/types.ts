@@ -538,6 +538,25 @@ type AgentEventBase =
    */
   | { type: "extension_event"; extension: string; name: string; payload?: unknown }
   /**
+   * ADR-0064 + ADR-0065 (apiVersion 1.13): the host performed one
+   * operation an extension asked for through `ctx.host`. One event per
+   * performed operation, success and refusal — the owner can answer "what
+   * did this extension do?" without reconstruction. `path` is the
+   * **resolved** target (symlinks followed), never the requested path;
+   * `bytes` present only when the operation touched content; `to` on
+   * rename names the resolved destination. Chrome only — never model
+   * context, never a turn error. Secret redaction applies downstream.
+   */
+  | { type: "host_op"; callId: string; extension: string; op: "read" | "write" | "append" | "rename" | "delete" | "readlink";
+      path: string; outcome: "ok"; bytes?: number; to?: string }
+  /**
+   * ADR-0064: one host-performed operation was refused by the scope check.
+   * Distinct from `extension_failed` (extension faults): a refusal is a
+   * policy answer, never a crash. `reason` is the typed refusal reason.
+   */
+  | { type: "host_refused"; callId: string; extension: string; op: "read" | "write" | "append" | "rename" | "delete" | "readlink";
+      path: string; reason: "outside_scope" | "invalid_path" | "denied" | "failed"; resolved?: string }
+  /**
    * ADR-0054 (#1129): a prompt-section composition change — a section
    * replaced or hidden by an extension, or restored to core text. Chrome
    * only, appended when the set of contributions in force changes, never
