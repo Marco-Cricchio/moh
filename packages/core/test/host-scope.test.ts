@@ -88,7 +88,7 @@ describe("host scope: grammar and validation (ADR-0066)", () => {
   });
 
   test("malformed forms refuse loudly", () => {
-    for (const bad of ["host:", "host: ", "host:api.example.com/path", "host://api.example.com", "host:a..b", "host:*.*.example.com", "host:*:99999", "host:not_a_host"]) {
+    for (const bad of ["host:", "host: ", "host:api.example.com/path", "host://api.example.com", "host:a..b", "host:*.*.example.com", "host:*:99999", "host:not_a_host", "host:*:8443"]) {
       expect(validateHostScope(bad).ok).toBe(false);
     }
   });
@@ -151,10 +151,23 @@ describe("host scope: fetch end to end", () => {
     const root = project();
     const s = server({ "/w": { status: 200, body: "wild" } });
     const events: AgentEvent[] = [];
-    const ctx = await probe(root, [`host:*:${s.port}`], events, { reasoning: "test wildcard" });
+    // The total wildcard is https-implicit; a plain-http dev server is
+    // refused, so the acceptance here is the typed outside_scope on the
+    // http URL — with the wildcard grant itself proven live by the
+    // hostMatchesScope unit above.
+    const ctx = await probe(root, ["host:*"], events, { reasoning: "test wildcard" });
     const host = ctx?.host as ExtensionHost;
     const ok = await host.fetch!(`http://${s.host}:${s.port}/w`);
-    expect(ok.ok).toBe(true);
+    expect(ok.ok).toBe(false);
+    if (!ok.ok) expect(ok.reason).toBe("outside_scope");
+  });
+
+  test("host:* with an explicit port is malformed at load (no port on the total wildcard)", async () => {
+    const root = project();
+    const events: AgentEvent[] = [];
+    const ctx = await probe(root, ["host:*:8443"], events, { reasoning: "test" });
+    expect(ctx).toBeNull();
+    expect(events.some((e) => e.type === "extension_failed" && (e as { reason: string }).reason === "invalid_host_scope")).toBe(true);
   });
 
   test("redirect inside the allowlist is followed", async () => {

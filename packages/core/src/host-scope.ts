@@ -117,6 +117,10 @@ export function validateHostScope(capability: string): HostScopeValidity {
     if ((hostPart.match(/\*/g) ?? []).length > 1) {
       return { ok: false, reason: "malformed", message: `invalid host scope "${capability}": at most one wildcard label` };
     }
+  } else if (port !== undefined) {
+    // The total wildcard is whole-network: pinning it to a port is a
+    // grammar outside ADR-0066 (and would dodge the reasoning vocabulary).
+    return { ok: false, reason: "malformed", message: `invalid host scope "${capability}": the total wildcard takes no port` };
   }
   return { ok: true, host: hostPart, port, wildcard: hostPart.startsWith("*.") };
 }

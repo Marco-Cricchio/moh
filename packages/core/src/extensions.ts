@@ -55,7 +55,7 @@ import type { AgentEvent, ExtensionStatus } from "./types";
 import type { ExtensionSpawnSpec } from "@moh/extension";
 import type { SubagentHost } from "./subagents";
 import { ExtensionSpawnRefusedError } from "./extension-scope";
-import { capabilityDiff, capabilitiesSubset, readExtensionManifest, MANIFEST_FILE, type ManifestAuthority } from "./extension-manifest";
+import { capabilityDiff, capabilitiesSubset, readExtensionManifest, type ManifestAuthority } from "./extension-manifest";
 import { checkHostScope, checkPathScope, hostScopesOf, isHostScope, isPathScope, MAX_FETCH_BYTES, MAX_REDIRECTS, HOST_SCOPE_REASONING_KEY, TOTAL_HOST_WILDCARD, validateHostScope, validatePathScope, pathScopesOf } from "./host-scope";
 import { newUlid } from "./session/ulid";
 
@@ -150,6 +150,12 @@ export interface ExtensionConsentRequest {
    * declares that the previously granted manifest did not. Empty or absent
    * means no new powers. */
   addedCapabilities?: readonly string[];
+  /**
+   * ADR-0066: the manifest's `reasoning` — the author's justification for
+   * a total network wildcard (`host:*`), which the consent question
+   * displays. Present only when the manifest declares one.
+   */
+  reasoning?: string;
 }
 
 export interface ExtensionRuntimeOptions {
@@ -166,6 +172,12 @@ export interface ExtensionRuntimeOptions {
    * every path grant per call; absent, no deny check runs.
    */
   isPathDenied?: (resolvedAbsPath: string) => boolean;
+  /**
+   * ADR-0066: the user's per-call deny answer for a request hostname.
+   * A deny beats every `host:` grant per call; absent, no deny check
+   * runs. Separate from `isPathDenied`: path rules never match hosts.
+   */
+  isHostDenied?: (hostname: string) => boolean;
   /**
    * One-time enable consent. Called only when no stored consent matches the
    * module's content identity, and — for a file — BEFORE the module is
@@ -1403,6 +1415,8 @@ bindPathDeny(isDenied: (resolvedAbsPath: string) => boolean): void {
         ...(info.version ? { version: info.version } : {}),
         ...(info.capabilities?.length ? { capabilities: info.capabilities } : {}),
         ...(added.length ? { addedCapabilities: added } : {}),
+        // ADR-0066: the total-wildcard justification rides the question.
+        ...(manifest?.reasoning !== undefined ? { reasoning: manifest.reasoning } : {}),
       });
     } catch (err) {
       return { ok: false, reason: "consent", message: errMessage(err) };
@@ -1590,6 +1604,9 @@ bindPathDeny(isDenied: (resolvedAbsPath: string) => boolean): void {
     /** The instance this one replaces (a hot-reload): excluded from the
      * rail's capacity count, whose slot is being handed over (#1132). */
     replacing?: RuntimeExtension,
+    /** ADR-0066: the manifest authority the consent signed (its
+     * `reasoning` travels from the same bytes, never a re-read). */
+    manifestAuthority?: ManifestAuthority,
   ): Promise<
     | { ok: true; instance: RuntimeExtension }
     | ({ ok: false; name?: string; reason: string; message: string })
@@ -1628,6 +1645,18 @@ bindPathDeny(isDenied: (resolvedAbsPath: string) => boolean): void {
     // lookup — which also re-checks the bytes, catching a file swapped in
     // between. For an in-memory registration it is the question itself.
     const recheck = file ? readExtensionManifest(file) : undefined;
+    // ADR-0061: the grant covers manifest bytes too; re-derived here so a
+    // manifest swapped in between ask and import is caught.
+    const consentAuthority = file
+      ? (recheck?.ok ? recheck.authority : undefined)
+      : options.manifest?.hash
+        ? {
+            hash: options.manifest.hash,
+            path: options.manifest.path ?? options.manifest.hash,
+            capabilities: options.manifest.capabilities,
+            ...(options.manifest.reasoning !== undefined ? { reasoning: options.manifest.reasoning } : {}),
+          }
+        : undefined;
     const consent = await this.#ensureConsent(
       identity,
       {
@@ -1640,13 +1669,7 @@ bindPathDeny(isDenied: (resolvedAbsPath: string) => boolean): void {
         ...(recheck?.ok ? { capabilities: recheck.manifest.capabilities } : {}),
       },
       bundled,
-      // ADR-0061: the grant covers manifest bytes too; re-derived here so a
-      // manifest swapped in between ask and import is caught.
-      file
-        ? (recheck?.ok ? recheck.authority : undefined)
-        : options.manifest?.hash
-          ? { hash: options.manifest.hash, path: options.manifest.path ?? options.manifest.hash, capabilities: options.manifest.capabilities }
-          : undefined,
+      consentAuthority,
     );
     if (!consent.ok) return { ok: false, name, reason: consent.reason, message: consent.message };
     // The subset check itself: only where a manifest exists to check against
@@ -1727,14 +1750,15 @@ bindPathDeny(isDenied: (resolvedAbsPath: string) => boolean): void {
       const validity = validateHostScope(capability);
       if (!validity.ok) return { ok: false, name, reason: "invalid_host_scope", message: validity.message };
       if (capability !== TOTAL_HOST_WILDCARD) continue;
-      const reRead = file ? readExtensionManifest(file) : undefined;
-      const declared = options.manifest?.reasoning ?? (reRead?.ok ? reRead.authority.reasoning : undefined);
+      // One authority only: the manifest object consent signed (or the
+      // registration's declared authority) — never a second disk read.
+      const declared = consentAuthority?.reasoning;
       if (typeof declared !== "string" || declared.trim() === "") {
         return {
           ok: false,
           name,
           reason: "missing_reasoning",
-          message: `"${TOTAL_HOST_WILDCARD}" requires a "${HOST_SCOPE_REASONING_KEY}" string in ${MANIFEST_FILE} — the justification the consent question displays`,
+          message: `"${TOTAL_HOST_WILDCARD}" requires a "${HOST_SCOPE_REASONING_KEY}" string in the extension manifest — the justification the consent question displays`,
         };
       }
     }
@@ -2601,14 +2625,11 @@ bindPathDeny(isDenied: (resolvedAbsPath: string) => boolean): void {
   #networkHostFor(instance: RuntimeExtension, scopes: readonly string[]): { fetch?: (url: string) => Promise<HostFetchResult> } {
     if (scopes.length === 0) return {};
     const name = instance.def.name;
-    const isDenied = this.#pathDeny ?? this.#options.isPathDenied ?? (() => false);
+    // ADR-0066: the host deny seam is its own callback — path rules never
+    // match hostnames. Absent, no deny check runs.
+    const isDenied = this.#options.isHostDenied ?? (() => false);
     return {
       fetch: async (raw: string): Promise<HostFetchResult> => {
-        // The deny rule keys on the hostname; the grant matches host:port.
-        const denyHost = (url: URL): ((host: string) => boolean) => {
-          void url;
-          return (host: string) => isDenied(host);
-        };
         let current: URL;
         try {
           current = new URL(raw);
@@ -2619,7 +2640,7 @@ bindPathDeny(isDenied: (resolvedAbsPath: string) => boolean): void {
         let origin = "";
         for (let hop = 0; hop <= MAX_REDIRECTS; hop++) {
           const callId = newUlid();
-          const checked = checkHostScope(current, scopes, denyHost(current));
+          const checked = checkHostScope(current, scopes, isDenied);
           if (!checked.ok) {
             this.#emit({
               type: "host_refused",
@@ -2681,30 +2702,53 @@ bindPathDeny(isDenied: (resolvedAbsPath: string) => boolean): void {
     };
   }
 
-  /** Buffers one in-scope response within the size limit and logs it. */
+  /** Buffers one in-scope response within the size limit and logs it.
+   * The cap is enforced mid-read: a chunked response that oversizes is
+   * aborted while streaming, never fully buffered first. */
   async #consumeFetchResponse(instance: RuntimeExtension, callId: string, url: URL, response: Response): Promise<HostFetchResult> {
     const name = instance.def.name;
-    const declared = response.headers.get("content-length");
-    if (declared !== null && Number(declared) > MAX_FETCH_BYTES) {
-      this.#emit({ type: "host_refused", callId, extension: name, op: "fetch", path: `${url.pathname}${url.search}`, reason: "too_large", target: url.host });
+    const pathAndQuery = `${url.pathname}${url.search}`;
+    const tooLarge = (): HostFetchResult => {
+      this.#emit({ type: "host_refused", callId, extension: name, op: "fetch", path: pathAndQuery, reason: "too_large", target: url.host });
       return { ok: false, reason: "too_large", message: `response exceeds the ${MAX_FETCH_BYTES} byte limit` };
+    };
+    // Enforce the cap on the body as it arrives: consume the stream in
+    // chunks and refuse the moment the limit is crossed — a lying or
+    // absent content-length cannot make the host swallow 10 GB.
+    const reader = response.body?.getReader();
+    if (!reader) {
+      this.#emit({ type: "host_refused", callId, extension: name, op: "fetch", path: pathAndQuery, reason: "failed", target: url.host });
+      return { ok: false, reason: "failed", message: "response has no readable body" };
     }
-    const buffer = await response.arrayBuffer();
-    if (buffer.byteLength > MAX_FETCH_BYTES) {
-      this.#emit({ type: "host_refused", callId, extension: name, op: "fetch", path: `${url.pathname}${url.search}`, reason: "too_large", target: url.host });
-      return { ok: false, reason: "too_large", message: `response exceeds the ${MAX_FETCH_BYTES} byte limit` };
+    const chunks: Uint8Array[] = [];
+    let total = 0;
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      total += value.byteLength;
+      if (total > MAX_FETCH_BYTES) {
+        await reader.cancel();
+        return tooLarge();
+      }
+      chunks.push(value);
+    }
+    const merged = new Uint8Array(total);
+    let offset = 0;
+    for (const chunk of chunks) {
+      merged.set(chunk, offset);
+      offset += chunk.byteLength;
     }
     this.#emit({
       type: "host_op",
       callId,
       extension: name,
       op: "fetch",
-      path: `${url.pathname}${url.search}`,
+      path: pathAndQuery,
       outcome: "ok",
       host: url.host,
       status: response.status,
-      bytes: buffer.byteLength,
+      bytes: total,
     });
-    return { ok: true, status: response.status, bytes: new Uint8Array(buffer), finalHost: url.host };
+    return { ok: true, status: response.status, bytes: merged, finalHost: url.host };
   }
 }
