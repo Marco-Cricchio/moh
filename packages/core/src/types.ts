@@ -524,6 +524,17 @@ type AgentEventBase =
    */
   | { type: "extension_event"; extension: string; name: string; payload?: unknown }
   /**
+   * ADR-0054 (#1129): a prompt-section composition change — a section
+   * replaced or hidden by an extension, or restored to core text. Chrome
+   * only, appended when the set of contributions in force changes, never
+   * per model call; replay reconstructs what was in force. The event
+   * records who and which part, never the words: extension text does not
+   * enter the log verbatim (it is reproducible from the extension's code
+   * and the version recorded here).
+   */
+  | { type: "prompt_override"; section: string; extension: string; version: string;
+      mode: "replaced" | "hidden" | "restored" }
+  /**
    * ADR-0038 (apiVersion 1.3): a client command addressed to one running
    * extension (`AgentSession.setExtensionState`). The payload is opaque to
    * the core and JSON-serializable; the event is chrome — never fed to the

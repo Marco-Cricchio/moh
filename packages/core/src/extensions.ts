@@ -60,7 +60,17 @@ import { redactKeys } from "./redact";
  * the composer's internals.
  */
 export interface BeforeModelCallDispatch {
-  readonly replacements: { by: string; sections: Partial<Record<string, string | null>> }[];
+  readonly replacements: {
+    by: string;
+    /** The extension's version — the provenance line and the record name it. */
+    version: string;
+    /** The capabilities the code declared (#1129): what the applier judges
+     * `replace-prompt-section:<section>` against. Already a subset of the
+     * manifest (the load refuses otherwise), so a capability here is one
+     * the user consented to. */
+    capabilities: readonly string[];
+    sections: Partial<Record<string, string | null>>;
+  }[];
   readonly timeouts: { by: string; window: "replacement" | "hook" }[];
   readonly errors: AgentEvent[];
 }
@@ -1719,7 +1729,12 @@ export class ExtensionRuntime {
         }
         const answered = (out ?? {}) as BeforeModelCallResult;
         if (answered.sections && typeof answered.sections === "object") {
-          replacements.push({ by: instance.def.name, sections: answered.sections });
+          replacements.push({
+            by: instance.def.name,
+            version: instance.def.version,
+            capabilities: instance.def.capabilities ?? [],
+            sections: answered.sections,
+          });
         }
       }
     }
