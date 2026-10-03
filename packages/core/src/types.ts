@@ -442,6 +442,10 @@ type AgentEventBase =
    * failed, or superseded by a retry/fallback stop). Its reasoning stays
    * displayable, but replay must not treat its partial content as a valid
    * assistant message. */ failed?: true;
+    /** ADR-0068: who asked for the call — absent for the session's own
+     * loop; an extension's host-seam call names itself. The `done` rollup
+     * separates extension consumption by this. */
+    requester?: { kind: "extension"; extension: string };
     /** #1099: provider-reported usage detail beside the aggregate pair —
      * absent when the provider did not report it (never zero-filled); cache
      * tokens are a subset of input, never added to it. */
@@ -547,8 +551,9 @@ type AgentEventBase =
    * rename names the resolved destination. Chrome only — never model
    * context, never a turn error. Secret redaction applies downstream.
    */
-  | { type: "host_op"; callId: string; extension: string; op: "read" | "write" | "append" | "rename" | "delete" | "readlink" | "fetch" | "run_tool";
-      path?: string; outcome: "ok" | "denied" | "failed"; bytes?: number; to?: string; host?: string; status?: number; credential?: string; method?: string; tool?: string }
+  | { type: "host_op"; callId: string; extension: string; op: "read" | "write" | "append" | "rename" | "delete" | "readlink" | "fetch" | "run_tool" | "model_call" | "list_models";
+      path?: string; outcome: "ok" | "denied" | "failed"; bytes?: number; to?: string; host?: string; status?: number; credential?: string; method?: string; tool?: string; /** ADR-0068: the endpoint/model ref the operation named. */
+      model?: string }
   /**
    * ADR-0064: one host-performed operation was refused by the scope check.
    * Distinct from `extension_failed` (extension faults): a refusal is a
@@ -556,8 +561,9 @@ type AgentEventBase =
    * `target` (ADR-0066) names the request or redirect host a fetch was
    * refused for.
    */
-  | { type: "host_refused"; callId: string; extension: string; op: "read" | "write" | "append" | "rename" | "delete" | "readlink" | "fetch" | "run_tool";
-      path?: string; reason: "outside_scope" | "invalid_path" | "invalid_url" | "unknown_credential" | "unknown_tool" | "denied" | "too_large" | "failed"; resolved?: string; target?: string; credential?: string; method?: string; tool?: string }
+  | { type: "host_refused"; callId: string; extension: string; op: "read" | "write" | "append" | "rename" | "delete" | "readlink" | "fetch" | "run_tool" | "model_call" | "list_models";
+      path?: string; reason: "outside_scope" | "invalid_path" | "invalid_url" | "unknown_credential" | "unknown_tool" | "unknown_endpoint" | "unsupported_level" | "denied" | "too_large" | "failed"; resolved?: string; target?: string; credential?: string; method?: string; tool?: string; /** ADR-0068: the endpoint/model ref the operation named. */
+      model?: string }
   /**
    * ADR-0054 (#1129): a prompt-section composition change — a section
    * replaced or hidden by an extension, or restored to core text. Chrome

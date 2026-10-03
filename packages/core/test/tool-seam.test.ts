@@ -51,7 +51,7 @@ async function probe(root: string, capabilities: readonly string[], events: Agen
   await rt.register({
     name: "probe",
     version: "1",
-    apiVersion: "1.14",
+    apiVersion: "1.15",
     capabilities: [...capabilities],
     setup: (ctx) => {
       box.ctx = ctx;
@@ -98,7 +98,7 @@ describe("runTool through a real session: the model's exact gate path", () => {
     await rt.register({
       name: "probe",
       version: "1",
-      apiVersion: "1.14",
+      apiVersion: "1.15",
       capabilities: [...options.capabilities],
       setup: (ctx) => {
         box.ctx = ctx;
@@ -263,7 +263,7 @@ describe("contribute-tool: the contribution slot (ADR-0067)", () => {
     await rt.register({
       name: "probe",
       version: "1",
-      apiVersion: "1.14",
+      apiVersion: "1.15",
       capabilities: [...options.capabilities],
       setup: (ctx) => {
         box.ctx = ctx;
@@ -341,7 +341,7 @@ describe("contribute-tool: the contribution slot (ADR-0067)", () => {
     await rt.register({
       name: "probe",
       version: "1",
-      apiVersion: "1.14",
+      apiVersion: "1.15",
       capabilities: ["contribute-tool:search"],
       setup: (ctx) => {
         ctx.registerTool?.({

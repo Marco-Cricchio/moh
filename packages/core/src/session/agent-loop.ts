@@ -303,6 +303,11 @@ export class AgentLoop {
   /** #83: turn rollup inputs — usage at turn start and models that served it. */
   #turnStartUsage: TokenUsage = { inputTokens: 0, outputTokens: 0 };
   #turnModels: string[] = [];
+  /** ADR-0068: cumulative host-seam model-call usage by extension name.
+   * The turn rollup reports each extension's delta at `done`, so the
+   * owner sees which extension consumed tokens. */
+  #extensionUsage = new Map<string, TokenUsage>();
+  #turnStartExtensionUsage = new Map<string, TokenUsage>();
   /** #1100: still-open quota blocks by scope key, in block order. A
    * successful settlement closes the blocks its endpoint/model scope
    * covers (recovery boundary, observed wait, fallback flag); blocks of
@@ -491,6 +496,20 @@ export class AgentLoop {
     return { ...this.#usage };
   }
 
+  /**
+   * ADR-0068: the session's model seam records each extension call's
+   * usage here; the turn rollup reports the per-extension delta at
+   * `done`. Outside a turn the total still accumulates — the next
+   * turn's rollup carries it.
+   */
+  recordExtensionUsage(extension: string, usage: TokenUsage): void {
+    const prior = this.#extensionUsage.get(extension) ?? { inputTokens: 0, outputTokens: 0 };
+    this.#extensionUsage.set(extension, {
+      inputTokens: prior.inputTokens + usage.inputTokens,
+      outputTokens: prior.outputTokens + usage.outputTokens,
+    });
+  }
+
   /** Runs one user message to completion. */
   async run(text: string, controller: AbortController): Promise<TurnResult> {
     return this.#run(text, controller, false);
@@ -563,6 +582,7 @@ export class AgentLoop {
     // #83: turn rollup baselines.
     this.#turnStartUsage = { ...this.#usage };
     this.#turnModels = [];
+    this.#turnStartExtensionUsage = new Map(this.#extensionUsage);
     // #488: the attachment snapshots ride the turn as additional parts
     // appended to the user message — the text itself stays as typed.
     // Vision note 4: an image attachment becomes a typed image part when
@@ -832,8 +852,23 @@ export class AgentLoop {
         outputTokens: this.#usage.outputTokens - this.#turnStartUsage.outputTokens,
       },
       models: [...new Set(this.#turnModels)],
+      ...(this.#extensionUsageDeltas().length > 0 ? { extensionUsage: Object.fromEntries(this.#extensionUsageDeltas()) } : {}),
     });
     return { status: "done" };
+  }
+
+  /**
+   * ADR-0068: per-extension usage deltas since the turn started, in
+   * first-call order, non-zero entries only.
+   */
+  #extensionUsageDeltas(): [string, TokenUsage][] {
+    const out: [string, TokenUsage][] = [];
+    for (const [extension, total] of this.#extensionUsage) {
+      const start = this.#turnStartExtensionUsage.get(extension) ?? { inputTokens: 0, outputTokens: 0 };
+      const delta = { inputTokens: total.inputTokens - start.inputTokens, outputTokens: total.outputTokens - start.outputTokens };
+      if (delta.inputTokens !== 0 || delta.outputTokens !== 0) out.push([extension, delta]);
+    }
+    return out;
   }
 
   /**

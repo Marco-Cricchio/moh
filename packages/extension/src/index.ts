@@ -106,7 +106,7 @@
  * Minor bumps are additive (new optional hooks/fields); major bumps are
  * breaking and refuse to load older/newer extensions.
  */
-export const MOH_EXTENSION_API_VERSION = "1.14";
+export const MOH_EXTENSION_API_VERSION = "1.15";
 
 /** One spawn an orchestration extension requests (ADR-0055, apiVersion 1.13).
  * `preset` resolves against the host's subagent presets (built-ins and
@@ -634,6 +634,57 @@ export type HostRunToolResult =
   | { ok: false; reason: "outside_scope" | "unknown_tool" | "denied" | "failed"; message?: string };
 
 /**
+ * ADR-0068: one `ctx.host.modelCall` request — a single-shot model call
+ * against a granted `endpoint:<ref>` scope. `endpoint` is the moh.json
+ * endpoint name the grant named; `model` is the model id that endpoint
+ * serves (no default is assumed — name one). `thinkingLevel` is the
+ * per-call override: honored only within the model's declared thinking
+ * capability, refused (`unsupported_level`) outside it — never remapped.
+ */
+export interface HostModelCallRequest {
+  endpoint: string;
+  model: string;
+  messages: ReadonlyArray<{ role: "system" | "user" | "assistant"; content: string }>;
+  thinkingLevel?: "off" | "low" | "medium" | "high" | "xhigh" | "max";
+  /** Aborts the in-flight call host-side. */
+  signal?: AbortSignal;
+}
+
+/**
+ * ADR-0068: the typed result of one `ctx.host.modelCall`. `text` is the
+ * completed completion's text; `usage` is what the call consumed (tokens
+ * are accounted to the extension in the turn's `done` rollup); `model` is
+ * the ref that served; `thinkingLevel` is the effective level actually
+ * sent, when one was. Credentials never appear in the result — the host
+ * resolves them at request time, inside the Route.
+ */
+export interface HostModelCallSuccess {
+  ok: true;
+  text: string;
+  usage: { inputTokens: number; outputTokens: number };
+  model: string;
+  thinkingLevel?: "off" | "low" | "medium" | "high" | "xhigh" | "max";
+}
+
+export type HostModelCallResult =
+  | HostModelCallSuccess
+  | { ok: false; reason: "outside_scope" | "unknown_endpoint" | "unsupported_level" | "failed"; message?: string };
+
+/**
+ * ADR-0068: the typed result of one `ctx.host.listModels` — the model
+ * ids the granted endpoint's own listing exposes. Part of the same
+ * grant: `endpoint:<ref>` covers calling and listing.
+ */
+export interface HostListModelsSuccess {
+  ok: true;
+  models: string[];
+}
+
+export type HostListModelsResult =
+  | HostListModelsSuccess
+  | { ok: false; reason: "outside_scope" | "unknown_endpoint" | "failed"; message?: string };
+
+/**
  * The arg validator a contributed tool may declare. Structurally the
  * slice of a zod schema the core's runner needs (`safeParse`); a plain
  * object validator works too. Absent = the args pass through unvalidated.
@@ -740,6 +791,25 @@ export interface ExtensionHost {
    * call. `tool:*` covers every session tool, built-in and MCP.
    */
   runTool(name: string, args: unknown): Promise<HostRunToolResult>;
+  /**
+   * ADR-0068: asks the host for one single-shot model call against an
+   * endpoint covered by a granted `endpoint:<ref>` scope, executed
+   * through moh's Route — no host-managed loop, no conversation state:
+   * the extension composes the messages and reads the answer. Provider
+   * credentials never cross the seam (the host resolves them at request
+   * time); provider reasoning of these calls is not persisted. The
+   * request's tokens are accounted to this extension in the turn's
+   * `done` usage rollup, and the log's `model_call` record names this
+   * extension as the requester. A per-call `thinkingLevel` is honored
+   * only within the model's declared thinking capability — an unsupported
+   * level is the typed `unsupported_level` refusal, never a remapping.
+   */
+  modelCall(request: HostModelCallRequest): Promise<HostModelCallResult>;
+  /**
+   * ADR-0068: lists the models of an endpoint covered by a granted
+   * `endpoint:<ref>` scope — part of the same grant as `modelCall`.
+   */
+  listModels(endpoint: string): Promise<HostListModelsResult>;
 }
 
 /**

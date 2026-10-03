@@ -1,7 +1,7 @@
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
-import type { AgentEvent, ExtensionStatus, Message, Provider, ReasoningStreamEvent, SendOptions, SkillPrompt, Tool, TurnResult } from "../types";
+import type { AgentEvent, ExtensionStatus, Message, Provider, ReasoningStreamEvent, SendOptions, SkillPrompt, ThinkingLevel, Tool, TurnResult } from "../types";
 import { SCHEMA_VERSION } from "../types";
 import type { ExtensionLiveInfo } from "../extensions-screen";
 import { normalizeTaskId, taskDeclaredEvent, taskOutcomeEvent, taskVerificationEvent } from "../task/telemetry";
@@ -42,7 +42,7 @@ interface ContributedToolShape {
   inputSchema?: ContributedToolSchema;
   execute(args: unknown, ctx: { signal: AbortSignal; cwd: string }): Promise<string> | string;
 }
-import { resolveEndpointThinking } from "../thinking-preferences";
+import { resolveEndpointThinking, thinkingStatesForRef } from "../thinking-preferences";
 import { catalogEntryFor, modelSupportsImages } from "../model-catalog";
 import { HandoffRunner } from "../handoff";
 import { resolveMaxIterations } from "./agent-loop";
@@ -55,6 +55,9 @@ import { mpmDiagnostics, type MpmDiagnostics } from "../mpm/diagnostics";
 import { readMpmUserConfig, resolveMpmConfig, type MpmEffectiveConfig } from "../mpm/config";
 import { isOnWindowsMount } from "../windows-mount";
 import { userConfigFile } from "../user-config";
+import { getStoredApiKey } from "../auth/store";
+import { listProviderModels } from "../live-model-catalog";
+import { listOpenAiCompatModels } from "../endpoint-models";
 import { DeclaredWindows, declaredWindowOf } from "../declared-window";
 import { noteUnrecognizedContextRefusal } from "../context-refusal-trace";
 
@@ -453,8 +456,130 @@ export class AgentSession {
         },
       });
     }
-    // ADR-0067: the contributed-tool sink behind `ctx.registerTool`. A
-    // contributed tool rides the same runner and gate as every session
+    // ADR-0068: the model-call seam behind `ctx.host.modelCall` /
+    // `ctx.host.listModels`. The runtime owns scope + logging; here is
+    // endpoint resolution, the single-shot Route call (one stop, no
+    // fallbacks — a fallback would serve from an endpoint the grant did
+    // not name), the thinking-capability check and usage accounting.
+    // Credentials stay inside the Route; provider reasoning of these
+    // calls is never persisted. A completed call is recorded as an
+    // ordinary `model_call` event, requester-marked — no parallel type.
+    if (this.#extensions && typeof (this.#extensions as { bindModelSeam?: unknown }).bindModelSeam === "function") {
+      (this.#extensions as { bindModelSeam(s: unknown): void }).bindModelSeam({
+        modelCall: async (request: {
+          extension: string;
+          endpoint: string;
+          model: string;
+          messages: ReadonlyArray<{ role: "system" | "user" | "assistant"; content: string }>;
+          thinkingLevel?: ThinkingLevel;
+          signal?: AbortSignal;
+        }) => {
+          const profile = this.#endpoints.find((e) => e.name === request.endpoint);
+          if (!profile) {
+            return { ok: false as const, reason: "unknown_endpoint" as const, message: `no endpoint named "${request.endpoint}" in moh.json` };
+          }
+          const modelId = request.model || profile.defaultModel;
+          if (!modelId) {
+            return { ok: false as const, reason: "failed" as const, message: `endpoint "${request.endpoint}" has no defaultModel; name a model` };
+          }
+          const ref = `${profile.name}/${modelId}`;
+          // ADR-0068: the per-call thinking override is bounded by the
+          // model's declared capability — supported (or the explicit
+          // disable) passes; anything else is the typed refusal, never a
+          // remapping. No declared capability, no override: moh never
+          // invents capabilities. Without an override, the endpoint's own
+          // resolution (its stored preference) applies.
+          let thinking: { level: ThinkingLevel } | undefined;
+          if (request.thinkingLevel !== undefined) {
+            const states = thinkingStatesForRef(ref, this.#endpoints);
+            if (!states || states[request.thinkingLevel] === "provider-default") {
+              return { ok: false as const, reason: "unsupported_level" as const, message: `thinking level "${request.thinkingLevel}" is not supported by ${ref}` };
+            }
+            thinking = { level: request.thinkingLevel };
+          } else {
+            thinking = resolveEndpointThinking(ref, this.#endpoints, join(this.#mohHome, "config"));
+          }
+          const registry = this.#registry ?? defaultRegistry.freeze();
+          let provider: Provider;
+          try {
+            // Single stop: the granted endpoint only — no fallbacks (a
+            // fallback would serve from an endpoint the grant did not
+            // name) and no route-level thinking seam (the per-call
+            // override above is the authority).
+            const { thinkingForTarget: _ignored, ...resolution } = this.#routeResolutionOptions;
+            provider = resolveProviderRef(ref, registry, [profile], resolution);
+          } catch (err) {
+            return { ok: false as const, reason: "failed" as const, message: err instanceof Error ? err.message : String(err) };
+          }
+          const messages: Message[] = request.messages
+            .filter((m) => m && typeof m.content === "string")
+            .map((m) => ({ role: m.role, parts: [{ kind: "text" as const, text: m.content }] }));
+          const usage = { inputTokens: 0, outputTokens: 0 };
+          let text = "";
+          let served = ref;
+          let effectiveLevel: ThinkingLevel | undefined;
+          try {
+            for await (const event of provider.stream(messages, request.signal ?? new AbortController().signal, undefined, thinking ? { thinking } : undefined)) {
+              if (event.type === "text_delta") text += event.text;
+              else if (event.type === "usage") {
+                usage.inputTokens += event.inputTokens;
+                usage.outputTokens += event.outputTokens;
+              } else if (event.type === "model_call_start") {
+                served = event.model;
+                effectiveLevel = event.thinkingLevel;
+              }
+            }
+          } catch (err) {
+            // ADR-0068: tokens count even when the call fails mid-stream —
+            // the partial usage is recorded (failed `model_call`,
+            // requester-marked) and accounted, never dropped.
+            if (usage.inputTokens !== 0 || usage.outputTokens !== 0) {
+              this.#append({ type: "model_call", model: served, usage: { ...usage }, ...(effectiveLevel !== undefined ? { thinkingLevel: effectiveLevel } : {}), failed: true, requester: { kind: "extension", extension: request.extension } });
+              this.#loop.recordExtensionUsage(request.extension, usage);
+            }
+            return { ok: false as const, reason: "failed" as const, message: err instanceof Error ? err.message : String(err) };
+          }
+          if (request.signal?.aborted) {
+            if (usage.inputTokens !== 0 || usage.outputTokens !== 0) {
+              this.#append({ type: "model_call", model: served, usage: { ...usage }, ...(effectiveLevel !== undefined ? { thinkingLevel: effectiveLevel } : {}), failed: true, requester: { kind: "extension", extension: request.extension } });
+              this.#loop.recordExtensionUsage(request.extension, usage);
+            }
+            return { ok: false as const, reason: "failed" as const, message: "model call aborted" };
+          }
+          // The record: the same `model_call` event, marked with the
+          // requester (ADR-0068). Provider reasoning is deliberately not
+          // collected — a host-seam call is not part of the conversation.
+          this.#append({
+            type: "model_call",
+            model: served,
+            usage: { ...usage },
+            ...(effectiveLevel !== undefined ? { thinkingLevel: effectiveLevel } : {}),
+            requester: { kind: "extension", extension: request.extension },
+          });
+          this.#loop.recordExtensionUsage(request.extension, usage);
+          return { ok: true as const, text, usage: { ...usage }, model: served, ...(effectiveLevel !== undefined ? { thinkingLevel: effectiveLevel } : {}) };
+        },
+        listModels: async (request: { endpoint: string }) => {
+          const profile = this.#endpoints.find((e) => e.name === request.endpoint);
+          if (!profile) {
+            return { ok: false as const, reason: "unknown_endpoint" as const, message: `no endpoint named "${request.endpoint}" in moh.json` };
+          }
+          try {
+            // openai-compat has its own plain listing (endpoint-models.ts);
+            // every other kind goes through the verified live-models
+            // contracts. Either way the credential is resolved host-side
+            // and the ids are all the extension sees.
+            const models = profile.type === "openai-compat"
+              ? await listOpenAiCompatModels(profile.baseUrl!, profile.apiKey)
+              : await listProviderModels(profile.type, profile.name, { ...(profile.baseUrl ? { baseUrl: profile.baseUrl } : {}), ...(profile.apiKey ? { apiKey: profile.apiKey } : {}) });
+            return { ok: true as const, models };
+          } catch (err) {
+            return { ok: false as const, reason: "failed" as const, message: err instanceof Error ? err.message : String(err) };
+          }
+        },
+      });
+    }
+    // ADR-0067: the contributed-tool sink behind `ctx.registerTool`. A    // contributed tool rides the same runner and gate as every session
     // tool — registration is just an entry in the model-visible registry;
     // its `tool_contributed` record is emitted by the runtime at
     // registration time. The wrapper adapts the extension's validator

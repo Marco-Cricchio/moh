@@ -30,6 +30,9 @@ import {
   type HostReadLinkResult,
   type HostFetchResult,
   type HostRunToolResult,
+  type HostModelCallRequest,
+  type HostModelCallResult,
+  type HostListModelsResult,
   type HostFetchOptions,
   type ExtensionContributedTool,
   type BeforeTurnHook,
@@ -54,7 +57,7 @@ import {
   type CompactionHookResult,
 } from "@moh/extension";
 import type { BeforeTurnResult } from "@moh/extension";
-import type { AgentEvent, ExtensionStatus } from "./types";
+import type { AgentEvent, ExtensionStatus, ThinkingLevel, TokenUsage } from "./types";
 import type { ExtensionSpawnSpec } from "@moh/extension";
 import type { SubagentHost } from "./subagents";
 import { ExtensionSpawnRefusedError } from "./extension-scope";
@@ -62,9 +65,10 @@ import { capabilityDiff, capabilitiesSubset, readExtensionManifest, type Manifes
 import { checkHostScope, checkPathScope, hostScopesOf, isHostScope, isPathScope, MAX_FETCH_BYTES, MAX_REDIRECTS, HOST_SCOPE_REASONING_KEY, TOTAL_HOST_WILDCARD, validateHostScope, validatePathScope, pathScopesOf } from "./host-scope";
 import { credentialScopesOf, credentialScopeRef, isCredentialScope, validateCredentialScope, type CredentialStore } from "./credential-scope";
 import { isToolScope, validateToolScope, toolScopesOf, checkToolScope, isContributeToolScope, validateContributeToolScope, contributesTool, toolScopeName, contributeToolScopesOf, contributeToolName, CONTRIBUTE_TOOL_SCOPE_PREFIX } from "./tool-scope";
+import { isEndpointScope, validateEndpointScope, endpointScopesOf, checkEndpointScope } from "./endpoint-scope";
 import { newUlid } from "./session/ulid";
 
-type HostOpName = "read" | "write" | "append" | "rename" | "delete" | "readlink" | "fetch" | "run_tool";
+type HostOpName = "read" | "write" | "append" | "rename" | "delete" | "readlink" | "fetch" | "run_tool" | "model_call" | "list_models";
 
 /**
  * ADR-0067: the tool-execution seam the session binds — the host-side
@@ -75,6 +79,31 @@ export interface ToolSeam {
   runTool(request: { extension: string; tool: string; args: unknown }): Promise<
     | { ok: true; output: string }
     | { ok: false; reason: "unknown_tool" | "denied" | "failed"; message?: string }
+  >;
+}
+
+/**
+ * ADR-0068: the model-call seam the session binds — the host-side half
+ * of `ctx.host.modelCall` and `ctx.host.listModels`. The runtime owns
+ * scope + logging; the session owns endpoint resolution, the single-shot
+ * Route execution, the thinking-capability check and usage accounting.
+ * Credentials never cross this seam in either direction.
+ */
+export interface ModelSeam {
+  modelCall(request: {
+    extension: string;
+    endpoint: string;
+    model: string;
+    messages: ReadonlyArray<{ role: "system" | "user" | "assistant"; content: string }>;
+    thinkingLevel?: ThinkingLevel;
+    signal?: AbortSignal;
+  }): Promise<
+    | { ok: true; text: string; usage: TokenUsage; model: string; thinkingLevel?: ThinkingLevel }
+    | { ok: false; reason: "unknown_endpoint" | "unsupported_level" | "failed"; message?: string }
+  >;
+  listModels(request: { endpoint: string }): Promise<
+    | { ok: true; models: string[] }
+    | { ok: false; reason: "unknown_endpoint" | "failed"; message?: string }
   >;
 }
 import { redactKeys } from "./redact";
@@ -1340,6 +1369,18 @@ bindPathDeny(isDenied: (resolvedAbsPath: string) => boolean): void {
   }
 
   /**
+   * ADR-0068: the session binds its model-call seam. Extension setup may
+   * run before a session exists — the seam binds later, like the tool
+   * seam. A call made with no session bound is refused loudly, never
+   * silently dropped.
+   */
+  #modelSeam: ModelSeam | null = null;
+
+  bindModelSeam(seam: ModelSeam): void {
+    this.#modelSeam = seam;
+  }
+
+  /**
    * ADR-0067: the session binds its contributed-tool sink. A registration
    * made before a session exists (setup runs during load) is held and
    * applied — and logged — at bind time, so the `tool_contributed` event
@@ -1879,6 +1920,14 @@ bindPathDeny(isDenied: (resolvedAbsPath: string) => boolean): void {
         if (!validity.ok) return { ok: false, name, reason: "invalid_tool_scope", message: validity.message };
       }
     }
+    // ADR-0068: an `endpoint:<ref>` scope validates at load like its
+    // scope siblings — the ref is an endpoint name from moh.json, never
+    // an "endpoint/model" pair (the model is a call-time choice).
+    for (const capability of granted) {
+      if (!isEndpointScope(capability)) continue;
+      const validity = validateEndpointScope(capability);
+      if (!validity.ok) return { ok: false, name, reason: "invalid_endpoint_scope", message: validity.message };
+    }
     instance.grantedCapabilities = [...granted];
     const commandSlot: { registerCommand?: ExtensionSetupContext["registerCommand"] } = granted.includes("contribute-commands")
       ? { registerCommand: (command: ExtensionCommand) => this.#registerCommand(instance, command) }
@@ -1924,13 +1973,18 @@ bindPathDeny(isDenied: (resolvedAbsPath: string) => boolean): void {
     // check is whole-tool, the execution and gate live in the session.
     const toolScopes = toolScopesOf(granted);
     const toolHost = this.#toolHostFor(instance, toolScopes);
+    // ADR-0068: the endpoint scopes. `modelCall`/`listModels` ride the
+    // same seam object — present only when at least one `endpoint:<ref>`
+    // scope was granted; the per-call check is one-ref-exact.
+    const endpointScopes = endpointScopesOf(granted);
+    const endpointHost = this.#endpointHostFor(instance, endpointScopes);
     const fileHost = this.#fileHostFor(instance, scopes);
     const netHost = this.#networkHostFor(instance, [...hostScopes, ...credScopes]);
     // Both scopes land on one seam object; a method absent at runtime
     // means no scope of its kind was granted (enforcement by absence).
-    const hostObject = { ...fileHost, fetch: netHost.fetch, runTool: toolHost.runTool } as ExtensionHost;
+    const hostObject = { ...fileHost, fetch: netHost.fetch, runTool: toolHost.runTool, modelCall: endpointHost.modelCall, listModels: endpointHost.listModels } as ExtensionHost;
     const hostSlot: Pick<ExtensionSetupContext, "host"> =
-      scopes.length > 0 || hostScopes.length > 0 || credScopes.length > 0 || toolScopes.length > 0
+      scopes.length > 0 || hostScopes.length > 0 || credScopes.length > 0 || toolScopes.length > 0 || endpointScopes.length > 0
         ? { host: hostObject }
         : {};
     const ctx: ExtensionSetupContext = {
@@ -2065,7 +2119,90 @@ bindPathDeny(isDenied: (resolvedAbsPath: string) => boolean): void {
     };
   }
 
-  #fileHostFor(instance: RuntimeExtension, scopes: readonly string[]): Omit<ExtensionHost, "fetch" | "runTool"> {
+  /**
+   * ADR-0068: the endpoint scope's half of the host seam. Scope + logging
+   * live here (the runtime stamps the extension and writes `host_op` /
+   * `host_refused`); endpoint resolution, the single-shot Route call, the
+   * thinking-capability check and usage accounting live in the session
+   * behind `#modelSeam`. One ref per grant, exact match, per call; the
+   * model id is never scoped. A refusal is a typed result plus one
+   * `host_refused` event — never an exception, never `extension_failed`.
+   */
+  #endpointHostFor(instance: RuntimeExtension, scopes: readonly string[]): {
+    modelCall?: (request: {
+      endpoint: string;
+      model: string;
+      messages: ReadonlyArray<{ role: "system" | "user" | "assistant"; content: string }>;
+      thinkingLevel?: ThinkingLevel;
+      signal?: AbortSignal;
+    }) => Promise<HostModelCallResult>;
+    listModels?: (endpoint: string) => Promise<HostListModelsResult>;
+  } {
+    if (scopes.length === 0) return {};
+    const name = instance.def.name;
+    const refused = (callId: string, op: HostOpName, reason: string, model?: string) => {
+      this.#emit({ type: "host_refused", callId, extension: name, op, reason, ...(model !== undefined ? { model } : {}) } as AgentEvent);
+    };
+    return {
+      modelCall: async (request): Promise<HostModelCallResult> => {
+        const callId = newUlid();
+        const endpoint = typeof request.endpoint === "string" ? request.endpoint : "";
+        const modelRef = `${endpoint}/${typeof request.model === "string" ? request.model : ""}`;
+        // One ref per grant, per call: the endpoint name must be one the
+        // consent named exactly.
+        if (!checkEndpointScope(endpoint, scopes).ok) {
+          refused(callId, "model_call", "outside_scope", modelRef);
+          return { ok: false, reason: "outside_scope" };
+        }
+        const seam = this.#modelSeam;
+        if (!seam) {
+          refused(callId, "model_call", "failed", modelRef);
+          return { ok: false, reason: "failed", message: "no session is bound to this extension runtime" };
+        }
+        const result = await seam.modelCall({ extension: name, endpoint, model: request.model, messages: request.messages, thinkingLevel: request.thinkingLevel, signal: request.signal });
+        if (result.ok) {
+          // ADR-0068: no parallel event type — the session's `model_call`
+          // record (requester-marked) carries the call; this `host_op` is
+          // the seam's own audit line.
+          this.#emit({ type: "host_op", callId, extension: name, op: "model_call", outcome: "ok", model: result.model });
+          return result;
+        }
+        if (result.reason === "failed") {
+          this.#emit({ type: "host_op", callId, extension: name, op: "model_call", outcome: "failed", model: modelRef, ...(result.message !== undefined ? { message: result.message } : {}) } as AgentEvent);
+          return result;
+        }
+        // unknown_endpoint / unsupported_level: scope-answer-shaped
+        // refusals, logged as refusals.
+        refused(callId, "model_call", result.reason, modelRef);
+        return result;
+      },
+      listModels: async (endpoint): Promise<HostListModelsResult> => {
+        const callId = newUlid();
+        if (typeof endpoint !== "string" || !checkEndpointScope(endpoint, scopes).ok) {
+          refused(callId, "list_models", "outside_scope", endpoint);
+          return { ok: false, reason: "outside_scope" };
+        }
+        const seam = this.#modelSeam;
+        if (!seam) {
+          refused(callId, "list_models", "failed", endpoint);
+          return { ok: false, reason: "failed", message: "no session is bound to this extension runtime" };
+        }
+        const result = await seam.listModels({ endpoint });
+        if (result.ok) {
+          this.#emit({ type: "host_op", callId, extension: name, op: "list_models", outcome: "ok", model: endpoint });
+          return result;
+        }
+        if (result.reason === "failed") {
+          refused(callId, "list_models", "failed", endpoint);
+          return result;
+        }
+        refused(callId, "list_models", result.reason, endpoint);
+        return result;
+      },
+    };
+  }
+
+  #fileHostFor(instance: RuntimeExtension, scopes: readonly string[]): Omit<ExtensionHost, "fetch" | "runTool" | "modelCall" | "listModels"> {
     const name = instance.def.name;
     const root = this.#options.projectRoot ?? process.cwd();
     const isDenied = this.#pathDeny ?? this.#options.isPathDenied ?? (() => false);

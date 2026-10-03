@@ -224,6 +224,20 @@ refusal as `host_refused` (typed reasons, never exceptions).
   sentence says so plainly. A tool outside the grant refuses
   `{ ok: false, reason: "outside_scope" }`; a tool the session does not
   register refuses `unknown_tool`; a refused ask refuses `denied`.
+- `endpoint:<ref>` (ADR-0068, apiVersion 1.15) — `modelCall({ endpoint,
+  model, messages, thinkingLevel?, signal? })` asks the host for one
+  single-shot model call against an endpoint your grant named, executed
+  through moh's Route: no host-managed loop, no conversation state — you
+  compose the messages and read the answer (`text`, `usage`, the serving
+  `model`). Provider credentials never cross the seam, and provider
+  reasoning of these calls is not persisted. `listModels(endpoint)`
+  lists the granted endpoint's models — part of the same grant. A
+  per-call `thinkingLevel` is honored only within the model's declared
+  thinking capability: an unsupported level refuses `unsupported_level`,
+  never a remapping. Every call is recorded as an ordinary `model_call`
+  log event naming your extension as the requester, and its tokens are
+  separated by requester in the turn's `done` usage rollup — the owner
+  sees what you consumed. A second endpoint is `outside_scope`.
 - `contribute-tool:<name>` (ADR-0067, apiVersion 1.14) — the
   contribution slot, a different power with a different consent sentence
   ("will add a `<name>` tool the model can call; its code runs when the
@@ -708,7 +722,7 @@ extension's note.
 ## Versioning policy
 
 - The host speaks `MOH_EXTENSION_API_VERSION` (`"major.minor"`); the
-  current version is **1.13** (1.1 added `ask` and the two observation
+  current version is **1.15** (1.1 added `ask` and the two observation
   seams; 1.2 added `beforeTurn`; 1.3 added the `extension_control`
   command channel; 1.4 added `onToolResult`, `confirm.onResolved` and
   `onCompaction`; 1.5 added `setPromptNote`; 1.6 added `requestTurn`;
@@ -729,6 +743,8 @@ extension's note.
   announcement of what each enabled extension holds); 1.14 added the
   tool scopes per ADR-0067, #1163 — `ctx.host.runTool` under
   `tool:<name|*>` and `ctx.registerTool` under `contribute-tool:<name>`.
+  1.15 added the endpoint scope per ADR-0068, #1164 — `ctx.host.modelCall`
+  and `ctx.host.listModels` under `endpoint:<ref>`.
 - **Additive-only within a major**: new hooks and context fields may be
   added; existing ones never change meaning or disappear. Deprecated APIs
   survive one full major.
