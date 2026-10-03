@@ -1197,6 +1197,72 @@ const todo: Tool<z.infer<typeof todoSchema>> = {
   },
 };
 
+/**
+ * The read-only `git` built-in tool (T7, #1165): the referent of the
+ * `tool:git` whole-tool grant (ADR-0067). A read allow-list, nothing else:
+ * an extension (Jev's diff/status snapshots) asks the host for repository
+ * *reads* without holding the shell, and the model may call the same tool
+ * under the ordinary gate. Every inspection subcommand Jev's uses need is
+ * allowed verbatim; anything that mutates, moves history, or relocates the
+ * repository (`-C`, `--git-dir`) is a typed refusal before any spawn —
+ * whole-tool grant, never argv sub-scoping, so the tool itself is where
+ * read-only is enforced. Non-zero exit is a failed tool_result carrying
+ * stderr; outside a repository git's own wording is the failure, which the
+ * consumers treat as "inert" (ratified fail-open).
+ */
+const GIT_READ_SUBCOMMANDS = new Set([
+  "status",
+  "diff",
+  "log",
+  "show",
+  "rev-parse",
+  "ls-files",
+  "branch",
+  "remote",
+  "describe",
+  "config",
+]);
+/** Global flags that would point git somewhere the session is not. */
+const GIT_RELOCATING_FLAGS = new Set(["-C", "--git-dir", "--work-tree"]);
+
+const gitSchema = z.object({
+  args: z.array(z.string()).min(1).describe("Git arguments; the subcommand must be a read-only one."),
+});
+const gitTool: Tool<z.infer<typeof gitSchema>> = {
+  name: "git",
+  description:
+    "Run a read-only git command in the project root and capture its output. " +
+    "Inspection subcommands only (status, diff, log, show, rev-parse, ls-files, branch, remote, describe, config reads); " +
+    "mutating commands (add, commit, push, checkout, reset, clean, …) are refused.",
+  inputSchema: gitSchema,
+  execute(args, toolCtx) {
+    const a = args.args;
+    let i = 0;
+    while (i < a.length && (a[i]!.startsWith("-") || a[i]!.includes("="))) {
+      const option = a[i]!;
+      if (GIT_RELOCATING_FLAGS.has(option) || option.startsWith("--git-dir=") || option.startsWith("--work-tree=")) {
+        throw new Error(`git: not allowed: "${option}" relocates the repository; this tool reads the session's project root only`);
+      }
+      i += 1;
+    }
+    const sub = a[i];
+    if (sub === undefined || !GIT_READ_SUBCOMMANDS.has(sub)) {
+      throw new Error(`git: read-only tool: "${sub ?? ""}" is not an allowed subcommand (${[...GIT_READ_SUBCOMMANDS].sort().join(", ")})`);
+    }
+    if (sub === "config") {
+      // `config --get/--list <key>` reads; any bare `key value` tail writes.
+      const rest = a.slice(i + 1).filter((t) => !t.startsWith("-"));
+      if (rest.length > 1) throw new Error("git: read-only tool: config writes are not allowed (use `config --get/--list <key>`)");
+    }
+    const out = Bun.spawnSync(["git", ...a], { cwd: toolCtx.cwd, stdout: "pipe", stderr: "pipe" });
+    if (out.exitCode !== 0) {
+      const err = out.stderr.toString().trim();
+      throw new Error(`git exited with code ${out.exitCode}${err ? `: ${err}` : ""}`);
+    }
+    return out.stdout.toString();
+  },
+};
+
 const askUserQuestionSchema = z.object({
   question: z.string().min(1),
   header: z.string().min(1),
@@ -1388,7 +1454,7 @@ export interface BuiltinToolsOptions {
 export function builtinTools(options: BuiltinToolsOptions = {}): Record<string, Tool> {
   const readLedger = new Map<string, ServedRead>();
   const runLedger = createRunLedger(options.ledgerRoot);
-  const all: Tool[] = [bashTool(runLedger, options.rerunMinMs), readTool(readLedger), write, edit, glob, grep, fetchTool, todo, askUser];
+  const all: Tool[] = [bashTool(runLedger, options.rerunMinMs), readTool(readLedger), write, edit, glob, grep, fetchTool, todo, gitTool, askUser];
   // #774 / ADR-0029: the browser tool registers only when explicitly
   // enabled. A missing toolchain is a visible diagnostic, never a turn
   // error and never a session failure — the other tools stay untouched.
