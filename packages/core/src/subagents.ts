@@ -207,10 +207,11 @@ export interface SubagentHostOptions {
   extensionEnvelope?: { maxSessions?: number; maxIterations?: number };
 }
 
-/** Simple counting semaphore: caps parallel children (default 3). */
-class Semaphore {
+/** #1143: counting semaphore with permit transfer — caps parallel children
+ * (default 3). Exported for tests. */
+export class Semaphore {
   #active = 0;
-  readonly #waiting: { resolve: () => void; aborted: boolean }[] = [];
+  readonly #waiting: { resolve: () => void; aborted: boolean; handedOff: boolean }[] = [];
   constructor(readonly limit: number) {}
   async acquire(signal: AbortSignal): Promise<boolean> {
     if (signal.aborted) return false;
@@ -218,7 +219,7 @@ class Semaphore {
       this.#active += 1;
       return true;
     }
-    const entry = { resolve: () => {}, aborted: false };
+    const entry = { resolve: () => {}, aborted: false, handedOff: false };
     this.#waiting.push(entry);
     const onAbort = () => {
       entry.aborted = true;
@@ -232,13 +233,35 @@ class Semaphore {
       entry.resolve = resolve;
     });
     signal.removeEventListener("abort", onAbort);
-    if (entry.aborted) return false;
-    this.#active += 1;
+    if (entry.aborted) {
+      // An aborted waiter that was already handed a permit (#1143) must
+      // pass it on, or the permit leaks and the semaphore under-counts.
+      if (entry.handedOff) this.release();
+      return false;
+    }
+    // Permit transfer (#1143): release() never decremented for us, so we
+    // must not increment again — an acquire() landing between the wake and
+    // this resume would otherwise double-grant past `limit`.
+    if (!entry.handedOff) this.#active += 1;
     return true;
   }
   release(): void {
+    // Hand the permit to the first live waiter without decrementing
+    // (#1143): between this wake and the waiter's resume a fresh acquire()
+    // must not see a free slot and grant a second permit for the same one.
+    while (this.#waiting.length > 0) {
+      const next = this.#waiting.shift()!;
+      if (next.aborted) {
+        // A dead waiter holds nothing: wake it (acquire returns false) and
+        // keep looking for a live one to inherit the permit.
+        next.resolve();
+        continue;
+      }
+      next.handedOff = true;
+      next.resolve();
+      return;
+    }
     this.#active = Math.max(0, this.#active - 1);
-    this.#waiting.shift()?.resolve();
   }
 }
 

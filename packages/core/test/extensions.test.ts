@@ -60,13 +60,14 @@ function runtime(dir: string, overrides: Partial<ConstructorParameters<typeof Ex
   });
 }
 
-async function setup(def: ExtensionDefinition | ExtensionDefinition[], options: { runtime?: ExtensionRuntime; turns?: any[] } = {}) {
+async function setup(def: ExtensionDefinition | ExtensionDefinition[], options: { runtime?: ExtensionRuntime; turns?: any[]; permissions?: any } = {}) {
   const rt = options.runtime ?? runtime(tempDir());
   for (const d of Array.isArray(def) ? def : [def]) await rt.register(d);
   const session = createSession({
     provider: MockProvider.scripted(options.turns ?? [{ deltas: ["ok"], finish: "stop" }]),
     tools: { echo: echoTool },
     extensions: rt,
+    ...(options.permissions ? { permissions: options.permissions } : {}),
   });
   return { rt, session };
 }
@@ -1080,6 +1081,50 @@ describe("#981: the event budget is per session", () => {
   });
 });
 
+describe("#1143: the event budget resets at beforeTurn dispatch entry", () => {
+  test("a hook recording at turn start gets a fresh budget after a previous turn's cap-out", async () => {
+    // Turn 1: the onToolCall flood fills the budget past the cap (50), so
+    // under the old reset point (user_message) the budget is still exhausted
+    // when turn 2's pre-turn records arrive.
+    // Turn 2/3: the beforeTurn records must all land anyway.
+    const { rt, session } = await setup(
+      defineExtension({
+        name: "turnstart",
+        version: "1.0.0",
+        apiVersion: MOH_EXTENSION_API_VERSION,
+        setup: (ctx: ExtensionSetupContext) => {
+          ctx.beforeTurn(() => {
+            // Records in the pre-turn window: under the old reset point
+            // this spent the previous turn's exhausted budget.
+            for (let i = 0; i < 10; i++) ctx.appendEvent({ name: "turnstart", payload: { i } });
+          });
+          ctx.onToolCall(() => {
+            for (let i = 0; i < 60; i++) ctx.appendEvent({ name: "flood", payload: { i } });
+          });
+        },
+      }),
+      { permissions: { overrides: { tools: { echo: "allow" } } },
+        turns: [
+          { deltas: [], finish: "tool_calls" as const, toolCalls: [{ name: "echo", args: { text: "flood" } }] },
+          { deltas: ["ok"], finish: "stop" as const },
+          { deltas: ["ok"], finish: "stop" as const },
+          { deltas: ["ok"], finish: "stop" as const },
+        ] },
+    );
+    void rt;
+    await session.send("turn one"); // floods: cap hits, budget exhausted
+    await session.send("turn two");
+    await session.send("turn three");
+    const starts = session
+      .history()
+      .filter((e) => e.type === "extension_event" && (e as { name: string }).name === "turnstart");
+    expect(starts).toHaveLength(30); // 10 per turn × 3 turns
+    const caps = session.history().filter((e) => e.type === "extension_failed" && e.reason === "event_cap");
+    expect(caps.length).toBeGreaterThanOrEqual(1); // turn 1's flood was capped
+    await session.dispose();
+  });
+});
+
 describe("ADR-0056 hook deadlines (#1126)", () => {
   const bmcCtx = { prompt: { sections: {}, system: "", version: "x" }, messages: [] };
 
@@ -1109,6 +1154,34 @@ describe("ADR-0056 hook deadlines (#1126)", () => {
     expect(verdict.errors).toHaveLength(1);
     expect(verdict.errors[0]).toMatchObject({ type: "extension_failed", name: "slow", reason: "hook_timeout" });
     expect((verdict.errors[0] as any).message).toContain("80ms");
+  });
+
+  test("a throw landing after the timeout is one bounded hook_late_error record (#1143)", async () => {
+    const rt = deadlineRuntime();
+    await rt.register(
+      defineExtension({
+        name: "late",
+        version: "1.0.0",
+        apiVersion: MOH_EXTENSION_API_VERSION,
+        setup: (ctx) => {
+          ctx.onToolCall(async () => {
+            await Bun.sleep(200); // past the 80ms ceiling…
+            throw new Error("late boom"); // …then throws: the abandoned promise
+          });
+        },
+      }),
+    );
+    const verdict = await rt.checkToolHooks({ callId: "c1", name: "echo", args: {} });
+    expect(verdict.veto).toBe(false);
+    expect(verdict.errors).toHaveLength(1);
+    expect(verdict.errors[0]).toMatchObject({ reason: "hook_timeout" });
+    // The late throw is recorded once the abandoned promise settles: the
+    // next dispatch drains it from the same (owner) bucket.
+    await Bun.sleep(250);
+    const next = await rt.checkToolHooks({ callId: "c2", name: "echo", args: {} });
+    const late = next.errors.filter((e) => (e as { reason?: string }).reason === "hook_late_error");
+    expect(late).toHaveLength(1);
+    expect((late[0] as { message: string }).message).toContain("late boom");
   });
 
   test("a throwing hook is still one fail-open record (ceiling does not change the throw path)", async () => {
@@ -1206,5 +1279,25 @@ describe("ADR-0056 hook deadlines (#1126)", () => {
     expect(DEFAULT_HOOK_TIMEOUT_MS).toBe(30_000);
     expect(PROMPT_REPLACEMENT_WINDOW_MS).toBe(5_000);
     expect(runtime(tempDir()).hookTimeoutMs).toBe(30_000);
+  });
+
+  test("PROBE", async () => {
+    const { session } = await setup(
+      defineExtension({
+        name: "probe",
+        version: "1.0.0",
+        apiVersion: MOH_EXTENSION_API_VERSION,
+        setup: (ctx: ExtensionSetupContext) => {
+          ctx.onToolCall(() => {
+            for (let i = 0; i < 60; i++) ctx.appendEvent({ name: "flood", payload: { i } });
+          });
+        },
+      }),
+    );
+    await session.send("a");
+    const evts = session.history().filter((e) => e.type === "extension_event");
+    const caps = session.history().filter((e) => e.type === "extension_failed");
+    console.log("EVENTS", evts.length, "CAPS", JSON.stringify(caps.map(c => (c as any).reason)));
+    await session.dispose();
   });
 });

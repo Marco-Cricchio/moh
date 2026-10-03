@@ -640,6 +640,14 @@ export class AgentSession {
               dispatch: (text, turnIndex, model) =>
                 dispatchBeforeTurn({ text, turnIndex, model, endpointCooldowns: this.endpointCooldowns }),
               applyModel: (ref) => this.switchModel(ref),
+              // #1143: the per-turn `extension_event` budget resets at
+              // dispatch entry — `beforeTurn` runs before the
+              // `user_message` append that used to reset it. Owner and
+              // borrowed sessions reset their own budget.
+              beginBudgetTurn: () => {
+                if (this.#extensions) this.#extensions.beginTurn(this.#sessionId);
+                else this.#borrowedHooks?.beginBorrowedTurn(this.#sessionId);
+              },
               // ADR-0033 §4: the client answers a confirmation. No seam =
               // headless: the loop refuses the turn itself ("silence by
               // default"), it never sends what it could not ask about.

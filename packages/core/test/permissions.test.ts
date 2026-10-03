@@ -499,6 +499,14 @@ describe("canonical rule grammar: parseRule / formatRule (ADR-0007)", () => {
     expect(() => parseRule("fetch:", "allow")).toThrow(RuleError);
     expect(() => parseRule(":src/**", "allow")).toThrow(/missing tool/);
     expect(() => parseRule("bash:", "allow")).toThrow(RuleError); // empty prefix: no tokens
+    // #1143: the all-tools wildcard is refused fail-closed.
+    expect(() => parseRule("*", "allow")).toThrow(/all-tools wildcard/);
+  });
+
+  test("tools override wildcard is refused (#1143)", () => {
+    expect(() =>
+      new PermissionResolver({ defaults: DEFAULT_TOOL_PERMISSIONS, cwd: root, overrides: { tools: { "*": "allow" } } }),
+    ).toThrow(/all-tools wildcard/);
   });
 
   test("formatRule renders the canonical terse form", () => {
