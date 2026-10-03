@@ -450,10 +450,6 @@ export class ExtensionRuntime {
   readonly #mohHome: string;
   readonly #instances: RuntimeExtension[] = [];
   /**
-   * ADR-0062 (#1130): slash names the client reserved for its native
-   * commands and skills — an extension command matching one is refused.
-   */
-  /**
    * ADR-0062 (#1130): the slash names the client's own surfaces own — its
    * native commands plus every skill alias. Extension commands colliding
    * with one are refused at registration (precedence: native > skills >
@@ -563,7 +559,10 @@ export class ExtensionRuntime {
   #registerCommand(instance: RuntimeExtension, command: ExtensionCommand): void {
     const extension = instance.def.name;
     const name = typeof (command as { name?: unknown } | null)?.name === "string" ? command.name : "";
-    if (!/^[a-z0-9][a-z0-9-]*$/i.test(name)) {
+    // Lowercase only (the contract's promise on `ExtensionCommand.name`):
+    // a mixed-case name would register under one spelling and never answer
+    // to its lowercase slash form — refused instead, never half-registered.
+    if (!/^[a-z0-9][a-z0-9-]*$/.test(name)) {
       this.#refuseCommand(extension, typeof name === "string" ? name : "", "invalid");
       return;
     }
@@ -572,6 +571,8 @@ export class ExtensionRuntime {
       this.#refuseCommand(extension, name, "reserved");
       return;
     }
+    // During setup the instance is not yet in `#instances` (it is pushed
+    // after setup settles), so the same-extension check is its own clause.
     const taken = this.#instances.some((i) => i.commands.some((c) => c.name === key)) || instance.commands.some((c) => c.name === key);
     if (taken) {
       this.#refuseCommand(extension, name, "taken");

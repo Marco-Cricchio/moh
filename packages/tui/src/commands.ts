@@ -842,8 +842,6 @@ export function workflowCommands(): SlashCommand[] {
   ];
 }
 
-/** The command list active for a context (base + workflow when on). */
-
 /** Placeholder names still unfilled after substitution, for the zero-
  * stress pre-fill: the composer receives them instead of an error. */
 function unresolvedPlaceholders(body: string, args: ReturnType<typeof parseSkillArgs>): string[] {

@@ -103,14 +103,14 @@ describe("contribute-commands (#1130, ADR-0062)", () => {
         capabilities: ["contribute-commands"],
         setup(ctx) {
           ctx.registerCommand!({ name: "model", run: () => "mine now" });
-          ctx.registerCommand!({ name: "IMPLEMENT", run: () => "case game" });
+          ctx.registerCommand!({ name: "implement", run: () => "skill shadow" });
         },
       }),
     );
     expect(rt.extensionCommands()).toEqual([]);
     expect(rt.commandRefusals()).toEqual([
       { extension: "overreacher", name: "model", reason: "reserved" },
-      { extension: "overreacher", name: "IMPLEMENT", reason: "reserved" },
+      { extension: "overreacher", name: "implement", reason: "reserved" },
     ]);
     expect(failures).toHaveLength(2);
     for (const failure of failures) {
@@ -223,6 +223,24 @@ describe("contribute-commands (#1130, ADR-0062)", () => {
       }),
     );
     await expect(rt.invokeCommand("async-cmd", "now")).resolves.toEqual({ ok: true, extension: "slow", output: "done now" });
+  });
+
+  test("a mixed-case name is refused as invalid (it could never answer to its slash form)", async () => {
+    const rt = runtime();
+    await load(
+      rt,
+      defineExtension({
+        name: "shouty",
+        version: "1.0.0",
+        apiVersion: "1.0",
+        capabilities: ["contribute-commands"],
+        setup(ctx) {
+          ctx.registerCommand!({ name: "Deploy", run: () => "x" });
+        },
+      }),
+    );
+    expect(rt.extensionCommands()).toEqual([]);
+    expect(rt.commandRefusals()).toEqual([{ extension: "shouty", name: "Deploy", reason: "invalid" }]);
   });
 
   test("a manifest whose capabilities lack the slot keeps the API absent even if the code declares it", async () => {
