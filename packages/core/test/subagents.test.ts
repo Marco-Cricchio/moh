@@ -8,7 +8,57 @@ function tmpHome(): string {
 }
 import { builtinTools, createSession, DevelopmentLaneStore, MockProvider, type AgentEvent, type Tool } from "../src/index";
 import { createRoute, Endpoint } from "../src/route";
-import { BUILTIN_AGENT_PRESETS, DEFAULT_SUBAGENT_CONCURRENCY, subagentPreview, type SubagentResult } from "../src/subagents";
+import { BUILTIN_AGENT_PRESETS, DEFAULT_SUBAGENT_CONCURRENCY, Semaphore, subagentPreview, type SubagentResult } from "../src/subagents";
+
+describe("Semaphore (#1143)", () => {
+  test("release transfers the permit: no double-grant past limit", async () => {
+    const sem = new Semaphore(1);
+    const holder = new AbortController().signal;
+    expect(await sem.acquire(holder)).toBe(true);
+
+    // Two waiters queue, then the holder releases. Release hands the permit
+    // to exactly one live waiter without decrementing; a fresh acquire()
+    // racing in between must not grant a second permit.
+    const w1 = sem.acquire(new AbortController().signal);
+    const w1Dropped = sem.acquire(new AbortController().signal);
+    sem.release();
+
+    const w1Result = await w1;
+    expect(w1Result).toBe(true);
+    // The second queued waiter stays blocked: the permit was transferred,
+    // not double-granted.
+    let droppedGranted = false;
+    w1Dropped.then((v) => (droppedGranted = v));
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(droppedGranted).toBe(false);
+
+    // Settle cleanly: hand permits down the queue until everyone drains.
+    sem.release(); // -> the dropped waiter
+    sem.release(); // -> queue empty, decrement
+    expect(await w1Dropped).toBe(true);
+    // Fully drained: a fresh acquire is instant.
+    expect(await sem.acquire(new AbortController().signal)).toBe(true);
+  });
+
+  test("aborted waiter never double-counts or leaks the permit", async () => {
+    const sem = new Semaphore(1);
+    const ac = new AbortController();
+    expect(await sem.acquire(new AbortController().signal)).toBe(true);
+    const waiter = sem.acquire(ac.signal);
+    ac.abort();
+    expect(await waiter).toBe(false);
+    // The permit still counts as held by the first holder.
+    let secondGranted = false;
+    const second = sem.acquire(new AbortController().signal).then((v) => (secondGranted = v));
+    await Promise.resolve();
+    expect(secondGranted).toBe(false);
+    sem.release();
+    expect(await second).toBe(true);
+    sem.release();
+    // Fully drained: a fresh acquire is instant.
+    expect(await sem.acquire(new AbortController().signal)).toBe(true);
+  });
 
 /** Collects parent events into an array for assertions. */
 function tap(session: { events: AsyncIterable<AgentEvent> }): AgentEvent[] {
