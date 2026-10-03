@@ -1441,6 +1441,10 @@ function AppShell({
   // repaint) while the block was open, freezing the screen under arrow
   // stress. The block renders inline in the main buffer; the composer is
   // still blocked (see `blocked` above), so it keeps exclusive keys.
+  const railVisible = railOpen && session !== null && session.extensionPanels().length > 0;
+  /** #1132: at or below the rail's narrow threshold the zone collapses to
+   * a footer strip BELOW the conversation — never a column beside it. */
+  const railWide = viewport.columns > 80;
   const overlayOpen = overlay !== null || pending !== null || extensionOverlay !== null;
   // #330: a flip back to the main buffer is pending from the moment the
   // overlay closes (render-phase: covers the first post-close commit,
@@ -1632,7 +1636,7 @@ function AppShell({
         position="relative"
         key={themeTick}
       >
-        <Box width="100%" flexDirection={railOpen && session !== null && session.extensionPanels().length > 0 ? "row" : "column"} alignItems="flex-start">
+        <Box width="100%" flexDirection={railVisible && railWide ? "row" : "column"} alignItems="flex-start">
         <Box flexDirection="column" flexGrow={1} width="100%" alignItems="center">
         {showChat ? (
           <Box flexDirection="column" width="100%" alignItems="center">{chat}</Box>
@@ -1660,9 +1664,9 @@ function AppShell({
           />
         )}
         </Box>
-        {railOpen && session !== null && session.extensionPanels().length > 0 && (
+        {railVisible && (
           <ExtensionsRail
-            panels={session.extensionPanels()}
+            panels={session!.extensionPanels()}
             collapsed={collapsedPanels}
             columns={viewport.columns}
           />
