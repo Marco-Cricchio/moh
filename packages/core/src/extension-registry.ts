@@ -21,6 +21,7 @@ import { join, resolve } from "node:path";
 import { MANIFEST_FILE, readExtensionManifest, type ExtensionManifest } from "./extension-manifest";
 import { PATH_SCOPE_PREFIX, HOST_SCOPE_PREFIX } from "./host-scope";
 import { CREDENTIAL_SCOPE_PREFIX } from "./credential-scope";
+import { TOOL_SCOPE_PREFIX, CONTRIBUTE_TOOL_SCOPE_PREFIX } from "./tool-scope";
 
 /** npm integrity digests (`sha512-...`) we can verify. */
 export type IntegrityAlgorithm = "sha512" | "sha1";
@@ -183,7 +184,10 @@ export function isKnownCapability(capability: string): boolean {
     KNOWN_CAPABILITY_SLOTS.includes(capability) ||
     capability.startsWith(PATH_SCOPE_PREFIX) ||
     capability.startsWith(HOST_SCOPE_PREFIX) ||
-    capability.startsWith(CREDENTIAL_SCOPE_PREFIX)
+    capability.startsWith(CREDENTIAL_SCOPE_PREFIX) ||
+    // ADR-0071 phase F3a ships the tool scopes (ADR-0067).
+    capability.startsWith(TOOL_SCOPE_PREFIX) ||
+    capability.startsWith(CONTRIBUTE_TOOL_SCOPE_PREFIX)
   );
 }
 

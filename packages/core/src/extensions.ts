@@ -59,6 +59,7 @@ import { ExtensionSpawnRefusedError } from "./extension-scope";
 import { capabilityDiff, capabilitiesSubset, readExtensionManifest, type ManifestAuthority } from "./extension-manifest";
 import { checkHostScope, checkPathScope, hostScopesOf, isHostScope, isPathScope, MAX_FETCH_BYTES, MAX_REDIRECTS, HOST_SCOPE_REASONING_KEY, TOTAL_HOST_WILDCARD, validateHostScope, validatePathScope, pathScopesOf } from "./host-scope";
 import { credentialScopesOf, credentialScopeRef, isCredentialScope, validateCredentialScope, type CredentialStore } from "./credential-scope";
+import { isToolScope, validateToolScope, toolScopesOf, checkToolScope, isContributeToolScope, validateContributeToolScope, contributesTool, toolScopeName } from "./tool-scope";
 import { newUlid } from "./session/ulid";
 
 type HostOpName = "read" | "write" | "append" | "rename" | "delete" | "readlink" | "fetch";
