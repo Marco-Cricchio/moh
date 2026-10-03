@@ -48,6 +48,7 @@ import {
 import { scopeEffectSentence, scopeEffectSentences, isPathScope, isHostScope, validateHostScope, hostScopesOf, checkHostScope, MAX_FETCH_BYTES, HOST_SCOPE_REASONING_KEY, TOTAL_HOST_WILDCARD } from "./host-scope";
 import { fileCredentialStore, isCredentialScope, validateCredentialScope, credentialScopeRef, credentialScopesOf, keychainCredentialStore, defaultCredentialStore, SECRETS_FILE, type CredentialStore } from "./credential-scope";
 import { isToolScope, validateToolScope, toolScopeName, toolScopesOf, checkToolScope, toolEffectSentence, TOOL_SCOPE_PREFIX, TOOL_SCOPE_WILDCARD, isContributeToolScope, validateContributeToolScope, contributeToolName, contributeToolScopesOf, contributesTool, contributeToolEffectSentence, CONTRIBUTE_TOOL_SCOPE_PREFIX } from "./tool-scope";
+import { isEndpointScope, validateEndpointScope, endpointScopeRef, endpointScopesOf, checkEndpointScope, endpointEffectSentence, ENDPOINT_SCOPE_PREFIX } from "./endpoint-scope";
 import { PromptComposer, type SkillIndexEntry } from "./prompt-composer";
 import type {
   AgentEvent,
@@ -897,6 +898,13 @@ export {
   contributesTool,
   contributeToolEffectSentence,
   CONTRIBUTE_TOOL_SCOPE_PREFIX,
+  isEndpointScope,
+  validateEndpointScope,
+  endpointScopeRef,
+  endpointScopesOf,
+  checkEndpointScope,
+  endpointEffectSentence,
+  ENDPOINT_SCOPE_PREFIX,
   type RegistryIo,
   type ExtensionRef,
   type InstallOptions,

@@ -1,7 +1,7 @@
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
-import type { AgentEvent, ExtensionStatus, Message, Provider, ReasoningStreamEvent, SendOptions, SkillPrompt, Tool, TurnResult } from "../types";
+import type { AgentEvent, ExtensionStatus, Message, Provider, ReasoningStreamEvent, SendOptions, SkillPrompt, ThinkingLevel, Tool, TurnResult } from "../types";
 import { SCHEMA_VERSION } from "../types";
 import type { ExtensionLiveInfo } from "../extensions-screen";
 import { normalizeTaskId, taskDeclaredEvent, taskOutcomeEvent, taskVerificationEvent } from "../task/telemetry";
@@ -471,7 +471,7 @@ export class AgentSession {
           endpoint: string;
           model: string;
           messages: ReadonlyArray<{ role: "system" | "user" | "assistant"; content: string }>;
-          thinkingLevel?: import("../types").ThinkingLevel;
+          thinkingLevel?: ThinkingLevel;
           signal?: AbortSignal;
         }) => {
           const profile = this.#endpoints.find((e) => e.name === request.endpoint);
@@ -489,7 +489,7 @@ export class AgentSession {
           // remapping. No declared capability, no override: moh never
           // invents capabilities. Without an override, the endpoint's own
           // resolution (its stored preference) applies.
-          let thinking: { level: import("../types").ThinkingLevel } | undefined;
+          let thinking: { level: ThinkingLevel } | undefined;
           if (request.thinkingLevel !== undefined) {
             const states = thinkingStatesForRef(ref, this.#endpoints);
             if (!states || states[request.thinkingLevel] === "provider-default") {
@@ -517,7 +517,7 @@ export class AgentSession {
           const usage = { inputTokens: 0, outputTokens: 0 };
           let text = "";
           let served = ref;
-          let effectiveLevel: import("../types").ThinkingLevel | undefined;
+          let effectiveLevel: ThinkingLevel | undefined;
           try {
             for await (const event of provider.stream(messages, request.signal ?? new AbortController().signal, undefined, thinking ? { thinking } : undefined)) {
               if (event.type === "text_delta") text += event.text;
@@ -530,9 +530,20 @@ export class AgentSession {
               }
             }
           } catch (err) {
+            // ADR-0068: tokens count even when the call fails mid-stream —
+            // the partial usage is recorded (failed `model_call`,
+            // requester-marked) and accounted, never dropped.
+            if (usage.inputTokens !== 0 || usage.outputTokens !== 0) {
+              this.#append({ type: "model_call", model: served, usage: { ...usage }, ...(effectiveLevel !== undefined ? { thinkingLevel: effectiveLevel } : {}), failed: true, requester: { kind: "extension", extension: request.extension } });
+              this.#loop.recordExtensionUsage(request.extension, usage);
+            }
             return { ok: false as const, reason: "failed" as const, message: err instanceof Error ? err.message : String(err) };
           }
           if (request.signal?.aborted) {
+            if (usage.inputTokens !== 0 || usage.outputTokens !== 0) {
+              this.#append({ type: "model_call", model: served, usage: { ...usage }, ...(effectiveLevel !== undefined ? { thinkingLevel: effectiveLevel } : {}), failed: true, requester: { kind: "extension", extension: request.extension } });
+              this.#loop.recordExtensionUsage(request.extension, usage);
+            }
             return { ok: false as const, reason: "failed" as const, message: "model call aborted" };
           }
           // The record: the same `model_call` event, marked with the

@@ -57,7 +57,7 @@ import {
   type CompactionHookResult,
 } from "@moh/extension";
 import type { BeforeTurnResult } from "@moh/extension";
-import type { AgentEvent, ExtensionStatus } from "./types";
+import type { AgentEvent, ExtensionStatus, ThinkingLevel, TokenUsage } from "./types";
 import type { ExtensionSpawnSpec } from "@moh/extension";
 import type { SubagentHost } from "./subagents";
 import { ExtensionSpawnRefusedError } from "./extension-scope";
@@ -95,10 +95,10 @@ export interface ModelSeam {
     endpoint: string;
     model: string;
     messages: ReadonlyArray<{ role: "system" | "user" | "assistant"; content: string }>;
-    thinkingLevel?: import("./types").ThinkingLevel;
+    thinkingLevel?: ThinkingLevel;
     signal?: AbortSignal;
   }): Promise<
-    | { ok: true; text: string; usage: import("./types").TokenUsage; model: string; thinkingLevel?: import("./types").ThinkingLevel }
+    | { ok: true; text: string; usage: TokenUsage; model: string; thinkingLevel?: ThinkingLevel }
     | { ok: false; reason: "unknown_endpoint" | "unsupported_level" | "failed"; message?: string }
   >;
   listModels(request: { endpoint: string }): Promise<
@@ -2133,7 +2133,7 @@ bindPathDeny(isDenied: (resolvedAbsPath: string) => boolean): void {
       endpoint: string;
       model: string;
       messages: ReadonlyArray<{ role: "system" | "user" | "assistant"; content: string }>;
-      thinkingLevel?: import("./types").ThinkingLevel;
+      thinkingLevel?: ThinkingLevel;
       signal?: AbortSignal;
     }) => Promise<HostModelCallResult>;
     listModels?: (endpoint: string) => Promise<HostListModelsResult>;
@@ -2168,7 +2168,7 @@ bindPathDeny(isDenied: (resolvedAbsPath: string) => boolean): void {
           return result;
         }
         if (result.reason === "failed") {
-          this.#emit({ type: "host_op", callId, extension: name, op: "model_call", outcome: "failed", model: modelRef, ...(result.message !== undefined ? { path: result.message } : {}) } as AgentEvent);
+          this.#emit({ type: "host_op", callId, extension: name, op: "model_call", outcome: "failed", model: modelRef, ...(result.message !== undefined ? { message: result.message } : {}) } as AgentEvent);
           return result;
         }
         // unknown_endpoint / unsupported_level: scope-answer-shaped

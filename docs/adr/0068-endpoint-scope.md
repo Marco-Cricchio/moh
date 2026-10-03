@@ -9,7 +9,12 @@ The #996 destination phrase "programmable providers" carried two readings: an ex
 - **Thinking level: per-call override within capability**: the extension may request a thinking level per call, bounded by the model's thinking capability — outside levels are a typed refusal, never a remapping. The power is declared in the consent sentence ("may choose the reasoning level per call, within those supported"), so no silent override of the endpoint's configured level; the recorded `model_call` carries the effective level sent (#240). The glossary's *Thinking level* stays the user-selected default for the endpoint; the scope grants a bounded deviation from it, visibly.
 - **Provider reasoning not persisted**: a host-performed call is not part of the conversation; its provider reasoning is not written to the log. Tokens count.
 - **Provider registration deferred**: `registerProvider` stays an embedding-program door, frozen at session creation. Extension-supplied provider code is a different trust shape with a session-lifecycle problem; if the need is real, it gets its own ticket — this scope never names it.
-- **Log**: the same `model_call` event, marked `requester: "extension:<name>"` — the `done` rollup and usage surfaces separate by requester, so the owner sees which extension consumed tokens. No parallel event type: duplicating the model_call shape would split the rollup.
+- **Log**: the same `model_call` event, marked with the requester —
+  `requester: { kind: "extension", extension: "<name>" }`, the structured
+  shape the subagent spawn records already use — so the `done` rollup and
+  usage surfaces separate by requester, and the owner sees which extension
+  consumed tokens. No parallel event type: duplicating the model_call shape
+  would split the rollup.
 
 ## Considered options
 
