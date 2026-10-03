@@ -10,6 +10,7 @@
 import { describe, expect, test } from "bun:test";
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
+import { runCli, SPAWN_TEST_TIMEOUT_MS } from "./spawn-harness";
 
 const TMP = `/tmp/moh-cli-handoff-${process.pid}-${Date.now()}`;
 
@@ -22,29 +23,15 @@ function harness(mohJson?: unknown) {
   if (mohJson) writeFileSync(join(cwd, "moh.json"), JSON.stringify(mohJson));
   return {
     run() {
-      const proc = Bun.spawnSync(
-        ["bun", join(import.meta.dir, "..", "src", "cli.ts"), "run", "hello"],
-        {
-          cwd,
-          // Isolated HOME and a PATH without gh: the publish reaches the
-          // transport (the artifact exists after the turn) but gh cannot
-          // spawn — classified as gh-missing, deterministic, no network.
-          // bun must stay reachable, so it is resolved to its absolute path.
-          env: {
-            ...process.env,
-            HOME: home,
-            PATH: `${join(dirname(process.execPath))}:/usr/bin:/bin`,
-            MOH_ENDPOINT_TEST_API_KEY: "",
-          },
-          stdout: "pipe",
-          stderr: "pipe",
-        },
-      );
-      return {
-        code: proc.exitCode,
-        stdout: new TextDecoder().decode(proc.stdout),
-        stderr: new TextDecoder().decode(proc.stderr),
-      };
+      // Isolated HOME and a PATH without gh: the publish reaches the
+      // transport (the artifact exists after the turn) but gh cannot spawn —
+      // classified as gh-missing, deterministic, no network. bun must stay
+      // reachable, so its own directory is kept on PATH.
+      return runCli(["run", "hello"], {
+        cwd,
+        home,
+        env: { PATH: `${join(dirname(process.execPath))}:/usr/bin:/bin`, MOH_ENDPOINT_TEST_API_KEY: "" },
+      });
     },
   };
 }
@@ -59,14 +46,14 @@ describe("moh run handoff exit publish (#435)", () => {
     for (const line of r.stdout.split("\n").filter(Boolean)) {
       expect(() => JSON.parse(line)).not.toThrow();
     }
-  });
+  }, SPAWN_TEST_TIMEOUT_MS);
 
   test("transport off never touches the publish path (no warning)", () => {
     const h = harness();
     const r = h.run();
     expect(r.code).toBe(0);
     expect(r.stderr).not.toContain("handoff");
-  });
+  }, SPAWN_TEST_TIMEOUT_MS);
 });
 
 process.on("exit", () => rmSync(TMP, { recursive: true, force: true }));

@@ -8,6 +8,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "nod
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { SessionStore, sessionTree } from "@moh/core";
+import { runCli, SPAWN_TEST_TIMEOUT_MS } from "./spawn-harness";
 
 const TMP_ROOT = join(tmpdir(), "moh-sessions-cli");
 
@@ -20,17 +21,7 @@ function harness() {
   store.append({ type: "session_start", schemaVersion: 1, promptVersion: "p" });
   store.append({ type: "user_message", text: "first user message" });
   store.append({ type: "done", usage: { inputTokens: 1, outputTokens: 1 }, models: [] });
-  const spawn = (argv: string[]) => {
-    const proc = Bun.spawnSync(
-      ["bun", join(import.meta.dir, "..", "src", "cli.ts"), ...argv],
-      { cwd, env: { ...process.env, HOME: home }, stdout: "pipe", stderr: "pipe" },
-    );
-    return {
-      code: proc.exitCode,
-      stdout: new TextDecoder().decode(proc.stdout),
-      stderr: new TextDecoder().decode(proc.stderr),
-    };
-  };
+  const spawn = (argv: string[]) => runCli(argv, { cwd, home });
   return { home, cwd, file: store.file, id: store.file.replace(/.*\//, "").replace(/\.jsonl$/, ""), spawn };
 }
 
@@ -40,7 +31,7 @@ describe("moh sessions rename (#477)", () => {
     const { code, stdout } = spawn(["sessions", "--help"]);
     expect(code).toBe(0);
     expect(stdout).toContain("usage: moh sessions rename");
-  });
+  }, SPAWN_TEST_TIMEOUT_MS);
 
   test("renames by session id and the event lands on the file", () => {
     const { spawn, file, id } = harness();
@@ -52,7 +43,7 @@ describe("moh sessions rename (#477)", () => {
     expect(after.startsWith(before)).toBe(true);
     expect(after).toContain('"session_renamed"');
     expect(after).toContain("my name");
-  });
+  }, SPAWN_TEST_TIMEOUT_MS);
 
   test("renames by full file path", () => {
     const { spawn, file } = harness();
@@ -60,7 +51,7 @@ describe("moh sessions rename (#477)", () => {
     expect(code).toBe(0);
     expect(stdout).toContain("by path");
     expect(readFileSync(file, "utf8")).toContain('"name":"by path"');
-  });
+  }, SPAWN_TEST_TIMEOUT_MS);
 
   test("empty name resets the override", () => {
     const { spawn, file } = harness();
@@ -71,21 +62,21 @@ describe("moh sessions rename (#477)", () => {
     const renames = events.filter((e) => e.type === "session_renamed");
     expect(renames).toHaveLength(2);
     expect(renames.at(-1).name).toBe("");
-  });
+  }, SPAWN_TEST_TIMEOUT_MS);
 
   test("unknown session id fails with exit code 2", () => {
     const { spawn } = harness();
     const { code, stderr } = spawn(["sessions", "rename", "20990101T000000000Z-00000000", "x"]);
     expect(code).toBe(2);
     expect(stderr).toContain("no session");
-  });
+  }, SPAWN_TEST_TIMEOUT_MS);
 
   test("unknown subcommand fails", () => {
     const { spawn } = harness();
     const { code, stderr } = spawn(["sessions", "frobnicate"]);
     expect(code).toBe(2);
     expect(stderr).toContain("unknown command");
-  });
+  }, SPAWN_TEST_TIMEOUT_MS);
 });
 
 describe("moh sessions delete + moh trash (#478)", () => {
@@ -97,7 +88,7 @@ describe("moh sessions delete + moh trash (#478)", () => {
     const t = spawn(["trash", "--help"]);
     expect(t.code).toBe(0);
     expect(t.stdout).toContain("usage: moh trash");
-  });
+  }, SPAWN_TEST_TIMEOUT_MS);
 
   test("delete --yes moves the file to the trash and out of the project; restore brings it back", () => {
     const { spawn, home, cwd, file, id } = harness();
@@ -121,28 +112,21 @@ describe("moh sessions delete + moh trash (#478)", () => {
     const list2 = spawn(["trash", "list"]);
     expect(list2.stdout).toContain("trash is empty");
     void cwd;
-  });
+  }, SPAWN_TEST_TIMEOUT_MS);
 
   test("delete without --yes and a closed stdin aborts (default No)", () => {
-    const { home, cwd, file } = harness();
-    const spawnWithStdin = (argv: string[], stdin: "ignore" | "pipe") => {
-      const proc = Bun.spawnSync(
-        ["bun", join(import.meta.dir, "..", "src", "cli.ts"), ...argv],
-        { cwd, env: { ...process.env, HOME: home }, stdout: "pipe", stderr: "pipe", stdin },
-      );
-      return { code: proc.exitCode, stdout: new TextDecoder().decode(proc.stdout), stderr: new TextDecoder().decode(proc.stderr) };
-    };
-    const r = spawnWithStdin(["sessions", "delete", file], "ignore");
+    const { spawn, file, home, cwd } = harness();
+    const r = spawn(["sessions", "delete", file]);
     expect(r.code).toBe(0);
     expect(r.stdout).toContain("aborted");
     expect(require("node:fs").existsSync(file)).toBe(true);
-    // Non-interactive stdin (closed) = No → abort, session stays.
-    const proc = Bun.spawnSync(
-      ["bun", join(import.meta.dir, "..", "src", "cli.ts"), "sessions", "delete", file],
-      { cwd: join(TMP_ROOT), env: { ...process.env, HOME: mkdtempSync(join(TMP_ROOT, "stdin-")) }, stdout: "pipe", stderr: "pipe", stdin: "ignore" },
-    );
-    void proc;
-  });
+    // The same prompt with the process already detached from a terminal:
+    // "ignore" closes stdin outright, and the command still aborts rather
+    // than hanging on input nobody can type.
+    const closed = runCli(["sessions", "delete", file], { cwd, home, stdin: "ignore" });
+    expect(closed.stdout).toContain("aborted");
+    expect(require("node:fs").existsSync(file)).toBe(true);
+  }, SPAWN_TEST_TIMEOUT_MS);
 
   test("restore refuses an id collision", () => {
     const { spawn, file, id } = harness();
@@ -153,14 +137,14 @@ describe("moh sessions delete + moh trash (#478)", () => {
     const res = spawn(["trash", "restore", id]);
     expect(res.code).toBe(2);
     expect(res.stderr).toContain("already exists");
-  });
+  }, SPAWN_TEST_TIMEOUT_MS);
 
   test("unknown trash subcommand errors with usage", () => {
     const { spawn } = harness();
     const r = spawn(["trash", "bogus"]);
     expect(r.code).toBe(2);
     expect(r.stderr).toContain('unknown command "bogus"');
-  });
+  }, SPAWN_TEST_TIMEOUT_MS);
 });
 
 describe("moh sessions delete (#478) — coverage gaps", () => {
@@ -170,7 +154,7 @@ describe("moh sessions delete (#478) — coverage gaps", () => {
     expect(del.code).toBe(0);
     expect(del.stdout).toContain("deleted:");
     expect(require("node:fs").existsSync(file)).toBe(false);
-  });
+  }, SPAWN_TEST_TIMEOUT_MS);
 
   test("delete refuses a session open in this process (exit 2)", () => {
     // The open-session guard is process-local by design (#400: cross-process
@@ -185,7 +169,7 @@ describe("moh sessions delete (#478) — coverage gaps", () => {
     expect(del.code).toBe(0);
     expect(require("node:fs").existsSync(file)).toBe(false);
     store.dispose();
-  });
+  }, SPAWN_TEST_TIMEOUT_MS);
 });
 
 describe("moh sessions tree/switch/bookmark (#582)", () => {
@@ -196,7 +180,7 @@ describe("moh sessions tree/switch/bookmark (#582)", () => {
     expect(s.stdout).toContain("moh sessions tree");
     expect(s.stdout).toContain("moh sessions switch");
     expect(s.stdout).toContain("moh sessions bookmark");
-  });
+  }, SPAWN_TEST_TIMEOUT_MS);
 
   test("tree renders the topology as text with head marker and depth indent", () => {
     const { spawn, file } = harness();
@@ -210,7 +194,7 @@ describe("moh sessions tree/switch/bookmark (#582)", () => {
     expect(r.stdout).toContain("first user message");
     expect(r.stdout).toContain("second turn");
     expect(r.stdout).toContain("←"); // head marker
-  });
+  }, SPAWN_TEST_TIMEOUT_MS);
 
   test("switch accepts a bookmark name and moves the head (last-wins)", () => {
     const { spawn, file } = harness();
@@ -240,7 +224,7 @@ describe("moh sessions tree/switch/bookmark (#582)", () => {
     }
     expect([target, last.to]).toContain(last.to);
     expect(last.to).not.toBe(lines.at(-2).id); // a fresh switch event
-  });
+  }, SPAWN_TEST_TIMEOUT_MS);
 
   test("switch resolves line:N", () => {
     const { spawn, file } = harness();
@@ -251,7 +235,7 @@ describe("moh sessions tree/switch/bookmark (#582)", () => {
     // line:2 canonicalizes to the referenced event's ULID (only identity-
     // less legacy events keep the line:N bridge form).
     expect(lines.at(-1).to).toBe(lines[1].id);
-  });
+  }, SPAWN_TEST_TIMEOUT_MS);
 
   test("switch with an ambiguous bookmark name errors listing matches", () => {
     const { spawn, file } = harness();
@@ -266,14 +250,14 @@ describe("moh sessions tree/switch/bookmark (#582)", () => {
     expect(r.code).toBe(2);
     expect(r.stderr).toContain("ambiguous");
     expect(r.stderr).toMatch(/matches 2 nodes/);
-  });
+  }, SPAWN_TEST_TIMEOUT_MS);
 
   test("switch with an unknown bookmark name errors", () => {
     const { spawn, file } = harness();
     const r = spawn(["sessions", "switch", file, "nope"]);
     expect(r.code).toBe(2);
     expect(r.stderr).toContain("nope");
-  });
+  }, SPAWN_TEST_TIMEOUT_MS);
 
   test("bookmark with an empty name clears the bookmark", () => {
     const { spawn, file } = harness();
@@ -287,7 +271,7 @@ describe("moh sessions tree/switch/bookmark (#582)", () => {
     const bookmarks = lines.filter((e) => e.type === "tree_bookmarked");
     expect(bookmarks.at(-1).name).toBe("");
     expect(r.stdout).toContain("cleared");
-  });
+  }, SPAWN_TEST_TIMEOUT_MS);
 
   test("bookmark without a name sets an unnamed bookmark", () => {
     const { spawn, file } = harness();
@@ -300,20 +284,20 @@ describe("moh sessions tree/switch/bookmark (#582)", () => {
     const bm = lines.filter((e) => e.type === "tree_bookmarked").at(-1);
     expect(bm.to).toBe(target);
     expect(bm.name).toBeUndefined();
-  });
+  }, SPAWN_TEST_TIMEOUT_MS);
 
   test("switch/bookmark on an unknown session error with exit code 2", () => {
     const { spawn } = harness();
     expect(spawn(["sessions", "switch", "20990101T000000000Z-00000000", "line:1"]).code).toBe(2);
     expect(spawn(["sessions", "bookmark", "20990101T000000000Z-00000000", "line:1"]).code).toBe(2);
     expect(spawn(["sessions", "tree", "20990101T000000000Z-00000000"]).code).toBe(2);
-  });
+  }, SPAWN_TEST_TIMEOUT_MS);
 
   test("tree on a missing/invalid target errors", () => {
     const { spawn, file } = harness();
     expect(spawn(["sessions", "switch", file, "line:99"]).code).toBe(2);
     expect(spawn(["sessions", "bookmark", file, "line:99", "x"]).code).toBe(2);
-  });
+  }, SPAWN_TEST_TIMEOUT_MS);
 });
 
 describe("moh sessions switch open-session guard (#582)", () => {
@@ -326,7 +310,7 @@ describe("moh sessions switch open-session guard (#582)", () => {
     const sw = spawn(["sessions", "switch", file, "line:1"]);
     expect(sw.code).toBe(0);
     store.dispose();
-  });
+  }, SPAWN_TEST_TIMEOUT_MS);
 });
 
 describe("moh sessions analyze (#767)", () => {
@@ -335,7 +319,7 @@ describe("moh sessions analyze (#767)", () => {
     const { code, stdout } = spawn(["sessions", "--help"]);
     expect(code).toBe(0);
     expect(stdout).toContain("moh sessions analyze");
-  });
+  }, SPAWN_TEST_TIMEOUT_MS);
 
   test("renders the report for a session file by id", () => {
     const { spawn, id } = harness();
@@ -345,7 +329,7 @@ describe("moh sessions analyze (#767)", () => {
     expect(r.stdout).toContain("Tool health");
     expect(r.stdout).toContain("Shape:");
     expect(r.stdout).toContain("Tree:");
-  });
+  }, SPAWN_TEST_TIMEOUT_MS);
 
   test("--json emits the same data as structured JSON", () => {
     const { spawn, id } = harness();
@@ -357,12 +341,12 @@ describe("moh sessions analyze (#767)", () => {
     expect(parsed.pricing.estimate).toBe(true);
     expect(parsed.permissions).toEqual({ requested: 0, granted: 0, denied: 0 });
     expect(parsed.shape.turns).toBeGreaterThanOrEqual(1);
-  });
+  }, SPAWN_TEST_TIMEOUT_MS);
 
   test("unknown session errors with exit code 2", () => {
     const { spawn } = harness();
     const r = spawn(["sessions", "analyze", "20990101T000000000Z-00000000"]);
     expect(r.code).toBe(2);
     expect(r.stderr).toContain("no session");
-  });
+  }, SPAWN_TEST_TIMEOUT_MS);
 });
