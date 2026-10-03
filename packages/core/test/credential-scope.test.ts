@@ -153,8 +153,6 @@ describe("credential scope: fetch end to end", () => {
     expect(seen.auth).toBe("Bearer s3cret");
 
     // The typed surface offers no way to read the value back.
-    const fetchType = Object.getOwnPropertyNames(Object.getPrototypeOf(host) ?? {});
-    void fetchType;
     expect("readCredential" in host).toBe(false);
     expect("getCredential" in host).toBe(false);
 

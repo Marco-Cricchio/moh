@@ -106,6 +106,31 @@ describe("moh secret: main() routing", () => {
     }
     expect(existsSync(secretFile(home))).toBe(false);
   });
+
+  test("a set through main() lands the secret at the real path (the store owns the .moh join)", async () => {
+    const home = pinnedHome();
+    const originalStdin = Bun.stdin.stream;
+    Bun.stdin.stream = (() =>
+      new ReadableStream<Uint8Array>({
+        start(controller) {
+          controller.enqueue(new TextEncoder().encode("s3cret\n"));
+          controller.close();
+        },
+      })) as typeof Bun.stdin.stream;
+    const originalStdout = process.stdout.write.bind(process.stdout);
+    process.stdout.write = () => true;
+    try {
+      expect(await main(["secret", "set", "deploy-key"])).toBe(0);
+    } finally {
+      Bun.stdin.stream = originalStdin;
+      process.stdout.write = originalStdout;
+    }
+    const file = join(home, ".moh", "secrets.json");
+    expect(existsSync(file)).toBe(true);
+    expect(readFileSync(file, "utf8")).toContain("s3cret");
+    // No doubled namespace: the moh dotdir holds the file directly.
+    expect(existsSync(join(home, ".moh", ".moh"))).toBe(false);
+  });
 });
 
 for (const home of homes.splice(0)) rmSync(home, { recursive: true, force: true });

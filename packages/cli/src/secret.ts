@@ -5,7 +5,7 @@
  * stored through the same core seam sessions use, and never printed back:
  * `list` shows names only, a set over an existing ref replaces silently.
  */
-import { defaultCredentialStore } from "@moh/core";
+import { defaultCredentialStore, validateCredentialScope } from "@moh/core";
 
 export const SECRET_USAGE = `usage: moh secret set <ref>
        moh secret rm <ref>
@@ -41,11 +41,18 @@ export async function secretCommand({
     stdout.write(`${SECRET_USAGE}\n`);
     return sub === undefined ? 2 : 0;
   }
-  const store = defaultCredentialStore(home ?? `${process.env.HOME ?? "."}/.moh`);
+  // The store takes the bare user home and owns the `.moh` join itself —
+  // passing a dotdir here would double it (`~/.moh/.moh/secrets.json`).
+  const store = defaultCredentialStore(home ?? process.env.HOME ?? ".");
 
   if (sub === "set") {
     if (!ref) {
       stderr.write(`moh secret set: a ref is required\n\n${SECRET_USAGE}\n`);
+      return 2;
+    }
+    const valid = validateCredentialScope(`credential:${ref}`);
+    if (!valid.ok) {
+      stderr.write(`moh secret set: ${valid.message}\n`);
       return 2;
     }
     const value = (await new Response(stdin).text()).replace(/\r?\n$/, "");

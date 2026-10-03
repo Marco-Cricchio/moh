@@ -57,7 +57,7 @@ import type { SubagentHost } from "./subagents";
 import { ExtensionSpawnRefusedError } from "./extension-scope";
 import { capabilityDiff, capabilitiesSubset, readExtensionManifest, type ManifestAuthority } from "./extension-manifest";
 import { checkHostScope, checkPathScope, hostScopesOf, isHostScope, isPathScope, MAX_FETCH_BYTES, MAX_REDIRECTS, HOST_SCOPE_REASONING_KEY, TOTAL_HOST_WILDCARD, validateHostScope, validatePathScope, pathScopesOf } from "./host-scope";
-import { credentialScopesOf, credentialScopeRef, isCredentialScope, type CredentialStore } from "./credential-scope";
+import { credentialScopesOf, credentialScopeRef, isCredentialScope, validateCredentialScope, type CredentialStore } from "./credential-scope";
 import { newUlid } from "./session/ulid";
 
 type HostOpName = "read" | "write" | "append" | "rename" | "delete" | "readlink" | "fetch";
@@ -1771,6 +1771,14 @@ bindPathDeny(isDenied: (resolvedAbsPath: string) => boolean): void {
           message: `"${TOTAL_HOST_WILDCARD}" requires a "${HOST_SCOPE_REASONING_KEY}" string in the extension manifest — the justification the consent question displays`,
         };
       }
+    }
+    // ADR-0069: a malformed `credential:<ref>` scope fails loudly at load,
+    // like its path/host siblings — a ref no `credential:` grammar can
+    // name must never reach consent, let alone a fetch.
+    for (const capability of granted) {
+      if (!isCredentialScope(capability)) continue;
+      const validity = validateCredentialScope(capability);
+      if (!validity.ok) return { ok: false, name, reason: "invalid_credential_scope", message: validity.message };
     }
     instance.grantedCapabilities = [...granted];
     const commandSlot: { registerCommand?: ExtensionSetupContext["registerCommand"] } = granted.includes("contribute-commands")

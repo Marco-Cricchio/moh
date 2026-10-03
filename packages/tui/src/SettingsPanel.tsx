@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { homedir } from "node:os";
 import { endpointModelCatalog, fallbackIneligibleReason, fetchLiveCatalogs, liveListings, loadMohConfig, loadMergedConfig, listOpenAiCompatModels, MAX_ITERATIONS_UNLIMITED, probeBrowserToolchain, readUserProviderConfig, removeUserEndpoint, renderTosCard, saveUserProviderRef, setUserEndpointFallbackEligible, setUserEndpointModel, summarizeLiveCatalogReport, tosCardFor, writeMohConfig, userConfigFile, DEFAULT_MAX_ITERATIONS, type BrowserToolchainStatus, type LiveModelListing, type MohConfig } from "@moh/core";
 import { validateJevKey, readTypesafeConfig, removeTypesafeApiKey, resolveTypesafeConfig, saveTypesafeApiKey, saveTypesafeClassification, saveTypesafeGuardrail, saveTypesafeInjection, saveTypesafeLint, saveTypesafeRerank, saveTypesafeRouting, saveTypesafeSkills, maskApiKey, JEV_USE_CASE_DESCRIPTIONS, TYPESAFE_TIMEOUT_MS_DEFAULT, type JevKeyValidation } from "@moh/jev-guard";
-import { defaultCredentialStore } from "@moh/core";
+import { defaultCredentialStore, validateCredentialScope } from "@moh/core";
 import { setIcons } from "./icons";
 import { THEMES, THEME_ORDER } from "./themes";
 import { deleteUserTheme, guessExtendsOf, listUserThemes, loadUserTheme, saveUserTheme, themeLabelFor } from "./user-themes";
@@ -903,7 +903,10 @@ export function SettingsPanel({ cwd, home, config, onChange, modelLabel, onProvi
         if (key.backspace || key.delete) return setSub({ ...sub });
         if ((key.return || input === "\n")) {
           if (!sub.value.trim()) return; // no name yet — nothing to confirm
-          return setSub({ ...sub, ref: sub.value.trim(), value: "", message: undefined });
+          const name = sub.value.trim();
+          const valid = validateCredentialScope(`credential:${name}`);
+          if (!valid.ok) return setSub({ ...sub, message: valid.message });
+          return setSub({ ...sub, ref: name, value: "", message: undefined });
         }
         if (input && !key.ctrl && !key.meta && !/\s/.test(input)) return setSub({ ...sub, value: sub.value + input, message: undefined });
         return;
