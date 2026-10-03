@@ -225,6 +225,50 @@ describe("contribute-commands (#1130, ADR-0062)", () => {
     await expect(rt.invokeCommand("async-cmd", "now")).resolves.toEqual({ ok: true, extension: "slow", output: "done now" });
   });
 
+  test("interleaved invocations keep independent owners (reentrancy, #1143)", async () => {
+    const rt = runtime();
+    const failures: string[] = [];
+    rt.onLoadEvent((event) => {
+      if (event.type === "extension_failed") failures.push(String((event as { reason?: string }).reason));
+    });
+    const opened: string[] = [];
+    rt.onOverlayOpen((active) => opened.push(active.name));
+    await load(
+      rt,
+      defineExtension({
+        name: "reentrant",
+        version: "1.0.0",
+        apiVersion: "1.0",
+        capabilities: ["contribute-commands", "contribute-overlays"],
+        setup(ctx) {
+          const open = ctx.registerOverlay!({ name: "pick", render: () => "overlay" }).open;
+          ctx.registerCommand!({
+            name: "first",
+            run: async () => {
+              // Suspend: the second invocation runs to completion before
+              // this one resumes — with a single owner field the second's
+              // `finally` would have cleared the first's guard.
+              await new Promise<void>((r) => setTimeout(r, 10));
+              open();
+              return "first done";
+            },
+          });
+          ctx.registerCommand!({
+            name: "second",
+            run: async () => "second done",
+          });
+        },
+      }),
+    );
+    const first = rt.invokeCommand("first", "");
+    const secondResult = await rt.invokeCommand("second", "");
+    const firstResult = await first;
+    expect(opened).toEqual(["pick"]); // first's open() still accepted
+    expect(failures).toEqual([]);
+    expect(secondResult).toMatchObject({ ok: true, output: "second done" });
+    expect(firstResult).toMatchObject({ ok: true });
+  });
+
   test("a mixed-case name is refused as invalid (it could never answer to its slash form)", async () => {
     const rt = runtime();
     await load(

@@ -515,7 +515,11 @@ export class ExtensionRuntime {
   /** Only the extension whose command is currently running may open its
    * overlay. This is set for the duration of `invokeCommand`, including
    * async command work; hooks and retained callbacks cannot open it. */
-  #commandOwner: RuntimeExtension | null = null;
+  /** Overlay open() guard (#1143): async-context keyed — each
+   * `invokeCommand` chains its owner through AsyncLocalStorage, so two
+   * interleaved invocations (a command awaiting input while another
+   * starts) each keep their own guard, however their promises interleave. */
+  readonly #commandOwners = new AsyncLocalStorage<RuntimeExtension>();
   /** ADR-0062 (#1132): subscribers of overlay open requests. */
   readonly #overlayListeners = new Set<(overlay: ActiveExtensionOverlay) => void>();
   readonly #pending: AgentEvent[] = [];
@@ -683,7 +687,10 @@ export class ExtensionRuntime {
     instance.overlays.push(overlay);
     return {
       open: () => {
-        if (this.#commandOwner !== instance) {
+        // #1143: the owner is whoever's invocation this callback runs in —
+        // keyed by async context, so an interleaved second command cannot
+        // steal or lose the first's overlay open() guard.
+        if (this.#commandOwners.getStore() !== instance) {
           this.#emitFailed(extension, "overlay_open_refused", `overlay "${name}" can only be opened by this extension's command`);
           return;
         }
@@ -719,17 +726,20 @@ export class ExtensionRuntime {
     for (const instance of this.#instances) {
       const command = instance.commands.find((c) => c.name === wanted);
       if (!command) continue;
-      try {
-        this.#commandOwner = instance;
-        const output = await command.run({ args });
-        return { ok: true, extension: instance.def.name, output: typeof output === "string" ? output : String(output ?? "") };
-      } catch (err) {
-        const message = errMessage(err);
-        this.#emitFailed(instance.def.name, "command_failed", `command "${command.name}" failed: ${message}`);
-        return { ok: false, error: message };
-      } finally {
-        this.#commandOwner = null;
-      }
+      // #1143: the owner rides the async context, not a single field —
+      // two interleaved invocations (a command awaiting input while
+      // another starts) must each keep their own owner, or the first
+      // `finally` clears the second's.
+      return this.#commandOwners.run(instance, async () => {
+        try {
+          const output = await command.run({ args });
+          return { ok: true, extension: instance.def.name, output: typeof output === "string" ? output : String(output ?? "") };
+        } catch (err) {
+          const message = errMessage(err);
+          this.#emitFailed(instance.def.name, "command_failed", `command "${command.name}" failed: ${message}`);
+          return { ok: false, error: message };
+        }
+      });
     }
     return { ok: false, error: `no extension command "${name}"` };
   }
