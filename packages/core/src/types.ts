@@ -514,7 +514,18 @@ type AgentEventBase =
        * and the run degraded to the LLM summarizer), or absent for the
        * default LLM summarizer. Chrome — audit only. */
       summarizer?: string }
-  | { type: "extension_loaded"; name: string; version: string }
+  | {
+      type: "extension_loaded";
+      name: string;
+      version: string;
+      /** ADR-0062 (#1132): the rail panel and overlay names this instance
+       * registered, present only when there are any. Registration facts
+       * ride the load event so the headless `/extensions` fold reports
+       * them with no second store; the discount of *rendering* them stays
+       * client-side (visible absence, never a mock). */
+      panels?: string[];
+      overlays?: string[];
+    }
   | { type: "extension_failed"; name: string; reason: string; message: string }
   /**
    * ADR-0032 (apiVersion 1.1): a structured record an extension appended

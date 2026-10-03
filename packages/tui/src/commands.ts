@@ -64,6 +64,10 @@ export interface SlashContext {
   /** Notified on a successful /model switch (App refreshes the footer
    * chip — #166 status surface). */
   onModelSwitched?: (model: string) => void;
+  /** #1132 (ADR-0062): called after every extension command with the
+   * session's currently-active extension overlay (or null). A client
+   * with a surface shows it full-screen; headless ignores it. */
+  onExtensionOverlayOpen?: (overlay: { extension: string; name: string } | null) => void;
   /**
    * ADR-0038: reads one extension's own state (`state` store) for a command
    * that must report it (`/routing`). The value is whatever that extension
@@ -937,6 +941,10 @@ export function runSlashCommand(text: string, ctx: SlashContext): boolean {
   if (ctx.session && findExtensionCommand(ctx.session, name)) {
     void ctx.session.invokeExtensionCommand(name, args).then((result) => {
       ctx.notify(result.ok ? result.output : `✗ ${result.error}`);
+      // ADR-0062 (#1132): the command may have opened its overlay — the
+      // open is a state flip in the core; a client with a surface shows
+      // it full-screen, headless contributes nothing (visible absence).
+      ctx.onExtensionOverlayOpen?.(ctx.session!.extensionActiveOverlay());
     });
     return true;
   }

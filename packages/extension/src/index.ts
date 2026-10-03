@@ -88,6 +88,17 @@
  * that collides with a reserved or already-taken command name is refused
  * visibly and reported; commands return their own text output, which is
  * the same output the headless door prints — never a second behavior.
+ *
+ * 1.12 (#1132, ADR-0062): `registerPanel` and `registerOverlay` — the
+ * `contribute-panels` / `contribute-overlays` capability slots. The
+ * methods exist on the setup context ONLY when the grant covers the slot.
+ * One panel per extension, at most 4 visible across all extensions: the
+ * fifth registration is refused visibly at load and there is no automatic
+ * eviction — collapsing and reopening is manual from `/extensions`. The
+ * render returns arbitrary Ink elements the client draws in the rail
+ * zone (panels) or full-screen (overlays, opened by the extension's
+ * command and closed with `Esc`); the core carries them opaquely, and a
+ * headless client contributes nothing — visible absence, never a mock.
  */
 
 /**
@@ -95,7 +106,7 @@
  * Minor bumps are additive (new optional hooks/fields); major bumps are
  * breaking and refuse to load older/newer extensions.
  */
-export const MOH_EXTENSION_API_VERSION = "1.11";
+export const MOH_EXTENSION_API_VERSION = "1.12";
 
 /** Structural (core-independent) view of an event-log entry. */
 export interface ExtensionEvent {
@@ -441,6 +452,34 @@ export interface ExtensionCommand {
 }
 
 /**
+ * One panel in the extensions rail (ADR-0062, apiVersion 1.12). The
+ * render returns arbitrary Ink elements — the client renders them inside
+ * the rail zone untouched, never wrapping native components.
+ */
+export interface ExtensionPanel {
+  /** The panel name, letters/digits/hyphens; shown in `/extensions`. */
+  readonly name: string;
+  /** One line shown in `/extensions`. */
+  readonly description?: string;
+  /** Maximum height in terminal rows the rail allots this panel; the
+   * client clamps to it and to the rail's own budget. */
+  readonly maxHeight?: number;
+  /** Renders the panel content. Pure per call: the client may call it
+   * every frame. Callbacks inside the returned elements reach the session
+   * only through the existing gated seams — never a second path. */
+  render(): unknown;
+}
+
+/** One full-screen overlay (ADR-0062, apiVersion 1.12): opened by the
+ * extension's own command, closed by the user with `Esc`. */
+export interface ExtensionOverlay {
+  readonly name: string;
+  readonly description?: string;
+  /** Renders the overlay content full-screen; pure per call. */
+  render(): unknown;
+}
+
+/**
  * A client command addressed to one extension (ADR-0038, apiVersion 1.3).
  * The core carries it opaquely; the runtime delivers it to the named
  * extension's `onEvent` hooks alone, and only to that extension.
@@ -574,6 +613,29 @@ export interface ExtensionSetupContext {
    * its output in every client; nothing else is invented around it.
    */
   registerCommand?(command: ExtensionCommand): void;
+  /**
+   * Contribute one panel to the extensions rail (ADR-0062, apiVersion
+   * 1.12). **Present only when the `contribute-panels` capability is
+   * granted** (enforcement by absence). One panel per extension: a second
+   * registration from the same extension is refused visibly. At most 4
+   * panels are visible across all extensions — the fifth is refused at
+   * load (`panel slot exhausted (4/4)`); there is no automatic eviction,
+   * collapsing and reopening is manual from `/extensions`. The `render`
+   * returns arbitrary Ink elements the client renders inside the rail —
+   * opaque to the core; a callback inside them reaches the session only
+   * through the existing gated seams (`requestTurn`, control events), so
+   * a permission-gated action always flows through the normal gate.
+   */
+  registerPanel?(panel: ExtensionPanel): void;
+  /**
+   * Contribute a full-screen overlay (ADR-0062, apiVersion 1.12).
+   * **Present only when the `contribute-overlays` capability is granted**
+   * (enforcement by absence). The returned `open()` asks the client to
+   * show the overlay full-screen; the user closes it with `Esc`. In a
+   * client with no surface (headless), `open()` contributes nothing —
+   * visible absence, never a simulated rendering.
+   */
+  registerOverlay?(overlay: ExtensionOverlay): { open(): void };
   onEvent(hook: EventHook): void;
   afterTurn(hook: AfterTurnHook): void;
   /**

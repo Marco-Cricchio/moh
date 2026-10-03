@@ -38,6 +38,13 @@ export interface ExtensionsScreenExtension {
   /** ADR-0062 (#1130): registered slash commands. Same fold/merge split
    * as `capabilities`. */
   commands: readonly { name: string; description: string }[];
+  /** ADR-0062 (#1132): registered rail panel names, folded from
+   * `extension_loaded` and refined by the live merge (description,
+   * max-height). Names only in a headless fold — the rendering itself is
+   * never reconstructed (visible absence, never a mock). */
+  panels: readonly (string | { name: string; description: string; maxHeight?: number })[];
+  /** ADR-0062 (#1132): registered overlay names, same fold/merge split. */
+  overlays: readonly (string | { name: string; description: string })[];
   /** Sections this extension currently owns (ADR-0054), in section order. */
   sections: ExtensionsScreenSection[];
   /** The last `extension_failed` record naming this extension, with the
@@ -53,6 +60,10 @@ export interface ExtensionsScreenRefusal {
   extension: string;
   message: string;
 }
+
+/** The `extension_failed` reasons that are registration refusals — the
+ * ones `/extensions` lists as "refused registrations" (ADR-0062). */
+const REFUSAL_REASONS = new Set(["command_refused", "panel_refused", "overlay_refused"]);
 
 /** The structured extension state one screen (TUI overlay, headless line)
  * renders. Everything here is derivable from the event log alone. */
@@ -75,7 +86,7 @@ export function extensionsScreenStateFromEvents(events: readonly AgentEvent[]): 
   const record = (name: string, version: string): ExtensionsScreenExtension => {
     let row = byName.get(name);
     if (!row) {
-      row = { name, version, sections: [], failureCount: 0, capabilities: [], commands: [] };
+      row = { name, version, sections: [], failureCount: 0, capabilities: [], commands: [], panels: [], overlays: [] };
       byName.set(name, row);
       order.push(name);
     }
@@ -85,7 +96,13 @@ export function extensionsScreenStateFromEvents(events: readonly AgentEvent[]): 
 
   for (const event of path) {
     if (event.type === "extension_loaded") {
-      record(event.name, event.version);
+      const row = record(event.name, event.version);
+      // #1132: the registration facts ride the load event; a hot-reload
+      // re-records it, so the names track what is in force (replace, not
+      // append — the load event is a statement about *now*).
+      const names = event as typeof event & { panels?: string[]; overlays?: string[] };
+      row.panels = [...(names.panels ?? [])];
+      row.overlays = [...(names.overlays ?? [])];
     } else if (event.type === "extension_failed") {
       const row = record(event.name, byName.get(event.name)?.version ?? "");
       row.lastFailure = { reason: event.reason, message: event.message };
@@ -108,9 +125,12 @@ export function extensionsScreenStateFromEvents(events: readonly AgentEvent[]): 
     row.sections.push({ section, version: owner.version, mode: owner.mode });
   }
 
+  // Every refused registration is recorded whichever door it came
+  // through: commands (#1130), panels/overlays (#1132). The fold is the
+  // headless door — a refusal that never reached the log is not listed.
   const refusals: ExtensionsScreenRefusal[] = [];
   for (const event of path) {
-    if (event.type === "extension_failed" && event.reason === "command_refused") {
+    if (event.type === "extension_failed" && REFUSAL_REASONS.has(event.reason)) {
       refusals.push({ extension: event.name, message: event.message });
     }
   }
@@ -130,6 +150,10 @@ export interface ExtensionLiveInfo {
   capabilities: readonly string[];
   /** ADR-0062 (#1130): slash commands this instance registered. */
   commands: readonly { name: string; description: string }[];
+  /** ADR-0062 (#1132): the rail panel and overlays this instance
+   * registered — what only a live client renders. */
+  panels: readonly { name: string; description: string; maxHeight?: number }[];
+  overlays: readonly { name: string; description: string }[];
 }
 
 /** Merges the live runtime facts into a folded state: per extension, the
@@ -143,12 +167,15 @@ export function mergeExtensionLiveInfo(state: ExtensionsScreenState, live: reado
     extensions: state.extensions.map((row) => {
       const info = byName.get(row.name);
       if (!info) return row;
-      return {
+      const merged: ExtensionsScreenExtension = {
         ...row,
         ...(info.file !== undefined ? { file: info.file } : {}),
         capabilities: [...info.capabilities],
         commands: info.commands.map((c) => ({ name: c.name, description: c.description ?? "" })),
+        panels: info.panels.map((p) => ({ name: p.name, description: p.description ?? "", ...(p.maxHeight !== undefined ? { maxHeight: p.maxHeight } : {}) })),
+        overlays: info.overlays.map((o) => ({ name: o.name, description: o.description ?? "" })),
       };
+      return merged;
     }),
   };
 }

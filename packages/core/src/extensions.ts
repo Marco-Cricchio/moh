@@ -18,6 +18,8 @@ import {
   MOH_EXTENSION_API_VERSION,
   parseApiVersion,
   type ExtensionCommand,
+  type ExtensionPanel,
+  type ExtensionOverlay,
   type ExtensionDefinition,
   type ExtensionDependencies,
   type ExtensionSetupContext,
@@ -284,6 +286,10 @@ export interface RuntimeExtension {
   status: string | null;
   /** ADR-0062 (#1130): slash commands this instance registered, in call order. */
   readonly commands: ExtensionCommand[];
+  /** ADR-0062 (#1132): the one panel this instance registered (null = none). */
+  panel: ExtensionPanel | null;
+  /** ADR-0062 (#1132): overlays this instance registered, in call order. */
+  readonly overlays: ExtensionOverlay[];
 }
 
 /** One refused extension-command registration (ADR-0062): reported in
@@ -292,6 +298,39 @@ export interface ExtensionCommandRefusal {
   readonly extension: string;
   readonly name: string;
   readonly reason: "reserved" | "taken" | "invalid";
+}
+
+/** One refused panel/overlay registration (ADR-0062, #1132): reported in
+ * `/extensions`, never silently dropped. */
+export interface ExtensionUIRefusal {
+  readonly extension: string;
+  readonly kind: "panel" | "overlay";
+  readonly name: string;
+  readonly reason: "exhausted" | "taken" | "invalid";
+}
+
+/** ADR-0062 (#1132): the capacity the rail allots panels — explicit, not
+ * automatic: no eviction, collapse/reopen is manual from `/extensions`. */
+export const MAX_PANELS = 4;
+
+/** The overlay a client currently shows full-screen, when any. */
+export interface ActiveExtensionOverlay {
+  readonly extension: string;
+  readonly name: string;
+}
+
+/** The `extension_loaded` payload for one instance: the registration
+ * facts (ADR-0062 #1132) ride the load event, so the headless `/extensions`
+ * fold reports panels and overlays with no second store. */
+function loadedEvent(instance: RuntimeExtension): AgentEvent {
+  const base: { type: "extension_loaded"; name: string; version: string; panels?: string[]; overlays?: string[] } = {
+    type: "extension_loaded",
+    name: instance.def.name,
+    version: instance.def.version,
+  };
+  if (instance.panel !== null) base.panels = [instance.panel.name];
+  if (instance.overlays.length > 0) base.overlays = instance.overlays.map((o) => o.name);
+  return base as AgentEvent;
 }
 
 /** The invocation outcome of one extension command (ADR-0062). */
@@ -469,6 +508,16 @@ export class ExtensionRuntime {
   readonly #reservedCommandNames: ReadonlySet<string>;
   /** ADR-0062 (#1130): refused command registrations, in refusal order. */
   readonly #commandRefusals: ExtensionCommandRefusal[] = [];
+  /** ADR-0062 (#1132): refused panel/overlay registrations, in refusal order. */
+  readonly #uiRefusals: ExtensionUIRefusal[] = [];
+  /** ADR-0062 (#1132): the overlay a client currently shows, null = none. */
+  #activeOverlay: ActiveExtensionOverlay | null = null;
+  /** Only the extension whose command is currently running may open its
+   * overlay. This is set for the duration of `invokeCommand`, including
+   * async command work; hooks and retained callbacks cannot open it. */
+  #commandOwner: RuntimeExtension | null = null;
+  /** ADR-0062 (#1132): subscribers of overlay open requests. */
+  readonly #overlayListeners = new Set<(overlay: ActiveExtensionOverlay) => void>();
   readonly #pending: AgentEvent[] = [];
   readonly #listeners = new Set<(event: AgentEvent) => void>();
   /**
@@ -541,6 +590,123 @@ export class ExtensionRuntime {
     return this.#commandRefusals;
   }
 
+  /** ADR-0062 (#1132): every registered panel, in extension order — one
+   * per extension (a second registration from the same extension is
+   * refused). Empty without the grant or without registrations. */
+  panels(): { extension: string; name: string; description: string; maxHeight?: number; render(): unknown }[] {
+    return this.#instances
+      .filter((i) => i.panel !== null)
+      .map((i) => ({
+        extension: i.def.name,
+        name: i.panel!.name,
+        description: typeof i.panel!.description === "string" && i.panel!.description.length > 0 ? i.panel!.description : `panel by ${i.def.name}`,
+        ...(typeof i.panel!.maxHeight === "number" && i.panel!.maxHeight > 0 ? { maxHeight: i.panel!.maxHeight } : {}),
+        render: () => i.panel!.render(),
+      }));
+  }
+
+  /** ADR-0062 (#1132): every registered overlay, in extension then call order. */
+  overlays(): { extension: string; name: string; description: string; render(): unknown }[] {
+    return this.#instances.flatMap((i) =>
+      i.overlays.map((o) => ({
+        extension: i.def.name,
+        name: o.name,
+        description: typeof o.description === "string" && o.description.length > 0 ? o.description : `overlay by ${i.def.name}`,
+        render: () => o.render(),
+      })),
+    );
+  }
+
+  /** ADR-0062 (#1132): every refused panel/overlay registration, with its reason. */
+  uiRefusals(): readonly ExtensionUIRefusal[] {
+    return this.#uiRefusals;
+  }
+
+  /** ADR-0062 (#1132): the overlay the client currently shows, null = none. */
+  activeOverlay(): ActiveExtensionOverlay | null {
+    return this.#activeOverlay;
+  }
+
+  /** ADR-0062 (#1132): closes the active overlay; a no-op when none. */
+  closeOverlay(): void {
+    this.#activeOverlay = null;
+  }
+
+  /** ADR-0062 (#1132): subscribes to overlay open requests; returns the
+   * unsubscribe function. A client with a surface renders the named
+   * overlay full-screen; a headless client subscribes to nothing and the
+   * open contributes nothing visible. */
+  onOverlayOpen(listener: (overlay: ActiveExtensionOverlay) => void): () => void {
+    this.#overlayListeners.add(listener);
+    return () => this.#overlayListeners.delete(listener);
+  }
+
+  /** ADR-0062 (#1132): the registration path behind `ctx.registerPanel`.
+   * `replacing` is the outgoing instance during a hot-reload: it still
+   * sits in `#instances` while the fresh instance's setup runs, and the
+   * slot it holds is the one being handed over — counting it would make
+   * an extension lose its panel on an ordinary edit whenever the rail is
+   * full (`4 + 1 > 4`). */
+  #registerPanel(instance: RuntimeExtension, panel: ExtensionPanel, replacing?: RuntimeExtension): void {
+    const extension = instance.def.name;
+    const name = typeof (panel as { name?: unknown } | null)?.name === "string" ? panel.name : "";
+    if (!/^[a-z0-9][a-z0-9-]*$/.test(name) || typeof panel?.render !== "function") {
+      this.#refuseUI(extension, "panel", typeof name === "string" ? name : "", "invalid");
+      return;
+    }
+    if (instance.panel !== null) {
+      this.#refuseUI(extension, "panel", name, "taken");
+      return;
+    }
+    const existing = this.#instances.filter((i) => i.panel !== null && i !== replacing).length;
+    if (existing + 1 > MAX_PANELS) {
+      this.#refuseUI(extension, "panel", name, "exhausted");
+      return;
+    }
+    instance.panel = panel;
+  }
+
+  /** ADR-0062 (#1132): the registration path behind `ctx.registerOverlay`.
+   * Returns the `open()` handle the extension's command calls. */
+  #registerOverlay(instance: RuntimeExtension, overlay: ExtensionOverlay): { open(): void } {
+    const extension = instance.def.name;
+    const name = typeof (overlay as { name?: unknown } | null)?.name === "string" ? overlay.name : "";
+    if (!/^[a-z0-9][a-z0-9-]*$/.test(name) || typeof overlay?.render !== "function") {
+      this.#refuseUI(extension, "overlay", typeof name === "string" ? name : "", "invalid");
+      return { open: () => {} };
+    }
+    const taken = instance.overlays.some((o) => o.name === name);
+    if (taken) {
+      this.#refuseUI(extension, "overlay", name, "taken");
+      return { open: () => {} };
+    }
+    instance.overlays.push(overlay);
+    return {
+      open: () => {
+        if (this.#commandOwner !== instance) {
+          this.#emitFailed(extension, "overlay_open_refused", `overlay "${name}" can only be opened by this extension's command`);
+          return;
+        }
+        const active = { extension, name };
+        this.#activeOverlay = active;
+        for (const listener of this.#overlayListeners) listener(active);
+      },
+    };
+  }
+
+  #refuseUI(extension: string, kind: ExtensionUIRefusal["kind"], name: string, reason: ExtensionUIRefusal["reason"]): void {
+    this.#uiRefusals.push({ extension, kind, name, reason });
+    const why =
+      reason === "exhausted"
+        ? `panel slot exhausted (${MAX_PANELS}/${MAX_PANELS}) — disable a panel in /extensions`
+        : reason === "taken"
+          ? kind === "panel"
+            ? "one panel per extension"
+            : "the overlay name is already taken by this extension"
+          : `the ${kind} needs a valid name (letters, digits, hyphens) and a render()`;
+    this.#emitFailed(extension, `${kind}_refused`, `${kind} "${name}" refused: ${why}`);
+  }
+
   /**
    * ADR-0062 (#1130): runs one extension command by slash name. This is
    * the headless door too: a client with no UI invokes here and prints the
@@ -554,12 +720,15 @@ export class ExtensionRuntime {
       const command = instance.commands.find((c) => c.name === wanted);
       if (!command) continue;
       try {
+        this.#commandOwner = instance;
         const output = await command.run({ args });
         return { ok: true, extension: instance.def.name, output: typeof output === "string" ? output : String(output ?? "") };
       } catch (err) {
         const message = errMessage(err);
         this.#emitFailed(instance.def.name, "command_failed", `command "${command.name}" failed: ${message}`);
         return { ok: false, error: message };
+      } finally {
+        this.#commandOwner = null;
       }
     }
     return { ok: false, error: `no extension command "${name}"` };
@@ -1202,7 +1371,7 @@ export class ExtensionRuntime {
       return;
     }
     // Seed the fresh instance with the previous state so setup() sees it.
-    const fresh = await this.#instantiate(def, file, previous.state, {}, manifest.manifest.capabilities);
+    const fresh = await this.#instantiate(def, file, previous.state, {}, manifest.manifest.capabilities, previous);
     if (!fresh.ok) {
       this.#options.onWarning?.(
         `extension ${previous.def.name}: reload refused (${fresh.reason}); previous instance kept`,
@@ -1217,7 +1386,7 @@ export class ExtensionRuntime {
       for (const listener of this.#statusListeners) listener(previous.def.name, null);
     }
     this.#instances[index] = fresh.instance;
-    this.#emit({ type: "extension_loaded", name: fresh.instance.def.name, version: fresh.instance.def.version });
+    this.#emit(loadedEvent(fresh.instance));
   }
 
   async #load(
@@ -1232,7 +1401,7 @@ export class ExtensionRuntime {
       return false;
     }
     this.#instances.push(result.instance);
-    this.#emit({ type: "extension_loaded", name: result.instance.def.name, version: result.instance.def.version });
+    this.#emit(loadedEvent(result.instance));
     return true;
   }
 
@@ -1243,6 +1412,9 @@ export class ExtensionRuntime {
     seedState?: Record<string, unknown>,
     options: RegisterOptions = {},
     manifestCaps?: readonly string[],
+    /** The instance this one replaces (a hot-reload): excluded from the
+     * rail's capacity count, whose slot is being handed over (#1132). */
+    replacing?: RuntimeExtension,
   ): Promise<
     | { ok: true; instance: RuntimeExtension }
     | ({ ok: false; name?: string; reason: string; message: string })
@@ -1352,6 +1524,8 @@ export class ExtensionRuntime {
       file,
       status: null,
       commands: [],
+      panel: null,
+      overlays: [],
     };
     // ADR-0053 + ADR-0062 (#1130): enforcement by absence. The
     // registration API exists on the context only when the grant covers
@@ -1362,8 +1536,17 @@ export class ExtensionRuntime {
     const commandSlot: { registerCommand?: ExtensionSetupContext["registerCommand"] } = granted.includes("contribute-commands")
       ? { registerCommand: (command: ExtensionCommand) => this.#registerCommand(instance, command) }
       : {};
+    // ADR-0062 (#1132): same enforcement-by-absence for the UI slots.
+    const panelSlot: { registerPanel?: ExtensionSetupContext["registerPanel"] } = granted.includes("contribute-panels")
+      ? { registerPanel: (panel: ExtensionPanel) => this.#registerPanel(instance, panel, replacing) }
+      : {};
+    const overlaySlot: { registerOverlay?: ExtensionSetupContext["registerOverlay"] } = granted.includes("contribute-overlays")
+      ? { registerOverlay: (overlay: ExtensionOverlay) => this.#registerOverlay(instance, overlay) }
+      : {};
     const ctx: ExtensionSetupContext = {
       ...commandSlot,
+      ...panelSlot,
+      ...overlaySlot,
       state: instance.state,
       appendToPrompt: (note) => instance.notes.push(note),
       // ADR-0036: one per-turn note per instance, replacing; `null` removes.

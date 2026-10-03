@@ -9,6 +9,21 @@ matching section here at tag time.
 
 ### Added
 
+- **Extensions rail, panels and overlays** (ADR-0062, #1132, apiVersion
+  1.12): an extension with the `contribute-panels` grant registers one
+  rail panel — arbitrary Ink rendering with a declared max-height, at
+  most 4 visible across all extensions, a fifth refused visibly at load
+  (`panel slot exhausted (4/4)`), no automatic eviction: collapse and
+  reopen is manual from `/extensions`. The `contribute-overlays` grant
+  registers a full-screen overlay opened by the extension's own command
+  and closed with `Esc`. The rail is closed by default (the UI is
+  byte-identical without extensions), user-toggled, and collapses to the
+  footer on narrow terminals. Anything a panel callback does that the
+  permission gate covers flows through the same gate — the click invokes,
+  it never grants. Headless clients contribute nothing: panels and
+  overlays are visible absence in `/extensions` (their names fold from
+  `extension_loaded`), never a simulated rendering.
+
 - **`/extensions` screen** (#1131): the TUI command opens a read-only
   extension-state snapshot — per enabled extension its version, source
   path (or "bundled"), declared capabilities, registered commands and the
