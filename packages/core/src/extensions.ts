@@ -46,8 +46,12 @@ import {
 } from "@moh/extension";
 import type { BeforeTurnResult } from "@moh/extension";
 import type { AgentEvent, ExtensionStatus } from "./types";
+import type { ExtensionSpawnSpec } from "@moh/extension";
+import type { SubagentHost } from "./subagents";
+import { ExtensionSpawnRefusedError } from "./extension-scope";
 import { capabilityDiff, capabilitiesSubset, readExtensionManifest, type ManifestAuthority } from "./extension-manifest";
 import { redactKeys } from "./redact";
+import { assertNoExtensionScope, runInExtensionScope } from "./extension-scope";
 
 /**
  * ADR-0054 + ADR-0056 (#1126): what one `beforeModelCall` dispatch
@@ -290,6 +294,9 @@ export interface RuntimeExtension {
   panel: ExtensionPanel | null;
   /** ADR-0062 (#1132): overlays this instance registered, in call order. */
   readonly overlays: ExtensionOverlay[];
+  /** ADR-0053: the capability slots actually granted to this instance —
+   * the manifest when there is one, otherwise the code's own declaration. */
+  grantedCapabilities: string[];
 }
 
 /** One refused extension-command registration (ADR-0062): reported in
@@ -323,13 +330,24 @@ export interface ActiveExtensionOverlay {
  * facts (ADR-0062 #1132) ride the load event, so the headless `/extensions`
  * fold reports panels and overlays with no second store. */
 function loadedEvent(instance: RuntimeExtension): AgentEvent {
-  const base: { type: "extension_loaded"; name: string; version: string; panels?: string[]; overlays?: string[] } = {
+  const base: {
+    type: "extension_loaded";
+    name: string;
+    version: string;
+    panels?: string[];
+    overlays?: string[];
+    capabilities?: string[];
+  } = {
     type: "extension_loaded",
     name: instance.def.name,
     version: instance.def.version,
   };
   if (instance.panel !== null) base.panels = [instance.panel.name];
   if (instance.overlays.length > 0) base.overlays = instance.overlays.map((o) => o.name);
+  // ADR-0053: the startup announcement — each enabled extension's
+  // capabilities ride its load event, so the session's start chrome
+  // states what powers are in force.
+  if (instance.grantedCapabilities.length > 0) base.capabilities = [...instance.grantedCapabilities];
   return base as AgentEvent;
 }
 
@@ -440,6 +458,81 @@ const OWNER_BUDGET = "\u0000owner";
 const MAX_PAYLOAD_BYTES = 8 * 1024;
 
 /**
+ * ADR-0053 (mask/alter log events): the log's chrome event names. An
+ * `appendEvent` naming one is refused with `reserved_event_name` — an
+ * extension record is always an `extension_event` naming its extension,
+ * never a forged entry of the session's own record.
+ */
+const RESERVED_EVENT_NAMES: ReadonlySet<string> = new Set([
+  "assistant_delta",
+  "branch_dangling",
+  "branch_switched",
+  "browser_unavailable",
+  "cancelled",
+  "commercial_declaration",
+  "compaction_dangling",
+  "compaction_failed",
+  "compaction_skipped",
+  "compaction",
+  "declared_window",
+  "done",
+  "error",
+  "extension_control",
+  "extension_event",
+  "extension_failed",
+  "extension_loaded",
+  "fallback",
+  "finish",
+  "lane_created",
+  "lane_transitioned",
+  "mcp_refused",
+  "mcp_server_failed",
+  "mcp_server_started",
+  "mcp_server_stopped",
+  "memory_updated",
+  "mention_warnings",
+  "model_call_start",
+  "model_call",
+  "model_switched",
+  "orchestration_stopped",
+  "permission_denied",
+  "permission_granted",
+  "permission_requested",
+  "permission_rule_added",
+  "permission_rules_restored",
+  "prompt_override",
+  "quota_episode",
+  "quota_observation",
+  "reasoning_delta",
+  "reasoning_end",
+  "reasoning_start",
+  "reasoning",
+  "route_serving",
+  "session_file_growth",
+  "session_mode",
+  "session_note",
+  "session_pinned",
+  "session_renamed",
+  "session_resumed",
+  "session_start",
+  "skill_invoked",
+  "subagent_result",
+  "subagent_spawn",
+  "switch_refused",
+  "task_declared",
+  "task_outcome",
+  "task_verification",
+  "text_delta",
+  "tool_call",
+  "tool_calls",
+  "tool_progress",
+  "tool_result",
+  "tree_bookmarked",
+  "usage",
+  "user_message",
+]);
+
+/**
  * ADR-0032 redaction heuristic, now the shared module (ADR-0058, #1105):
  * the same key heuristic serves the session log writer — one heuristic,
  * not several. Still keys-only here: an extension payload is serialized
@@ -541,6 +634,14 @@ export class ExtensionRuntime {
    * adopted (not duplicated) when the id arrives.
    */
   #ownerSessionId: string | null = null;
+  /**
+   * ADR-0053 + ADR-0055 (#998 follow-up): the execution seam behind the
+   * `spawn-subagent` capability, attached by the session that owns its
+   * SubagentHost. Extensions capture the ctx closure at setup (before any
+   * session exists), so the seam is resolved lazily at call time; a call
+   * with no attached host is refused loudly, never silently dropped.
+   */
+  #subagentHost: SubagentHost | null = null;
   /** ADR-0032: subscribers of status publishes (extension name + text|null). */
   readonly #statusListeners = new Set<(extension: string, text: string | null) => void>();
   readonly #watchers = new Map<string, FSWatcher>();
@@ -804,7 +905,9 @@ export class ExtensionRuntime {
     let failure: unknown;
     const pending = (async () => {
       try {
-        return await run();
+        // ADR-0053: extension code runs marked, so the core's privileged
+        // seams can refuse a prohibition attempted from inside a hook.
+        return await runInExtensionScope(instance.def.name, run);
       } catch (err) {
         failed = true;
         failure = err;
@@ -899,6 +1002,15 @@ export class ExtensionRuntime {
   onStatusChange(listener: (extension: string, text: string | null) => void): () => void {
     this.#statusListeners.add(listener);
     return () => this.#statusListeners.delete(listener);
+  }
+
+  /**
+   * ADR-0053/#998: the owning session attaches its SubagentHost so a
+   * granted `spawn-subagent` capability has something to execute through.
+   * The envelope (session cap, iteration ceiling) lives on the host.
+   */
+  attachSubagentHost(host: SubagentHost): void {
+    this.#subagentHost = host;
   }
 
   /** ADR-0032: the currently published statuses, in registration order. */
@@ -1306,6 +1418,10 @@ export class ExtensionRuntime {
   }
 
   #scheduleReload(file: string): void {
+    // ADR-0053 absolute prohibition: disabling or replacing another
+    // extension is core-only work. A reload triggered from extension code
+    // would do exactly that (swap or retire an instance) — refused.
+    assertNoExtensionScope("disable-extension", "trigger an extension reload (disable/replace another extension)");
     clearTimeout(this.#reloadTimers.get(file));
     this.#reloadTimers.set(
       file,
@@ -1526,6 +1642,7 @@ export class ExtensionRuntime {
       commands: [],
       panel: null,
       overlays: [],
+      grantedCapabilities: [],
     };
     // ADR-0053 + ADR-0062 (#1130): enforcement by absence. The
     // registration API exists on the context only when the grant covers
@@ -1533,6 +1650,7 @@ export class ExtensionRuntime {
     // signed), otherwise the code's own declaration (an in-memory
     // registration has no manifest to exceed).
     const granted = authority ?? (Array.isArray((d as { capabilities?: unknown }).capabilities) ? ((d as { capabilities: string[] }).capabilities).map((c) => String(c)) : []);
+    instance.grantedCapabilities = [...granted];
     const commandSlot: { registerCommand?: ExtensionSetupContext["registerCommand"] } = granted.includes("contribute-commands")
       ? { registerCommand: (command: ExtensionCommand) => this.#registerCommand(instance, command) }
       : {};
@@ -1543,10 +1661,21 @@ export class ExtensionRuntime {
     const overlaySlot: { registerOverlay?: ExtensionSetupContext["registerOverlay"] } = granted.includes("contribute-overlays")
       ? { registerOverlay: (overlay: ExtensionOverlay) => this.#registerOverlay(instance, overlay) }
       : {};
+    // ADR-0053 + ADR-0055 (#998 follow-up): the spawn-subagent slot.
+    // Present only when granted (enforcement by absence); the envelope is
+    // intersected at every call, and a refusal is a loud
+    // `extension_failed` with the child never created.
+    const spawnSlot: Pick<ExtensionSetupContext, "spawnSubagent" | "subagentActivity"> = granted.includes("spawn-subagent")
+      ? {
+          spawnSubagent: (spec) => this.#spawnSubagentFor(instance, spec),
+          subagentActivity: (callId) => this.#subagentActivityFor(instance, callId),
+        }
+      : {};
     const ctx: ExtensionSetupContext = {
       ...commandSlot,
       ...panelSlot,
       ...overlaySlot,
+      ...spawnSlot,
       state: instance.state,
       appendToPrompt: (note) => instance.notes.push(note),
       // ADR-0036: one per-turn note per instance, replacing; `null` removes.
@@ -1586,15 +1715,71 @@ export class ExtensionRuntime {
   }
 
   /**
+   * ADR-0053 + ADR-0055: the `spawn-subagent` capability's execution path.
+   * The envelope is the host's business; here we enforce the structural
+   * limits — no grandchildren (extension code running on a borrowed
+   * child's dispatch may not spawn), a loud `extension_failed` on every
+   * refusal, and attribution of the child to this extension.
+   */
+  async #spawnSubagentFor(
+    instance: RuntimeExtension,
+    spec: ExtensionSpawnSpec,
+  ): Promise<{ callId: string; status: "done" | "error" | "cancelled"; output: string; error?: string }> {
+    const name = instance.def.name;
+    const refuse = (reason: string, message: string) => {
+      this.#emitFailed(name, reason, message);
+      return { callId: "", status: "error" as const, output: "", error: message };
+    };
+    // ADR-0055 "may not create grandchildren": extension code running
+    // inside a borrowed (child) session's dispatch is the child speaking —
+    // depth one is what keeps the envelope checkable at every level.
+    if (this.#borrowedSessions.getStore() !== undefined) {
+      return refuse("no_grandchildren", `extension "${name}" attempted to spawn from inside a subagent — grandchildren are refused`);
+    }
+    const host = this.#subagentHost;
+    if (!host) {
+      return refuse("spawn_unavailable", `extension "${name}" holds the spawn-subagent capability but this session exposes no subagent host`);
+    }
+    try {
+      return await host.spawnForExtension(name, spec);
+    } catch (err) {
+      if (err instanceof ExtensionSpawnRefusedError) {
+        return refuse(err.reason, err.message);
+      }
+      return refuse("spawn_failed", errMessage(err));
+    }
+  }
+
+  /** ADR-0055: bounded activity of a child this extension spawned. */
+  async #subagentActivityFor(instance: RuntimeExtension, callId: string) {
+    const host = this.#subagentHost;
+    if (!host) return null;
+    return host.activityFor(instance.def.name, callId);
+  }
+
+  /**
    * ADR-0032 `appendEvent`: stamping, validation, size cap, per-turn
    * volume cap, redaction. Every drop is visible — a mutilated or silently
    * swallowed audit entry would be worse than a missing one.
    */
   #appendExtensionEvent(instance: RuntimeExtension, event: ExtensionEventInput): void {
     const name = instance.def.name;
-    const rawName = (event ?? ({} as ExtensionEventInput)).name;
+    let rawName = (event ?? ({} as ExtensionEventInput)).name;
     if (typeof rawName !== "string" || rawName.trim() === "") {
       this.#emit({ type: "extension_failed", name, reason: "invalid_event", message: "appendEvent requires a non-empty name" });
+      return;
+    }
+    // ADR-0053 absolute prohibition (mask/alter log events), enforcement
+    // point: an extension event is always stamped `extension_event` with
+    // its own extension name, and a name that would impersonate the log's
+    // chrome is refused outright — the log's record stays the core's.
+    if (RESERVED_EVENT_NAMES.has(rawName)) {
+      this.#emit({
+        type: "extension_failed",
+        name,
+        reason: "reserved_event_name",
+        message: `"${rawName}" is a reserved log event name; extension events are recorded as extension_event`,
+      });
       return;
     }
     let payload: unknown;
@@ -1714,6 +1899,11 @@ export class ExtensionRuntime {
   }
 
   #writeStore(store: ExtensionStore): void {
+    // ADR-0053 absolute prohibition: no extension may read or write the
+    // consent store — no consent can authorize it. The guard is the
+    // enforcement point: entered from extension code, this throws the
+    // typed refusal before a byte is written.
+    assertNoExtensionScope("consent-files", "read or write the extension consent store (extensions.json)");
     const file = this.#storeFile();
     mkdirSync(this.#mohHome, { recursive: true, mode: 0o700 });
     writeFileSync(file, JSON.stringify(store, null, 2), { mode: 0o600 });
@@ -1869,11 +2059,14 @@ export class ExtensionRuntime {
         const abandoned = new AbortController();
         let deadline: ReturnType<typeof setTimeout> | undefined;
         const pending = (async () =>
-          hook({
-            ...ctx,
-            hookTimeoutMs,
-            signal: abandoned.signal,
-          }))();
+          // ADR-0053: extension code runs marked (see #runCapped).
+          runInExtensionScope(instance.def.name, () =>
+            hook({
+              ...ctx,
+              hookTimeoutMs,
+              signal: abandoned.signal,
+            }),
+          ))();
         // A late answer is not worthless: it still tells its own author the
         // cut never landed. Registered before the race so no resolution can
         // slip past it, and only acted on when the window actually won.
@@ -1980,7 +2173,8 @@ export class ExtensionRuntime {
         let failure: unknown;
         const pending = (async () => {
           try {
-            return await hook(ctx);
+            // ADR-0053: extension code runs marked (see #runCapped).
+            return await runInExtensionScope(instance.def.name, () => hook(ctx));
           } catch (err) {
             failed = true;
             failure = err;
@@ -2151,7 +2345,8 @@ export class ExtensionRuntime {
           continue;
         }
         try {
-          await (invoke(hook) as Promise<void> | void);
+          // ADR-0053: extension code runs marked (see #runCapped).
+          await (runInExtensionScope(instance.def.name, () => invoke(hook)) as Promise<void> | void);
         } catch (err) {
           this.#recordHookError({
             type: "extension_failed",

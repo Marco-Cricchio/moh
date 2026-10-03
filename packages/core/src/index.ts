@@ -161,6 +161,7 @@ export {
   type AssembleMentionsResult,
 } from "./mentions";
 import { type SubagentOptions } from "./subagents";
+import { ExtensionSpawnRefusedError } from "./extension-scope";
 export {
   DevelopmentLaneStore,
   type CreateFeatureGroupInput,
@@ -1043,6 +1044,7 @@ export {
   type CompactionSummarizer,
   type CompactionSummarizerInput,
   type SubagentOptions,
+  ExtensionSpawnRefusedError,
   type McpServerEntry,
   type McpRuntimeOptions,
   type EndpointProfile,

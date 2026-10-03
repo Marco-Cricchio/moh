@@ -7,7 +7,9 @@ import type { ExtensionRuntime } from "./extensions";
 import { AgentSession } from "./session/session";
 import { DevelopmentLaneStore } from "./development-lanes";
 import { SessionStore, lastAssistantText } from "./session-store";
+import { ExtensionSpawnRefusedError } from "./extension-scope";
 import { PromptComposer, BASE_PROMPT } from "./prompt-composer";
+import { tailChildLog } from "./child-tail";
 import { resolveProviderRef, defaultRegistry, type FrozenProviderRegistry, type ProviderRegistry } from "./provider-registry";
 import { DEFAULT_MAX_ITERATIONS } from "./session/agent-loop";
 // ADR-0050 (§4): the child's own route, built from the parent's live pair.
@@ -100,6 +102,9 @@ interface LiveChild {
   abort: () => void;
 }
 
+/** ADR-0053: the extension-spawn envelope, defaulted to the fixed cap. */
+export const EXTENSION_MAX_SESSIONS = 10;
+
 /** Options for enabling the spawn tool on a session. */
 export interface SubagentOptions {
   /** Presets from moh.json `agents`, merged over the built-ins (user wins). */
@@ -191,6 +196,15 @@ export interface SubagentHostOptions {
   /** ADR-0055 (#1127): the session's resolved iteration cap, read live so
    * the recorded `limits.maxIterations` is what the child actually gets. */
   defaultMaxIterations?: () => number;
+  /**
+   * ADR-0053 + ADR-0055 (#998 follow-up): the envelope extension spawns
+   * live in. `maxSessions` caps how many children one extension may spawn
+   * per session (ADR-0053 fixes the default at 10); `maxIterations` is the
+   * iteration ceiling a spawn may request (default: the session's own
+   * cap). A request outside the envelope is refused loudly, never
+   * silently narrowed.
+   */
+  extensionEnvelope?: { maxSessions?: number; maxIterations?: number };
 }
 
 /** Simple counting semaphore: caps parallel children (default 3). */
@@ -233,6 +247,17 @@ export class SubagentHost {
   readonly #semaphore: Semaphore;
   /** ADR-0055 "one stop" (#1127): the children currently in flight. */
   readonly #live = new Map<string, LiveChild>();
+  /**
+   * ADR-0053/#998: children an extension spawned, keyed by callId — the
+   * set `subagentActivity` reads from; a session the extension did not
+   * spawn is not in the map, so it cannot be read. Lives past the child's
+   * settle (activity of a settled child is still its own).
+   */
+  readonly #spawnedByExtension = new Map<string, string>();
+  /** Children log paths by callId, for the bounded activity read. */
+  readonly #logs = new Map<string, string>();
+  /** ADR-0053: spawns per extension per session — the envelope counter. */
+  readonly #extensionSpawnCounts = new Map<string, number>();
 
   constructor(options: SubagentHostOptions) {
     this.#options = options;
@@ -275,6 +300,89 @@ export class SubagentHost {
     return this.#options.presets?.[name] ?? BUILTIN_AGENT_PRESETS[name];
   }
 
+  /** ADR-0053: children this extension spawned this session, by callId. */
+  spawnedByExtension(extension: string): string[] {
+    return [...this.#spawnedByExtension].filter(([, by]) => by === extension).map(([callId]) => callId);
+  }
+
+  /**
+   * ADR-0053 + ADR-0055 (#998 follow-up): the `spawn-subagent` capability's
+   * execution path. The envelope is intersected here — cap, iteration
+   * ceiling, tool subset — and every refusal is loud: the caller records
+   * `extension_failed` and the child is never created.
+   */
+  async spawnForExtension(
+    extension: string,
+    spec: { preset?: string; name?: string; task: string; systemPrompt?: string; allowedTools?: readonly string[]; maxIterations?: number },
+  ): Promise<{ callId: string } & SubagentResult> {
+    const envelope = this.#options.extensionEnvelope;
+    const maxSessions = envelope?.maxSessions ?? EXTENSION_MAX_SESSIONS;
+    const maxIterationsCeiling = envelope?.maxIterations ?? this.#options.defaultMaxIterations?.() ?? DEFAULT_MAX_ITERATIONS;
+    const used = this.#extensionSpawnCounts.get(extension) ?? 0;
+    if (used >= maxSessions) {
+      throw new ExtensionSpawnRefusedError(
+        "spawn_cap",
+        `extension "${extension}" reached its envelope of ${maxSessions} children for this session`,
+      );
+    }
+    if (spec.maxIterations !== undefined && spec.maxIterations > maxIterationsCeiling) {
+      throw new ExtensionSpawnRefusedError(
+        "spawn_refused",
+        `maxIterations ${spec.maxIterations} exceeds the envelope ceiling of ${maxIterationsCeiling} — the request is refused, never silently narrowed`,
+      );
+    }
+    // Loud tool validation: an unknown name is a refusal, not a silent
+    // narrowing — what the spawn did not name does not exist for the child.
+    if (spec.allowedTools) {
+      const parent = this.#options.parentTools();
+      const unknown = spec.allowedTools.filter((t) => !parent[t] || t.startsWith("mcp__"));
+      if (unknown.length > 0) {
+        throw new ExtensionSpawnRefusedError(
+          "spawn_refused",
+          `unknown tools in allowedTools: ${unknown.join(", ")} — the child receives only tools this session has`,
+        );
+      }
+    }
+    const base = spec.preset ? this.resolvePreset(spec.preset) : undefined;
+    if (spec.preset && !base) {
+      throw new ExtensionSpawnRefusedError("spawn_refused", `unknown subagent preset: ${spec.preset}`);
+    }
+    const resolved: SubagentSpec = {
+      name: "subagent",
+      ...(base ?? {}),
+      ...(spec.name ? { name: spec.name } : {}),
+      ...(spec.systemPrompt ? { systemPrompt: spec.systemPrompt } : {}),
+      ...(spec.allowedTools ? { allowedTools: [...spec.allowedTools] } : {}),
+      ...(spec.maxIterations !== undefined ? { maxIterations: spec.maxIterations } : {}),
+    };
+    // The envelope counts *created* children (ADR-0053 "children one
+    // extension may spawn per session"): the counter increments in
+    // onSpawned — a spawn refused inside #spawn burns nothing.
+    let callId = "";
+    const raw = await this.#spawn({ ...resolved, task: spec.task }, new AbortController().signal, {
+      extension,
+      onSpawned: (id) => {
+        this.#extensionSpawnCounts.set(extension, (this.#extensionSpawnCounts.get(extension) ?? 0) + 1);
+        callId = id;
+      },
+    });
+    return { ...(JSON.parse(raw) as SubagentResult), callId };
+  }
+
+  /**
+   * ADR-0055: bounded turn-activity read of one spawned child — the
+   * child-tail shape's activity, never the provider reasoning. `null` for
+   * a callId the extension did not spawn: a session it did not create
+   * does not exist for it.
+   */
+  async activityFor(extension: string, callId: string): Promise<{ currentTool: string | null; lastActivityAt: number | null } | null> {
+    if (this.#spawnedByExtension.get(callId) !== extension) return null;
+    const log = this.#logs.get(callId);
+    if (!log) return null;
+    const tail = await tailChildLog(log, 0);
+    return tail.activity;
+  }
+
   /** Merged preset descriptions, for the spawn tool's docs. */
   #presetDocs(): string {
     const names = [...Object.keys(BUILTIN_AGENT_PRESETS), ...Object.keys(this.#options.presets ?? {})];
@@ -297,7 +405,7 @@ export class SubagentHost {
         `Presets:\n${this.#presetDocs()}\n` +
         `Inline spec fields override the preset. Children get a strict subset of this session's tools (MCP tools are never inherited) and cannot spawn further subagents.`,
       inputSchema: spawnInputSchema,
-      execute: (args, ctx) => this.#spawn(args, ctx),
+      execute: (args, ctx) => this.#spawn(args, ctx.signal),
     };
   }
 
@@ -333,7 +441,11 @@ export class SubagentHost {
 
   async #spawn(
     args: z.infer<typeof spawnInputSchema>,
-    ctx: ToolContext,
+    signal: AbortSignal,
+    /** ADR-0053: set when an extension asked for this spawn. */
+    from?: { extension: string; /** Called once with the child's callId, as
+     * soon as it exists (the extension result needs it, the tool result
+     * does not). */ onSpawned?: (callId: string) => void },
   ): Promise<string> {
     const { preset, task, ...inline } = args;
     const base = preset ? this.resolvePreset(preset) : undefined;
@@ -370,7 +482,7 @@ export class SubagentHost {
       laneCwd = lane.worktreePath;
     }
 
-    const acquired = await this.#semaphore.acquire(ctx.signal);
+    const acquired = await this.#semaphore.acquire(signal);
     if (!acquired) {
       return resultJson({ status: "cancelled", output: "", error: "spawn aborted while waiting for a slot" });
     }
@@ -458,7 +570,7 @@ export class SubagentHost {
       // ADR-0055 (#1127): who asked and what was applied — the fields that
       // make an orchestration's children derivable from the log, reused by
       // the live-children registry the stop control reads.
-      const requester: SubagentSpawnRequester = this.#options.requester?.() ?? { kind: "model" };
+      const requester: SubagentSpawnRequester = from ? { kind: "extension", extension: from.extension } : (this.#options.requester?.() ?? { kind: "model" });
       const limits: SubagentSpawnLimits = {
         ...(spec.allowedTools ? { tools: [...spec.allowedTools] } : {}),
         mode: permsForChild.unrestrictedTools === true ? "yolo" : permsForChild.mode ?? liveMode ?? perms.mode ?? "normal",
@@ -476,17 +588,20 @@ export class SubagentHost {
       // The stop control (ADR-0055 "one stop"): a live child aborts with
       // its parent's turn; this registry adds the door that does not
       // require turning the owner's own turn off.
+      this.#spawnedByExtension.set(spawnId, from?.extension ?? "");
+      this.#logs.set(spawnId, store.file);
+      from?.onSpawned?.(spawnId);
       const live: LiveChild = { callId: spawnId, name: spec.name, requester, limits, abort: () => child?.abort() };
       this.#live.set(spawnId, live);
       const forget = () => this.#live.delete(spawnId);
       // Abort propagation: cancelling the parent's turn aborts the child.
       const abortChild = () => child?.abort();
-      ctx.signal.addEventListener("abort", abortChild, { once: true });
+      signal.addEventListener("abort", abortChild, { once: true });
       let turn: Awaited<ReturnType<AgentSession["send"]>>;
       try {
         turn = await child.send(firstMessage);
       } finally {
-        ctx.signal.removeEventListener("abort", abortChild);
+        signal.removeEventListener("abort", abortChild);
         forget();
       }
       const usage = child.usage;

@@ -162,6 +162,24 @@ added slots are highlighted.
   overlay). The client shows it full-screen; the user closes it with
   `Esc`. In a client with no surface (headless), `open()` contributes
   nothing — visible absence, never a simulated rendering.
+- `spawnSubagent(spec)` — spawn one subagent child session, **only
+  present when the `spawn-subagent` capability is granted** (apiVersion
+  1.13, ADR-0053 + ADR-0055): delegation is a capability, and the enable
+  consent granted an **envelope** — at most ten children per extension
+  per session, each within the session's own iteration ceiling. Every
+  request is intersected with that envelope at spawn time: a request
+  outside it is refused loudly (`extension_failed`, the promise resolves
+  with an error result), never silently narrowed. Spawning from inside a
+  child's dispatch is refused — no grandchildren — and the owner's one
+  stop aborts every child you started. The spec mirrors the model-facing
+  spawn tool (`preset`, `task`, `systemPrompt`, `allowedTools`,
+  `maxIterations`); unknown tool names and presets refuse the spawn.
+- `subagentActivity(callId)` — bounded turn-activity read of a child you
+  spawned (same capability slot, apiVersion 1.13): the child-tail shape —
+  messages, tool calls and outcomes, activity — never the provider
+  reasoning. A callId you did not spawn resolves to `null`: a session you
+  did not create does not exist for you, and there is no API that reads
+  or resumes one.
 
 ## Hooks and their ordering
 
@@ -638,7 +656,7 @@ extension's note.
 ## Versioning policy
 
 - The host speaks `MOH_EXTENSION_API_VERSION` (`"major.minor"`); the
-  current version is **1.11** (1.1 added `ask` and the two observation
+  current version is **1.13** (1.1 added `ask` and the two observation
   seams; 1.2 added `beforeTurn`; 1.3 added the `extension_control`
   command channel; 1.4 added `onToolResult`, `confirm.onResolved` and
   `onCompaction`; 1.5 added `setPromptNote`; 1.6 added `requestTurn`;
@@ -652,7 +670,11 @@ extension's note.
   replacement return value on `beforeModelCall`, ADR-0054, and
   `registerCommand`, the `contribute-commands` capability slot, #1130;
   1.12 added `registerPanel` and `registerOverlay`, the
-  `contribute-panels` / `contribute-overlays` capability slots, #1132).
+  `contribute-panels` / `contribute-overlays` capability slots, #1132;
+  1.13 added `spawnSubagent` and `subagentActivity`, the
+  `spawn-subagent` capability slot — delegation per ADR-0053/ADR-0055,
+  #998 — and the `capabilities` list on `extension_loaded` (the startup
+  announcement of what each enabled extension holds).
 - **Additive-only within a major**: new hooks and context fields may be
   added; existing ones never change meaning or disappear. Deprecated APIs
   survive one full major.

@@ -136,6 +136,18 @@ Anything a panel callback does that the permission gate covers flows
 through the same gate as any other action — the click invokes, it never
 grants.
 
+An extension whose grant covers `spawn-subagent` (#998, ADR-0053/0055)
+delegates: `ctx.spawnSubagent(spec)` creates a subagent child within its
+envelope — ten children per extension per session, each within the
+session's iteration ceiling — and every request outside the envelope is
+refused loudly (`extension_failed`), never silently narrowed. No
+grandchildren, and the owner's one stop aborts everything the extension
+started. `ctx.subagentActivity(callId)` reads the bounded child-tail
+activity of a child the extension spawned; a session it did not spawn
+does not exist for it. The `extension_loaded` event carries the granted
+capabilities — the startup announcement of what each enabled extension
+holds.
+
 ## There is no sandbox
 
 An extension runs with the same privileges as moh itself. It can read your

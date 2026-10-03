@@ -386,8 +386,15 @@ export class AgentSession {
         requester: () => this.#spawnRequester(),
         // The applied limits record the cap the child actually gets.
         defaultMaxIterations: () => maxIterations,
+        // ADR-0053 + ADR-0055 (#998): the envelope extension spawns live
+        // in — ten children per extension per session (ADR-0053's fixed
+        // cap), each within this session's own iteration ceiling.
+        extensionEnvelope: { maxIterations },
       });
       this.#subagentHost = host;
+      // ADR-0053/#998: a granted `spawn-subagent` capability executes
+      // through this session's host; the runtime resolves it lazily.
+      config.extensions?.attachSubagentHost?.(host);
       this.#tools = { ...this.#tools, spawn: host.spawnTool() };
     }
     this.#extensions = config.extensions;
