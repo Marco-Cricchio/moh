@@ -46,7 +46,7 @@ import {
   type NpmPackument,
 } from "./extension-registry";
 import { scopeEffectSentence, scopeEffectSentences, isPathScope, isHostScope, validateHostScope, hostScopesOf, checkHostScope, MAX_FETCH_BYTES, HOST_SCOPE_REASONING_KEY, TOTAL_HOST_WILDCARD } from "./host-scope";
-import { fileCredentialStore, isCredentialScope, validateCredentialScope, credentialScopeRef, credentialScopesOf, SECRETS_FILE, type CredentialStore } from "./credential-scope";
+import { fileCredentialStore, isCredentialScope, validateCredentialScope, credentialScopeRef, credentialScopesOf, keychainCredentialStore, defaultCredentialStore, SECRETS_FILE, type CredentialStore } from "./credential-scope";
 import { PromptComposer, type SkillIndexEntry } from "./prompt-composer";
 import type {
   AgentEvent,
@@ -870,6 +870,17 @@ export {
   MAX_FETCH_BYTES,
   HOST_SCOPE_REASONING_KEY,
   TOTAL_HOST_WILDCARD,
+  // ADR-0069 (#1161): the user-mint credential store the CLI's
+  // `moh secret` surface and session assembly share.
+  defaultCredentialStore,
+  fileCredentialStore,
+  keychainCredentialStore,
+  isCredentialScope,
+  validateCredentialScope,
+  credentialScopeRef,
+  credentialScopesOf,
+  SECRETS_FILE,
+  type CredentialStore,
   type RegistryIo,
   type ExtensionRef,
   type InstallOptions,

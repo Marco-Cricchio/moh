@@ -35,6 +35,7 @@ import type { AgentEvent, AskUserQuestionSet, AskUserSetResult, Provider, Tool }
 import { AgentSession } from "./session";
 import type { SessionConfig } from "./config";
 import { ExtensionRuntime } from "../extensions";
+import { defaultCredentialStore, type CredentialStore } from "../credential-scope";
 import type { ExtensionConsentRequest } from "../extensions";
 import { extensionSourceFiles } from "../extension-source";
 import { resolveBundledExtensions, type BundledWiring, type MountedBundledExtension } from "../bundled-extensions";
@@ -189,6 +190,12 @@ export interface SessionFromConfigOptions {
    * one lives in its own workspace package).
    */
   bundledExtensions?: readonly MountedBundledExtension[];
+  /**
+   * ADR-0069: the credential store behind the `credential:<ref>` scope.
+   * Defaults to the OS keychain when available, the bounded 0600-file
+   * fallback otherwise; tests and embedding clients may inject their own.
+   */
+  credentialStore?: CredentialStore;
   overrides?: SessionOverrides;
 }
 
@@ -288,6 +295,10 @@ export function sessionFromConfig(options: SessionFromConfigOptions): SessionFro
     // path-loaded files go through the content-bound consent.
     extensions = new ExtensionRuntime({
       mohHome,
+      // ADR-0069: the credential store behind the `credential:<ref>`
+      // scope — keychain when available, 0600-file fallback otherwise;
+      // a test- or client-injected store wins.
+      credentialStore: options.credentialStore ?? defaultCredentialStore(home),
       // ADR-0065: the project root the `path:<glob>` scopes resolve
       // against. The user's deny rules ride the session: the resolver is
       // not built yet at assembly time, so the deny answer is read live

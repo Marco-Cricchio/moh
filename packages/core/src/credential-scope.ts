@@ -18,7 +18,6 @@
  *   values never do (ADR-0058's pass remains in force regardless).
  */
 import { mkdirSync, readFileSync, writeFileSync, statSync, existsSync, unlinkSync } from "node:fs";
-import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 
 export const CREDENTIAL_SCOPE_PREFIX = "credential:";
@@ -88,11 +87,16 @@ export const SECRETS_FILE = "secrets.json";
  * generic-password item per ref, service `moh-secret`. Returns undefined
  * where no keychain CLI exists — the caller falls back to the file store.
  * `security` failing on a get resolves as unknown (a loud fetch refusal),
- * never as an empty string.
+ * never as an empty string. The names-only ledger lives beside the
+ * fallback store under the given home, so `list()` stays truthful.
  */
-export function keychainCredentialStore(): CredentialStore | undefined {
+export function keychainCredentialStore(ledgerHome: string): CredentialStore | undefined {
   if (process.platform !== "darwin") return undefined;
   const service = "moh-secret";
+  // Names-only ledger under the given home: the keychain has no
+  // list-by-service, so a set/delete records the ref name (never the
+  // value) beside the keychain item — `list()` stays truthful.
+  const names = fileCredentialStore({ home: ledgerHome });
   const run = (args: string[]): { ok: boolean; out: string } => {
     const proc = Bun.spawnSync(["security", ...args], { stdout: "pipe", stderr: "pipe", stdin: "ignore" });
     return { ok: proc.exitCode === 0, out: proc.stdout.toString().trim() };
@@ -105,22 +109,26 @@ export function keychainCredentialStore(): CredentialStore | undefined {
     set: (ref, value) => {
       // `-U` updates an existing item; one call covers create and replace.
       run(["add-generic-password", "-s", service, "-a", ref, "-w", value, "-U"]);
+      names.set(ref, "");
     },
-    delete: (ref) => run(["delete-generic-password", "-s", service, "-a", ref]).ok,
-    // `security` has no list-by-service; names come from nothing here —
-    // list() on the keychain store is unsupported and returns what a
-    // client tracked itself, i.e. empty. `moh secret list` on macOS reads
-    // the fallback file only; refs set in the keychain are known by name.
-    list: () => [],
+    delete: (ref) => {
+      const removed = run(["delete-generic-password", "-s", service, "-a", ref]).ok;
+      names.delete(ref);
+      return removed;
+    },
+    list: () => names.list(),
   };
 }
 
 /**
  * ADR-0069: the default store for session assembly — the OS keychain when
  * the platform provides one, the bounded 0600-file fallback otherwise.
+ * `MOH_SECRET_STORE=file` forces the fallback (tests, headless boxes);
+ * no other value is honored.
  */
 export function defaultCredentialStore(home: string): CredentialStore {
-  return keychainCredentialStore() ?? fileCredentialStore({ home });
+  if (process.env.MOH_SECRET_STORE === "file") return fileCredentialStore({ home });
+  return keychainCredentialStore(home) ?? fileCredentialStore({ home });
 }
 
 /**

@@ -17,6 +17,7 @@ import { mpmCommand, MPM_USAGE } from "./mpm";
 import { sessionsCommand, SESSIONS_USAGE } from "./sessions";
 import { usageCommand, USAGE_USAGE } from "./usage";
 import { jevCommand, JEV_USAGE } from "./jev";
+import { secretCommand, SECRET_USAGE } from "./secret";
 import { trashCommand, TRASH_USAGE } from "./trash";
 import { lanesCommand, LANES_USAGE } from "./lanes";
 import { browserCommand, BROWSER_USAGE } from "./browser";
@@ -44,6 +45,7 @@ commands:
   lanes    parallel development lanes (see: moh lanes --help)
   usage    usage reports: models, tools, routes (see: moh usage --help)
   jev      TypeSafe/Jev configuration and per-use-case flags (see: moh jev --help)
+  secret   user-owned extension secrets (see: moh secret --help)
   handoff  publish a session handoff (see: moh handoff --help)
   browser  browser tool status and setup (see: moh browser --help)
 
@@ -230,6 +232,13 @@ export async function main(
       return 0;
     }
     return jevCommand({ argv: rest, home: process.env.HOME });
+  }
+  if (command === "secret") {
+    if (rest.includes("--help") || rest.includes("-h")) {
+      process.stdout.write(SECRET_USAGE + "\n");
+      return 0;
+    }
+    return secretCommand({ argv: rest, home: process.env.HOME });
   }
   if (command === "handoff") {
     if (rest.includes("--help") || rest.includes("-h")) {
