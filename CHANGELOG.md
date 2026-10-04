@@ -7,6 +7,35 @@ matching section here at tag time.
 
 ## [Unreleased]
 
+### Changed
+
+- **Secret redaction covers long env-var key names and deep payloads**
+  (audit-v3 RED-2, RED-1): structural keys matching `*_API_KEY`,
+  `*_ACCESS_KEY`, `*_TOKEN` or any name containing `secret` —
+  `ANTHROPIC_API_KEY`, `AWS_SECRET_ACCESS_KEY` — are now masked wherever
+  they appear, and the free-text assignment matcher accepts compound
+  env-var names. Structure nested below the redaction walk's copy depth
+  is scanned by a read-only deep pass (reach 6 + 100 levels) and masked
+  when it holds a secret; the content-free `depth-cut` line in
+  `secret-redaction-misses.log` now fires only past that reach.
+
+### Fixed
+
+- **Non-http(s) MCP server URLs are refused at config resolution**
+  (audit-v3 MCP-1): the `mcpServers` schema accepts only `http(s)` URLs
+  (`moh mcp add` rejects them at the door, a project `moh.json` fails to
+  load), and the streamable-HTTP transport caps a response at 10 MB —
+  JSON body and SSE stream alike — instead of buffering without bound.
+- **`moh handoff pull` refuses when gh cannot say who is logged in**
+  (audit-v3 CLI-1): a failed username lookup used to proceed without the
+  per-persona author check; it now errors with the typed reason and
+  points at `moh handoff import <file>`.
+- **Documented the macOS keychain argv residual** (audit-v3 HOST-1):
+  `moh secret --help` and the manual state that the keychain write hands
+  the secret to the `security` CLI as an argument (briefly visible to a
+  local `ps` poll) and steer high-paranoia hosts to
+  `MOH_SECRET_STORE=file`.
+
 ## [0.58.0] - 2026-10-04
 
 ### Added

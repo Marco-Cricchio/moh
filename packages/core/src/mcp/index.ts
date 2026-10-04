@@ -35,4 +35,3 @@ export {
 } from "./types";
 export { McpError, type McpErrorKind } from "./errors";
 export { McpRuntime, type McpRuntimeOptions } from "./runtime";
-export { MCP_MAX_RESPONSE_BYTES } from "./transport-http";

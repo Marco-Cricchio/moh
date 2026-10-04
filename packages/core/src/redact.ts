@@ -67,8 +67,9 @@ function normalizeKey(key: string): string {
 /**
  * audit-v3 RED-2: the exact set above misses common long env-var forms.
  * A normalized name is secret-shaped when it ends in `apikey`,
- * `accesskey` or `token`, or contains `secret`. Suffixes only —
- * `tokens`, `tokenCount` and `apiKeyId` keep surviving.
+ * `accesskey` or `token`, or contains `secret` (`*_API_KEY`,
+ * `*_ACCESS_KEY`, `*_TOKEN`, `*_SECRET*`). Suffixes only — `tokens`,
+ * `tokenCount` and `apiKeyId` keep surviving.
  */
 function isSecretKey(normalized: string): boolean {
   return (
@@ -306,7 +307,7 @@ export interface RedactionResult {
  */
 export function redactValue(value: unknown, depth = 0): RedactionResult {
   const misses: RedactionMiss[] = [];
-  let depthCut = false;
+  const cut = { depthCut: false };
   const value2 = walkValue(
     value,
     depth,
@@ -322,9 +323,9 @@ export function redactValue(value: unknown, depth = 0): RedactionResult {
       }
       return redacted;
     },
-    { get depthCut() { return depthCut; }, set depthCut(v: boolean) { depthCut = v; } },
+    cut,
   );
-  return { value: value2, misses, depthCut };
+  return { value: value2, misses, depthCut: cut.depthCut };
 }
 
 // ---------------------------------------------------------------------------
