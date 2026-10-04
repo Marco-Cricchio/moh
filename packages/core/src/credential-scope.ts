@@ -125,7 +125,9 @@ const defaultSecurityRunner: SecurityRunner = (args) => {
  * temporary home, which is the isolation this scoping exists for.
  */
 export function keychainCredentialStore(home: string, run: SecurityRunner = defaultSecurityRunner): CredentialStore | undefined {
-  if (process.platform !== "darwin") return undefined;
+  // No keychain where the platform provides none — but only for the real
+  // `security` runner: an injected runner (tests) runs on any platform.
+  if (run === defaultSecurityRunner && process.platform !== "darwin") return undefined;
   const service = "moh-secret";
   const isAmbientHome = home === homedir();
   const account = (ref: string): string => keychainAccount(home, ref);
