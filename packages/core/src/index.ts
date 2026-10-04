@@ -39,6 +39,7 @@ import {
   verifyIntegrity,
   KNOWN_CAPABILITY_SLOTS,
   isKnownCapability,
+  scopeGrammarValidity,
   type RegistryIo,
   type ExtensionRef,
   type InstallOptions,
@@ -862,6 +863,7 @@ export {
   verifyIntegrity,
   KNOWN_CAPABILITY_SLOTS,
   isKnownCapability,
+  scopeGrammarValidity,
   // ADR-0064/0065: the core-owned scope effect-sentence renderer the
   // clients' consent surfaces show instead of the naked scope string.
   scopeEffectSentence,
