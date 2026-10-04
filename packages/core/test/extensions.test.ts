@@ -569,7 +569,9 @@ describe("extension-deps installation (ADR-0070)", () => {
     // lands inside its (and only its) dependency tree.
     const link = join(dir, "node_modules");
     expect(readlinkSync(link)).toBe(join(extensionDepsDir(dir, "resolver"), "node_modules"));
-    const resolved = realpathSync(createRequire(join(dir, "no-op.js")).resolve("zod/package.json", { paths: [dir] }));
+    // Probe exactly what an extension import does: a bare specifier
+    // resolved from the extension's own file, walking its node_modules.
+    const resolved = realpathSync(createRequire(file).resolve("zod/package.json"));
     // macOS tmpdir symlinks (/var -> /private/var): compare real paths.
     expect(resolved.startsWith(realpathSync(extensionDepsDir(dir, "resolver")))).toBe(true);
   });
