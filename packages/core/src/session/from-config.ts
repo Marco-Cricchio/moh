@@ -35,13 +35,33 @@ import type { AgentEvent, AskUserQuestionSet, AskUserSetResult, Provider, Tool }
 import { AgentSession } from "./session";
 import type { SessionConfig } from "./config";
 import { ExtensionRuntime } from "../extensions";
+import { defaultCredentialStore, type CredentialStore } from "../credential-scope";
 import type { ExtensionConsentRequest } from "../extensions";
 import { extensionSourceFiles } from "../extension-source";
 import { resolveBundledExtensions, type BundledWiring, type MountedBundledExtension } from "../bundled-extensions";
 import { discoverSkills } from "../skills";
 import { userConfigFile } from "../user-config";
+import { mainCheckoutFor } from "../development-lane-service";
 import { createModelPool } from "../model-pool";
 import type { PermissionAskContext, PermissionsConfig } from "./config";
+
+/**
+ * Project-scoped reads resolve here. A lane worktree has no `moh.json`
+ * (it is gitignored, so `git worktree add` leaves it out) — and would
+ * otherwise silently assemble with the empty config: default provider,
+ * no mpm, the 50-turn default cap. When the cwd sits inside a lane
+ * worktree and carries no moh.json of its own, the owning main checkout
+ * (`mainCheckoutFor`) supplies the project config surface. A worktree
+ * with its own moh.json keeps it (it wins, as any nearer file does).
+ */
+export function projectRootFor(cwd: string): string {
+  try {
+    if (existsSync(join(cwd, "moh.json"))) return cwd;
+  } catch {
+    // Unreadable cwd: keep it, like loadMohConfig's missing-file path.
+  }
+  return mainCheckoutFor(cwd) ?? cwd;
+}
 
 /**
  * Initial projection build for a never-mapped project (MPM activation
@@ -120,6 +140,23 @@ export interface SessionConsent {
    * loads silently afterwards and an edit asks again.
    */
   onExtensionConsent?: (request: ExtensionConsentRequest) => Promise<boolean> | boolean;
+  /**
+   * ADR-0070 (#1166): the dependency authorization for a client-loaded
+   * extension whose manifest declares `dependencies` — asked whenever the
+   * declared list differs from the approved one, showing the new deps by
+   * name and version. Absent falls back to `onExtensionConsent` (the deps
+   * ride the same question); both absent = refused, headless included. A
+   * refusal keeps the previously approved tree and refuses the load.
+   */
+  onExtensionDependencies?: (name: string, deps: readonly string[]) => Promise<boolean> | boolean;
+  /**
+   * ADR-0062 (#1130): the slash names the client's own surfaces own — its
+   * native commands plus every skill alias. Extension commands colliding
+   * with one of these are refused at registration (native > skills >
+   * extension); the names are a client fact, so the assembling client
+   * supplies them.
+   */
+  reservedCommandNames?: readonly string[];
 }
 
 /** Client-specific overrides the builder layers over the moh.json-derived defaults. */
@@ -134,6 +171,13 @@ export interface SessionOverrides {
   permissionFlags?: PermissionOverrides;
   /** First-party skills (#36): "include" (default) or "exclude". */
   firstParty?: "include" | "exclude";
+  /**
+   * ADR-0067: a pre-assembled extension runtime (tests, clients that host
+   * the runtime themselves). Wins over the runtime the builder would
+   * assemble from `bundledExtensions` + the declared sources; the builder
+   * then only wires it (deny answers, the tool seam, load events).
+   */
+  extensions?: ExtensionRuntime;
   /** Extra event sink (e.g. CLI stdout streaming); the store append always runs. */
   sink?: (event: AgentEvent) => void;
   /** Existing store to append to (resume); default: a fresh SessionStore. */
@@ -164,6 +208,14 @@ export interface SessionFromConfigOptions {
   providerRef?: string;
   consent?: SessionConsent;
   /**
+   * ADR-0062 (#1130): the slash names the client's own surfaces own — its
+   * native commands plus every skill alias. Extension commands colliding
+   * with one of these are refused at registration (native > skills >
+   * extension); the names are a client fact, so the assembling client
+   * supplies them.
+   */
+  reservedCommandNames?: readonly string[];
+  /**
    * #826: the bundled first-party extensions this client mounts, each with
    * the client's own activation answer (`MountedBundledExtension`). The core
    * hosts the active ones; it never runs an extension's predicate over the
@@ -173,6 +225,12 @@ export interface SessionFromConfigOptions {
    * one lives in its own workspace package).
    */
   bundledExtensions?: readonly MountedBundledExtension[];
+  /**
+   * ADR-0069: the credential store behind the `credential:<ref>` scope.
+   * Defaults to the OS keychain when available, the bounded 0600-file
+   * fallback otherwise; tests and embedding clients may inject their own.
+   */
+  credentialStore?: CredentialStore;
   overrides?: SessionOverrides;
 }
 
@@ -212,7 +270,7 @@ export function sessionFromConfig(options: SessionFromConfigOptions): SessionFro
   const home = options.home ?? homedir();
   let config: MohConfig;
   try {
-    const project = options.config ?? loadMohConfig(join(options.cwd, "moh.json"));
+    const project = options.config ?? loadMohConfig(join(projectRootFor(options.cwd), "moh.json"));
     // User-level provider layering (#129): strict when the sections are
     // present — a broken user config fails loudly like a broken moh.json.
     const user = readUserProviderConfig(userConfigFile(home));
@@ -238,6 +296,9 @@ export function sessionFromConfig(options: SessionFromConfigOptions): SessionFro
   }
 
   const o = options.overrides ?? {};
+  // Project-scoped reads (skills, prompt files, mpm identity) resolve against
+  // the owning checkout when the cwd is a lane worktree without moh.json.
+  const projectRoot = projectRootFor(options.cwd);
   const mohHome = join(home, ".moh");
   // The user config (guardian-owned) is read once and used by every
   // section that lives there: the bundled extensions' activation predicate
@@ -252,7 +313,7 @@ export function sessionFromConfig(options: SessionFromConfigOptions): SessionFro
   // run fails closed through the same code the TUI asks through.
   const extensionSources = extensionSourceFiles({
     mohHome,
-    cwd: options.cwd,
+    cwd: projectRoot,
     declared: config.extensions ?? [],
   });
   // The consent seam is the client's: with one, the user is asked; without
@@ -272,9 +333,30 @@ export function sessionFromConfig(options: SessionFromConfigOptions): SessionFro
     // path-loaded files go through the content-bound consent.
     extensions = new ExtensionRuntime({
       mohHome,
+      // ADR-0069: the credential store behind the `credential:<ref>`
+      // scope — keychain when available, 0600-file fallback otherwise;
+      // a test- or client-injected store wins.
+      credentialStore: options.credentialStore ?? defaultCredentialStore(home),
+      // ADR-0065: the project root the `path:<glob>` scopes resolve
+      // against. The user's deny rules ride the session: the resolver is
+      // not built yet at assembly time, so the deny answer is read live
+      // through the session's overrides channel below (bindPathDeny).
+      ...(options.cwd ? { projectRoot: options.cwd } : {}),
+      // ADR-0056 (#1126): the turn-path hook ceiling, from moh.json.
+      ...(config.hookTimeoutMs !== undefined ? { hookTimeoutMs: config.hookTimeoutMs } : {}),
+      // ADR-0062 (#1130): the client's native + skill slash names.
+      ...(options.reservedCommandNames ? { reservedCommandNames: options.reservedCommandNames } : {}),
       ...(onExtensionConsent
         ? {
             consent: (request) => onExtensionConsent(request),
+            // ADR-0070: the deps question rides the same client seam —
+            // the dedicated channel when the client provides one, the
+            // enable-consent question (with `dependencies` on the request)
+            // otherwise.
+            authorizeDependencies: (name: string, deps: readonly string[]) =>
+              options.consent!.onExtensionDependencies
+                ? options.consent!.onExtensionDependencies(name, deps)
+                : onExtensionConsent({ name, dependencies: deps }),
           }
         : { onWarning: (message: string) => process.stderr.write(`moh: ${message}\n`) }),
     });
@@ -300,11 +382,14 @@ export function sessionFromConfig(options: SessionFromConfigOptions): SessionFro
         configFile: userFile,
         endpoints: config.endpoints ?? [],
         modelPool: createModelPool(config.endpoints ?? []),
+        // ADR-0069 + #1162: the same credential store the runtime hosts —
+        // presence-only reads for a bundled descriptor's activation fact.
+        credentialStore: options.credentialStore ?? defaultCredentialStore(home),
         // #868: the declared routing pool, verbatim (already schema-validated).
         ...(config.routingPool !== undefined ? { routingPool: config.routingPool } : {}),
         skillRoster: () =>
           Promise.resolve(
-            discoverSkills({ mohHome, projectDir: options.cwd, firstParty: o.firstParty ?? "include" }).map((s) => ({
+            discoverSkills({ mohHome, projectDir: projectRoot, firstParty: o.firstParty ?? "include" }).map((s) => ({
               name: s.name,
               description: s.description,
             })),
@@ -329,7 +414,7 @@ export function sessionFromConfig(options: SessionFromConfigOptions): SessionFro
   // session file behind. Project trust is resolved from the user config's
   // `mcpTrust` section (#352/SEC-01): the repo's own `trusted` field is ignored.
   const servers = [
-    ...declaredMcpServers(config).map((s) => (isProjectServerTrusted(userFile, options.cwd, s.name) ? { ...s, trusted: true } : s)),
+    ...declaredMcpServers(config).map((s) => (isProjectServerTrusted(userFile, projectRoot, s.name) ? { ...s, trusted: true } : s)),
     ...declaredUserMcpServers(userFile),
   ];
 
@@ -374,7 +459,7 @@ export function sessionFromConfig(options: SessionFromConfigOptions): SessionFro
   try {
     const mpmConfig = resolveMpmConfig(readMpmUserConfig(userConfigFile(home)), config.mpm);
     if (mpmConfig.enabled) {
-      const mapDir = projectMapDir(mohHome, options.cwd);
+      const mapDir = projectMapDir(mohHome, projectRoot);
       if (!existsSync(join(mapDir, "manifest.json"))) {
         buildInitialProjection(mapDir, options.cwd, mpmConfig.exclude);
       }
@@ -442,7 +527,7 @@ export function sessionFromConfig(options: SessionFromConfigOptions): SessionFro
       // prepared for this session's home. Passing the assembly's own
       // `mohHome` also keeps the two in agreement (the gate pins this
       // home's identity; the composer reads the same one).
-      promptComposer: new PromptComposer({ projectDir: options.cwd, mohHome }),
+      promptComposer: new PromptComposer({ projectDir: projectRoot, mohHome }),
       ...(mpm
         ? {
             mpm: {
@@ -462,7 +547,7 @@ export function sessionFromConfig(options: SessionFromConfigOptions): SessionFro
       sessionFile: store.file,
       externalGrowth: () => store.externalGrowth(),
       ...(o.firstParty ? { firstParty: o.firstParty } : {}),
-      ...(extensions ? { extensions } : {}),
+      ...(o.extensions || extensions ? { extensions: o.extensions ?? extensions } : {}),
       ...(notes.length ? { notes } : {}),
       ...(servers.length
         ? {

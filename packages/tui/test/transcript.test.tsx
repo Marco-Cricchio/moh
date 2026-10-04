@@ -20,7 +20,7 @@ const base: AgentEvent[] = [
   { type: "done", usage: { inputTokens: 100, outputTokens: 20 }, models: ["mock"] },
   { type: "model_switched", from: "mock", to: "next" },
   { type: "memory_updated", entries: 1, topics: ["testing"] },
-  { type: "subagent_spawn", callId: "s1", name: "worker", log: "/tmp/log" },
+  { type: "subagent_spawn", callId: "s1", name: "worker", log: "/tmp/log", requester: { kind: "model" }, limits: { mode: "normal", maxIterations: 50 } },
   { type: "subagent_result", callId: "s1", name: "worker", status: "done", usage: { inputTokens: 3, outputTokens: 4 }, log: "/tmp/log" },
   { type: "mcp_server_started", server: "github", tools: ["issue"] },
   { type: "extension_failed", name: "broken", reason: "load", message: "boom" },
@@ -572,7 +572,7 @@ describe("subagent block (#320)", () => {
   test("spawn + result project as ONE block with final state, tokens and preview", () => {
     const events: AgentEvent[] = [
       { type: "session_start", schemaVersion: 1, promptVersion: "abcdef123456" },
-      { type: "subagent_spawn", callId: "s1", name: "worker", preset: "research", log: "/tmp/log" },
+      { type: "subagent_spawn", callId: "s1", name: "worker", preset: "research", log: "/tmp/log", requester: { kind: "model" }, limits: { mode: "normal", maxIterations: 50 } },
       { type: "subagent_result", callId: "s1", name: "worker", status: "done", usage: { inputTokens: 3000, outputTokens: 9000 }, log: "/tmp/log", preview: "found the seam\napplied the fix" },
     ];
     const blocks = projectTranscript(events);
@@ -589,7 +589,7 @@ describe("subagent block (#320)", () => {
   test("a spawned-but-unfinished subagent renders running (volatile, never settled)", () => {
     const events: AgentEvent[] = [
       { type: "session_start", schemaVersion: 1, promptVersion: "abcdef123456" },
-      { type: "subagent_spawn", callId: "s1", name: "worker", log: "/tmp/log" },
+      { type: "subagent_spawn", callId: "s1", name: "worker", log: "/tmp/log", requester: { kind: "model" }, limits: { mode: "normal", maxIterations: 50 } },
     ];
     const blocks = projectTranscript(events);
     const sub = blocks.find((b) => b.kind === "subagent");
@@ -600,7 +600,7 @@ describe("subagent block (#320)", () => {
   test("a failed subagent keeps its error visible in both modes", () => {
     const events: AgentEvent[] = [
       { type: "session_start", schemaVersion: 1, promptVersion: "abcdef123456" },
-      { type: "subagent_spawn", callId: "s1", name: "worker", log: "/tmp/log" },
+      { type: "subagent_spawn", callId: "s1", name: "worker", log: "/tmp/log", requester: { kind: "model" }, limits: { mode: "normal", maxIterations: 50 } },
       { type: "subagent_result", callId: "s1", name: "worker", status: "error", usage: { inputTokens: 1, outputTokens: 1 }, log: "/tmp/log" },
     ];
     for (const mode of ["vibe", "dev"] as const) {
@@ -612,7 +612,7 @@ describe("subagent block (#320)", () => {
   test("vibe shows subagent runs as a single plain-language line, failures excepted", () => {
     const events: AgentEvent[] = [
       { type: "session_start", schemaVersion: 1, promptVersion: "abcdef123456" },
-      { type: "subagent_spawn", callId: "s1", name: "worker", log: "/tmp/log" },
+      { type: "subagent_spawn", callId: "s1", name: "worker", log: "/tmp/log", requester: { kind: "model" }, limits: { mode: "normal", maxIterations: 50 } },
       { type: "subagent_result", callId: "s1", name: "worker", status: "done", usage: { inputTokens: 3, outputTokens: 4 }, log: "/tmp/log", preview: "summary line" },
     ];
     const sub = projectTranscript(events, { mode: "vibe" }).find((b) => b.kind === "subagent");

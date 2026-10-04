@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
   copyFileSync,
+  realpathSync,
   existsSync,
   mkdirSync,
   readdirSync,
@@ -12,6 +13,7 @@ import { tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
 import { runCommand } from "../src/run";
 import { createHash } from "node:crypto";
+import { runCli, SPAWN_TEST_TIMEOUT_MS } from "./spawn-harness";
 
 const sha256 = (s: string) => createHash("sha256").update(s).digest("hex");
 
@@ -25,39 +27,10 @@ export function harness() {
   const home = join(dir, "home");
   mkdirSync(cwd, { recursive: true });
   mkdirSync(home, { recursive: true });
-  const spawn = (argv: string[]) => {
-    const proc = Bun.spawnSync(
-      ["bun", join(import.meta.dir, "..", "src", "cli.ts"), ...argv],
-      {
-        cwd,
-        env: { ...process.env, HOME: home, MOH_ENDPOINT_TEST_API_KEY: "" },
-        stdout: "pipe",
-        stderr: "pipe",
-      },
-    );
-    return {
-      code: proc.exitCode,
-      stdout: new TextDecoder().decode(proc.stdout),
-      stderr: new TextDecoder().decode(proc.stderr),
-    };
-  };
+  const env = { MOH_ENDPOINT_TEST_API_KEY: "" };
+  const spawn = (argv: string[]) => runCli(argv, { cwd, home, env });
   // Spawn from any dir against this harness's fake home (#402 cross-machine).
-  const spawnIn = (dir: string, argv: string[]) => {
-    const proc = Bun.spawnSync(
-      ["bun", join(import.meta.dir, "..", "src", "cli.ts"), ...argv],
-      {
-        cwd: dir,
-        env: { ...process.env, HOME: home, MOH_ENDPOINT_TEST_API_KEY: "" },
-        stdout: "pipe",
-        stderr: "pipe",
-      },
-    );
-    return {
-      code: proc.exitCode,
-      stdout: new TextDecoder().decode(proc.stdout),
-      stderr: new TextDecoder().decode(proc.stderr),
-    };
-  };
+  const spawnIn = (dir: string, argv: string[]) => runCli(argv, { cwd: dir, home, env });
   return { cwd, home, spawn, spawnIn };
 }
 
@@ -116,7 +89,7 @@ describe("moh run (e2e)", () => {
     const grant = events.find((e) => e.type === "permission_granted");
     expect(grant?.reason).toBe("yolo");
     expect(readFileSync(`${outside}/f.txt`, "utf8")).toBe("yolo");
-  });
+  }, SPAWN_TEST_TIMEOUT_MS);
 
   test("--dangerously-bypass-permissions is rejected, not aliased (#377)", () => {
     const { spawn } = harness();
@@ -125,7 +98,7 @@ describe("moh run (e2e)", () => {
     expect(res.stderr).toContain("use --yolo");
     const bare = spawn(["--dangerously-bypass-permissions"]);
     expect(bare.code).toBe(2);
-  });
+  }, SPAWN_TEST_TIMEOUT_MS);
 
   test("works out-of-the-box with the mock provider: no API keys, no prompts", () => {
     const { spawn, home } = harness();
@@ -143,7 +116,7 @@ describe("moh run (e2e)", () => {
     expect(logged.length).toBe(events.length);
     expect(logged[0].type).toBe("session_start");
     expect(logged[0].promptVersion).toBeTruthy();
-  });
+  }, SPAWN_TEST_TIMEOUT_MS);
 
   test("--allow bash lets a scripted bash call run; the log records grant and result", () => {
     const { cwd, spawn } = harness();
@@ -171,7 +144,7 @@ describe("moh run (e2e)", () => {
     const result = events.find((e) => e.type === "tool_result")!;
     expect(result.ok).toBe(true);
     expect(result.output).toContain("moh-ran");
-  });
+  }, SPAWN_TEST_TIMEOUT_MS);
 
   test("--deny write produces a structured denial the model sees; nothing is written", () => {
     const { cwd, spawn } = harness();
@@ -205,7 +178,7 @@ describe("moh run (e2e)", () => {
     expect(result.ok).toBe(false);
     expect(result.output).toContain("permission denied");
     expect(existsSync(join(cwd, "evil.txt"))).toBe(false);
-  });
+  }, SPAWN_TEST_TIMEOUT_MS);
 
   test("unpermitted tools fail fast in headless mode without blocking on stdin", () => {
     const { cwd, spawn } = harness();
@@ -228,7 +201,7 @@ describe("moh run (e2e)", () => {
     expect(denial.reason).toBe("headless");
     const result = events.find((e) => e.type === "tool_result")!;
     expect(result.ok).toBe(false);
-  });
+  }, SPAWN_TEST_TIMEOUT_MS);
 
   test("--session resumes a previous session file and appends to it", () => {
     const { spawn, home } = harness();
@@ -245,7 +218,7 @@ describe("moh run (e2e)", () => {
     const after = readEvents(readFileSync(file, "utf8"));
     expect(after.length).toBe(before.length + events.length);
     expect(after[0]).toEqual(before[0]); // same session_start, appended in place
-  });
+  }, SPAWN_TEST_TIMEOUT_MS);
 
   test("echo provider e2e: catches a context-engineering regression without API calls (#39)", () => {
     const { cwd, spawn } = harness();
@@ -283,13 +256,13 @@ describe("moh run (e2e)", () => {
       role: "user",
       sha256: sha256("ctx-probe"),
     });
-  });
+  }, SPAWN_TEST_TIMEOUT_MS);
 
   test("usage errors: no prompt, unknown flag", () => {
     const { spawn } = harness();
     expect(spawn(["run"]).code).toBe(2);
     expect(spawn(["run", "--nope", "x"]).code).toBe(2);
-  });
+  }, SPAWN_TEST_TIMEOUT_MS);
 
   test("broken provider reference is a visible error (no silent demo fallback, #100)", () => {
     const { cwd, spawn } = harness();
@@ -301,7 +274,7 @@ describe("moh run (e2e)", () => {
     expect(res.code).toBe(2);
     expect(res.stderr).toContain("unknown provider");
     expect(res.stdout.trim()).toBe(""); // nothing ran, no session events
-  });
+  }, SPAWN_TEST_TIMEOUT_MS);
 
   test("invalid moh.json is a visible config error", () => {
     const { cwd, spawn } = harness();
@@ -309,7 +282,7 @@ describe("moh run (e2e)", () => {
     const res = spawn(["run", "hello"]);
     expect(res.code).toBe(2);
     expect(res.stderr).toBeTruthy();
-  });
+  }, SPAWN_TEST_TIMEOUT_MS);
 
   // #918/ADR-0044: a project root under /mnt — a Windows drive mounted into
   // WSL — earns one visible stderr line. Environment information: the run
@@ -330,7 +303,7 @@ describe("moh run (e2e)", () => {
     const onDistro = spawn(["run", "hello"]);
     expect(onDistro.code).toBe(0);
     expect(onDistro.stderr).not.toContain("/mnt");
-  });
+  }, SPAWN_TEST_TIMEOUT_MS);
 
   // #498: --max-iterations overrides moh.json; strict parse; unlimited → 0.
   describe("--max-iterations (#498)", () => {
@@ -347,7 +320,7 @@ describe("moh run (e2e)", () => {
       const events = readEvents(res.stdout);
       expect(events.filter((e) => e.type === "model_call").length).toBe(5);
       expect(events.filter((e) => e.type === "error").length).toBe(0);
-    });
+    }, SPAWN_TEST_TIMEOUT_MS);
 
     test("without the flag the moh.json cap wraps up after 2 calls", () => {
       const { cwd, spawn } = harness();
@@ -361,21 +334,21 @@ describe("moh run (e2e)", () => {
       expect(res.code).toBe(0);
       // 2 capped loop calls + 1 wrap-up call.
       expect(readEvents(res.stdout).filter((e) => e.type === "model_call").length).toBe(3);
-    });
+    }, SPAWN_TEST_TIMEOUT_MS);
 
     test("invalid value errors clearly with exit code 2", () => {
       const { spawn } = harness();
       const res = spawn(["run", "--max-iterations", "banana", "hello"]);
       expect(res.code).toBe(2);
       expect(res.stderr).toContain("--max-iterations expects 50|100|200|500|unlimited");
-    });
+    }, SPAWN_TEST_TIMEOUT_MS);
 
     test("out-of-range integers are rejected", () => {
       const { spawn } = harness();
       expect(spawn(["run", "--max-iterations", "501", "hello"]).code).toBe(2);
       expect(spawn(["run", "--max-iterations", "0", "hello"]).code).toBe(2);
       expect(spawn(["run", "--max-iterations", "-3", "hello"]).code).toBe(2);
-    });
+    }, SPAWN_TEST_TIMEOUT_MS);
   });
 
   // #401: headless session discovery via --resume.
@@ -405,7 +378,7 @@ describe("moh run (e2e)", () => {
           true,
         );
       }
-    });
+    }, SPAWN_TEST_TIMEOUT_MS);
 
     test("a query prints the best-matching session; no match is a graceful error with hints", () => {
       const { spawn } = harness();
@@ -422,7 +395,7 @@ describe("moh run (e2e)", () => {
       // Hints list the project's sessions so the user can refine.
       expect(miss.stderr).toContain("fix the login bug");
       expect(miss.stderr).toContain("refactor the parser");
-    });
+    }, SPAWN_TEST_TIMEOUT_MS);
 
     test("exact session id wins over title matches", () => {
       const { spawn, home } = harness();
@@ -437,7 +410,7 @@ describe("moh run (e2e)", () => {
       expect(res.code).toBe(0);
       // The id is unique: exactly the session it names, not a title tie.
       expect(res.stdout.trim().split("\n")).toHaveLength(1);
-    });
+    }, SPAWN_TEST_TIMEOUT_MS);
 
     test("with --prompt the best match is resumed and appended to", () => {
       const { spawn, home } = harness();
@@ -463,7 +436,7 @@ describe("moh run (e2e)", () => {
       ).toEqual(["continue that"]);
       const after = readEvents(readFileSync(file, "utf8"));
       expect(after.length).toBe(before + events.length);
-    });
+    }, SPAWN_TEST_TIMEOUT_MS);
 
     test("cross-machine: discovery works from a clone at a different path (declared identity slug, #398/#401)", () => {
       const { cwd, spawnIn } = harness();
@@ -481,7 +454,7 @@ describe("moh run (e2e)", () => {
       const listed = spawnIn(clone, ["run", "--resume", "portable"]);
       expect(listed.code).toBe(0);
       expect(listed.stdout).toContain("portable session topic");
-    });
+    }, SPAWN_TEST_TIMEOUT_MS);
 
     test("acceptance (#402): resume yesterday's work from the other machine, history and memory intact", () => {
       const { cwd, home, spawnIn } = harness();
@@ -580,7 +553,7 @@ describe("moh run (e2e)", () => {
       expect(after.length).toBe(beforeStory.length + events.length);
       expect(after[beforeStory.length]!.type).toBe("session_resumed");
       expect(after.slice(0, beforeStory.length)).toEqual(beforeStory);
-    });
+    }, SPAWN_TEST_TIMEOUT_MS);
 
     test("usage: --resume is exclusive with --session and with a positional prompt", () => {
       const { spawn, home } = harness();
@@ -596,7 +569,7 @@ describe("moh run (e2e)", () => {
       expect(
         spawn(["run", "--resume", "seed", "--fork", "--prompt", "x"]).code,
       ).toBe(2);
-    });
+    }, SPAWN_TEST_TIMEOUT_MS);
   });
 });
 
@@ -607,7 +580,7 @@ describe("run --fork-scope (#768)", () => {
     const file = sessionFiles(home)[0]!;
     expect(spawn(["run", "--session", file, "--fork-scope", "branch", "--prompt", "x"]).code).toBe(2);
     expect(spawn(["run", "--session", file, "--fork", "--fork-scope", "wide", "--prompt", "x"]).code).toBe(2);
-  });
+  }, SPAWN_TEST_TIMEOUT_MS);
 
   test("--fork --fork-scope branch writes a new single-path session file", () => {
     const { spawn, home } = harness();
@@ -630,5 +603,48 @@ describe("run --fork-scope (#768)", () => {
     expect(events.some((e) => e.type === "user_message" && e.text === "seed one")).toBe(true);
     expect(events.some((e) => e.type === "user_message" && e.text === "seed two")).toBe(true);
     for (const e of events.slice(0, readEvents(before).length)) expect(e.parentId).toBeUndefined();
-  });
+  }, SPAWN_TEST_TIMEOUT_MS);
+});
+
+describe("extension slash commands (#1130, ADR-0062)", () => {
+  test("moh run really invokes an extension command and prints one JSONL result line", () => {
+    const { cwd, home, spawn } = harness();
+    writeFileSync(join(cwd, "moh.json"), JSON.stringify({ provider: "mock", extensions: ["./ext/cmd.mjs"] }));
+    const extDir = join(cwd, "ext");
+    mkdirSync(extDir, { recursive: true });
+    writeFileSync(
+      join(extDir, "cmd.mjs"),
+      `export default { name: "cmdly", version: "1.0.0", apiVersion: "1.0", capabilities: ["contribute-commands"],
+        setup(ctx) { ctx.registerCommand({ name: "deploy-status", description: "status", run: ({ args }) => "all green " + args }); } };`,
+    );
+    writeFileSync(
+      join(extDir, "moh.extension.json"),
+      JSON.stringify({ name: "cmd.mjs", version: "1.0.0", entry: "cmd.mjs", capabilities: ["contribute-commands"] }),
+    );
+    // One-time enable consent: headless has no ask, so pre-enable by writing
+    // the content-bound grant into the fake home's extensions.json.
+    const entry = realpathSync(join(extDir, "cmd.mjs"));
+    const identity = `${entry}:${sha256(readFileSync(entry).toString())}`;
+    // The grant covers the manifest bytes too (ADR-0061): key, hash and
+    // capabilities, exactly as #ensureConsent persists them.
+    const manifestFile = realpathSync(join(extDir, "moh.extension.json"));
+    mkdirSync(join(home, ".moh"), { recursive: true });
+    writeFileSync(
+      join(home, ".moh", "extensions.json"),
+      JSON.stringify({
+        consents: { [identity]: true },
+        dependencies: {},
+        manifests: {
+          [manifestFile]: { hash: sha256(readFileSync(manifestFile).toString()), capabilities: ["contribute-commands"] },
+        },
+      }),
+    );
+    const res = spawn(["run", "/deploy-status --env prod"]);
+    expect(res.code).toBe(0);
+    const events = readEvents(res.stdout);
+    const line = events.find((e) => e.type === "extension_command_result");
+    expect(line, `stdout events: ${res.stdout}\nstderr: ${res.stderr}`).toMatchObject({ type: "extension_command_result", command: "deploy-status", ok: true, extension: "cmdly", output: "all green --env prod" });
+    // No model turn happened: the command *is* the action.
+    expect(events.some((e) => e.type === "model_call")).toBe(false);
+  }, SPAWN_TEST_TIMEOUT_MS);
 });

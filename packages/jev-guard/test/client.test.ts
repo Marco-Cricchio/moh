@@ -10,9 +10,12 @@ import {
   JEV_OFFLINE_STATUS,
   JEV_RETRY_DELAY_MS,
   createJevClient,
+  transportFromFetch,
   validateJevKey,
   type JevJudgeInput,
 } from "../src/client";
+
+const transportOf = (impl: unknown) => transportFromFetch(impl as Parameters<typeof transportFromFetch>[0]);
 
 interface Call {
   url: string;
@@ -51,9 +54,9 @@ const judgeInput = (overrides: Partial<JevJudgeInput> = {}): JevJudgeInput => ({
 });
 
 describe("jev client: request shape", () => {
-  test("posts to the fixed endpoint and model, with the bearer key", async () => {
+  test("posts to the fixed endpoint and model, carrying no key material (#1162)", async () => {
     const { impl, calls } = fakeFetch([ok]);
-    const client = createJevClient({ apiKey: "sk-x", fetchImpl: impl });
+    const client = createJevClient({ transport: transportOf(impl) });
     const out = await client.judge(judgeInput());
     expect(out.ok).toBe(true);
     expect(calls).toHaveLength(1);
@@ -61,13 +64,16 @@ describe("jev client: request shape", () => {
     expect(calls[0]!.body.model).toBe(JEV_MODEL);
     expect(calls[0]!.body.state).toBe("rm -rf /tmp/build");
     expect(calls[0]!.body.questions.destructive.type).toBe("noul");
-    expect(calls[0]!.headers.authorization).toBe("Bearer sk-x");
+    // The key never crosses the transport: the host resolves the
+    // `credential:` ref and injects the bearer itself (ADR-0069).
+    expect(calls[0]!.headers.authorization).toBeUndefined();
+    expect(JSON.stringify(calls[0]!.body)).not.toContain("sk-");
   });
 
   test("a successful judgment is recorded exactly once, through `record`", async () => {
     const { impl } = fakeFetch([ok]);
     const records: Record<string, unknown>[] = [];
-    const client = createJevClient({ apiKey: "sk-x", fetchImpl: impl, onJudgment: (r) => records.push(r) });
+    const client = createJevClient({ transport: transportOf(impl), onJudgment: (r) => records.push(r) });
     const out = await client.judge(judgeInput());
     expect(out.ok).toBe(true);
     expect(records).toHaveLength(1);
@@ -78,41 +84,39 @@ describe("jev client: request shape", () => {
 describe("jev client: failure and retry policy", () => {
   test("401 is an auth failure and is never retried", async () => {
     const { impl, calls } = fakeFetch([() => new Response("{}", { status: 401 })]);
-    const client = createJevClient({ apiKey: "sk-x", fetchImpl: impl, sleep: async () => {} });
+    const client = createJevClient({ transport: transportOf(impl), sleep: async () => {} });
     const out = await client.judge(judgeInput());
     expect(out).toEqual({ ok: false, kind: "auth", message: "HTTP 401" });
     expect(calls).toHaveLength(1);
   });
 
-  test("429 with a short retry-after waits that long and retries once", async () => {
+  test("429 retries once after the fixed short delay (#1162: the transport exposes no headers)", async () => {
     const waits: number[] = [];
     const { impl, calls } = fakeFetch([
-      () => new Response("{}", { status: 429, headers: { "retry-after": "0.4" } }),
+      () => new Response("{}", { status: 429 }),
       ok,
     ]);
-    const client = createJevClient({ apiKey: "sk-x", fetchImpl: impl, sleep: async (ms) => void waits.push(ms) });
+    const client = createJevClient({ transport: transportOf(impl), sleep: async (ms) => void waits.push(ms) });
     const out = await client.judge(judgeInput());
     expect(out.ok).toBe(true);
-    expect(waits).toEqual([400]);
+    expect(waits).toEqual([JEV_RETRY_DELAY_MS]);
     expect(calls).toHaveLength(2);
   });
 
   test("429 without retry-after waits the fixed short delay", async () => {
     const waits: number[] = [];
     const { impl } = fakeFetch([() => new Response("{}", { status: 429 }), ok]);
-    const client = createJevClient({ apiKey: "sk-x", fetchImpl: impl, sleep: async (ms) => void waits.push(ms) });
+    const client = createJevClient({ transport: transportOf(impl), sleep: async (ms) => void waits.push(ms) });
     expect((await client.judge(judgeInput())).ok).toBe(true);
     expect(waits).toEqual([JEV_RETRY_DELAY_MS]);
   });
 
-  test("a retry-after above 1s fails open without waiting", async () => {
-    const waits: number[] = [];
-    const { impl, calls } = fakeFetch([() => new Response("{}", { status: 429, headers: { "retry-after": "30" } })]);
-    const client = createJevClient({ apiKey: "sk-x", fetchImpl: impl, sleep: async (ms) => void waits.push(ms) });
+  test("a 429 that stays 429 fails closed with the typed kind", async () => {
+    const { impl, calls } = fakeFetch([() => new Response("{}", { status: 429 }), () => new Response("{}", { status: 429 })]);
+    const client = createJevClient({ transport: transportOf(impl), sleep: async () => {} });
     const out = await client.judge(judgeInput());
-    expect(out.ok).toBe(false);
-    expect(waits).toEqual([]);
-    expect(calls).toHaveLength(1);
+    expect(out).toEqual({ ok: false, kind: "rate_limited", message: "HTTP 429" });
+    expect(calls).toHaveLength(2);
   });
 
   test("two failures give up: exactly one retry, never more", async () => {
@@ -126,7 +130,7 @@ describe("jev client: failure and retry policy", () => {
         throw new TypeError("fetch failed again");
       },
     ]);
-    const client = createJevClient({ apiKey: "sk-x", fetchImpl: impl, sleep: async () => {} });
+    const client = createJevClient({ transport: transportOf(impl), sleep: async () => {} });
     const out = await client.judge(judgeInput());
     expect(out).toEqual({ ok: false, kind: "network", message: "fetch failed again" });
     expect(calls).toHaveLength(2);
@@ -144,14 +148,14 @@ describe("jev client: failure and retry policy", () => {
         return ok();
       },
     ]);
-    const client = createJevClient({ apiKey: "sk-x", fetchImpl: impl, sleep: async () => {} });
+    const client = createJevClient({ transport: transportOf(impl), sleep: async () => {} });
     expect((await client.judge(judgeInput())).ok).toBe(true);
     expect(calls).toHaveLength(2);
   });
 
   test("the client never throws: an unreadable body is an invalid outcome", async () => {
     const { impl } = fakeFetch([() => new Response("not json", { status: 200 })]);
-    const client = createJevClient({ apiKey: "sk-x", fetchImpl: impl });
+    const client = createJevClient({ transport: transportOf(impl) });
     const out = await client.judge(judgeInput());
     expect(out.ok).toBe(false);
     expect(out.ok === false && out.kind).toBe("invalid");
@@ -161,8 +165,7 @@ describe("jev client: failure and retry policy", () => {
     const records: unknown[] = [];
     const { impl } = fakeFetch([() => new Response("{}", { status: 500 })]);
     const client = createJevClient({
-      apiKey: "sk-x",
-      fetchImpl: impl,
+      transport: transportOf(impl),
       sleep: async () => {},
       onJudgment: (r) => records.push(r),
     });
@@ -183,8 +186,7 @@ describe("jev client: the offline signal", () => {
       },
     ]);
     const client = createJevClient({
-      apiKey: "sk-x",
-      fetchImpl: impl,
+      transport: transportOf(impl),
       sleep: async () => {},
       onStatus: (text) => statuses.push(text),
     });
@@ -199,10 +201,10 @@ describe("jev client: the offline signal", () => {
   });
 });
 
-describe("jev key validation (#784 Settings entry)", () => {
+describe("jev key validation (#784 Settings entry, #1162 transport)", () => {
   test("a valid key reports active", async () => {
     const { impl, calls } = fakeFetch([ok]);
-    const result = await validateJevKey("sk-good", { fetchImpl: impl });
+    const result = await validateJevKey({ transport: transportOf(impl) });
     expect(result.status).toBe("active");
     // The minimal probe: one noul question over a two-word state.
     expect(calls[0]!.body.state).toBe("ok");
@@ -211,7 +213,7 @@ describe("jev key validation (#784 Settings entry)", () => {
 
   test("an auth failure reports invalid (never a network problem)", async () => {
     const { impl } = fakeFetch([() => new Response("{}", { status: 401 })]);
-    expect((await validateJevKey("sk-bad", { fetchImpl: impl })).status).toBe("invalid");
+    expect((await validateJevKey({ transport: transportOf(impl) })).status).toBe("invalid");
   });
 
   test("an unreachable service reports unreachable, distinct from invalid", async () => {
@@ -220,7 +222,7 @@ describe("jev key validation (#784 Settings entry)", () => {
         throw new TypeError("dns");
       },
     ]);
-    const result = await validateJevKey("sk-maybe", { fetchImpl: impl, timeoutMs: 10 });
+    const result = await validateJevKey({ transport: transportOf(impl), timeoutMs: 10 });
     expect(result.status).toBe("unreachable");
     expect(result.status === "unreachable" && result.kind).toBe("network");
   });

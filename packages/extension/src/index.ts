@@ -79,6 +79,26 @@
  * propose an alternative model ref, which the core validates through the
  * same guards as any switch and retries the call on within the same turn.
  * No answer keeps the historical behavior (the turn ends with the error).
+ *
+ * 1.11 (#1130, ADR-0062): `registerCommand` — the `contribute-commands`
+ * capability slot. The method exists on the setup context ONLY when the
+ * grant covers the slot (manifest authority, or the code's own declared
+ * capabilities when no manifest exists): enforcement by absence, so a
+ * caller that checks finds `undefined` and never an error. A registration
+ * that collides with a reserved or already-taken command name is refused
+ * visibly and reported; commands return their own text output, which is
+ * the same output the headless door prints — never a second behavior.
+ *
+ * 1.12 (#1132, ADR-0062): `registerPanel` and `registerOverlay` — the
+ * `contribute-panels` / `contribute-overlays` capability slots. The
+ * methods exist on the setup context ONLY when the grant covers the slot.
+ * One panel per extension, at most 4 visible across all extensions: the
+ * fifth registration is refused visibly at load and there is no automatic
+ * eviction — collapsing and reopening is manual from `/extensions`. The
+ * render returns arbitrary Ink elements the client draws in the rail
+ * zone (panels) or full-screen (overlays, opened by the extension's
+ * command and closed with `Esc`); the core carries them opaquely, and a
+ * headless client contributes nothing — visible absence, never a mock.
  */
 
 /**
@@ -86,7 +106,48 @@
  * Minor bumps are additive (new optional hooks/fields); major bumps are
  * breaking and refuse to load older/newer extensions.
  */
-export const MOH_EXTENSION_API_VERSION = "1.10";
+export const MOH_EXTENSION_API_VERSION = "1.15";
+
+/** One spawn an orchestration extension requests (ADR-0055, apiVersion 1.13).
+ * `preset` resolves against the host's subagent presets (built-ins and
+ * moh.json `agents`); the other fields override the preset exactly like the
+ * model-facing spawn tool. */
+export interface ExtensionSpawnSpec {
+  /** Preset name; inline fields override it. */
+  readonly preset?: string;
+  /** Display name when no preset is used. */
+  readonly name?: string;
+  /** The task — the child's first user message. */
+  readonly task: string;
+  /** Role prompt (no preset). */
+  readonly systemPrompt?: string;
+  /** Strict subset of the host session's tools; MCP tools are never
+   * inherited and a name the session does not have refuses the spawn. */
+  readonly allowedTools?: readonly string[];
+  /** Per-turn iteration cap for the child; above the envelope's ceiling
+   * the spawn is refused, never silently narrowed. */
+  readonly maxIterations?: number;
+}
+
+/** The settled outcome of one extension spawn (apiVersion 1.13). */
+export interface ExtensionSpawnResult {
+  /** The child's callId — the same id `subagent_spawn` recorded. */
+  readonly callId: string;
+  readonly status: "done" | "error" | "cancelled";
+  /** The child's final assistant text (empty unless done). */
+  readonly output: string;
+  /** Present when status is "error". */
+  readonly error?: string;
+}
+
+/** Bounded activity of one child this extension spawned (apiVersion 1.13):
+ * the child-tail shape's activity — never the provider reasoning. */
+export interface ExtensionSubagentActivity {
+  /** The tool currently in flight, when one is. */
+  readonly currentTool: string | null;
+  /** Monotonic ms timestamp of the child log's last appended event. */
+  readonly lastActivityAt: number | null;
+}
 
 /** Structural (core-independent) view of an event-log entry. */
 export interface ExtensionEvent {
@@ -410,6 +471,56 @@ export interface EventContext {
 }
 
 /**
+ * The context of one extension-command invocation (ADR-0062,
+ * apiVersion 1.11): the arguments the user typed after the command name,
+ * verbatim. Commands return their output text — the same text every
+ * client shows, TUI toast or headless JSONL — so there is exactly one
+ * behavior per command.
+ */
+export interface ExtensionCommandContext {
+  readonly args: string;
+}
+
+/** One slash command an extension contributes (ADR-0062). */
+export interface ExtensionCommand {
+  /** The slash name, without the leading `/`: lowercase letters, digits
+   * and hyphens (`/deploy-status`). */
+  readonly name: string;
+  /** One line shown in the command completion and `/extensions`. */
+  readonly description?: string;
+  /** Runs the command; the returned text is the command's whole output. */
+  run(ctx: ExtensionCommandContext): string | Promise<string>;
+}
+
+/**
+ * One panel in the extensions rail (ADR-0062, apiVersion 1.12). The
+ * render returns arbitrary Ink elements — the client renders them inside
+ * the rail zone untouched, never wrapping native components.
+ */
+export interface ExtensionPanel {
+  /** The panel name, letters/digits/hyphens; shown in `/extensions`. */
+  readonly name: string;
+  /** One line shown in `/extensions`. */
+  readonly description?: string;
+  /** Maximum height in terminal rows the rail allots this panel; the
+   * client clamps to it and to the rail's own budget. */
+  readonly maxHeight?: number;
+  /** Renders the panel content. Pure per call: the client may call it
+   * every frame. Callbacks inside the returned elements reach the session
+   * only through the existing gated seams — never a second path. */
+  render(): unknown;
+}
+
+/** One full-screen overlay (ADR-0062, apiVersion 1.12): opened by the
+ * extension's own command, closed by the user with `Esc`. */
+export interface ExtensionOverlay {
+  readonly name: string;
+  readonly description?: string;
+  /** Renders the overlay content full-screen; pure per call. */
+  render(): unknown;
+}
+
+/**
  * A client command addressed to one extension (ADR-0038, apiVersion 1.3).
  * The core carries it opaquely; the runtime delivers it to the named
  * extension's `onEvent` hooks alone, and only to that extension.
@@ -436,7 +547,24 @@ export interface AfterTurnContext {
 export type SessionStartHook = (ctx: SessionStartContext) => void | Promise<void>;
 export type SessionEndHook = (ctx: SessionEndContext) => void | Promise<void>;
 export type BeforeTurnHook = (ctx: BeforeTurnContext) => BeforeTurnResult | void | Promise<BeforeTurnResult | void>;
-export type BeforeModelCallHook = (ctx: BeforeModelCallContext) => void | Promise<void>;
+/**
+ * ADR-0054: what a `beforeModelCall` hook may return — prompt-section
+ * replacements, `null` meaning hidden. The return is judged against the
+ * 5 s replacement window (ADR-0056 owns the deadline composition); the
+ * core applies only sections the extension's declared capability covers —
+ * one capability slot per section, `replace-prompt-section:<name>`, and
+ * only the six data sections (`environment`, `tools`, `skills`, `memory`,
+ * `session_state`, `mpm`) are replaceable at all; `base` and the note
+ * sections never are. A replacement outside the grant is refused at
+ * runtime, visibly, and the core's text stands for that call (ADR-0054).
+ */
+export interface BeforeModelCallResult {
+  sections?: Partial<Record<string, string | null>>;
+}
+
+export type BeforeModelCallHook = (
+  ctx: BeforeModelCallContext,
+) => BeforeModelCallResult | void | Promise<BeforeModelCallResult | void>;
 export type ToolCallHook = (ctx: ToolCallContext) => ToolCallHookResult | void | Promise<ToolCallHookResult | void>;
 export type ToolResultHook = (ctx: ToolResultContext) => ToolResultHookResult | void | Promise<ToolResultHookResult | void>;
 export type EventHook = (ctx: EventContext) => void | Promise<void>;
@@ -446,12 +574,258 @@ export type AfterTurnHook = (ctx: AfterTurnContext) => void | Promise<void>;
 export type ExtensionDependencies = string[];
 
 /**
+ * ADR-0064: the typed result of one host-performed operation. A policy
+ * refusal is a normal outcome — `{ ok: false, reason: "outside_scope" }`
+ * — never an exception and never an `extension_failed` (refusals are
+ * recorded as their own `host_refused` log event by the host).
+ */
+export interface HostOpSuccess {
+  ok: true;
+  /** The resolved (real) path the host actually touched. */
+  resolved: string;
+  /** Content bytes touched, present when the operation wrote content. */
+  bytes?: number;
+}
+
+export type HostOpResult =
+  | HostOpSuccess
+  | { ok: false; reason: "outside_scope" | "invalid_path" | "denied" | "failed"; resolved?: string; message?: string };
+
+export type HostReadResult = HostOpResult & { content?: string };
+
+export type HostReadLinkResult = HostOpResult & { target?: string };
+
+/**
+ * ADR-0066: the typed result of one `host.fetch`. A response is fully
+ * buffered bytes — never streamed — with a fixed size limit; oversize is
+ * `{ ok: false, reason: "too_large" }`. A redirect hop outside the
+ * allowlist is `{ ok: false, reason: "outside_scope", target }` where
+ * `target` names the host the redirect pointed at.
+ */
+export interface HostFetchSuccess {
+  ok: true;
+  /** The final response status after any same-allowlist redirects. */
+  status: number;
+  /** The fully buffered response body. */
+  bytes: Uint8Array;
+  /** The host:port the response actually came from (redirects may stay in scope). */
+  finalHost: string;
+}
+
+export type HostFetchResult =
+  | HostFetchSuccess
+  | { ok: false; reason: "outside_scope" | "invalid_url" | "unknown_credential" | "denied" | "too_large" | "failed"; target?: string; message?: string };
+
+/**
+ * ADR-0067: the typed result of one `ctx.host.runTool`. The tool ran (or
+ * was refused) through moh's normal runner and gate — a gate refusal
+ * (user rule, denied ask, headless) is `{ ok: false, reason: "denied" }`,
+ * never an exception; a tool the session does not register is
+ * `{ ok: false, reason: "unknown_tool" }`.
+ */
+export interface HostRunToolSuccess {
+  ok: true;
+  /** The tool's textual output, exactly what a model-initiated call returns. */
+  output: string;
+}
+
+export type HostRunToolResult =
+  | HostRunToolSuccess
+  | { ok: false; reason: "outside_scope" | "unknown_tool" | "denied" | "failed"; message?: string };
+
+/**
+ * ADR-0068: one `ctx.host.modelCall` request — a single-shot model call
+ * against a granted `endpoint:<ref>` scope. `endpoint` is the moh.json
+ * endpoint name the grant named; `model` is the model id that endpoint
+ * serves (no default is assumed — name one). `thinkingLevel` is the
+ * per-call override: honored only within the model's declared thinking
+ * capability, refused (`unsupported_level`) outside it — never remapped.
+ */
+export interface HostModelCallRequest {
+  endpoint: string;
+  model: string;
+  messages: ReadonlyArray<{ role: "system" | "user" | "assistant"; content: string }>;
+  thinkingLevel?: "off" | "low" | "medium" | "high" | "xhigh" | "max";
+  /** Aborts the in-flight call host-side. */
+  signal?: AbortSignal;
+}
+
+/**
+ * ADR-0068: the typed result of one `ctx.host.modelCall`. `text` is the
+ * completed completion's text; `usage` is what the call consumed (tokens
+ * are accounted to the extension in the turn's `done` rollup); `model` is
+ * the ref that served; `thinkingLevel` is the effective level actually
+ * sent, when one was. Credentials never appear in the result — the host
+ * resolves them at request time, inside the Route.
+ */
+export interface HostModelCallSuccess {
+  ok: true;
+  text: string;
+  usage: { inputTokens: number; outputTokens: number };
+  model: string;
+  thinkingLevel?: "off" | "low" | "medium" | "high" | "xhigh" | "max";
+}
+
+export type HostModelCallResult =
+  | HostModelCallSuccess
+  | { ok: false; reason: "outside_scope" | "unknown_endpoint" | "unsupported_level" | "failed"; message?: string };
+
+/**
+ * ADR-0068: the typed result of one `ctx.host.listModels` — the model
+ * ids the granted endpoint's own listing exposes. Part of the same
+ * grant: `endpoint:<ref>` covers calling and listing.
+ */
+export interface HostListModelsSuccess {
+  ok: true;
+  models: string[];
+}
+
+export type HostListModelsResult =
+  | HostListModelsSuccess
+  | { ok: false; reason: "outside_scope" | "unknown_endpoint" | "failed"; message?: string };
+
+/**
+ * The arg validator a contributed tool may declare. Structurally the
+ * slice of a zod schema the core's runner needs (`safeParse`); a plain
+ * object validator works too. Absent = the args pass through unvalidated.
+ */
+export interface ContributedToolSchema {
+  safeParse(args: unknown):
+    | { success: true; data: unknown }
+    | { success: false; error: { issues: readonly { path: readonly (string | number | symbol)[]; message: string }[] } };
+}
+
+/** Runtime context handed to a contributed tool's execute. */
+export interface ContributedToolContext {
+  /** Aborts when the calling turn is cancelled. */
+  readonly signal: AbortSignal;
+  /** The session's working directory. */
+  readonly cwd: string;
+}
+
+/**
+ * ADR-0067: one tool an extension contributes to the session's model.
+ * The name is fixed by the granted `contribute-tool:<name>` capability —
+ * consent, manifest and log name the same tool the model will see.
+ */
+export interface ExtensionContributedTool {
+  /** The tool name — must equal the granted contribution's name. */
+  name: string;
+  /** One-line description the model sees in the tools prompt. */
+  description: string;
+  /** Optional arg validator (see `ContributedToolSchema`). */
+  inputSchema?: ContributedToolSchema;
+  /**
+   * The extension's own code, run when the model invokes the tool —
+   * after the call passes the normal permission gate. Never throws into
+   * the turn: a thrown error becomes a failed tool result.
+   */
+  execute(args: unknown, ctx: ContributedToolContext): Promise<string> | string;
+}
+
+/**
+ * #1162: what one `ctx.host.fetch` may ask for. The seam's first consumer
+ * with a request body (Jev's TypeSafe POST) grew the request side from the
+ * anonymous GET ADR-0066 shipped — same scope rules, same buffered
+ * response, same log event. `method` is GET (default) or POST; a `body` is
+ * allowed only with POST and is capped by the same fixed byte limit the
+ * response is; `contentType` defaults to `application/json` when a body is
+ * present. `signal` aborts the request host-side (the extension composes
+ * its own deadline into it).
+ */
+export interface HostFetchOptions {
+  /** ADR-0069: resolve this ref and inject it as the request's bearer. */
+  credential?: string;
+  /** GET (default) or POST. */
+  method?: "GET" | "POST";
+  /** The request body — POST only, byte-capped like the response. */
+  body?: string | Uint8Array;
+  /** Request content type; default `application/json` when a body is set. */
+  contentType?: string;
+  /** Aborts the in-flight request host-side. */
+  signal?: AbortSignal;
+}
+
+
+/**
+ * ADR-0064 + ADR-0065: the host-performs seam. **Present only when the
+ * enable consent covers at least one scope** (enforcement by absence;
+ * check with `typeof ctx.host === "object"`). Every method is one ask the
+ * host performs itself under the granted `path:<glob>` scopes — one grant
+ * covers the whole file family; there is no read/write split. The user's
+ * deny rules beat the grant per call. No OS sandbox: consent is the whole
+ * boundary, and the scope constrains requests to the seam, not extension
+ * code. Every performed operation lands in the log as `host_op` with the
+ * resolved path; every refusal as `host_refused`.
+ */
+export interface ExtensionHost {
+  readFile(path: string): Promise<HostReadResult>;
+  writeFile(path: string, content: string): Promise<HostOpResult>;
+  appendFile(path: string, content: string): Promise<HostOpResult>;
+  rename(from: string, to: string): Promise<HostOpResult>;
+  /** Deletes one file or one empty directory. */
+  delete(path: string): Promise<HostOpResult>;
+  /** Reads the target of one symlink (the target itself must be in scope). */
+  readlink(path: string): Promise<HostReadLinkResult>;
+  /**
+   * ADR-0066: asks the host to make one https (https-implicit) request to
+   * a host covered by a granted `host:<domain>` scope. Every redirect hop
+   * is re-checked against the allowlist; the response is fully buffered
+   * bytes with a fixed size limit; no streaming. An authenticated request
+   * passes `credential: "<ref>"` and needs the matching `credential:<ref>`
+   * scope granted too; the host resolves the ref and injects the value
+   * itself — the value never crosses the seam, and no read-the-value API
+   * exists (ADR-0069).
+   *
+   * #1162: the request side — `method` (GET default, POST), `body`
+   * (POST-only, capped like the response), `contentType` (default
+   * `application/json` with a body) and `signal` (host-side abort).
+   */
+  fetch(url: string, options?: HostFetchOptions): Promise<HostFetchResult>;
+  /**
+   * ADR-0067: asks the host to run one registered session tool through
+   * the normal ToolRunner and PermissionGate — the model's exact gate
+   * path (veto > user rules > mode); an ask names this extension as the
+   * requester. Whole-tool grant: a `tool:<name>` capability authorizes
+   * the tool entire, no argv sub-scoping; the user's rules decide each
+   * call. `tool:*` covers every session tool, built-in and MCP.
+   */
+  runTool(name: string, args: unknown): Promise<HostRunToolResult>;
+  /**
+   * ADR-0068: asks the host for one single-shot model call against an
+   * endpoint covered by a granted `endpoint:<ref>` scope, executed
+   * through moh's Route — no host-managed loop, no conversation state:
+   * the extension composes the messages and reads the answer. Provider
+   * credentials never cross the seam (the host resolves them at request
+   * time); provider reasoning of these calls is not persisted. The
+   * request's tokens are accounted to this extension in the turn's
+   * `done` usage rollup, and the log's `model_call` record names this
+   * extension as the requester. A per-call `thinkingLevel` is honored
+   * only within the model's declared thinking capability — an unsupported
+   * level is the typed `unsupported_level` refusal, never a remapping.
+   */
+  modelCall(request: HostModelCallRequest): Promise<HostModelCallResult>;
+  /**
+   * ADR-0068: lists the models of an endpoint covered by a granted
+   * `endpoint:<ref>` scope — part of the same grant as `modelCall`.
+   */
+  listModels(endpoint: string): Promise<HostListModelsResult>;
+}
+
+/**
  * The setup context injected into `setup(ctx)`. `state` is a per-extension
  * key/value store preserved across hot-reloads.
  */
 export interface ExtensionSetupContext {
   /** Per-extension durable state; carried over hot-reloads. */
   readonly state: Record<string, unknown>;
+  /**
+   * ADR-0064 + ADR-0065 (apiVersion 1.13): the host-performs seam.
+   * **Present only when the enable consent covers at least one scope**
+   * (enforcement by absence, like `registerCommand`) — check with
+   * `typeof ctx.host === "object"`. See `ExtensionHost`.
+   */
+  readonly host?: ExtensionHost;
   /** Append a note to the trailing `extension_notes` prompt section. */
   appendToPrompt(note: string): void;
   /**
@@ -514,8 +888,84 @@ export interface ExtensionSetupContext {
    * never sees or touches the live conversation.
    */
   onCompaction(hook: CompactionHook): void;
+  /**
+   * Contribute a slash command (ADR-0062, apiVersion 1.11). **Present only
+   * when the `contribute-commands` capability is granted** — without the
+   * grant the property does not exist on the context (enforcement by
+   * absence; check with `typeof ctx.registerCommand === "function"`).
+   * Collisions are resolved native > skills > extension: a command whose
+   * name is reserved by the client's native commands or skills, or taken
+   * by another extension, is refused visibly and reported in `/extensions`
+   * — the extension itself is not failed. The command's returned text is
+   * its output in every client; nothing else is invented around it.
+   */
+  registerCommand?(command: ExtensionCommand): void;
+  /**
+   * Contribute one panel to the extensions rail (ADR-0062, apiVersion
+   * 1.12). **Present only when the `contribute-panels` capability is
+   * granted** (enforcement by absence). One panel per extension: a second
+   * registration from the same extension is refused visibly. At most 4
+   * panels are visible across all extensions — the fifth is refused at
+   * load (`panel slot exhausted (4/4)`); there is no automatic eviction,
+   * collapsing and reopening is manual from `/extensions`. The `render`
+   * returns arbitrary Ink elements the client renders inside the rail —
+   * opaque to the core; a callback inside them reaches the session only
+   * through the existing gated seams (`requestTurn`, control events), so
+   * a permission-gated action always flows through the normal gate.
+   */
+  registerPanel?(panel: ExtensionPanel): void;
+  /**
+   * Contribute a full-screen overlay (ADR-0062, apiVersion 1.12).
+   * **Present only when the `contribute-overlays` capability is granted**
+   * (enforcement by absence). The returned `open()` asks the client to
+   * show the overlay full-screen; the user closes it with `Esc`. In a
+   * client with no surface (headless), `open()` contributes nothing —
+   * visible absence, never a simulated rendering.
+   */
+  registerOverlay?(overlay: ExtensionOverlay): { open(): void };
+  /**
+   * Contribute a tool the session's model can call (ADR-0067, apiVersion
+   * 1.14). **Present only when a `contribute-tool:<name>` capability is
+   * granted** (enforcement by absence); the registered tool's `name` must
+   * be one the consent named — anything else is refused visibly, and the
+   * tool never reaches the model. A contributed tool rides the same
+   * runner and gate as every session tool: the model sees and calls it
+   * like any tool, and this extension's code runs when the model invokes
+   * it — the different trust shape `contribute-tool:` names.
+   */
+  registerTool?(tool: ExtensionContributedTool): void;
   onEvent(hook: EventHook): void;
   afterTurn(hook: AfterTurnHook): void;
+  /**
+   * Spawn one subagent child session (ADR-0053 + ADR-0055, apiVersion
+   * 1.13). **Present only when the `spawn-subagent` capability is
+   * granted** (enforcement by absence; check with
+   * `typeof ctx.spawnSubagent === "function"`).
+   *
+   * The enable consent granted an **envelope** — at most ten children per
+   * extension per session, each within the session's own iteration
+   * ceiling. Every request is intersected with that envelope at spawn
+   * time: a request outside it is refused loudly (a visible
+   * `extension_failed`, and the promise resolves with an error result —
+   * the child is not created), never silently narrowed. What the task did
+   * not name does not exist for the child, and a child can never hold
+   * more than the session that spawned it.
+   *
+   * No grandchildren: called from inside a child's dispatch (a hook that
+   * runs on a borrowed session), the spawn is refused. `subagentActivity`
+   * reads only sessions this extension spawned, in the child-tail shape.
+   * One stop — the owner's — aborts every child this extension started.
+   */
+  spawnSubagent?(spec: ExtensionSpawnSpec): Promise<ExtensionSpawnResult>;
+  /**
+   * Bounded turn-activity read (apiVersion 1.13) of one child this
+   * extension spawned — messages, tool calls and outcomes, the turn's
+   * outcome, status, usage-derived activity. **Present only when the
+   * `spawn-subagent` capability is granted.** A callId this extension did
+   * not spawn resolves to `null`: a session the extension did not create
+   * does not exist for it, and there is no API that reads or resumes one.
+   */
+  subagentActivity?(callId: string): Promise<ExtensionSubagentActivity | null>;
   /**
    * Ask the core to run one turn with a synthetic user-side message
    * (ADR-0037, apiVersion 1.6). You supply the text — deterministic,
@@ -544,6 +994,13 @@ export interface ExtensionDefinition {
   readonly version: string;
   /** moh extension apiVersion ("major.minor"); major must match. */
   readonly apiVersion: string;
+  /**
+   * The capability slots this code uses (ADR-0053, as amended by ADR-0061).
+   * The manifest is the authority the consent signs; at import the runtime
+   * verifies every capability here is declared in `moh.extension.json` —
+   * a superset is a loud refusal naming the offending slot, never a crash.
+   */
+  readonly capabilities?: readonly string[];
   /** npm specs moh installs for the extension, with per-change authorization. */
   readonly dependencies?: ExtensionDependencies;
   setup(ctx: ExtensionSetupContext): void | Promise<void>;

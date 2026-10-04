@@ -8,7 +8,58 @@ function tmpHome(): string {
 }
 import { builtinTools, createSession, DevelopmentLaneStore, MockProvider, type AgentEvent, type Tool } from "../src/index";
 import { createRoute, Endpoint } from "../src/route";
-import { BUILTIN_AGENT_PRESETS, DEFAULT_SUBAGENT_CONCURRENCY, subagentPreview, type SubagentResult } from "../src/subagents";
+import { BUILTIN_AGENT_PRESETS, DEFAULT_SUBAGENT_CONCURRENCY, Semaphore, subagentPreview, type SubagentResult } from "../src/subagents";
+
+describe("Semaphore (#1143)", () => {
+  test("release transfers the permit: no double-grant past limit", async () => {
+    const sem = new Semaphore(1);
+    const holder = new AbortController().signal;
+    expect(await sem.acquire(holder)).toBe(true);
+
+    // Two waiters queue, then the holder releases. Release hands the permit
+    // to exactly one live waiter without decrementing; a fresh acquire()
+    // racing in between must not grant a second permit.
+    const w1 = sem.acquire(new AbortController().signal);
+    const w1Dropped = sem.acquire(new AbortController().signal);
+    sem.release();
+
+    const w1Result = await w1;
+    expect(w1Result).toBe(true);
+    // The second queued waiter stays blocked: the permit was transferred,
+    // not double-granted.
+    let droppedGranted = false;
+    w1Dropped.then((v) => (droppedGranted = v));
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(droppedGranted).toBe(false);
+
+    // Settle cleanly: hand permits down the queue until everyone drains.
+    sem.release(); // -> the dropped waiter
+    sem.release(); // -> queue empty, decrement
+    expect(await w1Dropped).toBe(true);
+    // Fully drained: a fresh acquire is instant.
+    expect(await sem.acquire(new AbortController().signal)).toBe(true);
+  });
+
+  test("aborted waiter never double-counts or leaks the permit", async () => {
+    const sem = new Semaphore(1);
+    const ac = new AbortController();
+    expect(await sem.acquire(new AbortController().signal)).toBe(true);
+    const waiter = sem.acquire(ac.signal);
+    ac.abort();
+    expect(await waiter).toBe(false);
+    // The permit still counts as held by the first holder.
+    let secondGranted = false;
+    const second = sem.acquire(new AbortController().signal).then((v) => (secondGranted = v));
+    await Promise.resolve();
+    expect(secondGranted).toBe(false);
+    sem.release();
+    expect(await second).toBe(true);
+    sem.release();
+    // Fully drained: a fresh acquire is instant.
+    expect(await sem.acquire(new AbortController().signal)).toBe(true);
+  });
+});
 
 /** Collects parent events into an array for assertions. */
 function tap(session: { events: AsyncIterable<AgentEvent> }): AgentEvent[] {
@@ -666,5 +717,129 @@ describe("per-session route state for children (ADR-0050, #974)", () => {
     // `fallback` record from inside the child reached it (ADR-0050 §6).
     expect(events.filter((e) => e.type === "route_serving")).toHaveLength(1);
     expect(events.some((e) => e.type === "fallback")).toBe(false);
+  });
+});
+
+describe("subagent_spawn requester/limits + orchestration stop (ADR-0055, #1127)", () => {
+  test("a model-initiated spawn records requester=model and the applied limits", async () => {
+    const home = tmpHome();
+    const parent = createSession({
+      provider: MockProvider.scripted([
+        { deltas: [], finish: "tool_calls", toolCalls: [{ name: "spawn", args: { preset: "research", task: "look", maxIterations: 7 } }] },
+        { deltas: ["done"], finish: "stop" },
+      ]),
+      tools: builtinTools(),
+      permissions: { overrides: { tools: { spawn: "allow" } } },
+      subagents: {
+        home,
+        provider: MockProvider.scripted([{ deltas: ["ok"], finish: "stop" }]),
+      },
+    });
+    const events = tap(parent);
+    await parent.send("go");
+    const spawn = events.find((e) => e.type === "subagent_spawn") as any;
+    expect(spawn.requester).toEqual({ kind: "model" });
+    // Applied limits: the preset's allow-list, the session mode, and the
+    // explicit cap named in the spawn request (50 default otherwise).
+    expect(spawn.limits.tools).toEqual(["read", "glob", "grep", "fetch", "mpm_query"]);
+    expect(spawn.limits.mode).toBe("normal");
+    expect(spawn.limits.maxIterations).toBe(7);
+  });
+
+  test("the default cap is recorded when the spawn names none", async () => {
+    const home = tmpHome();
+    const parent = createSession({
+      provider: MockProvider.scripted([
+        { deltas: [], finish: "tool_calls", toolCalls: [{ name: "spawn", args: { preset: "research", task: "look" } }] },
+        { deltas: ["done"], finish: "stop" },
+      ]),
+      tools: builtinTools(),
+      permissions: { overrides: { tools: { spawn: "allow" } } },
+      subagents: { home, provider: MockProvider.scripted([{ deltas: ["ok"], finish: "stop" }]) },
+    });
+    const events = tap(parent);
+    await parent.send("go");
+    const spawn = events.find((e) => e.type === "subagent_spawn") as any;
+    expect(spawn.limits.maxIterations).toBe(50);
+  });
+
+  test("stopSubagents aborts the live child and records one orchestration_stopped", async () => {
+    const home = tmpHome();
+    const release = Promise.withResolvers<void>();
+    const gate = release.promise;
+    const parent = createSession({
+      provider: MockProvider.scripted([
+        { deltas: [], finish: "tool_calls", toolCalls: [{ name: "spawn", args: { preset: "research", task: "churn" } }] },
+        { deltas: ["done"], finish: "stop" },
+      ]),
+      tools: builtinTools(),
+      permissions: { overrides: { tools: { spawn: "allow" } } },
+      subagents: {
+        home,
+        provider: MockProvider.scripted([
+          { deltas: ["working"], finish: "stop", hold: { afterDeltas: 0, release: gate } },
+        ]),
+      },
+    });
+    const events = tap(parent);
+    const send = parent.send("go");
+    // Wait until the child is registered as live (poll, never sample).
+    let live: ReturnType<typeof parent.liveSubagents> = [];
+    for (let i = 0; i < 50 && live.length === 0; i++) {
+      await Bun.sleep(20);
+      live = parent.liveSubagents();
+    }
+    expect(live).toHaveLength(1);
+    expect(live[0]!.name).toBe("research");
+    expect(live[0]!.requester).toEqual({ kind: "model" });
+
+    const stopped = parent.stopSubagents();
+    expect(stopped).toHaveLength(1);
+    expect(stopped[0]).toBe(live[0]!.callId);
+
+    const result = await send;
+    expect(result.status).toBe("done");
+    const childResult = events.find((e) => e.type === "subagent_result") as any;
+    expect(childResult.status).toBe("cancelled");
+    const stop = events.find((e) => e.type === "orchestration_stopped") as any;
+    expect(stop.callIds).toEqual([live[0]!.callId]);
+    expect(typeof stop.stoppedAt).toBe("string");
+    // The stop is a chrome record, not a permission answer: after it, the
+    // host lists nothing live.
+    expect(parent.liveSubagents()).toHaveLength(0);
+    release.resolve();
+  });
+
+  test("stopSubagents with nothing live records nothing and returns []", async () => {
+    const home = tmpHome();
+    const parent = createSession({
+      provider: MockProvider.scripted([{ deltas: ["hi"], finish: "stop" }]),
+      tools: builtinTools(),
+      subagents: { home, provider: MockProvider.scripted([{ deltas: ["ok"], finish: "stop" }]) },
+    });
+    const events = tap(parent);
+    await parent.send("go");
+    expect(parent.stopSubagents()).toEqual([]);
+    expect(events.some((e) => e.type === "orchestration_stopped")).toBe(false);
+  });
+});
+
+describe("#1127: extension-requested spawns", () => {
+  test("setSpawnRequester attributes subsequent spawns to the named extension", async () => {
+    const home = tmpHome();
+    const parent = createSession({
+      provider: MockProvider.scripted([
+        { deltas: [], finish: "tool_calls", toolCalls: [{ name: "spawn", args: { preset: "research", task: "look" } }] },
+        { deltas: ["done"], finish: "stop" },
+      ]),
+      tools: builtinTools(),
+      permissions: { overrides: { tools: { spawn: "allow" } } },
+      subagents: { home, provider: MockProvider.scripted([{ deltas: ["ok"], finish: "stop" }]) },
+    });
+    parent.setSpawnRequester(() => ({ kind: "extension", extension: "conductor" }));
+    const events = tap(parent);
+    await parent.send("go");
+    const spawn = events.find((e) => e.type === "subagent_spawn") as any;
+    expect(spawn.requester).toEqual({ kind: "extension", extension: "conductor" });
   });
 });

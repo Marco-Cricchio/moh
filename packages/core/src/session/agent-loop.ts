@@ -15,7 +15,13 @@ import type {
   ToolSpec,
   TurnResult,
 } from "../types";
-import type { AssembledPrompt } from "../prompt-composer";
+import type { AssembledPrompt, SectionName } from "../prompt-composer";
+import {
+  applyPromptReplacements,
+  promptOverrideEvents,
+  type PromptContribution,
+  type ReplacementAuthor,
+} from "../prompt-override";
 import type { TurnConfirmOutcome } from "@moh/extension";
 import { resolveTurnConfirm, type BeforeTurnDispatch, type ExtensionRuntime } from "../extensions";
 import { assembleMentions, renderMentionAttachment, type MentionAttachment } from "../mentions";
@@ -80,6 +86,14 @@ export type LoopExtensions = Pick<ExtensionRuntime, "dispatchBeforeModelCall">;
 export interface LoopBeforeTurn {
   dispatch(text: string, turnIndex: number, model: string): Promise<BeforeTurnDispatch>;
   applyModel(ref: string): { ok: true; model: string } | { ok: false; error: string; reason?: "context_length" };
+  /**
+   * #1143: resets the per-turn `extension_event` budget (owner + borrowed)
+   * at dispatch entry, before any hook runs — `beforeTurn` fires before
+   * the `user_message` append that otherwise resets it, so a hook
+   * recording at turn start would otherwise spend the previous turn's
+   * budget (after a cap-out the new turn's events are dropped).
+   */
+  beginBudgetTurn?: () => void;
   /**
    * ADR-0033 §4: the pre-send confirmation. Asks the client whether the
    * turn may be sent, given the extension's reason. Absent = no client can
@@ -161,6 +175,10 @@ export interface AgentLoopOptions {
   assemblePrompt: () => void;
   /** The most recently assembled prompt, for beforeModelCall dispatch. */
   lastPrompt: () => AssembledPrompt | null;
+  /** ADR-0054 (#1129): true when the ADR-0011 turn-scoped skill prompt
+   * holds the `skills` section this turn — a replacement for it is
+   * refused that call. */
+  skillsProtected?: () => boolean;
   /** Log append callback — the loop owns its event emission. */
   append: (event: AgentEvent) => void;
   /** #488: mention expansion config — `@path` tokens in user messages
@@ -254,6 +272,11 @@ export class AgentLoop {
   readonly #messages: Message[];
   readonly #assemblePrompt: () => void;
   readonly #lastPrompt: () => AssembledPrompt | null;
+  readonly #skillsProtected: (() => boolean) | undefined;
+  /** ADR-0054 (#1129): the contributions in force at the last applied
+   * composition, keyed by section — the diff state behind "one
+   * `prompt_override` per change, never per call". */
+  #promptContributions = new Map<SectionName, PromptContribution>();
   readonly #append: (event: AgentEvent) => void;
   readonly #emitLive: ((event: ReasoningStreamEvent) => void) | undefined;
 
@@ -280,6 +303,11 @@ export class AgentLoop {
   /** #83: turn rollup inputs — usage at turn start and models that served it. */
   #turnStartUsage: TokenUsage = { inputTokens: 0, outputTokens: 0 };
   #turnModels: string[] = [];
+  /** ADR-0068: cumulative host-seam model-call usage by extension name.
+   * The turn rollup reports each extension's delta at `done`, so the
+   * owner sees which extension consumed tokens. */
+  #extensionUsage = new Map<string, TokenUsage>();
+  #turnStartExtensionUsage = new Map<string, TokenUsage>();
   /** #1100: still-open quota blocks by scope key, in block order. A
    * successful settlement closes the blocks its endpoint/model scope
    * covers (recovery boundary, observed wait, fallback flag); blocks of
@@ -308,6 +336,7 @@ export class AgentLoop {
     this.#messages = options.messages;
     this.#assemblePrompt = options.assemblePrompt;
     this.#lastPrompt = options.lastPrompt;
+    this.#skillsProtected = options.skillsProtected;
     this.#append = options.append;
     this.#mentions = options.mentions;
     this.#emitLive = options.emitLive;
@@ -467,6 +496,20 @@ export class AgentLoop {
     return { ...this.#usage };
   }
 
+  /**
+   * ADR-0068: the session's model seam records each extension call's
+   * usage here; the turn rollup reports the per-extension delta at
+   * `done`. Outside a turn the total still accumulates — the next
+   * turn's rollup carries it.
+   */
+  recordExtensionUsage(extension: string, usage: TokenUsage): void {
+    const prior = this.#extensionUsage.get(extension) ?? { inputTokens: 0, outputTokens: 0 };
+    this.#extensionUsage.set(extension, {
+      inputTokens: prior.inputTokens + usage.inputTokens,
+      outputTokens: prior.outputTokens + usage.outputTokens,
+    });
+  }
+
   /** Runs one user message to completion. */
   async run(text: string, controller: AbortController): Promise<TurnResult> {
     return this.#run(text, controller, false);
@@ -539,6 +582,7 @@ export class AgentLoop {
     // #83: turn rollup baselines.
     this.#turnStartUsage = { ...this.#usage };
     this.#turnModels = [];
+    this.#turnStartExtensionUsage = new Map(this.#extensionUsage);
     // #488: the attachment snapshots ride the turn as additional parts
     // appended to the user message — the text itself stays as typed.
     // Vision note 4: an image attachment becomes a typed image part when
@@ -646,7 +690,7 @@ export class AgentLoop {
       this.#assemblePrompt(); // reassembled every call
       const lastPrompt = this.#lastPrompt();
       if (this.#extensions && lastPrompt) {
-        const errors = await this.#extensions.dispatchBeforeModelCall({
+        const dispatch = await this.#extensions.dispatchBeforeModelCall({
           prompt: {
             sections: lastPrompt.sections,
             system: lastPrompt.system,
@@ -654,7 +698,15 @@ export class AgentLoop {
           },
           messages: this.#messages,
         });
-        for (const e of errors) this.#append(e);
+        for (const e of dispatch.errors) this.#append(e);
+        // ADR-0054 (#1129): apply the replacements that beat the window —
+        // capability checks, one author per section, the provenance line —
+        // and record the composition change once per change, never per
+        // call. The core's own text survives: the composer re-runs next
+        // call, so the projection is rebuilt from scratch every time.
+        for (const e of this.#applyPromptOverrides(lastPrompt, dispatch.replacements)) {
+          this.#append(e);
+        }
       }
       const toolCalls: ToolCall[] = [];
       // #853: a bare (non-routed) provider's empty completion must end
@@ -800,8 +852,23 @@ export class AgentLoop {
         outputTokens: this.#usage.outputTokens - this.#turnStartUsage.outputTokens,
       },
       models: [...new Set(this.#turnModels)],
+      ...(this.#extensionUsageDeltas().length > 0 ? { extensionUsage: Object.fromEntries(this.#extensionUsageDeltas()) } : {}),
     });
     return { status: "done" };
+  }
+
+  /**
+   * ADR-0068: per-extension usage deltas since the turn started, in
+   * first-call order, non-zero entries only.
+   */
+  #extensionUsageDeltas(): [string, TokenUsage][] {
+    const out: [string, TokenUsage][] = [];
+    for (const [extension, total] of this.#extensionUsage) {
+      const start = this.#turnStartExtensionUsage.get(extension) ?? { inputTokens: 0, outputTokens: 0 };
+      const delta = { inputTokens: total.inputTokens - start.inputTokens, outputTokens: total.outputTokens - start.outputTokens };
+      if (delta.inputTokens !== 0 || delta.outputTokens !== 0) out.push([extension, delta]);
+    }
+    return out;
   }
 
   /**
@@ -818,6 +885,10 @@ export class AgentLoop {
   async #dispatchBeforeTurn(text: string): Promise<boolean> {
     const seam = this.#beforeTurn;
     if (!seam) return true;
+    // #1143: the budget reset moves here — this dispatch runs before the
+    // `user_message` append, so a hook recording at turn start would spend
+    // the previous turn's budget (documented semantics: per turn).
+    seam.beginBudgetTurn?.();
     const outcome = await seam.dispatch(text, this.#turnIndex?.() ?? 1, this.#provider().name);
     for (const event of outcome.errors) this.#append(event);
     if (outcome.confirm) {
@@ -916,6 +987,32 @@ export class AgentLoop {
   #streamOptions(): StreamOptions | undefined {
     const thinking = this.#thinking?.();
     return thinking ? { thinking } : undefined;
+  }
+
+  /**
+   * ADR-0054 (#1129): applies one dispatch's winning replacements to the
+   * prompt this iteration is about to send. Returns the `prompt_override`
+   * records for whatever changed against the composition previously in
+   * force (the caller appends them); the refusals are appended here, so
+   * the loop's call sites stay symmetric.
+   */
+  #applyPromptOverrides(
+    base: AssembledPrompt,
+    authors: readonly ReplacementAuthor[],
+  ): AgentEvent[] {
+    const application = applyPromptReplacements(base.sections, authors, {
+      ...(this.#skillsProtected ? { skillsProtected: this.#skillsProtected() } : {}),
+    });
+    for (const e of application.refusals) this.#append(e);
+    // The call about to be made reads the effective composition: rebuild
+    // the system message in place (it is this loop's #messages[0] — the
+    // session's assemblePrompt put it there).
+    if (this.#messages[0]?.role === "system") {
+      this.#messages[0] = { role: "system", parts: [{ kind: "text", text: application.system }] };
+    }
+    const events = promptOverrideEvents(this.#promptContributions, application);
+    this.#promptContributions = new Map(application.contributions.map((c) => [c.section, c]));
+    return events;
   }
 
   /** Records a failed call for audit/display without treating its reasoning

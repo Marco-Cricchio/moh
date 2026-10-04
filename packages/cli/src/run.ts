@@ -458,6 +458,23 @@ export async function runCommand(options: RunOptions): Promise<number> {
     session.abort();
   };
   process.on("SIGINT", onSignal);
+  // ADR-0062 (#1130): an extension slash command runs really, headless —
+  // the same invocation the TUI notifies, printed as one JSONL line with
+  // the command's text output. No model turn happens: the command *is*
+  // the action. Anything else (native commands, unknown names, plain
+  // text) keeps the normal send path untouched.
+  // `registerFiles` is fire-and-forget: the command list is only complete
+  // once every pending import settled — an eager check races it and a
+  // granted command is missed (seen on CI's slower first import).
+  await session.extensionsReady();
+  const slashMatch = /^\/([a-z0-9][a-z0-9-]*)(?:\s+([\s\S]*))?$/.exec(prompt.trim());
+  if (slashMatch && session.extensionCommands().some((c) => c.name === slashMatch[1])) {
+    const result = await session.invokeExtensionCommand(slashMatch[1]!, slashMatch[2] ?? "");
+    out.write(JSON.stringify({ type: "extension_command_result", command: slashMatch[1], ok: result.ok, ...(result.ok ? { extension: result.extension, output: result.output } : { error: result.error }) }) + "\n");
+    process.off("SIGINT", onSignal);
+    await session.dispose();
+    return result.ok ? 0 : 1;
+  }
   let result;
   try {
     result = await session.send(prompt);

@@ -8,6 +8,7 @@ import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, 
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { SessionStore } from "@moh/core";
+import { runCli, SPAWN_TEST_TIMEOUT_MS } from "./spawn-harness";
 
 const TMP_ROOT = join(tmpdir(), "moh-usage-cli");
 
@@ -17,15 +18,7 @@ function harness() {
   const cwd = mkdtempSync(join(TMP_ROOT, "proj-"));
   writeFileSync(join(cwd, "moh.json"), JSON.stringify({ provider: "mock" }));
   const spawn = (argv: string[]) => {
-    const proc = Bun.spawnSync(
-      ["bun", join(import.meta.dir, "..", "src", "cli.ts"), "usage", ...argv],
-      { cwd, env: { ...process.env, HOME: home }, stdout: "pipe", stderr: "pipe" },
-    );
-    return {
-      code: proc.exitCode,
-      stdout: new TextDecoder().decode(proc.stdout),
-      stderr: new TextDecoder().decode(proc.stderr),
-    };
+    return runCli(["usage", ...argv], { cwd, home });
   };
   const session = (fn: (store: SessionStore) => void): string => {
     const store = SessionStore.create(cwd, home);
@@ -48,7 +41,7 @@ describe("moh usage (#715)", () => {
     const { code, stdout } = spawn(["--help"]);
     expect(code).toBe(0);
     expect(stdout).toContain("usage: moh usage");
-  });
+  }, SPAWN_TEST_TIMEOUT_MS);
 
   test("empty project → friendly message, exit 0", () => {
     const { spawn } = harness();
@@ -56,7 +49,7 @@ describe("moh usage (#715)", () => {
     expect(code).toBe(0);
     expect(stderr).toContain("No sessions found");
     expect(stdout).toBe("");
-  });
+  }, SPAWN_TEST_TIMEOUT_MS);
 
   test("prints a per-model table across sessions", () => {
     const h = harness();
@@ -79,7 +72,7 @@ describe("moh usage (#715)", () => {
     expect(stdout).toContain("70"); // output for m-b
     expect(stdout).toContain("2 sessions");
     expect(stdout).not.toContain("999");
-  });
+  }, SPAWN_TEST_TIMEOUT_MS);
 
   test("shows approximate cost only for models with a maintained price", () => {
     const h = harness();
@@ -98,7 +91,7 @@ describe("moh usage (#715)", () => {
     expect(json.pricing).toMatchObject({ estimate: true, source: "moh model catalog" });
     expect(json.pricing.version).toMatch(/^\d+\.\d+\.\d+/);
     expect(json.pricing.updatedAt).toMatch(/^\d{4}-\d{2}-\d{2}$/);
-  });
+  }, SPAWN_TEST_TIMEOUT_MS);
 
   test("--json emits the aggregate structure", () => {
     const h = harness();
@@ -111,7 +104,7 @@ describe("moh usage (#715)", () => {
     expect(parsed.models).toEqual([{ model: "m-a", calls: 1, inputTokens: 100, outputTokens: 10 }]);
     expect(parsed.totals).toEqual({ calls: 1, inputTokens: 100, outputTokens: 10 });
     expect(parsed.sessionsScanned).toBe(1);
-  });
+  }, SPAWN_TEST_TIMEOUT_MS);
 
   test("--days filters sessions by mtime", async () => {
     const h = harness();
@@ -132,7 +125,7 @@ describe("moh usage (#715)", () => {
     expect(stdout).not.toContain("m-old");
     const json = JSON.parse(h.spawn(["--days", "7", "--json"]).stdout);
     expect(json.sessionsScanned).toBe(1);
-  });
+  }, SPAWN_TEST_TIMEOUT_MS);
 
   test("--project reads another project's slug", () => {
     const h = harness();
@@ -151,7 +144,7 @@ describe("moh usage (#715)", () => {
     const parsed = JSON.parse(new TextDecoder().decode(proc.stdout));
     expect(parsed.models[0]!.model).toBe("m-other");
     rmSync(otherCwd, { recursive: true, force: true });
-  });
+  }, SPAWN_TEST_TIMEOUT_MS);
 
   test("corrupt session files are skipped, not fatal", () => {
     const h = harness();
@@ -165,20 +158,20 @@ describe("moh usage (#715)", () => {
     expect(code).toBe(0);
     expect(stdout).toContain("m-a");
     expect(stderr).toContain("1 unreadable");
-  });
+  }, SPAWN_TEST_TIMEOUT_MS);
 
   test("rejects a bad --days value", () => {
     const { spawn } = harness();
     const { code, stderr } = spawn(["--days", "nope"]);
     expect(code).toBe(2);
     expect(stderr).toContain("--days expects a positive whole number");
-  });
+  }, SPAWN_TEST_TIMEOUT_MS);
 
   test("rejects unexpected positionals", () => {
     const { spawn } = harness();
     const { code } = spawn(["junk"]);
     expect(code).toBe(2);
-  });
+  }, SPAWN_TEST_TIMEOUT_MS);
 });
 
 describe("moh usage tools (#716)", () => {
@@ -188,7 +181,7 @@ describe("moh usage tools (#716)", () => {
     expect(stdout).toContain("tools");
     expect(stdout).toContain("routes");
     expect(code).toBe(0);
-  });
+  }, SPAWN_TEST_TIMEOUT_MS);
 
   test("renders per-tool calls, ok/fail, timeouts, avg duration", () => {
     const h = harness();
@@ -205,7 +198,7 @@ describe("moh usage tools (#716)", () => {
     expect(stdout).toContain("Tool statistics");
     expect(stdout).toContain("bash");
     expect(stdout).toContain("1"); // 1 timeout
-  });
+  }, SPAWN_TEST_TIMEOUT_MS);
 
   test("--json emits tool rows with avgDurationMs", () => {
     const h = harness();
@@ -216,7 +209,7 @@ describe("moh usage tools (#716)", () => {
     const parsed = JSON.parse(h.spawn(["tools", "--json"]).stdout);
     expect(parsed.tools).toEqual([{ tool: "read", calls: 1, ok: 1, fail: 0, timeouts: 0, avgDurationMs: expect.any(Number) }]);
     expect(parsed.sessionsScanned).toBe(1);
-  });
+  }, SPAWN_TEST_TIMEOUT_MS);
 
   test("empty project → friendly message, exit 0", () => {
     const { spawn } = harness();
@@ -224,7 +217,7 @@ describe("moh usage tools (#716)", () => {
     expect(code).toBe(0);
     expect(stderr).toContain("No sessions found");
     expect(stdout).toBe("");
-  });
+  }, SPAWN_TEST_TIMEOUT_MS);
 });
 
 describe("moh usage routes (#716)", () => {
@@ -245,7 +238,7 @@ describe("moh usage routes (#716)", () => {
     expect(stdout).toContain("Route serving switches");
     expect(stdout).toContain("Turn errors by kind");
     expect(stdout).toContain("context_length");
-  });
+  }, SPAWN_TEST_TIMEOUT_MS);
 
   test("--json emits the route structure", () => {
     const h = harness();
@@ -256,7 +249,7 @@ describe("moh usage routes (#716)", () => {
     expect(parsed.route.fallbacks).toEqual([{ from: "a/p", to: "b/q", reason: "network", count: 1 }]);
     expect(parsed.route.routeServing).toEqual([]);
     expect(parsed.route.turnErrors).toEqual({});
-  });
+  }, SPAWN_TEST_TIMEOUT_MS);
 
   test("clean sessions → all-zero route health, exit 0", () => {
     const h = harness();
@@ -267,7 +260,7 @@ describe("moh usage routes (#716)", () => {
     expect(code).toBe(0);
     expect(stdout).toContain("No fallback activations");
     expect(stdout).toContain("No turn errors");
-  });
+  }, SPAWN_TEST_TIMEOUT_MS);
 
   test("empty project → friendly message, exit 0", () => {
     const { spawn } = harness();
@@ -275,7 +268,7 @@ describe("moh usage routes (#716)", () => {
     expect(code).toBe(0);
     expect(stderr).toContain("No sessions found");
     expect(stdout).toBe("");
-  });
+  }, SPAWN_TEST_TIMEOUT_MS);
 
   test("shared filters work: --days with tools sub-report", async () => {
     const h = harness();
@@ -294,7 +287,7 @@ describe("moh usage routes (#716)", () => {
     expect(code).toBe(0);
     expect(stdout).toContain("new-tool");
     expect(stdout).not.toContain("old-tool");
-  });
+  }, SPAWN_TEST_TIMEOUT_MS);
 });
 
 describe("moh usage export (#717)", () => {
@@ -322,7 +315,7 @@ describe("moh usage export (#717)", () => {
     const bad = h.spawn(["export", "--format", "xml"]);
     expect(bad.code).toBe(2);
     expect(bad.stderr).toContain("--format csv|jsonl");
-  });
+  }, SPAWN_TEST_TIMEOUT_MS);
 
   test("csv to stdout: metadata-only long format", () => {
     const h = richHarness();
@@ -338,7 +331,7 @@ describe("moh usage export (#717)", () => {
     expect(stdout).not.toContain("SECRET-USER-PROMPT");
     expect(stdout).not.toContain("SECRET-TOOL-ARGS");
     expect(stdout).not.toContain("SECRET-TOOL-OUTPUT");
-  });
+  }, SPAWN_TEST_TIMEOUT_MS);
 
   test("jsonl to stdout: one record per line", () => {
     const h = richHarness();
@@ -355,7 +348,7 @@ describe("moh usage export (#717)", () => {
     for (const line of stdout.trim().split("\n")) {
       expect(line).not.toContain("SECRET-");
     }
-  });
+  }, SPAWN_TEST_TIMEOUT_MS);
 
   test("--out writes to a path and not stdout", () => {
     const h = richHarness();
@@ -367,7 +360,7 @@ describe("moh usage export (#717)", () => {
     expect(written).toContain("model,m-a,inputTokens,100");
     expect(written).not.toContain("SECRET-");
     rmSync(outPath);
-  });
+  }, SPAWN_TEST_TIMEOUT_MS);
 
   test("csv values are escaped", () => {
     const h = harness();
@@ -377,7 +370,7 @@ describe("moh usage export (#717)", () => {
     const { code, stdout } = h.spawn(["export", "--format", "csv"]);
     expect(code).toBe(0);
     expect(stdout).toContain('"x,a -> b (quote "" and, comma)",count,1');
-  });
+  }, SPAWN_TEST_TIMEOUT_MS);
 
   test("empty project → friendly message, no output file", () => {
     const { spawn, cwd } = harness();
@@ -386,12 +379,12 @@ describe("moh usage export (#717)", () => {
     expect(code).toBe(0);
     expect(stderr).toContain("No sessions found");
     expect(existsSync(outPath)).toBe(false);
-  });
+  }, SPAWN_TEST_TIMEOUT_MS);
 
   test("relative --out refusing .. traversal outside the project root", () => {
     const h = richHarness();
     const { code, stderr } = h.spawn(["export", "--format", "csv", "--out", "../escape.csv"]);
     expect(code).toBe(2);
     expect(stderr).toContain("--out must be an absolute path");
-  });
+  }, SPAWN_TEST_TIMEOUT_MS);
 });

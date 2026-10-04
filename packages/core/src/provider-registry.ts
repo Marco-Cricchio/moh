@@ -153,7 +153,12 @@ export function catalogTargetOverrides(kind: string, modelId: string, baseUrl?: 
   return { ...(entry?.wire ? { wire: entry.wire } : {}), ...(entry?.headers ? { headers: entry.headers } : {}), ...(entry?.compat ? { compat: entry.compat } : {}) };
 }
 
-function routeTargetFor(profile: EndpointProfile, modelId: string, apiKey: string | undefined): RouteTarget {
+/** ADR-0068: exported from the defining module (ADR-0004) so the
+ * session's extension model-call seam can build a single-stop target.
+ * openai-compat travels the OpenAI Chat Completions wire protocol as a
+ * plain "openai" endpoint; every other builtin keeps its own kind —
+ * the wire mapping lives in wire.ts (ADR-0010), not here. */
+export function routeTargetFor(profile: EndpointProfile, modelId: string, apiKey: string | undefined): RouteTarget {
   // openai-compat travels the OpenAI Chat Completions wire protocol as a
   // plain "openai" endpoint; every other builtin keeps its own kind —
   // the wire mapping lives in wire.ts (ADR-0010), not here.

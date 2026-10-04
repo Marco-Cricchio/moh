@@ -11,7 +11,9 @@ import { join } from "node:path";
 import type { Route } from "../src/route";
 import { ExtensionRuntime, createSession, defaultRegistry, resolveProviderRef, type AgentEvent, type Provider } from "../src/index";
 import { ProviderRegistry } from "../src/provider-registry";
-import { createJevGuardExtension } from "@moh/jev-guard";
+import { createJevGuardExtension, transportFromFetch,
+} from "@moh/jev-guard";
+const transportOf = (impl: unknown) => transportFromFetch(impl as Parameters<typeof transportFromFetch>[0]);
 
 function tmpDir(): string {
   return mkdtempSync(join(tmpdir(), "moh-jevr-"));
@@ -52,8 +54,7 @@ async function routingSession(
   const rt = new ExtensionRuntime({ mohHome: tmpDir(), consent: () => true });
   await rt.register(
     createJevGuardExtension({
-      apiKey: "sk-test",
-      fetchImpl,
+      transport: transportOf(fetchImpl),
       routing: { pool: async () => ({ models }) },
       enabled: true,
       classification: false,
@@ -157,8 +158,7 @@ describe("Jev routing in a session (#787)", () => {
     }) as unknown as typeof fetch;
     await rt.register(
       createJevGuardExtension({
-        apiKey: "sk-test",
-        fetchImpl,
+        transport: transportOf(fetchImpl),
         enabled: false,
         classification: false,
         routing: { pool: async () => ({ models }) },
@@ -184,8 +184,7 @@ describe("Jev routing in a session (#787)", () => {
     const rt = new ExtensionRuntime({ mohHome: tmpDir(), consent: () => true });
     await rt.register(
       createJevGuardExtension({
-        apiKey: "sk-test",
-        fetchImpl: choice("potente", 0.9),
+        transport: transportOf(choice("potente", 0.9)),
         routing: { pool: async () => ({ models }) },
         enabled: true,
         classification: false,
@@ -256,8 +255,7 @@ describe("Jev routing in a session (#787)", () => {
     }) as unknown as typeof fetch;
     await rt.register(
       createJevGuardExtension({
-        apiKey: "sk-test",
-        fetchImpl,
+        transport: transportOf(fetchImpl),
         routing: { pool: async () => ({ models }) },
         enabled: true,
         classification: false,

@@ -67,7 +67,7 @@ import { ManualModal } from "./ManualModal";
 import { NotesModal } from "./NotesModal";
 import { ModelPickerModal } from "./ModelPickerModal";
 import { sanitizeForDisplay } from "./render-sanitize";
-import { endpointModelCatalog, aggregateLocalUsage, aggregateTelemetry, analyzeSession, billingPlanResolver, type LocalUsageRow, type SessionAnalysisReport } from "@moh/core";
+import { endpointModelCatalog, aggregateLocalUsage, aggregateTelemetry, analyzeSession, billingPlanResolver, listInstalledExtensions, readExtensionsScreenState, mergeExtensionLiveInfo, type LocalUsageRow, type SessionAnalysisReport, type ExtensionsScreenState } from "@moh/core";
 import { fetchLiveCatalogs, liveListings, reportNeedsNotice, summarizeLiveCatalogReport, type LiveModelListing } from "@moh/core";
 import { QuotaModal } from "./QuotaModal";
 import { MpmModal } from "./MpmModal";
@@ -75,6 +75,8 @@ import { JevModal } from "./JevModal";
 import { JEV_EXTENSION_NAME, readJevSummary, setJevUseCase, type JevStatusSummary } from "./jev-control";
 import { SessionRenameModal } from "./SessionRenameModal";
 import { SessionModal } from "./SessionModal";
+import { ExtensionsModal } from "./ExtensionsModal";
+import { ExtensionsRail, ExtensionOverlayView } from "./ExtensionsRail";
 import { LanesModal } from "./LanesModal";
 import { TreePanel } from "./TreePanel";
 import { sessionTree, type TreeNode } from "@moh/core";
@@ -138,7 +140,7 @@ export interface AppProps {
   yolo?: boolean;
 }
 
-type Overlay = null | "settings" | "commands" | "manual" | "notes" | "onboarding" |"handoff-onboarding" | "workflow-offer" | "frontier" | "skill-chooser" | "model" | "skill-updates" | "quota" | "rename" | "cold-wizard" | "tree" | "mpm" | "session" | "jev" | "browser" | "lanes";
+type Overlay = null | "settings" | "commands" | "manual" | "notes" | "onboarding" |"handoff-onboarding" | "workflow-offer" | "frontier" | "skill-chooser" | "model" | "skill-updates" | "quota" | "rename" | "cold-wizard" | "tree" | "mpm" | "session" | "jev" | "browser" | "lanes" | "extensions";
 
 /** #242: one-shot, non-blocking informed-consent copy. Exported so focused
  * tests can verify the full message even when narrow status chrome clips it. */
@@ -256,6 +258,11 @@ function AppShell({
     [cfgFile],
   );
   const [modelLabel, setModelLabel] = useState(() => providerLabel(provider, cwd, home));
+  // The cwd the open session actually runs in. Auto-lane (ADR-0060) assembles
+  // the session in a worktree under `.moh-lanes/...` - the filesystem chrome
+  // (branch, cwd tail, 12549 12549paths) must read from there, not from the launch
+  // directory, or row2 shows a branch that is never the lane's.
+  const [sessionCwd, setSessionCwd] = useState(cwd);
   // startInChat assembles eagerly (tests, bare resume); a broken config is a
   // visible error now — no silent demo fallback (ADR-0005).
   const [initialSession] = useState(() =>
@@ -351,6 +358,41 @@ function AppShell({
         return analyzeSession(session.sessionFile, { planFor: billingPlanResolver(session.endpointProfiles) });
       } catch {
         return { error: "session analysis failed" };
+      }
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [overlay]);
+  // #1131: the /extensions modal's snapshot — fold the session log for the
+  // shared facts, merge the live runtime facts (paths, capabilities,
+  // commands), name the ignored duplicate copies. A failed read degrades
+  // to a notice, never a crash.
+  const [extensionsReport, setExtensionsReport] = useState<ExtensionsSnapshot | null>(null);
+  // #1132: the extensions rail — closed by default (byte-identical UI
+  // without extensions), user-toggled from /extensions; panels the user
+  // collapsed there, by name. No automatic eviction, ever.
+  const [railOpen, setRailOpen] = useState(false);
+  const [collapsedPanels, setCollapsedPanels] = useState<ReadonlySet<string>>(new Set());
+  /** #1132: the extension overlay currently open (opened by the
+   * extension's own command), or null. */
+  const [extensionOverlay, setExtensionOverlay] = useState<{ extension: string; name: string; render(): unknown } | null>(null);
+  type ExtensionsSnapshot =
+    | { state: ExtensionsScreenState; duplicates: { extension: string; path: string }[] }
+    | { error: string };
+  useEffect(() => {
+    if (overlay !== "extensions") return;
+    setExtensionsReport(() => {
+      try {
+        if (!session?.sessionFile) return { error: "session file unknown" };
+        const state = readExtensionsScreenState(session.sessionFile);
+        if ("error" in state) return state;
+        return {
+          state: mergeExtensionLiveInfo(state, session.extensionLiveInfo()),
+          duplicates: listInstalledExtensions({ mohHome: home ?? homedir(), cwd: process.cwd() }).flatMap((i) =>
+            (i.ignoredDuplicates ?? []).map((path) => ({ extension: i.name, path })),
+          ),
+        };
+      } catch {
+        return { error: "extension state read failed" };
       }
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -845,6 +887,9 @@ function AppShell({
         ...(handoffOffer ? { handoffOffer } : {}),
         onHandoffWarning: (message: string) => push(message, "warn"),
       };
+      // Filesystem chrome follows the session's real cwd (the lane worktree
+      // when one was provisioned), never the launch directory.
+      if (base.cwd !== sessionCwd) setSessionCwd(base.cwd);
       let made: ReturnType<typeof makeSession>;
       if (resume) {
         const store = SessionStore.open(resume.file);
@@ -1404,7 +1449,11 @@ function AppShell({
   // repaint) while the block was open, freezing the screen under arrow
   // stress. The block renders inline in the main buffer; the composer is
   // still blocked (see `blocked` above), so it keeps exclusive keys.
-  const overlayOpen = overlay !== null || pending !== null;
+  const railVisible = railOpen && session !== null && session.extensionPanels().length > 0;
+  /** #1132: at or below the rail's narrow threshold the zone collapses to
+   * a footer strip BELOW the conversation — never a column beside it. */
+  const railWide = viewport.columns > 80;
+  const overlayOpen = overlay !== null || pending !== null || extensionOverlay !== null;
   // #330: a flip back to the main buffer is pending from the moment the
   // overlay closes (render-phase: covers the first post-close commit,
   // before the flip effect runs) until the delayed 1049l fires. Chat
@@ -1415,7 +1464,7 @@ function AppShell({
   const chat = showChat ? (
     <Chat
       session={session}
-      cwd={cwd}
+      cwd={sessionCwd}
       toastRows={toasts.length}
       mode={mode}
       modelLabel={modelLabel}
@@ -1450,7 +1499,7 @@ function AppShell({
       replaySettled={alternateScreen}
       bufferFlipPending={bufferFlipPending}
       askGate={askGate}
-      commands={commandEntries({ config })}
+      commands={commandEntries({ config, session })}
       livePhase={(() => {
         const item = sidebar.activity.at(-1);
         if (!item) return undefined;
@@ -1475,6 +1524,14 @@ function AppShell({
           setComposerPrefill(`${skill} args: ${placeholders.map((p) => `${p}=`).join(" ")}`);
         },
         renameSession: (name) => session?.rename(name),
+        onExtensionOverlayOpen: (active) => {
+          if (active === null) {
+            setExtensionOverlay(null);
+            return;
+          }
+          const overlayDef = session?.extensionOverlays().find((o) => o.extension === active.extension && o.name === active.name);
+          setExtensionOverlay(overlayDef ?? null);
+        },
         onOpenFrontier: () => setOverlay("frontier"),
         onOpenModelPicker: () => setOverlay("model"),
         onOpenCommands: () => setOverlay("commands"),
@@ -1502,6 +1559,7 @@ function AppShell({
         onOpenTree: () => setOverlay("tree"),
         onOpenMpm: () => setOverlay("mpm"),
         onOpenSession: () => setOverlay("session"),
+        onOpenExtensions: () => setOverlay("extensions"),
         onOpenLanes: () => setOverlay("lanes"),
         onOpenJev: () => setOverlay("jev"),
         onOpenBrowserSetup: () => setOverlay("browser"),
@@ -1586,12 +1644,13 @@ function AppShell({
         position="relative"
         key={themeTick}
       >
-        <Box width="100%" flexDirection="column" alignItems="center">
+        <Box width="100%" flexDirection={railVisible && railWide ? "row" : "column"} alignItems="flex-start">
+        <Box flexDirection="column" flexGrow={1} width="100%" alignItems="center">
         {showChat ? (
           <Box flexDirection="column" width="100%" alignItems="center">{chat}</Box>
         ) : (
           <Home
-            cwd={cwd}
+            cwd={sessionCwd}
             home={home}
             mode={mode}
             intro={introActive}
@@ -1613,10 +1672,21 @@ function AppShell({
           />
         )}
         </Box>
+        {railVisible && (
+          <ExtensionsRail
+            panels={session!.extensionPanels()}
+            collapsed={collapsedPanels}
+            columns={viewport.columns}
+          />
+        )}
+        </Box>
         {overlayOpen && alternateScreen && <OverlayLayer>
+        {extensionOverlay !== null && (
+          <ExtensionOverlayView overlay={extensionOverlay} onClose={() => { session?.closeExtensionOverlay(); setExtensionOverlay(null); }} />
+        )}
         {overlay === "onboarding" && (
           <Onboarding
-            cwd={cwd}
+            cwd={sessionCwd}
             home={home}
             env={env}
             onDone={(ref) => {
@@ -1646,7 +1716,7 @@ function AppShell({
         )}
         {overlay === "handoff-onboarding" && (
           <HandoffActivationModal
-            cwd={cwd}
+            cwd={sessionCwd}
             startup={!handoffFromSettings}
             verifyGh={verifyHandoffGh}
             onDone={(transport) => {
@@ -1666,7 +1736,7 @@ function AppShell({
         )}
         {overlay === "settings" && (
           <SettingsPanel
-            cwd={cwd}
+            cwd={sessionCwd}
             onStudioActive={setSettingsStudioActive}
             home={home}
             config={config}
@@ -1694,7 +1764,7 @@ function AppShell({
         {overlay === "cold-wizard" && coldOffers && (
           <ColdWizard
             offers={coldOffers}
-            cwd={cwd}
+            cwd={sessionCwd}
             home={home}
             fetchPayload={async (url) => {
               const fetched = await createGistHandoffTransport({ cwd, home }).fetchByUrl?.(url);
@@ -1718,7 +1788,20 @@ function AppShell({
           />
         )}
         {overlay === "manual" && <ManualModal onClose={() => setOverlay(null)} />}
-        {overlay === "notes" && <NotesModal cwd={cwd} home={home ?? homedir()} onClose={() => setOverlay(null)} />}
+        {overlay === "notes" && (
+          <NotesModal
+            cwd={sessionCwd}
+            home={home ?? homedir()}
+            onClose={() => setOverlay(null)}
+            onInject={(text) => {
+              // #1180: inject the selected note into the composer through
+              // the existing prefill seam (replaces the current draft, like
+              // every other prefill edge).
+              setComposerPrefill(text);
+              setOverlay(null);
+            }}
+          />
+        )}
         {overlay === "rename" && session && (
           <SessionRenameModal
             initialName={[...session.history()].reverse().find((event) => event.type === "session_renamed")?.name ?? ""}
@@ -1744,6 +1827,32 @@ function AppShell({
             <Text> session analysis unavailable: {sessionReport && "error" in sessionReport ? sessionReport.error : "session file unknown"}</Text>
           ))}
         {overlay === "lanes" && <LanesModal cwd={process.cwd()} onClose={() => setOverlay(null)} />}
+        {overlay === "extensions" &&
+          (extensionsReport && !("error" in extensionsReport) ? (
+            <ExtensionsModal
+              state={extensionsReport.state}
+              duplicates={extensionsReport.duplicates}
+              rail={{
+                open: railOpen,
+                onToggleRail: () => setRailOpen((v) => !v),
+                collapsed: collapsedPanels,
+                onTogglePanel: (name) =>
+                  setCollapsedPanels((prev) => {
+                    const next = new Set(prev);
+                    if (next.has(name)) next.delete(name);
+                    else next.add(name);
+                    return next;
+                  }),
+              }}
+              onClose={() => setOverlay(null)}
+            />
+          ) : (
+            <Text>
+              {" "}
+              extension state unavailable:{" "}
+              {extensionsReport && "error" in extensionsReport ? extensionsReport.error : "session file unknown"}
+            </Text>
+          ))}
         {overlay === "quota" && session && (
           <QuotaModal
             endpoints={session.endpointProfiles}
@@ -1827,7 +1936,7 @@ function AppShell({
         )}
         {overlay === "browser" && (
           <BrowserSetupModal
-            cwd={cwd}
+            cwd={sessionCwd}
             {...(home ? { home } : {})}
             hasSession={session !== null}
             onDone={(outcome) => {

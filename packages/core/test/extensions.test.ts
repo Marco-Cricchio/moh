@@ -6,11 +6,14 @@
  * dependency authorization.
  */
 import { afterEach, describe, expect, test } from "bun:test";
-import { existsSync, mkdtempSync, mkdirSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, lstatSync, mkdtempSync, mkdirSync, readFileSync, readlinkSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import { createSession, ExtensionRuntime, MockProvider, PromptComposer } from "../src/index";
-import { canonicalModulePath } from "../src/extensions";
+import { canonicalModulePath, DEFAULT_HOOK_TIMEOUT_MS, PROMPT_REPLACEMENT_WINDOW_MS } from "../src/extensions";
+import { DEPS_LOCK_FILE, extensionDepsDir } from "../src/extension-deps";
+import { createHash } from "node:crypto";
 import { defineExtension, MOH_EXTENSION_API_VERSION, parseApiVersion } from "@moh/extension";
 import type { AgentEvent, ExtensionConsentRequest, Tool } from "../src/index";
 import type { ExtensionDefinition, ExtensionSetupContext } from "@moh/extension";
@@ -31,6 +34,25 @@ afterEach(() => {
   for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true });
 });
 
+/** Writes an extension module AND its directory's `moh.extension.json`
+ * (ADR-0061: a file extension loads only with a manifest beside it). Every
+ * module written through this helper joins the same directory's manifest
+ * entry list, so multi-extension test dirs share one manifest. */
+const manifestEntries = new Map<string, Set<string>>();
+function writeExt(path: string, body: string): string {
+  writeFileSync(path, body);
+  const dir = dirname(path);
+  const base = basename(path);
+  const entries = manifestEntries.get(dir) ?? new Set<string>();
+  entries.add(base);
+  manifestEntries.set(dir, entries);
+  writeFileSync(
+    join(dir, "moh.extension.json"),
+    JSON.stringify({ name: base, version: "1.0.0", entry: [...entries].sort(), capabilities: [] }, null, 2),
+  );
+  return path;
+}
+
 /** Runtime with auto-approving consent + dep authorization (policy tests override). */
 function runtime(dir: string, overrides: Partial<ConstructorParameters<typeof ExtensionRuntime>[0]> = {}) {
   return new ExtensionRuntime({
@@ -41,13 +63,14 @@ function runtime(dir: string, overrides: Partial<ConstructorParameters<typeof Ex
   });
 }
 
-async function setup(def: ExtensionDefinition | ExtensionDefinition[], options: { runtime?: ExtensionRuntime; turns?: any[] } = {}) {
+async function setup(def: ExtensionDefinition | ExtensionDefinition[], options: { runtime?: ExtensionRuntime; turns?: any[]; permissions?: any } = {}) {
   const rt = options.runtime ?? runtime(tempDir());
   for (const d of Array.isArray(def) ? def : [def]) await rt.register(d);
   const session = createSession({
     provider: MockProvider.scripted(options.turns ?? [{ deltas: ["ok"], finish: "stop" }]),
     tools: { echo: echoTool },
     extensions: rt,
+    ...(options.permissions ? { permissions: options.permissions } : {}),
   });
   return { rt, session };
 }
@@ -61,7 +84,7 @@ describe("@moh/extension contract", () => {
     // control channel, the post-tool inspection seam, `confirm.onResolved`,
     // the session identity on the beforeTurn context, and the compaction
     // hook's own window/signal.
-    expect(parseApiVersion(MOH_EXTENSION_API_VERSION)).toEqual({ major: 1, minor: 10 });
+    expect(parseApiVersion(MOH_EXTENSION_API_VERSION)).toEqual({ major: 1, minor: 15 });
     expect(parseApiVersion("banana")).toBeNull();
   });
 });
@@ -430,8 +453,8 @@ describe("content-bound file consent", () => {
     const first = join(dir, "first.mjs");
     const second = join(dir, "second.mjs");
     const marker = join(dir, "setup-ran");
-    writeFileSync(first, `export default { name: "same", version: "1.0.0", apiVersion: "1.0", setup() {} };`);
-    writeFileSync(second, `import { writeFileSync } from "node:fs"; export default { name: "same", version: "9.9.9", apiVersion: "1.0", setup() { writeFileSync(${JSON.stringify(marker)}, "ran"); } };`);
+    writeExt(first, `export default { name: "same", version: "1.0.0", apiVersion: "1.0", setup() {} };`);
+    writeExt(second, `import { writeFileSync } from "node:fs"; export default { name: "same", version: "9.9.9", apiVersion: "1.0", setup() { writeFileSync(${JSON.stringify(marker)}, "ran"); } };`);
 
     const approved = new ExtensionRuntime({ mohHome: dir, consent: () => true });
     expect(await approved.registerFile(first)).toBe(true);
@@ -445,16 +468,212 @@ describe("content-bound file consent", () => {
     const dir = tempDir();
     const file = join(dir, "extension.mjs");
     const source = (deps: string[]) => `export default { name: "stable", version: "1.0.0", apiVersion: "1.0", dependencies: ${JSON.stringify(deps)}, setup() {} };`;
-    writeFileSync(file, source(["left@1"]));
+    writeExt(file, source(["left@1"]));
     const dependencyRequests: string[][] = [];
     const first = new ExtensionRuntime({ mohHome: dir, consent: () => true, authorizeDependencies: (_name, deps) => { dependencyRequests.push(deps); return true; } });
     expect(await first.registerFile(file)).toBe(true);
     const unchanged = new ExtensionRuntime({ mohHome: dir, consent: () => false, authorizeDependencies: () => false });
     expect(await unchanged.registerFile(file)).toBe(true);
-    writeFileSync(file, source(["right@2"]));
+    writeExt(file, source(["right@2"]));
     const changed = new ExtensionRuntime({ mohHome: dir, consent: () => true, authorizeDependencies: (_name, deps) => { dependencyRequests.push(deps); return true; } });
     expect(await changed.registerFile(file)).toBe(true);
     expect(dependencyRequests).toEqual([["left@1"], ["right@2"]]);
+  });
+});
+
+// ADR-0070 (#1166): the manifest's `dependencies` install into a
+// per-extension directory under the moh-owned extension-deps root;
+// consent re-asks on change; refusal and drift keep the old tree.
+describe("extension-deps installation (ADR-0070)", () => {
+  const sri = (bytes: Uint8Array) => `sha512-${createHash("sha512").update(bytes).digest("base64")}`;
+  const tarballFor = (name: string, version: string) => new TextEncoder().encode(`tgz:${name}@${version}`);
+  const DEP_URL = (name: string, version: string) => `https://registry.npmjs.org/${name}/-/${name}-${version}.tgz`;
+
+  /** Fake registry io: `name@version` entries, tarballs extract to a package root. */
+  function fakeDepsIo(packages: Record<string, string>): Parameters<typeof ExtensionRuntime.prototype.register>[0] extends never ? never : any {
+    return {
+      async fetchText(url: string) {
+        const name = decodeURIComponent(url.split("/").pop() ?? "");
+        if (!(name in packages)) return { ok: false as const, message: `no packument ${name}` };
+        return { ok: true as const, body: JSON.stringify({ "dist-tags": { latest: packages[name] }, versions: { [packages[name]]: { dist: { tarball: DEP_URL(name, packages[name]), integrity: sri(tarballFor(name, packages[name])) } } } }) };
+      },
+      async fetchBytes(url: string) {
+        const m = /org\/(.+)\/-\//.exec(url);
+        const name = m?.[1] ?? "";
+        const version = url.split("-").pop()?.replace(".tgz", "") ?? "";
+        const bytes = tarballFor(name, version);
+        if (!packages[name]) return { ok: false as const, message: `no tarball ${url}` };
+        return { ok: true as const, body: bytes };
+      },
+      async extractTgz(bytes: Uint8Array, dir: string) {
+        const text = new TextDecoder().decode(bytes);
+        const m = /^tgz:([^@]+)@(.+)$/.exec(text);
+        if (!m) throw new Error(`bad tgz ${text.slice(0, 30)}`);
+        mkdirSync(join(dir, "package"), { recursive: true });
+        writeFileSync(join(dir, "package", "package.json"), JSON.stringify({ name: m[1], version: m[2] }));
+        writeFileSync(join(dir, "package", "index.js"), "");
+      },
+    };
+  }
+
+  /** A file extension whose manifest declares exact dependencies. */
+  function writeDepExt(path: string, name: string, deps: Record<string, string> | undefined, body = `export default { name: ${JSON.stringify(name)}, version: "1.0.0", apiVersion: "1.0", setup() {} };`): string {
+    writeFileSync(path, body);
+    writeFileSync(
+      join(dirname(path), "moh.extension.json"),
+      JSON.stringify({ name, version: "1.0.0", entry: basename(path), capabilities: [], ...(deps ? { dependencies: deps } : {}) }),
+    );
+    return path;
+  }
+
+  test("manifest deps install into the per-extension tree, consent authorized, re-load silent", async () => {
+    const dir = tempDir();
+    const file = writeDepExt(join(dir, "ext.mjs"), "with-deps", { zod: "3.23.8" });
+    const io = fakeDepsIo({ zod: "3.23.8" });
+    const asks: string[][] = [];
+    const rt = new ExtensionRuntime({
+      mohHome: dir,
+      consent: () => true,
+      authorizeDependencies: (_n, deps) => { asks.push([...deps]); return true; },
+      depsIo: io,
+    });
+    expect(await rt.registerFile(file)).toBe(true);
+    // Consent asked once, by name@version.
+    expect(asks).toEqual([["zod@3.23.8"]]);
+    const depsDir = extensionDepsDir(dir, "with-deps");
+    expect(existsSync(join(depsDir, "node_modules", "zod", "package.json"))).toBe(true);
+    expect(existsSync(join(depsDir, DEPS_LOCK_FILE))).toBe(true);
+    // Reload with unchanged everything: no re-ask, tree re-verified.
+    const rt2 = new ExtensionRuntime({
+      mohHome: dir,
+      consent: () => false,
+      authorizeDependencies: () => { asks.push(["asked-again"]); return true; },
+      depsIo: io,
+    });
+    expect(await rt2.registerFile(file)).toBe(true);
+    expect(asks).toHaveLength(1);
+  });
+
+  test("the extension's own directory gets a node_modules link into its tree — bare imports resolve", async () => {
+    const dir = tempDir();
+    const file = writeDepExt(join(dir, "ext.mjs"), "resolver", { zod: "3.23.8" });
+    const io = fakeDepsIo({ zod: "3.23.8" });
+    const rt = new ExtensionRuntime({
+      mohHome: dir,
+      consent: () => true,
+      authorizeDependencies: () => true,
+      depsIo: io,
+    });
+    expect(await rt.registerFile(file)).toBe(true);
+    // Whatever shape the platform needs (links where the resolver
+    // follows them, a real copy where it does not — Bun on Linux does
+    // not), the import must resolve: a bare specifier from the
+    // extension's own file resolves, and the installed tree serves it.
+    const resolved = createRequire(file).resolve("zod/package.json");
+    expect(existsSync(resolved)).toBe(true);
+    // The served package is the extension's own: its node_modules entry
+    // either links into the extension's tree (macOS) or is a real copy
+    // of it (Linux), never a second extension's tree.
+    const entry = join(dir, "node_modules", "zod");
+    const insideTree = extensionDepsDir(dir, "resolver");
+    if (lstatSync(entry).isSymbolicLink()) {
+      expect(readlinkSync(entry).startsWith(insideTree)).toBe(true);
+    } else {
+      expect(existsSync(join(entry, "package.json"))).toBe(true);
+    }
+  });
+
+  test("dependencies resolve during the extension's first top-level import", async () => {
+    const dir = tempDir();
+    dirs.push(dir);
+    const file = writeDepExt(join(dir, "ext.mjs"), "first-import", { "t8-fixture-only": "1.0.0" },
+      `import pkg from "t8-fixture-only/package.json";
+       export default { name: "first-import", version: "1.0.0", apiVersion: "1.0",
+         setup() { if (pkg.version !== "1.0.0") throw new Error("wrong dependency"); } };`);
+    const runtime = new ExtensionRuntime({ mohHome: dir, consent: () => true,
+      authorizeDependencies: () => true, depsIo: fakeDepsIo({ "t8-fixture-only": "1.0.0" }) });
+    expect(await runtime.registerFile(file)).toBe(true);
+    expect(runtime.consumeLoadEvents().some((e) => e.type === "extension_failed")).toBe(false);
+  });
+
+  test("changed deps re-ask showing the new deps; refusal keeps the old tree", async () => {
+    const dir = tempDir();
+    const file = writeDepExt(join(dir, "ext.mjs"), "dep-change", { zod: "3.23.8" });
+    const io = fakeDepsIo({ zod: "3.23.8", "left-pad": "1.3.0" });
+    const first = new ExtensionRuntime({
+      mohHome: dir,
+      consent: () => true,
+      authorizeDependencies: () => true,
+      depsIo: io,
+    });
+    expect(await first.registerFile(file)).toBe(true);
+    const depsDir = extensionDepsDir(dir, "dep-change");
+    const lockBefore = readFileSync(join(depsDir, DEPS_LOCK_FILE), "utf8");
+    // The manifest (and so the content identity) changes with the deps.
+    writeDepExt(file, "dep-change", { zod: "3.23.8", "left-pad": "1.3.0" });
+    const asked: string[][] = [];
+    const declined = new ExtensionRuntime({
+      mohHome: dir,
+      consent: () => true,
+      authorizeDependencies: (_n, deps) => { asked.push([...deps]); return false; },
+      depsIo: io,
+    });
+    expect(await declined.registerFile(file)).toBe(false);
+    expect(asked).toEqual([["left-pad@1.3.0", "zod@3.23.8"]]);
+    expect(declined.consumeLoadEvents().find((e) => e.type === "extension_failed")).toMatchObject({ name: "dep-change", reason: "deps_unauthorized" });
+    // The old tree is untouched by the refused install.
+    expect(readFileSync(join(depsDir, DEPS_LOCK_FILE), "utf8")).toBe(lockBefore);
+    // Granting the widened list installs it.
+    const granted = new ExtensionRuntime({
+      mohHome: dir,
+      consent: () => true,
+      authorizeDependencies: () => true,
+      depsIo: io,
+    });
+    expect(await granted.registerFile(file)).toBe(true);
+    expect(existsSync(join(depsDir, "node_modules", "left-pad", "package.json"))).toBe(true);
+  });
+
+  test("a drifted tree is a loud load refusal (deps_install_failed)", async () => {
+    const dir = tempDir();
+    const file = writeDepExt(join(dir, "ext.mjs"), "drifty", { zod: "3.23.8" });
+    const io = fakeDepsIo({ zod: "3.23.8" });
+    const first = new ExtensionRuntime({
+      mohHome: dir,
+      consent: () => true,
+      authorizeDependencies: () => true,
+      depsIo: io,
+    });
+    expect(await first.registerFile(file)).toBe(true);
+    // Tamper with the installed tree.
+    const depsDir = extensionDepsDir(dir, "drifty");
+    rmSync(join(depsDir, "node_modules", "zod"), { recursive: true });
+    const second = new ExtensionRuntime({
+      mohHome: dir,
+      consent: () => false,
+      authorizeDependencies: () => true,
+      depsIo: io,
+    });
+    expect(await second.registerFile(file)).toBe(false);
+    expect(second.consumeLoadEvents().find((e) => e.type === "extension_failed")).toMatchObject({ name: "drifty", reason: "deps_install_failed" });
+  });
+
+  test("code-level deps disagreeing with the manifest refuse loudly (deps_undeclared)", async () => {
+    const dir = tempDir();
+    const file = writeDepExt(
+      join(dir, "ext.mjs"),
+      "liar",
+      { zod: "3.23.8" },
+      `export default { name: "liar", version: "1.0.0", apiVersion: "1.0", dependencies: ["evil@1.0.0"], setup() {} };`,
+    );
+    const rt = new ExtensionRuntime({
+      mohHome: dir,
+      consent: () => true,
+      authorizeDependencies: () => true,
+      depsIo: fakeDepsIo({ zod: "3.23.8", evil: "1.0.0" }),
+    });
+    expect(await rt.registerFile(file)).toBe(false);
+    expect(rt.consumeLoadEvents().find((e) => e.type === "extension_failed")).toMatchObject({ name: "liar", reason: "deps_undeclared" });
   });
 });
 
@@ -462,7 +681,7 @@ describe("hot-reload", () => {
   test("preserves ctx.state and re-registers hooks; a mismatched reload keeps the previous instance", async () => {
     const dir = tempDir();
     const file = join(dir, "ext.mjs");
-    writeFileSync(
+    writeExt(
       file,
       `export default { name: "hot", version: "1.0.0", apiVersion: "1.0",
         setup(ctx) { ctx.state.loads = ((ctx.state.loads ?? 0) + 1); ctx.onToolCall(() => ({ veto: true, reason: "v" + ctx.state.loads })); } };
@@ -473,7 +692,7 @@ describe("hot-reload", () => {
     expect(rt.instances[0]!.state.loads).toBe(1);
 
     rt.startWatch();
-    writeFileSync(
+    writeExt(
       file,
       `export default { name: "hot", version: "1.1.0", apiVersion: "1.0",
         setup(ctx) { ctx.state.loads = ((ctx.state.loads ?? 0) + 1); ctx.onToolCall(() => ({ veto: true, reason: "v" + ctx.state.loads })); } };
@@ -485,7 +704,7 @@ describe("hot-reload", () => {
     expect(rt.instances[0]!.hooks.onToolCall.length).toBe(1); // re-registered
 
     // Major mismatch on reload: previous instance kept.
-    writeFileSync(
+    writeExt(
       file,
       `export default { name: "hot", version: "2.0.0", apiVersion: "2.0", setup() {} };
       `,
@@ -499,12 +718,12 @@ describe("hot-reload", () => {
     const dir = tempDir();
     const file = join(dir, "consented.mjs");
     const source = (version: string) => `export default { name: "watch", version: ${JSON.stringify(version)}, apiVersion: "1.0", setup() {} };`;
-    writeFileSync(file, source("1.0.0"));
+    writeExt(file, source("1.0.0"));
     let asks = 0;
     const rt = new ExtensionRuntime({ mohHome: dir, consent: () => ++asks <= 2 });
     expect(await rt.registerFile(file)).toBe(true);
     rt.startWatch();
-    writeFileSync(file, source("2.0.0"));
+    writeExt(file, source("2.0.0"));
     await Bun.sleep(400);
     expect(asks).toBe(2);
     expect(rt.instances[0]!.def.version).toBe("2.0.0");
@@ -793,7 +1012,7 @@ describe("consent precedes execution (#834 security)", () => {
    * registration and would hide the bug. */
   function payloadFile(dir: string, marker: string): string {
     const file = join(dir, "payload.mjs");
-    writeFileSync(
+    writeExt(
       file,
       `import { writeFileSync } from "node:fs";\n` +
         `writeFileSync(${JSON.stringify(marker)}, "top-level code ran");\n` +
@@ -849,12 +1068,12 @@ describe("consent precedes execution (#834 security)", () => {
     const file = join(dir, "edit.mjs");
     const source = (body: string) =>
       `export default { name: "edit", version: "1.0.0", apiVersion: "1.0", setup() {} };\n${body}`;
-    writeFileSync(file, source(""));
+    writeExt(file, source(""));
     expect(await rt.registerFile(file)).toBe(true);
 
     // The edited bytes carry a payload and the user declines the re-ask: the
     // previous instance stays and the new top level never runs.
-    writeFileSync(file, source(`import { writeFileSync } from "node:fs";\nwriteFileSync(${JSON.stringify(marker)}, "edit ran");`));
+    writeExt(file, source(`import { writeFileSync } from "node:fs";\nwriteFileSync(${JSON.stringify(marker)}, "edit ran");`));
     const strict = new ExtensionRuntime({ mohHome: home, consent: () => false });
     expect(await strict.registerFile(file)).toBe(false);
     expect(existsSync(marker)).toBe(false);
@@ -1058,5 +1277,226 @@ describe("#981: the event budget is per session", () => {
     expect(records(session)).toHaveLength(50);
     // The session's own first turn is its own budget again — named from here.
     expect(await session.send("again")).toMatchObject({ status: "done" });
+  });
+});
+
+describe("#1143: the event budget resets at beforeTurn dispatch entry", () => {
+  test("a hook recording at turn start gets a fresh budget after a previous turn's cap-out", async () => {
+    // Turn 1: the onToolCall flood fills the budget past the cap (50), so
+    // under the old reset point (user_message) the budget is still exhausted
+    // when turn 2's pre-turn records arrive.
+    // Turn 2/3: the beforeTurn records must all land anyway.
+    const { rt, session } = await setup(
+      defineExtension({
+        name: "turnstart",
+        version: "1.0.0",
+        apiVersion: MOH_EXTENSION_API_VERSION,
+        setup: (ctx: ExtensionSetupContext) => {
+          ctx.beforeTurn(() => {
+            // Records in the pre-turn window: under the old reset point
+            // this spent the previous turn's exhausted budget.
+            for (let i = 0; i < 10; i++) ctx.appendEvent({ name: "turnstart", payload: { i } });
+          });
+          ctx.onToolCall(() => {
+            for (let i = 0; i < 60; i++) ctx.appendEvent({ name: "flood", payload: { i } });
+          });
+        },
+      }),
+      { permissions: { overrides: { tools: { echo: "allow" } } },
+        turns: [
+          { deltas: [], finish: "tool_calls" as const, toolCalls: [{ name: "echo", args: { text: "flood" } }] },
+          { deltas: ["ok"], finish: "stop" as const },
+          { deltas: ["ok"], finish: "stop" as const },
+          { deltas: ["ok"], finish: "stop" as const },
+        ] },
+    );
+    void rt;
+    await session.send("turn one"); // floods: cap hits, budget exhausted
+    await session.send("turn two");
+    await session.send("turn three");
+    const starts = session
+      .history()
+      .filter((e) => e.type === "extension_event" && (e as { name: string }).name === "turnstart");
+    expect(starts).toHaveLength(30); // 10 per turn × 3 turns
+    const caps = session.history().filter((e) => e.type === "extension_failed" && e.reason === "event_cap");
+    expect(caps.length).toBeGreaterThanOrEqual(1); // turn 1's flood was capped
+    await session.dispose();
+  });
+});
+
+describe("ADR-0056 hook deadlines (#1126)", () => {
+  const bmcCtx = { prompt: { sections: {}, system: "", version: "x" }, messages: [] };
+
+  function deadlineRuntime(overrides: Partial<ConstructorParameters<typeof ExtensionRuntime>[0]> = {}) {
+    return runtime(tempDir(), { hookTimeoutMs: 80, replacementWindowMs: 40, ...overrides });
+  }
+
+  test("a hook sleeping past the ceiling contributes nothing; one visible record says so", async () => {
+    const { rt } = await setup(
+      defineExtension({
+        name: "slow",
+        version: "1.0.0",
+        apiVersion: MOH_EXTENSION_API_VERSION,
+        setup: (ctx) => {
+          ctx.onToolCall(async () => {
+            await Bun.sleep(200);
+            return { veto: true, reason: "too late" };
+          });
+        },
+      }),
+      { runtime: deadlineRuntime() },
+    );
+    // The veto never lands: silence is never authority.
+    const verdict = await rt.checkToolHooks({ callId: "c1", name: "echo", args: {} });
+    expect(verdict.veto).toBe(false);
+    expect(verdict.ask).toBe(false);
+    expect(verdict.errors).toHaveLength(1);
+    expect(verdict.errors[0]).toMatchObject({ type: "extension_failed", name: "slow", reason: "hook_timeout" });
+    expect((verdict.errors[0] as any).message).toContain("80ms");
+  });
+
+  test("a throw landing after the timeout is one bounded hook_late_error record (#1143)", async () => {
+    const rt = deadlineRuntime();
+    await rt.register(
+      defineExtension({
+        name: "late",
+        version: "1.0.0",
+        apiVersion: MOH_EXTENSION_API_VERSION,
+        setup: (ctx) => {
+          ctx.onToolCall(async () => {
+            await Bun.sleep(200); // past the 80ms ceiling…
+            throw new Error("late boom"); // …then throws: the abandoned promise
+          });
+        },
+      }),
+    );
+    const verdict = await rt.checkToolHooks({ callId: "c1", name: "echo", args: {} });
+    expect(verdict.veto).toBe(false);
+    expect(verdict.errors).toHaveLength(1);
+    expect(verdict.errors[0]).toMatchObject({ reason: "hook_timeout" });
+    // The late throw is recorded once the abandoned promise settles: the
+    // next dispatch drains it from the same (owner) bucket.
+    await Bun.sleep(250);
+    const next = await rt.checkToolHooks({ callId: "c2", name: "echo", args: {} });
+    const late = next.errors.filter((e) => (e as { reason?: string }).reason === "hook_late_error");
+    expect(late).toHaveLength(1);
+    expect((late[0] as { message: string }).message).toContain("late boom");
+  });
+
+  test("a throwing hook is still one fail-open record (ceiling does not change the throw path)", async () => {
+    // No session: createSession fire-and-forgets a dispatchSessionStart
+    // whose drain would race with this direct dispatch over the error
+    // bucket (the same reason test-level sends append their own records).
+    const rt = deadlineRuntime();
+    await rt.register(
+      defineExtension({
+        name: "boom",
+        version: "1.0.0",
+        apiVersion: MOH_EXTENSION_API_VERSION,
+        setup: (ctx) => ctx.onToolCall(() => { throw new Error("no"); }),
+      }),
+    );
+    const verdict = await rt.checkToolHooks({ callId: "c1", name: "echo", args: {} });
+    expect(verdict.veto).toBe(false);
+    expect(verdict.errors).toMatchObject([{ type: "extension_failed", name: "boom", reason: "hook" }]);
+  });
+
+  test("a replacement returned within the window counts; past it, the core's text wins but the hook's work still counts", async () => {
+    let sideEffect = 0;
+    const { rt } = await setup(
+      [
+        defineExtension({
+          name: "fast",
+          version: "1.0.0",
+          apiVersion: MOH_EXTENSION_API_VERSION,
+          setup: (ctx) => ctx.beforeModelCall(() => ({ sections: { memory: "fast text" } })),
+        }),
+        defineExtension({
+          name: "slowish",
+          version: "1.0.0",
+          apiVersion: MOH_EXTENSION_API_VERSION,
+          setup: (ctx) =>
+            ctx.beforeModelCall(async () => {
+              await Bun.sleep(60); // inside the 80ms ceiling, past the 40ms window
+              sideEffect += 1;
+              return { sections: { memory: "too late" } };
+            }),
+        }),
+      ],
+      { runtime: deadlineRuntime() },
+    );
+    const dispatch = await rt.dispatchBeforeModelCall(bmcCtx as any);
+    expect(dispatch.replacements).toEqual([
+      { by: "fast", version: "1.0.0", capabilities: [], sections: { memory: "fast text" } },
+    ]);
+    expect(dispatch.timeouts).toEqual([{ by: "slowish", window: "replacement" }]);
+    expect(sideEffect).toBe(1); // the hook's non-replacement work still counted
+    expect(dispatch.errors).toMatchObject([{ type: "extension_failed", name: "slowish", reason: "replacement_timeout" }]);
+  });
+
+  test("a hook that never answers inside the ceiling contributes nothing and is marked hook-level", async () => {
+    const { rt } = await setup(
+      defineExtension({
+        name: "gone",
+        version: "1.0.0",
+        apiVersion: MOH_EXTENSION_API_VERSION,
+        setup: (ctx) => ctx.beforeModelCall(() => Bun.sleep(500).then(() => ({ sections: { memory: "never" } }))),
+      }),
+      { runtime: deadlineRuntime() },
+    );
+    const dispatch = await rt.dispatchBeforeModelCall(bmcCtx as any);
+    expect(dispatch.replacements).toEqual([]);
+    // Both clocks fired: the window was lost at 40ms (the replacement is
+    // forfeit), the ceiling at 80ms (the hook itself contributed nothing).
+    expect(dispatch.timeouts).toEqual([
+      { by: "gone", window: "replacement" },
+      { by: "gone", window: "hook" },
+    ]);
+    expect(dispatch.errors).toMatchObject([
+      { type: "extension_failed", name: "gone", reason: "replacement_timeout" },
+      { type: "extension_failed", name: "gone", reason: "hook_timeout" },
+    ]);
+  });
+
+  test("a void-returning hook inside the window is neither a replacement nor a timeout", async () => {
+    const { rt } = await setup(
+      defineExtension({
+        name: "observer",
+        version: "1.0.0",
+        apiVersion: MOH_EXTENSION_API_VERSION,
+        setup: (ctx) => ctx.beforeModelCall(() => {}),
+      }),
+      { runtime: deadlineRuntime() },
+    );
+    const dispatch = await rt.dispatchBeforeModelCall(bmcCtx as any);
+    expect(dispatch.replacements).toEqual([]);
+    expect(dispatch.timeouts).toEqual([]);
+    expect(dispatch.errors).toEqual([]);
+  });
+
+  test("the ceilings default to 30 s and a 5 s replacement window", () => {
+    expect(DEFAULT_HOOK_TIMEOUT_MS).toBe(30_000);
+    expect(PROMPT_REPLACEMENT_WINDOW_MS).toBe(5_000);
+    expect(runtime(tempDir()).hookTimeoutMs).toBe(30_000);
+  });
+
+  test("PROBE", async () => {
+    const { session } = await setup(
+      defineExtension({
+        name: "probe",
+        version: "1.0.0",
+        apiVersion: MOH_EXTENSION_API_VERSION,
+        setup: (ctx: ExtensionSetupContext) => {
+          ctx.onToolCall(() => {
+            for (let i = 0; i < 60; i++) ctx.appendEvent({ name: "flood", payload: { i } });
+          });
+        },
+      }),
+    );
+    await session.send("a");
+    const evts = session.history().filter((e) => e.type === "extension_event");
+    const caps = session.history().filter((e) => e.type === "extension_failed");
+    console.log("EVENTS", evts.length, "CAPS", JSON.stringify(caps.map(c => (c as any).reason)));
+    await session.dispose();
   });
 });

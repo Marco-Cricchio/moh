@@ -1,8 +1,9 @@
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
-import type { AgentEvent, ExtensionStatus, Message, Provider, ReasoningStreamEvent, SendOptions, SkillPrompt, Tool, TurnResult } from "../types";
+import type { AgentEvent, ExtensionStatus, Message, Provider, ReasoningStreamEvent, SendOptions, SkillPrompt, ThinkingLevel, Tool, TurnResult } from "../types";
 import { SCHEMA_VERSION } from "../types";
+import type { ExtensionLiveInfo } from "../extensions-screen";
 import { normalizeTaskId, taskDeclaredEvent, taskOutcomeEvent, taskVerificationEvent } from "../task/telemetry";
 import { newUlid } from "./ulid";
 import { substituteSkillArgs } from "../skill-args";
@@ -20,7 +21,7 @@ import { persistProjectMcpTrust } from "../mcp/types";
 import { McpRuntime } from "../mcp";
 import { PromptComposer, type AssembledPrompt, type SkillIndexEntry } from "../prompt-composer";
 import { discoverSkills } from "../skills";
-import { ExtensionRuntime } from "../extensions";
+import { ExtensionRuntime, type ExtensionUIRefusal, type ActiveExtensionOverlay } from "../extensions";
 import { EventLog } from "./event-log";
 import { commercialDeclarationEvent, observationsFromQuotaReport } from "../quota/telemetry";
 import { endpointIdentity } from "../types";
@@ -28,11 +29,20 @@ import { PermissionGate, type ToolHookChecker } from "./permission-gate";
 import { ToolRunner, type ToolResultHookChecker } from "./tool-runner";
 import { TurnQueue } from "./turn-queue";
 import { AgentLoop } from "./agent-loop";
-import { SubagentHost } from "../subagents";
+import { SubagentHost, type SubagentSpawnRequester, type SubagentSpawnLimits } from "../subagents";
 import { replayMessages, replayWarnings } from "../session-store";
 import { MemoryRunner, MemoryStore, createMaintenanceExtractor } from "../memory";
 import type { CompactionHookContext } from "@moh/extension";
-import { resolveEndpointThinking } from "../thinking-preferences";
+import type { ContributedToolSchema } from "@moh/extension";
+
+/** ADR-0067: the shape of one contributed tool arriving through the bound sink. */
+interface ContributedToolShape {
+  name: string;
+  description: string;
+  inputSchema?: ContributedToolSchema;
+  execute(args: unknown, ctx: { signal: AbortSignal; cwd: string }): Promise<string> | string;
+}
+import { resolveEndpointThinking, thinkingStatesForRef } from "../thinking-preferences";
 import { catalogEntryFor, modelSupportsImages } from "../model-catalog";
 import { HandoffRunner } from "../handoff";
 import { resolveMaxIterations } from "./agent-loop";
@@ -45,6 +55,9 @@ import { mpmDiagnostics, type MpmDiagnostics } from "../mpm/diagnostics";
 import { readMpmUserConfig, resolveMpmConfig, type MpmEffectiveConfig } from "../mpm/config";
 import { isOnWindowsMount } from "../windows-mount";
 import { userConfigFile } from "../user-config";
+import { getStoredApiKey } from "../auth/store";
+import { listProviderModels } from "../live-model-catalog";
+import { listOpenAiCompatModels } from "../endpoint-models";
 import { DeclaredWindows, declaredWindowOf } from "../declared-window";
 import { noteUnrecognizedContextRefusal } from "../context-refusal-trace";
 
@@ -118,6 +131,11 @@ export class AgentSession {
   #lastPrompt: AssembledPrompt | null = null;
   #disposed = false;
   readonly #promptComposer: PromptComposer;
+  /** ADR-0055 (#1127): the spawn host, when subagents are on — the stop
+   * control and the live-children listing read it. */
+  #subagentHost: SubagentHost | null = null;
+  /** ADR-0055 (#1127): who is asking for spawns right now. */
+  #spawnRequester: () => SubagentSpawnRequester = () => ({ kind: "model" });
   #skills: SkillIndexEntry[];
   #skillDirs: string[];
   readonly #mohHome: string;
@@ -375,7 +393,20 @@ export class AgentSession {
           ? { mpm: { snapshotFor: (task: string) => this.#mpmOrientation?.planFor(task) ?? null } }
           : {}),
         ...(subagents.lanes ? { lanes: subagents.lanes } : {}),
+        // ADR-0055 (#1127): the spawn event's requester — the model, or the
+        // orchestration extension currently in scope. Default: the model.
+        requester: () => this.#spawnRequester(),
+        // The applied limits record the cap the child actually gets.
+        defaultMaxIterations: () => maxIterations,
+        // ADR-0053 + ADR-0055 (#998): the envelope extension spawns live
+        // in — ten children per extension per session (ADR-0053's fixed
+        // cap), each within this session's own iteration ceiling.
+        extensionEnvelope: { maxIterations },
       });
+      this.#subagentHost = host;
+      // ADR-0053/#998: a granted `spawn-subagent` capability executes
+      // through this session's host; the runtime resolves it lazily.
+      config.extensions?.attachSubagentHost?.(host);
       this.#tools = { ...this.#tools, spawn: host.spawnTool() };
     }
     this.#extensions = config.extensions;
@@ -387,7 +418,185 @@ export class AgentSession {
     this.#borrowedHooks = typeof borrowedRuntime?.withSession === "function" ? borrowedRuntime : undefined;
     // ADR-0037: the session is the runtime's turn entry — an extension's
     // `ctx.requestTurn` lands here, through the queue.
+    // ADR-0065: the session owns the live deny answer — its resolver is
+    // the user's rule set; a deny rule on a covered path beats every path
+    // grant per call.
+    if (this.#extensions && typeof (this.#extensions as { bindPathDeny?: unknown }).bindPathDeny === "function") {
+      (this.#extensions as { bindPathDeny(f: (abs: string) => boolean): void }).bindPathDeny((absPath: string) => {
+        const rel = this.#permissions.relativeInRoot(absPath);
+        if (rel === null) return false;
+        return this.#permissions.rules.some(
+          (rule) =>
+            rule.effect === "deny" &&
+            typeof rule.path === "string" &&
+            (rule.path === rel || new Bun.Glob(rule.path).match(rel)),
+        );
+      });
+    }
     if (this.#extensions) this.#extensions.bindRequestTurn((text) => this.runSyntheticTurn(text).then((r) => r.ok));
+    // ADR-0067: the tool-execution seam behind `ctx.host.runTool`. The
+    // runtime owns scope + logging; here is lookup, gate and execution —
+    // the normal ToolRunner path, the extension named as the ask's
+    // requester, no tool_call/tool_result events (the seam logs host_op).
+    if (this.#extensions && typeof (this.#extensions as { bindToolSeam?: unknown }).bindToolSeam === "function") {
+      (this.#extensions as { bindToolSeam(s: unknown): void }).bindToolSeam({        runTool: async (request: { extension: string; tool: string; args: unknown }) => {
+          const tool = this.#allTools()[request.tool];
+          if (!tool) return { ok: false as const, reason: "unknown_tool" as const, message: `no session tool named "${request.tool}"` };
+          const outcome = await this.#toolRunner.runSeamCall(
+            request.tool,
+            request.args,
+            newUlid(),
+            new AbortController().signal,
+            { extension: request.extension },
+          );
+          if (outcome.ok) return { ok: true as const, output: outcome.output };
+          if (outcome.errorKind === "permission") return { ok: false as const, reason: "denied" as const, message: outcome.output };
+          if (outcome.output.startsWith(`unknown tool:`)) return { ok: false as const, reason: "unknown_tool" as const, message: outcome.output };
+          return { ok: false as const, reason: "failed" as const, message: outcome.output };
+        },
+      });
+    }
+    // ADR-0068: the model-call seam behind `ctx.host.modelCall` /
+    // `ctx.host.listModels`. The runtime owns scope + logging; here is
+    // endpoint resolution, the single-shot Route call (one stop, no
+    // fallbacks — a fallback would serve from an endpoint the grant did
+    // not name), the thinking-capability check and usage accounting.
+    // Credentials stay inside the Route; provider reasoning of these
+    // calls is never persisted. A completed call is recorded as an
+    // ordinary `model_call` event, requester-marked — no parallel type.
+    if (this.#extensions && typeof (this.#extensions as { bindModelSeam?: unknown }).bindModelSeam === "function") {
+      (this.#extensions as { bindModelSeam(s: unknown): void }).bindModelSeam({
+        modelCall: async (request: {
+          extension: string;
+          endpoint: string;
+          model: string;
+          messages: ReadonlyArray<{ role: "system" | "user" | "assistant"; content: string }>;
+          thinkingLevel?: ThinkingLevel;
+          signal?: AbortSignal;
+        }) => {
+          const profile = this.#endpoints.find((e) => e.name === request.endpoint);
+          if (!profile) {
+            return { ok: false as const, reason: "unknown_endpoint" as const, message: `no endpoint named "${request.endpoint}" in moh.json` };
+          }
+          const modelId = request.model || profile.defaultModel;
+          if (!modelId) {
+            return { ok: false as const, reason: "failed" as const, message: `endpoint "${request.endpoint}" has no defaultModel; name a model` };
+          }
+          const ref = `${profile.name}/${modelId}`;
+          // ADR-0068: the per-call thinking override is bounded by the
+          // model's declared capability — supported (or the explicit
+          // disable) passes; anything else is the typed refusal, never a
+          // remapping. No declared capability, no override: moh never
+          // invents capabilities. Without an override, the endpoint's own
+          // resolution (its stored preference) applies.
+          let thinking: { level: ThinkingLevel } | undefined;
+          if (request.thinkingLevel !== undefined) {
+            const states = thinkingStatesForRef(ref, this.#endpoints);
+            if (!states || states[request.thinkingLevel] === "provider-default") {
+              return { ok: false as const, reason: "unsupported_level" as const, message: `thinking level "${request.thinkingLevel}" is not supported by ${ref}` };
+            }
+            thinking = { level: request.thinkingLevel };
+          } else {
+            thinking = resolveEndpointThinking(ref, this.#endpoints, join(this.#mohHome, "config"));
+          }
+          const registry = this.#registry ?? defaultRegistry.freeze();
+          let provider: Provider;
+          try {
+            // Single stop: the granted endpoint only — no fallbacks (a
+            // fallback would serve from an endpoint the grant did not
+            // name) and no route-level thinking seam (the per-call
+            // override above is the authority).
+            const { thinkingForTarget: _ignored, ...resolution } = this.#routeResolutionOptions;
+            provider = resolveProviderRef(ref, registry, [profile], resolution);
+          } catch (err) {
+            return { ok: false as const, reason: "failed" as const, message: err instanceof Error ? err.message : String(err) };
+          }
+          const messages: Message[] = request.messages
+            .filter((m) => m && typeof m.content === "string")
+            .map((m) => ({ role: m.role, parts: [{ kind: "text" as const, text: m.content }] }));
+          const usage = { inputTokens: 0, outputTokens: 0 };
+          let text = "";
+          let served = ref;
+          let effectiveLevel: ThinkingLevel | undefined;
+          try {
+            for await (const event of provider.stream(messages, request.signal ?? new AbortController().signal, undefined, thinking ? { thinking } : undefined)) {
+              if (event.type === "text_delta") text += event.text;
+              else if (event.type === "usage") {
+                usage.inputTokens += event.inputTokens;
+                usage.outputTokens += event.outputTokens;
+              } else if (event.type === "model_call_start") {
+                served = event.model;
+                effectiveLevel = event.thinkingLevel;
+              }
+            }
+          } catch (err) {
+            // ADR-0068: tokens count even when the call fails mid-stream —
+            // the partial usage is recorded (failed `model_call`,
+            // requester-marked) and accounted, never dropped.
+            if (usage.inputTokens !== 0 || usage.outputTokens !== 0) {
+              this.#append({ type: "model_call", model: served, usage: { ...usage }, ...(effectiveLevel !== undefined ? { thinkingLevel: effectiveLevel } : {}), failed: true, requester: { kind: "extension", extension: request.extension } });
+              this.#loop.recordExtensionUsage(request.extension, usage);
+            }
+            return { ok: false as const, reason: "failed" as const, message: err instanceof Error ? err.message : String(err) };
+          }
+          if (request.signal?.aborted) {
+            if (usage.inputTokens !== 0 || usage.outputTokens !== 0) {
+              this.#append({ type: "model_call", model: served, usage: { ...usage }, ...(effectiveLevel !== undefined ? { thinkingLevel: effectiveLevel } : {}), failed: true, requester: { kind: "extension", extension: request.extension } });
+              this.#loop.recordExtensionUsage(request.extension, usage);
+            }
+            return { ok: false as const, reason: "failed" as const, message: "model call aborted" };
+          }
+          // The record: the same `model_call` event, marked with the
+          // requester (ADR-0068). Provider reasoning is deliberately not
+          // collected — a host-seam call is not part of the conversation.
+          this.#append({
+            type: "model_call",
+            model: served,
+            usage: { ...usage },
+            ...(effectiveLevel !== undefined ? { thinkingLevel: effectiveLevel } : {}),
+            requester: { kind: "extension", extension: request.extension },
+          });
+          this.#loop.recordExtensionUsage(request.extension, usage);
+          return { ok: true as const, text, usage: { ...usage }, model: served, ...(effectiveLevel !== undefined ? { thinkingLevel: effectiveLevel } : {}) };
+        },
+        listModels: async (request: { endpoint: string }) => {
+          const profile = this.#endpoints.find((e) => e.name === request.endpoint);
+          if (!profile) {
+            return { ok: false as const, reason: "unknown_endpoint" as const, message: `no endpoint named "${request.endpoint}" in moh.json` };
+          }
+          try {
+            // openai-compat has its own plain listing (endpoint-models.ts);
+            // every other kind goes through the verified live-models
+            // contracts. Either way the credential is resolved host-side
+            // and the ids are all the extension sees.
+            const models = profile.type === "openai-compat"
+              ? await listOpenAiCompatModels(profile.baseUrl!, profile.apiKey)
+              : await listProviderModels(profile.type, profile.name, { ...(profile.baseUrl ? { baseUrl: profile.baseUrl } : {}), ...(profile.apiKey ? { apiKey: profile.apiKey } : {}) });
+            return { ok: true as const, models };
+          } catch (err) {
+            return { ok: false as const, reason: "failed" as const, message: err instanceof Error ? err.message : String(err) };
+          }
+        },
+      });
+    }
+    // ADR-0067: the contributed-tool sink behind `ctx.registerTool`. A    // contributed tool rides the same runner and gate as every session
+    // tool — registration is just an entry in the model-visible registry;
+    // its `tool_contributed` record is emitted by the runtime at
+    // registration time. The wrapper adapts the extension's validator
+    // (the `safeParse` slice of zod) to the core Tool contract.
+    if (this.#extensions && typeof (this.#extensions as { bindToolContributor?: unknown }).bindToolContributor === "function") {
+      (this.#extensions as { bindToolContributor(c: (r: { extension: string; tool: unknown }) => void): void }).bindToolContributor(({ tool }) => {
+        const contributed = tool as ContributedToolShape;
+        this.addTools({
+          [contributed.name]: {
+            name: contributed.name,
+            description: contributed.description,
+            inputSchema: (contributed.inputSchema ?? undefined) as Tool["inputSchema"],
+            execute: (args, ctx) => contributed.execute(args, ctx),
+          },
+        });
+      });
+    }
     this.#onDispose = config.onDispose;
     // Extension load results (including hot-reload outcomes) land in the log
     // — held until the session's own start chrome is in (#834). A load can
@@ -599,13 +808,36 @@ export class AgentSession {
       maxIterations,
       tools: () => this.#allTools(),
       toolRunner: this.#toolRunner,
-      ...(this.#extensions ? { extensions: this.#extensions } : {}),
+      ...(this.#extensions
+        ? { extensions: this.#extensions }
+        : // ADR-0054 (#1129): a child with no runtime borrows the
+          // beforeModelCall dispatch from its parent (scoped, so the
+          // chrome — refusals and `prompt_override` — lands in the
+          // child's log, #944). The borrowed surface widens per ADR-0054.
+          typeof config.toolHooks?.dispatchBeforeModelCall === "function"
+          ? {
+              extensions: {
+                dispatchBeforeModelCall: (ctx: Parameters<ExtensionRuntime["dispatchBeforeModelCall"]>[0]) =>
+                  this.#scopedDispatch(() =>
+                    (config.toolHooks as Pick<ExtensionRuntime, "dispatchBeforeModelCall">).dispatchBeforeModelCall(ctx),
+                  ),
+              },
+            }
+          : {}),
       ...(dispatchBeforeTurn
         ? {
             beforeTurn: {
               dispatch: (text, turnIndex, model) =>
                 dispatchBeforeTurn({ text, turnIndex, model, endpointCooldowns: this.endpointCooldowns }),
               applyModel: (ref) => this.switchModel(ref),
+              // #1143: the per-turn `extension_event` budget resets at
+              // dispatch entry — `beforeTurn` runs before the
+              // `user_message` append that used to reset it. Owner and
+              // borrowed sessions reset their own budget.
+              beginBudgetTurn: () => {
+                if (this.#extensions) this.#extensions.beginTurn(this.#sessionId);
+                else this.#borrowedHooks?.beginBorrowedTurn(this.#sessionId);
+              },
               // ADR-0033 §4: the client answers a confirmation. No seam =
               // headless: the loop refuses the turn itself ("silence by
               // default"), it never sends what it could not ask about.
@@ -644,6 +876,9 @@ export class AgentSession {
       messages: this.#messages,
       assemblePrompt: () => this.#assemblePrompt(),
       lastPrompt: () => this.#lastPrompt,
+      // ADR-0054 (#1129): the ADR-0011 skill prompt holds the skills
+      // section while it is in force — a replacement for it is refused.
+      skillsProtected: () => this.#skillPrompt !== null,
       append: (event) => this.#append(event),
       // #488: mention expansion — `@path` tokens in user messages become
       // structured attachments at turn start, gated by the read-permission
@@ -959,6 +1194,34 @@ export class AgentSession {
   /** Cancels the active turn (the loop appends the `cancelled` event). No-op if idle. */
   abort(): void {
     this.#queue.abort();
+  }
+
+  /**
+   * ADR-0055 (#1127): the live children this session spawned, each with its
+   * spawn requester/limits — the list the stop control shows before acting.
+   */
+  liveSubagents(): { callId: string; name: string; requester: SubagentSpawnRequester; limits: SubagentSpawnLimits }[] {
+    return this.#subagentHost?.liveSubagents() ?? [];
+  }
+
+  /**
+   * ADR-0055 "one stop": stop everything this session's orchestrations
+   * started — aborts every live child, records one `orchestration_stopped`
+   * chrome event with the aborted callIds, and returns them. Children that
+   * already settled contribute nothing; the extension itself stays enabled.
+   */
+  stopSubagents(): string[] {
+    const stopped = this.#subagentHost?.stop() ?? [];
+    if (stopped.length > 0) {
+      this.#append({ type: "orchestration_stopped", callIds: stopped, stoppedAt: new Date().toISOString() });
+    }
+    return stopped;
+  }
+
+  /** ADR-0055 (#1127): set who the next spawns are attributed to — the
+   * model (default) or a named orchestration extension. */
+  setSpawnRequester(requester: () => SubagentSpawnRequester): void {
+    this.#spawnRequester = requester;
   }
 
   /** Registry snapshot this session was created with (frozen). */
@@ -1364,6 +1627,95 @@ export class AgentSession {
   /** The names of the extensions currently registered on this session. */
   extensionNames(): string[] {
     return this.#extensions?.instances.map((i) => i.def.name) ?? [];
+  }
+
+  /**
+   * ADR-0062 (#1130): every registered extension command — what the
+   * command completion and `/extensions` list. Empty without extensions.
+   */
+  extensionCommands(): { extension: string; name: string; description: string }[] {
+    return this.#extensions?.extensionCommands() ?? [];
+  }
+
+  /** ADR-0062 (#1130): refused command registrations, with their reasons. */
+  extensionCommandRefusals() {
+    return this.#extensions?.commandRefusals() ?? [];
+  }
+
+  /** ADR-0062 (#1132): every registered panel, in extension order — one
+   * per extension, at most 4 across all. `render` is the extension's own
+   * Ink render function — opaque to the core, drawn only by a client with
+   * a surface (the TUI rail); a headless client never calls it. */
+  extensionPanels(): { extension: string; name: string; description: string; maxHeight?: number; render(): unknown }[] {
+    return this.#extensions?.panels() ?? [];
+  }
+
+  /** ADR-0062 (#1132): every registered overlay, in extension then call
+   * order; `render` as on panels. */
+  extensionOverlays(): { extension: string; name: string; description: string; render(): unknown }[] {
+    return this.#extensions?.overlays() ?? [];
+  }
+
+  /** ADR-0062 (#1132): refused panel/overlay registrations, with their reasons. */
+  extensionUIRefusals(): readonly ExtensionUIRefusal[] {
+    return this.#extensions?.uiRefusals() ?? [];
+  }
+
+  /** ADR-0062 (#1132): the overlay the client currently shows, null = none. */
+  extensionActiveOverlay(): ActiveExtensionOverlay | null {
+    return this.#extensions?.activeOverlay() ?? null;
+  }
+
+  /** ADR-0062 (#1132): closes the active extension overlay; a no-op when none. */
+  closeExtensionOverlay(): void {
+    this.#extensions?.closeOverlay();
+  }
+
+  /**
+   * #1131: what only the running runtime knows about each registered
+   * instance — source file, declared capabilities, registered commands.
+   * The event log alone cannot answer these (the log records who and
+   * which part, never the paths or the capability strings), so a screen
+   * folds the log for the shared facts and merges this for the live ones.
+   */
+  extensionLiveInfo(): ExtensionLiveInfo[] {
+    return (this.#extensions?.instances ?? []).map((i) => ({
+      name: i.def.name,
+      ...(i.file !== undefined ? { file: i.file } : {}),
+      capabilities: i.def.capabilities ?? [],
+      commands: i.commands.map((c) => ({ name: c.name, description: c.description ?? "" })),
+      panels: (i.panel !== null
+        ? [{
+            name: i.panel.name,
+            description: typeof i.panel.description === "string" && i.panel.description.length > 0 ? i.panel.description : `panel by ${i.def.name}`,
+            ...(typeof i.panel.maxHeight === "number" && i.panel.maxHeight > 0 ? { maxHeight: i.panel.maxHeight } : {}),
+          }]
+        : []),
+      overlays: i.overlays.map((o) => ({
+        name: o.name,
+        description: typeof o.description === "string" && o.description.length > 0 ? o.description : `overlay by ${i.def.name}`,
+      })),
+    }));
+  }
+
+  /**
+   * Resolves when every pending extension registration has settled
+   * (#1130): a headless client must consult `extensionCommands()` only
+   * after this — `registerFiles` is fire-and-forget, so an eager check
+   * races the import and a granted command can be missed.
+   */
+  extensionsReady(): Promise<void> {
+    return this.#extensions ? this.#extensions.ready().then(() => undefined) : Promise.resolve();
+  }
+
+  /**
+   * ADR-0062 (#1130): runs one extension command by slash name — the same
+   * door the TUI toast and the headless JSONL line both print.
+   */
+  invokeExtensionCommand(name: string, args: string) {
+    return this.#extensions
+      ? this.#extensions.invokeCommand(name, args)
+      : Promise.resolve({ ok: false as const, error: `no extension command "${name}"` });
   }
 
   /**

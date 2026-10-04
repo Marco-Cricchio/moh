@@ -21,7 +21,33 @@ import {
 } from "./session/from-config";
 import { type ConfirmTurnRequest, type PermissionsConfig, type PermissionAskContext, type SessionConfig } from "./session/config";
 import { builtinTools } from "./builtin-tools";
-import { ExtensionRuntime, type ExtensionConsentRequest, type RuntimeExtension } from "./extensions";
+import {
+  ExtensionRuntime,
+  MAX_PANELS,
+  type ExtensionConsentRequest,
+  type RuntimeExtension,
+  type ExtensionUIRefusal,
+  type ActiveExtensionOverlay,
+} from "./extensions";
+import {
+  installExtension,
+  realRegistryIo,
+  listInstalledExtensions,
+  parseExtensionRef,
+  removeInstalledExtension,
+  registryRoots,
+  verifyIntegrity,
+  KNOWN_CAPABILITY_SLOTS,
+  isKnownCapability,
+  type RegistryIo,
+  type ExtensionRef,
+  type InstallOptions,
+  type InstallResult,
+  type InstalledExtension,
+  type NpmPackument,
+} from "./extension-registry";
+import { scopeEffectSentence } from "./scope-effect";
+import { defaultCredentialStore, validateCredentialScope, type CredentialStore } from "./credential-scope";
 import { PromptComposer, type SkillIndexEntry } from "./prompt-composer";
 import type {
   AgentEvent,
@@ -139,6 +165,7 @@ export {
   type AssembleMentionsResult,
 } from "./mentions";
 import { type SubagentOptions } from "./subagents";
+import { ExtensionSpawnRefusedError } from "./extension-scope";
 export {
   DevelopmentLaneStore,
   type CreateFeatureGroupInput,
@@ -266,6 +293,19 @@ export {
   type SessionTreeStats,
 } from "./session-analyze";
 
+// #1131: the read-only `/extensions` state — the TUI overlay and any
+// headless reader fold it. Metadata-only projection (ADR-0004).
+export {
+  extensionsScreenStateFromEvents,
+  readExtensionsScreenState,
+  mergeExtensionLiveInfo,
+  type ExtensionsScreenState,
+  type ExtensionsScreenExtension,
+  type ExtensionsScreenSection,
+  type ExtensionsScreenRefusal,
+  type ExtensionLiveInfo,
+} from "./extensions-screen";
+
 import { skillRecommendations, formatSkillCommand, type SkillRecommendation, type SkillRoutingConfig, type SkillRouteOverride } from "./skill-routing";
 // #765: prompt snippets — skill argument parsing and placeholder
 // substitution. Pure and client-reusable (the TUI detects
@@ -292,6 +332,7 @@ export { formatModelPair } from "./model-pair";
 // with ("send" | "cancel" | "refuse") — the extension contract's type,
 // re-exported so a client needs one import for the whole seam.
 export type { TurnConfirmOutcome } from "@moh/extension";
+export type { ExtensionCommand, ExtensionCommandContext } from "@moh/extension";
 import { McpRuntime, mcpServerEntrySchema, declaredUserMcpServers, isProjectServerTrusted, persistProjectMcpTrust, type DeclaredMcpServer, type McpServerEntry, type McpRuntimeOptions } from "./mcp";
 import {
   loadMohConfig,
@@ -804,7 +845,35 @@ export {
   MockProvider,
   builtinTools,
   ExtensionRuntime,
+  MAX_PANELS,
   type RuntimeExtension,
+  type ExtensionUIRefusal,
+  type ActiveExtensionOverlay,
+  // #1128 (ADR-0061): the extension registry — install from immutable
+  // sources with static checks only; package code is never executed.
+  installExtension,
+  listInstalledExtensions,
+  parseExtensionRef,
+  removeInstalledExtension,
+  realRegistryIo,
+  registryRoots,
+  verifyIntegrity,
+  KNOWN_CAPABILITY_SLOTS,
+  isKnownCapability,
+  // ADR-0064/0065: the core-owned scope effect-sentence renderer the
+  // clients' consent surfaces show instead of the naked scope string.
+  scopeEffectSentence,
+  // ADR-0069 (#1161): the user-mint credential store the CLI's
+  // `moh secret` surface and session assembly share.
+  defaultCredentialStore,
+  validateCredentialScope,
+  type CredentialStore,
+  type RegistryIo,
+  type ExtensionRef,
+  type InstallOptions,
+  type InstallResult,
+  type InstalledExtension,
+  type NpmPackument,
   PromptComposer,
   type SendOptions,
   type SkillPrompt,
@@ -989,6 +1058,7 @@ export {
   type CompactionSummarizer,
   type CompactionSummarizerInput,
   type SubagentOptions,
+  ExtensionSpawnRefusedError,
   type McpServerEntry,
   type McpRuntimeOptions,
   type EndpointProfile,

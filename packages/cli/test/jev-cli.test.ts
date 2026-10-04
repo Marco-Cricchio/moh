@@ -10,9 +10,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { TYPESAFE_SETTINGS_HINT } from "@moh/jev-guard";
 import { JEV_USAGE, JEV_USE_CASE_NAMES } from "../src/jev";
+import { runCli, SPAWN_TEST_TIMEOUT_MS } from "./spawn-harness";
 
 const TMP_ROOT = mkdtempSync(join(tmpdir(), "moh-jev-cli-"));
 const KEY = "ts_live_0000secret9f2a";
+/** #1162: the credential ref `jev status` and the Settings entry agree on. */
+const KEY_REF = "typesafe";
 
 /** `config` is written verbatim to `~/.moh/config`; `undefined` leaves the
  * file absent (the zero-config case). */
@@ -25,17 +28,9 @@ function harness(config?: string) {
     mkdirSync(join(home, ".moh"), { recursive: true });
     writeFileSync(join(home, ".moh", "config"), config);
   }
-  const spawn = (argv: string[]) => {
-    const proc = Bun.spawnSync(
-      ["bun", join(import.meta.dir, "..", "src", "cli.ts"), ...argv],
-      { cwd, env: { ...process.env, HOME: home }, stdout: "pipe", stderr: "pipe" },
-    );
-    return {
-      code: proc.exitCode,
-      stdout: new TextDecoder().decode(proc.stdout),
-      stderr: new TextDecoder().decode(proc.stderr),
-    };
-  };
+  // #1162: the child reads the credential store — the 0600-file fallback,
+  // never the developer's own keychain.
+  const spawn = (argv: string[]) => runCli(argv, { cwd, home, env: { MOH_SECRET_STORE: "file" } });
   return { home, cwd, spawn };
 }
 
@@ -47,24 +42,40 @@ describe("moh jev status (#784)", () => {
     const { code, stdout } = spawn(["jev", "--help"]);
     expect(code).toBe(0);
     expect(stdout).toContain("usage: moh jev status");
-  });
+  }, SPAWN_TEST_TIMEOUT_MS);
 
-  test("active: masked key and effective timeout, exit 0", () => {
-    const { spawn } = harness(ACTIVE_CONFIG);
+  test("legacy plaintext key: active with the migration hint (#1162)", () => {
+    const { spawn, home } = harness(ACTIVE_CONFIG);
     const { code, stdout, stderr } = spawn(["jev", "status"]);
     expect(code).toBe(0);
     expect(stderr).toBe("");
-    expect(stdout).toBe("  jev             active (key …9f2a, timeout 2500ms)\n  guardrail       on\n  routing         off\n  injection       off\n  quality gate    off\n  classification  on\n  rerank          off\n  skills          off\n");
+    expect(stdout).toContain("  jev             active (key …9f2a, timeout 2500ms)");
+    expect(stdout).toContain("  legacy          plaintext key still in the config");
     // The key only ever reaches the screen masked.
     expect(stdout).not.toContain(KEY);
-  });
+
+    // Status is side-effect free: the config still carries the key (the
+    // migration happens at assembly / in Settings, not here).
+    expect(readFileSync(join(home, ".moh", "config"), "utf8")).toContain("apiKey");
+  }, SPAWN_TEST_TIMEOUT_MS);
+
+  test("stored credential: active, no legacy hint, no plaintext (#1162)", () => {
+    const { spawn, home } = harness("{}");
+    mkdirSync(join(home, ".moh"), { recursive: true });
+    writeFileSync(join(home, ".moh", "secrets.json"), JSON.stringify({ [KEY_REF]: KEY }));
+    const { code, stdout } = spawn(["jev", "status"]);
+    expect(code).toBe(0);
+    expect(stdout).toContain("  jev             active (key …9f2a, timeout 2500ms)");
+    expect(stdout).not.toContain("legacy");
+    expect(stdout).not.toContain(KEY);
+  }, SPAWN_TEST_TIMEOUT_MS);
 
   test("inactive: no config file at all → hint on how to activate, exit 0", () => {
     const { spawn } = harness();
     const { code, stdout } = spawn(["jev", "status"]);
     expect(code).toBe(0);
     expect(stdout).toBe(`  jev             inactive\n  guardrail       on\n  routing         off\n  injection       off\n  quality gate    off\n  classification  on\n  rerank          off\n  skills          off\n  hint            ${TYPESAFE_SETTINGS_HINT}\n`);
-  });
+  }, SPAWN_TEST_TIMEOUT_MS);
 
   test("inactive: a key-less typesafe block reads the same as an absent one", () => {
     const { spawn } = harness(JSON.stringify({ typesafe: {} }));
@@ -72,21 +83,25 @@ describe("moh jev status (#784)", () => {
     expect(code).toBe(0);
     expect(stdout).toContain("  jev             inactive");
     expect(stdout).toContain(TYPESAFE_SETTINGS_HINT);
-  });
+  }, SPAWN_TEST_TIMEOUT_MS);
 
-  test("active with a routing opt-in and a custom timeout", () => {
-    const { spawn } = harness(JSON.stringify({ typesafe: { apiKey: KEY, timeoutMs: 5000, routing: true } }));
+  test("active (stored credential) with a routing opt-in and a custom timeout", () => {
+    const { spawn, home } = harness(JSON.stringify({ typesafe: { timeoutMs: 5000, routing: true } }));
+    mkdirSync(join(home, ".moh"), { recursive: true });
+    writeFileSync(join(home, ".moh", "secrets.json"), JSON.stringify({ [KEY_REF]: KEY }));
     const { code, stdout } = spawn(["jev", "status"]);
     expect(code).toBe(0);
     expect(stdout).toBe("  jev             active (key …9f2a, timeout 5000ms)\n  guardrail       on\n  routing         on\n  injection       off\n  quality gate    off\n  classification  on\n  rerank          off\n  skills          off\n");
-  });
+  }, SPAWN_TEST_TIMEOUT_MS);
 
-  test("--json active: exactly the pinned object, one line", () => {
-    const { spawn } = harness(ACTIVE_CONFIG);
+  test("--json active (stored credential): exactly the pinned object, one line", () => {
+    const { spawn, home } = harness("{}");
+    mkdirSync(join(home, ".moh"), { recursive: true });
+    writeFileSync(join(home, ".moh", "secrets.json"), JSON.stringify({ [KEY_REF]: KEY }));
     const { code, stdout } = spawn(["jev", "status", "--json"]);
     expect(code).toBe(0);
     expect(stdout).toBe('{"active":true,"keyHint":"…9f2a","timeoutMs":2500,"guardrail":true,"routing":false,"injection":false,"lint":false,"classification":true,"rerank":false,"skills":false}\n');
-  });
+  }, SPAWN_TEST_TIMEOUT_MS);
 
   test("--json inactive: keyHint absent (never nulled), other keys present", () => {
     const { spawn } = harness();
@@ -95,14 +110,14 @@ describe("moh jev status (#784)", () => {
     expect(stdout).toBe('{"active":false,"timeoutMs":2500,"guardrail":true,"routing":false,"injection":false,"lint":false,"classification":true,"rerank":false,"skills":false}\n');
     const parsed = JSON.parse(stdout) as Record<string, unknown>;
     expect("keyHint" in parsed).toBe(false);
-  });
+  }, SPAWN_TEST_TIMEOUT_MS);
 
   test("--json is informational: exit 0 in both states", () => {
     const active = harness(ACTIVE_CONFIG);
     const inactive = harness();
     expect(active.spawn(["jev", "status", "--json"]).code).toBe(0);
     expect(inactive.spawn(["jev", "status", "--json"]).code).toBe(0);
-  });
+  }, SPAWN_TEST_TIMEOUT_MS);
 
   for (const argv of [
       ["jev"],
@@ -118,7 +133,7 @@ describe("moh jev status (#784)", () => {
       expect(stderr).toContain("usage: moh jev status");
       // A usage error never reports state: no half answer before the error.
       expect(stderr).not.toContain("  jev          inactive");
-    });
+    }, SPAWN_TEST_TIMEOUT_MS);
   }
 
   test("malformed typesafe section: loud error on stderr, exit 2", () => {
@@ -128,14 +143,14 @@ describe("moh jev status (#784)", () => {
     expect(stdout).toBe("");
     expect(stderr).toContain("typesafe section");
     expect(stderr).toContain("timeoutMs");
-  });
+  }, SPAWN_TEST_TIMEOUT_MS);
 
   test("a corrupt config file is tolerated by the guardian: inactive, exit 0", () => {
     const { spawn } = harness("{ not json");
     const { code, stdout } = spawn(["jev", "status"]);
     expect(code).toBe(0);
     expect(stdout).toContain("  jev             inactive");
-  });
+  }, SPAWN_TEST_TIMEOUT_MS);
 });
 
 // The temp tree is per-test-mkdtemp under one root; a single sweep at the
@@ -173,7 +188,7 @@ describe("moh jev <use-case> on|off (#833)", () => {
       expect((config.typesafe as Record<string, unknown>)[key]).toBe(true);
       // The key is never touched by a flag write.
       expect((config.typesafe as Record<string, unknown>).apiKey).toBe(KEY);
-    });
+    }, SPAWN_TEST_TIMEOUT_MS);
   }
 
   test("off writes false; the status report follows on the next read", () => {
@@ -186,7 +201,7 @@ describe("moh jev <use-case> on|off (#833)", () => {
     // ...and back on, without touching anything else.
     expect(spawn(["jev", "classification", "on"]).code).toBe(0);
     expect(spawn(["jev", "status"]).stdout).toContain("classification  on");
-  });
+  }, SPAWN_TEST_TIMEOUT_MS);
 
   test("an unrelated section of the config survives the write", () => {
     const { home, spawn } = harness(JSON.stringify({ typesafe: { apiKey: KEY }, telemetry: true, theme: "nord" }));
@@ -195,13 +210,13 @@ describe("moh jev <use-case> on|off (#833)", () => {
     expect(config.telemetry).toBe(true);
     expect(config.theme).toBe("nord");
     expect((config.typesafe as Record<string, unknown>).skills).toBe(true);
-  });
+  }, SPAWN_TEST_TIMEOUT_MS);
 
   test("with no config file at all the flag write creates just that section", () => {
     const { home, spawn } = harness();
     expect(spawn(["jev", "routing", "on"]).code).toBe(0);
     expect(readConfig(home)).toEqual({ typesafe: { routing: true } });
-  });
+  }, SPAWN_TEST_TIMEOUT_MS);
 
   test("the guardrail is armed by default and the command is what disarms it (#1041)", () => {
     const { home, spawn } = harness(ACTIVE_CONFIG);
@@ -216,7 +231,7 @@ describe("moh jev <use-case> on|off (#833)", () => {
     // ...and back on, leaving an explicit flag rather than deleting one.
     expect(spawn(["jev", "guardrail", "on"]).code).toBe(0);
     expect((readConfig(home).typesafe as Record<string, unknown>).guardrail).toBe(true);
-  });
+  }, SPAWN_TEST_TIMEOUT_MS);
 
   for (const [argv, detail] of [
     [["jev", "bananas", "on"], 'unknown use case "bananas"'],
@@ -231,7 +246,7 @@ describe("moh jev <use-case> on|off (#833)", () => {
       expect(stdout).toBe("");
       expect(stderr).toContain("usage: moh jev status");
       expect(stderr).toContain(detail);
-    });
+    }, SPAWN_TEST_TIMEOUT_MS);
   }
 
   test("--json belongs to status: a set form refuses it", () => {
@@ -239,7 +254,7 @@ describe("moh jev <use-case> on|off (#833)", () => {
     const { code, stderr } = spawn(["jev", "routing", "on", "--json"]);
     expect(code).toBe(2);
     expect(stderr).toContain("--json belongs to status");
-  });
+  }, SPAWN_TEST_TIMEOUT_MS);
 
   test("a malformed section fails loudly on write, exit 2, file untouched", () => {
     const broken = JSON.stringify({ typesafe: { timeoutMs: "fast" } });
@@ -251,7 +266,7 @@ describe("moh jev <use-case> on|off (#833)", () => {
     // The broken bytes are exactly what the user wrote: a failed write must
     // not rewrite the file into something "valid but different".
     expect(readFileSync(join(home, ".moh", "config"), "utf8")).toBe(broken);
-  });
+  }, SPAWN_TEST_TIMEOUT_MS);
 
   test("--help documents the set form and every name the command accepts", () => {
     const { spawn } = harness();
@@ -261,7 +276,7 @@ describe("moh jev <use-case> on|off (#833)", () => {
     for (const name of ["guardrail", "routing", "injection", "classification", "lint", "rerank", "skills"]) {
       expect(stdout).toContain(name);
     }
-  });
+  }, SPAWN_TEST_TIMEOUT_MS);
 });
 
 /**
@@ -275,11 +290,11 @@ describe("the usage text and the name table agree (#833)", () => {
     expect(JEV_USAGE).not.toContain("Session-only");
     expect(JEV_USAGE).toContain(`Use cases: ${JEV_USE_CASE_NAMES.join(", ")}.`);
     expect(JEV_USAGE).toContain('"moh jev guardrail off" is what');
-  });
+  }, SPAWN_TEST_TIMEOUT_MS);
 
   test("the manual's generated page carries the same text", () => {
     const page = readFileSync(join(import.meta.dir, "..", "..", "core", "src", "manual", "cli-reference.md"), "utf8");
     expect(page).toContain("moh jev <use-case> on|off");
     expect(page).toContain("Use cases: guardrail, routing, injection, classification, lint, rerank, skills.");
-  });
+  }, SPAWN_TEST_TIMEOUT_MS);
 });

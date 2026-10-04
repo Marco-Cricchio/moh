@@ -6,6 +6,7 @@
 import { runCommand, RUN_USAGE } from "./run";
 import { serveCommand, SERVE_USAGE } from "./serve";
 import { mcpCommand, MCP_USAGE } from "./mcp";
+import { extensionCommand, EXTENSION_USAGE } from "./extension";
 import { initCommand } from "./init";
 import { providerCommand, PROVIDER_USAGE } from "./provider";
 import { updateCommand, UPDATE_USAGE } from "./update";
@@ -16,6 +17,7 @@ import { mpmCommand, MPM_USAGE } from "./mpm";
 import { sessionsCommand, SESSIONS_USAGE } from "./sessions";
 import { usageCommand, USAGE_USAGE } from "./usage";
 import { jevCommand, JEV_USAGE } from "./jev";
+import { secretCommand, SECRET_USAGE } from "./secret";
 import { trashCommand, TRASH_USAGE } from "./trash";
 import { lanesCommand, LANES_USAGE } from "./lanes";
 import { browserCommand, BROWSER_USAGE } from "./browser";
@@ -32,6 +34,7 @@ commands:
   tui      interactive session (same as bare moh)
   run      non-interactive session (see: moh run --help)
   mcp      manage MCP tool servers (see: moh mcp --help)
+  extension  install/list/remove extension packages (see: moh extension --help)
   init     scaffold agent docs (docs/agents/* + AGENTS.md)
   provider manage provider endpoints and auth (see: moh provider --help)
   manual   read the user manual (see: moh manual --help)
@@ -42,6 +45,7 @@ commands:
   lanes    parallel development lanes (see: moh lanes --help)
   usage    usage reports: models, tools, routes (see: moh usage --help)
   jev      TypeSafe/Jev configuration and per-use-case flags (see: moh jev --help)
+  secret   user-owned extension secrets (see: moh secret --help)
   handoff  publish a session handoff (see: moh handoff --help)
   browser  browser tool status and setup (see: moh browser --help)
 
@@ -148,6 +152,13 @@ export async function main(
     }
     return mcpCommand({ argv: rest });
   }
+  if (command === "extension") {
+    if (rest.includes("--help") || rest.includes("-h")) {
+      process.stdout.write(EXTENSION_USAGE + "\n");
+      return 0;
+    }
+    return extensionCommand({ argv: rest, home: process.env.HOME });
+  }
   if (command === "init") {
     if (rest.length) {
       process.stderr.write(`moh init takes no arguments\n`);
@@ -221,6 +232,13 @@ export async function main(
       return 0;
     }
     return jevCommand({ argv: rest, home: process.env.HOME });
+  }
+  if (command === "secret") {
+    if (rest.includes("--help") || rest.includes("-h")) {
+      process.stdout.write(SECRET_USAGE + "\n");
+      return 0;
+    }
+    return secretCommand({ argv: rest, home: process.env.HOME });
   }
   if (command === "handoff") {
     if (rest.includes("--help") || rest.includes("-h")) {

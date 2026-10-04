@@ -2,7 +2,8 @@ import { describe, expect, test } from "bun:test";
 import { mkdtempSync, readFileSync, writeFileSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { MockProvider, createSession, listSessionSummaries, readThinkingPreference, SessionStore, setThinkingPreference } from "@moh/core";
+import { ExtensionRuntime, MockProvider, createSession, listSessionSummaries, readThinkingPreference, SessionStore, setThinkingPreference } from "@moh/core";
+import { defineExtension } from "@moh/extension";
 import { activeCommands, runSlashCommand, workflowCommands, BASE_COMMANDS, upstreamCheckMessage, type SlashContext } from "../src/commands";
 import { DEFAULT_USER_CONFIG, loadUserConfig, saveUserConfig, userConfigFile } from "../src/user-config";
 
@@ -34,7 +35,7 @@ function makeCtx(over: Partial<SlashContext> = {}): TestSlashContext {
 describe("new base slash commands (/commands /mode /theme /settings /wayfinder)", () => {
   test("BASE_COMMANDS lists the base commands alphabetically", () => {
     const names = BASE_COMMANDS.map((c) => c.name);
-    expect(names).toEqual(["ask-moh", "browser", "commands", "compact", "copy", "fork", "help", "jev", "lanes", "mode", "model", "mpm", "reload", "rename", "routing", "session", "settings", "theme", "thinking", "tree", "wayfinder", "workflow"]);
+    expect(names).toEqual(["ask-moh", "browser", "commands", "compact", "copy", "extensions", "fork", "help", "jev", "lanes", "mode", "model", "mpm", "reload", "rename", "routing", "session", "settings", "theme", "thinking", "tree", "wayfinder", "workflow"]);
     expect([...names].sort((a, b) => a.localeCompare(b))).toEqual(names);
   });
 
@@ -367,7 +368,7 @@ describe("workflow skill aliases", () => {
   test("aliases only exist while workflow is on", () => {
     const ctx = makeCtx() as any;
     expect(activeCommands({ config: DEFAULT_USER_CONFIG }).map((c) => c.name)).toEqual([
-      "ask-moh", "browser", "commands", "compact", "copy", "fork", "help", "jev", "lanes", "mode", "model", "mpm", "reload", "rename", "routing", "session", "settings", "theme", "thinking", "tree", "wayfinder", "workflow",
+      "ask-moh", "browser", "commands", "compact", "copy", "extensions", "fork", "help", "jev", "lanes", "mode", "model", "mpm", "reload", "rename", "routing", "session", "settings", "theme", "thinking", "tree", "wayfinder", "workflow",
     ]);
     runSlashCommand("/workflow on", ctx);
     const names = activeCommands({ config: ctx.config }).map((c) => c.name);
@@ -792,5 +793,70 @@ describe("/jev (#833)", () => {
     runSlashCommand("/jev", ctx);
     expect(ctx.notices().at(-1)).toContain("needs the TUI");
     expect(ctx.notices().at(-1)).toContain("Settings (Jev / TypeSafe)");
+  });
+});
+
+describe("extension slash commands (#1130, ADR-0062)", () => {
+  /** A session whose extension registered /deploy-status; when
+   * `reserved` is true the runtime also knows "model" is native-owned. */
+  async function extSession(reserved: boolean) {
+    const rt = new ExtensionRuntime({ mohHome: mkdtempSync(join(tmpdir(), "moh-extcmd-")), consent: () => true, ...(reserved ? { reservedCommandNames: ["model"] } : {}) });
+    await rt.register(
+      defineExtension({
+        name: "deploy",
+        version: "1.0.0",
+        apiVersion: "1.0",
+        capabilities: ["contribute-commands"],
+        setup(ctx) {
+          ctx.registerCommand!({ name: "deploy-status", description: "deployment status", run: ({ args }) => `status ok ${args}`.trim() });
+          ctx.registerCommand!({ name: "model", run: () => "usurped" });
+        },
+      }),
+    );
+    await rt.ready();
+    const cwd = mkdtempSync(join(tmpdir(), "moh-extcmd-cwd-"));
+    return createSession({ provider: MockProvider.scripted([{ deltas: [], finish: "stop" }]), cwd, mohHome: join(cwd, ".moh"), extensions: rt });
+  }
+
+  test("an extension command runs through the slash path and notifies its output", async () => {
+    const ctx = makeCtx({ session: await extSession(false) });
+    expect(runSlashCommand("/deploy-status --env prod", ctx)).toBe(true);
+    await new Promise((r) => setTimeout(r, 0));
+    expect(ctx.notices()).toEqual(["status ok --env prod"]);
+  });
+
+  test("a native command keeps precedence over an extension command of the same name", async () => {
+    const ctx = makeCtx({ session: await extSession(false) });
+    runSlashCommand("/model", ctx);
+    await new Promise((r) => setTimeout(r, 0));
+    // The native /model ran (its headless text), never the extension's "usurped".
+    expect(ctx.notices().join("\n")).toContain("usage: /model");
+    expect(ctx.notices().join("\n")).not.toContain("usurped");
+  });
+
+  test("/extensions lists registered commands and refused registrations with reasons", async () => {
+    const ctx = makeCtx({ session: await extSession(true) });
+    expect(runSlashCommand("/extensions", ctx)).toBe(true);
+    await new Promise((r) => setTimeout(r, 0));
+    const text = ctx.notices().join("\n");
+    expect(text).toContain("deploy");
+    expect(text).toContain("/deploy-status — deployment status");
+    expect(text).toContain("refused registrations:");
+    expect(text).toContain("/model — collides with a native command or skill");
+  });
+
+  test("#1131: /extensions opens the screen when the client provides the seam", () => {
+    let opened = false;
+    const ctx = makeCtx({ session: null, onOpenExtensions: () => (opened = true) });
+    expect(runSlashCommand("/extensions", ctx)).toBe(true);
+    expect(opened).toBe(true);
+  });
+
+  test("the completion popup lists extension commands after the native ones", async () => {
+    const session = await extSession(false);
+    const { commandEntries } = await import("../src/commands");
+    const names = commandEntries({ config: { ...DEFAULT_USER_CONFIG }, session }).map((e) => e.name);
+    expect(names).toContain("/deploy-status");
+    expect(names.filter((n) => n === "/deploy-status")).toHaveLength(1);
   });
 });

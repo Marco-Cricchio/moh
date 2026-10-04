@@ -10,7 +10,7 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { dirname, join, basename } from "node:path";
 import { createSession, ExtensionRuntime, MockProvider } from "../src/index";
 import { extensionSourceFiles } from "../src/extension-source";
 import { sessionFromConfig } from "../src/session/from-config";
@@ -36,10 +36,25 @@ function tempProject(): { cwd: string; home: string; mohHome: string } {
  * symlinked: `/var` is `/private/var`), so tests compare through realpath. */
 const canonical = (file: string) => realpathSync(file);
 
-/** Writes a module; returns its path. */
+/** Writes a module; returns its path. Every module written through this
+ * helper is also registered in its directory's `moh.extension.json`
+ * (ADR-0061: a file extension loads only with a manifest beside it), so
+ * tests exercise the same contract production does. */
+const manifestEntries = new Map<string, Set<string>>();
 function writeModule(path: string, body: string): string {
   mkdirSync(dirname(path), { recursive: true });
   writeFileSync(path, body);
+  const dir = dirname(path);
+  const base = basename(path);
+  if (/\.(m|c)?[jt]s$/.test(base) && !base.endsWith(".d.ts")) {
+    const entries = manifestEntries.get(dir) ?? new Set<string>();
+    entries.add(base);
+    manifestEntries.set(dir, entries);
+    writeFileSync(
+      join(dir, "moh.extension.json"),
+      JSON.stringify({ name: base, version: "1.0.0", entry: [...entries].sort(), capabilities: [] }, null, 2),
+    );
+  }
   return path;
 }
 
@@ -418,20 +433,48 @@ describe("sessionFromConfig loads the declared source (#834)", () => {
     expect(runtime.hasPendingRegistrations()).toBe(false);
   });
 
-  test("a declared dependency is refused loudly: no host installs them (v1)", async () => {
+  test("a declared dependency with no deps channel is refused loudly; with one, the ask rides onExtensionConsent (ADR-0070)", async () => {
     const { cwd, home, mohHome } = tempProject();
     writeModule(
       join(mohHome, "extensions", "needy.mjs"),
       vetoExtension("needy", "1.0.0", 'dependencies: ["left-pad@1.0.0"],'),
     );
     await withSession(
-      assemble({ cwd, home, provider: turnOnEcho(), consent: { onExtensionConsent: () => true } }),
+      // The enable question is answered yes; the dependency question no.
+      assemble({
+        cwd,
+        home,
+        provider: turnOnEcho(),
+        consent: { onExtensionConsent: (request) => !request.dependencies?.length },
+      }),
       async (session) => {
         await session.send("go");
         const failure = failedEvents(session.history()).find((e) => e.name === "needy");
         expect(failure).toMatchObject({ reason: "deps_unauthorized" });
         expect(failure!.message).toContain("left-pad@1.0.0");
         expect(session.history().some((e) => e.type === "extension_loaded")).toBe(false);
+      },
+    );
+    // ADR-0070: a consent seam that answers the deps question loads the
+    // extension (the code-level deps list is legacy-but-legal; the ask
+    // carries the deps by name@version for the client to display).
+    const asked: Array<Record<string, unknown>> = [];
+    await withSession(
+      assemble({
+        cwd,
+        home,
+        provider: turnOnEcho(),
+        consent: {
+          onExtensionConsent: (request) => {
+            if (request.dependencies?.length) asked.push({ name: request.name, deps: [...request.dependencies] });
+            return true;
+          },
+        },
+      }),
+      async (session) => {
+        await session.send("go");
+        expect(asked).toEqual([{ name: "needy", deps: ["left-pad@1.0.0"] }]);
+        expect(session.history().some((e) => e.type === "extension_loaded")).toBe(true);
       },
     );
   });

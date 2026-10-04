@@ -9,19 +9,35 @@
  * session continues without the extension.
  */
 import { existsSync, watch, type FSWatcher } from "node:fs";
-import { readFileSync, realpathSync, writeFileSync, mkdirSync } from "node:fs";
-import { createHash } from "node:crypto";
+import { appendFileSync, readFileSync, realpathSync, writeFileSync, mkdirSync, renameSync, rmSync, readlinkSync, statSync } from "node:fs";
+import { createHash, randomBytes } from "node:crypto";
 import { AsyncLocalStorage } from "node:async_hooks";
 import { homedir } from "node:os";
-import { basename, isAbsolute, resolve } from "node:path";
+import { basename, dirname, isAbsolute, resolve } from "node:path";
+import { rmdirSync } from "node:fs";
 import {
   MOH_EXTENSION_API_VERSION,
   parseApiVersion,
+  type ExtensionCommand,
+  type ExtensionPanel,
+  type ExtensionOverlay,
   type ExtensionDefinition,
   type ExtensionDependencies,
   type ExtensionSetupContext,
+  type ExtensionHost,
+  type HostOpResult,
+  type HostReadResult,
+  type HostReadLinkResult,
+  type HostFetchResult,
+  type HostRunToolResult,
+  type HostModelCallRequest,
+  type HostModelCallResult,
+  type HostListModelsResult,
+  type HostFetchOptions,
+  type ExtensionContributedTool,
   type BeforeTurnHook,
   type BeforeModelCallHook,
+  type BeforeModelCallResult,
   type ModelErrorHook,
   type ModelErrorResult,
   type EventHook,
@@ -41,8 +57,89 @@ import {
   type CompactionHookResult,
 } from "@moh/extension";
 import type { BeforeTurnResult } from "@moh/extension";
-import type { AgentEvent, ExtensionStatus } from "./types";
+import type { AgentEvent, ExtensionStatus, ThinkingLevel, TokenUsage } from "./types";
+import type { ExtensionSpawnSpec } from "@moh/extension";
+import type { SubagentHost } from "./subagents";
+import { checkScope } from "./check-scope";
+import { ExtensionSpawnRefusedError } from "./extension-scope";
+import { capabilityDiff, capabilitiesSubset, readExtensionManifest, type ManifestAuthority } from "./extension-manifest";
+import { depsTarballCache, extensionDepsDir, installExtensionDeps, linkDepsTree } from "./extension-deps";
+import { realRegistryIo, type RegistryIo } from "./extension-registry";
+import { hostScopesOf, isHostScope, isPathScope, MAX_FETCH_BYTES, MAX_REDIRECTS, HOST_SCOPE_REASONING_KEY, TOTAL_HOST_WILDCARD, validateHostScope, validatePathScope, pathScopesOf } from "./host-scope";
+import { credentialScopesOf, isCredentialScope, validateCredentialScope, type CredentialStore } from "./credential-scope";
+import { isToolScope, validateToolScope, toolScopesOf, isContributeToolScope, validateContributeToolScope, contributesTool, toolScopeName, contributeToolScopesOf, contributeToolName, CONTRIBUTE_TOOL_SCOPE_PREFIX } from "./tool-scope";
+import { isEndpointScope, validateEndpointScope, endpointScopesOf } from "./endpoint-scope";
+import { newUlid } from "./session/ulid";
+
+type HostOpName = "read" | "write" | "append" | "rename" | "delete" | "readlink" | "fetch" | "run_tool" | "model_call" | "list_models";
+
+/**
+ * ADR-0067: the tool-execution seam the session binds — the host-side
+ * half of `ctx.host.runTool`. The runtime owns scope + logging; the
+ * session owns lookup, gate and execution (the normal ToolRunner path).
+ */
+export interface ToolSeam {
+  runTool(request: { extension: string; tool: string; args: unknown }): Promise<
+    | { ok: true; output: string }
+    | { ok: false; reason: "unknown_tool" | "denied" | "failed"; message?: string }
+  >;
+}
+
+/**
+ * ADR-0068: the model-call seam the session binds — the host-side half
+ * of `ctx.host.modelCall` and `ctx.host.listModels`. The runtime owns
+ * scope + logging; the session owns endpoint resolution, the single-shot
+ * Route execution, the thinking-capability check and usage accounting.
+ * Credentials never cross this seam in either direction.
+ */
+export interface ModelSeam {
+  modelCall(request: {
+    extension: string;
+    endpoint: string;
+    model: string;
+    messages: ReadonlyArray<{ role: "system" | "user" | "assistant"; content: string }>;
+    thinkingLevel?: ThinkingLevel;
+    signal?: AbortSignal;
+  }): Promise<
+    | { ok: true; text: string; usage: TokenUsage; model: string; thinkingLevel?: ThinkingLevel }
+    | { ok: false; reason: "unknown_endpoint" | "unsupported_level" | "failed"; message?: string }
+  >;
+  listModels(request: { endpoint: string }): Promise<
+    | { ok: true; models: string[] }
+    | { ok: false; reason: "unknown_endpoint" | "failed"; message?: string }
+  >;
+}
 import { redactKeys } from "./redact";
+import { assertNoExtensionScope, runInExtensionScope } from "./extension-scope";
+
+/**
+ * ADR-0054 + ADR-0056 (#1126): what one `beforeModelCall` dispatch
+ * produced. `replacements` are the section returns that beat the 5 s
+ * window, in registration order — application (one-author-per-section,
+ * capability checks, the provenance line, the `prompt_override` record)
+ * belongs to the composer. `timeouts` names the hooks that lost a clock:
+ * `"replacement"` (answered past 5 s but inside the ceiling — its other
+ * contributions still count) or `"hook"` (never answered inside the
+ * ceiling — it contributed nothing). `errors` are the fail-open
+ * `extension_failed` records. Section keys are the composer's
+ * `SectionName`s, typed loosely here so the runtime stays independent of
+ * the composer's internals.
+ */
+export interface BeforeModelCallDispatch {
+  readonly replacements: {
+    by: string;
+    /** The extension's version — the provenance line and the record name it. */
+    version: string;
+    /** The capabilities the code declared (#1129): what the applier judges
+     * `replace-prompt-section:<section>` against. Already a subset of the
+     * manifest (the load refuses otherwise), so a capability here is one
+     * the user consented to. */
+    capabilities: readonly string[];
+    sections: Partial<Record<string, string | null>>;
+  }[];
+  readonly timeouts: { by: string; window: "replacement" | "hook" }[];
+  readonly errors: AgentEvent[];
+}
 
 /**
  * ADR-0033: what one `beforeTurn` dispatch produced. `model`/`confirm` are
@@ -93,11 +190,58 @@ export interface ExtensionConsentRequest {
    * knows them); absent on a first-time file, where nothing has run yet. */
   name?: string;
   version?: string;
+  /** The manifest's declared capabilities (ADR-0061): what the user is
+   * being asked to grant. Present when a `moh.extension.json` was read —
+   * which is every file load, since a file without one is refused before
+   * this question exists. */
+  capabilities?: readonly string[];
+  /** The widening of a re-ask (ADR-0061): capabilities the new manifest
+   * declares that the previously granted manifest did not. Empty or absent
+   * means no new powers. */
+  addedCapabilities?: readonly string[];
+  /**
+   * ADR-0066: the manifest's `reasoning` — the author's justification for
+   * a total network wildcard (`host:*`), which the consent question
+   * displays. Present only when the manifest declares one.
+   */
+  reasoning?: string;
+  /**
+   * ADR-0070 (#1166): the extension's declared npm dependencies, by name
+   * and version (`zod@3.23.8`) — present on a dependency authorization
+   * ask, so the question shows exactly which new bytes the yes installs.
+   */
+  dependencies?: readonly string[];
 }
 
 export interface ExtensionRuntimeOptions {
   /** User-level moh dir. Consent + dependency approvals persist in `<mohHome>/extensions.json`. Default `~/.moh`. */
   mohHome?: string;
+  /**
+   * ADR-0065: the project root every `path:<glob>` scope resolves
+   * against. Absent = `process.cwd()`. Set by session assembly.
+   */
+  projectRoot?: string;
+  /**
+   * ADR-0065: the user's per-call deny answer for a resolved absolute
+   * path (the session binds its permission resolver here). A deny beats
+   * every path grant per call; absent, no deny check runs.
+   */
+  isPathDenied?: (resolvedAbsPath: string) => boolean;
+  /**
+   * ADR-0066: the user's per-call deny answer for a request hostname.
+   * A deny beats every `host:` grant per call; absent, no deny check
+   * runs. Separate from `isPathDenied`: path rules never match hosts.
+   */
+  isHostDenied?: (hostname: string) => boolean;
+  /**
+   * ADR-0069: the credential store behind the `credential:<ref>` scope.
+   * Injected by session assembly (OS keychain when available, the bounded
+   * 0600-file fallback otherwise). The host resolves refs and injects the
+   * values at request time; extension code never sees one. Absent, no
+   * `credential:` grant can authenticate a request — every ref resolves
+   * as unknown, loudly.
+   */
+  credentialStore?: CredentialStore;
   /**
    * One-time enable consent. Called only when no stored consent matches the
    * module's content identity, and — for a file — BEFORE the module is
@@ -114,6 +258,13 @@ export interface ExtensionRuntimeOptions {
    */
   authorizeDependencies?: (name: string, deps: ExtensionDependencies) => Promise<boolean> | boolean;
   /**
+   * ADR-0070 (#1166): the IO seam behind the dependency installer
+   * (network + tar). Defaults to the real registry IO; tests inject a
+   * fake. The install itself is moh's: download + digest verification +
+   * layout, never a script.
+   */
+  depsIo?: RegistryIo;
+  /**
    * Non-event-log diagnostics: a load the user has to learn about on a
    * channel other than the log (a headless client's stderr, a hot-reload
    * outcome mid-session).
@@ -127,6 +278,32 @@ export interface ExtensionRuntimeOptions {
    * visible `extension_failed` event.
    */
   requestTurn?: (text: string) => Promise<boolean>;
+  /**
+   * ADR-0056 (#1126): the wall-clock ceiling for every turn-path hook
+   * invocation (`beforeTurn`, `beforeModelCall`, `onToolCall`,
+   * `onToolResult`, `afterTurn`). Default 30 s. Expired or thrown, a
+   * hook contributes nothing and the turn proceeds with one visible
+   * `extension_failed` record. The compaction hook keeps its own shorter
+   * window (#979) and is not governed by this ceiling.
+   */
+  hookTimeoutMs?: number;
+  /**
+   * ADR-0054: how long a `beforeModelCall` hook has to return its
+   * prompt-section replacement before the core's own text wins for that
+   * call. Default 5 s. The hook itself keeps running to the ceiling;
+   * only the replacement is forfeit. Exposed as an option so tests (and
+   * future clients) can shrink the clocks; the policy default never
+   * changes silently.
+   */
+  replacementWindowMs?: number;
+  /**
+   * ADR-0062 (#1130): the slash names the client's own surfaces own — its
+   * native commands plus every skill alias. An extension command colliding
+   * with one is refused at registration (precedence: native > skills >
+   * extension); the core cannot know these names itself, so the client
+   * that assembles the session supplies them.
+   */
+  reservedCommandNames?: readonly string[];
 }
 
 /** `register` options: trust is a property of the code being registered,
@@ -135,6 +312,14 @@ export interface RegisterOptions {
   /** The host shipped these bytes (bundled first-party code): consent and
    * dependency authorization are skipped. Never for a path-loaded module. */
   bundled?: boolean;
+  /**
+   * ADR-0061: the manifest authority for an in-memory registration (a
+   * bundled extension whose package ships `moh.extension.json`). When
+   * present, the same subset rule applies: code capabilities not declared
+   * here refuse the load. File loads derive their own manifest and never
+   * need this.
+   */
+  manifest?: ManifestAuthority;
 }
 
 /**
@@ -176,6 +361,23 @@ interface HookSet {
 /** ADR-0037: the maximum consecutive synthetic turns one extension gets. */
 export const MAX_CONSECUTIVE_SYNTHETIC_TURNS = 2;
 
+/**
+ * ADR-0056 (#1126): the default wall-clock ceiling for every turn-path
+ * hook invocation. Generous on purpose — a slow-but-legitimate hook
+ * (Jev's network round-trips) must fit; an extension that needs more
+ * gets a larger ceiling from configuration.
+ */
+export const DEFAULT_HOOK_TIMEOUT_MS = 30_000;
+
+/**
+ * ADR-0054: the window a `beforeModelCall` hook has to return its
+ * prompt-section replacement. Past it, the core's own text serves that
+ * call and one visible record says so — but the hook's other
+ * contributions (notes, statuses, side effects) still count, and the
+ * hook itself keeps running to the ADR-0056 ceiling.
+ */
+export const PROMPT_REPLACEMENT_WINDOW_MS = 5_000;
+
 /** One live extension instance inside the runtime. */
 export interface RuntimeExtension {
   readonly def: ExtensionDefinition;
@@ -190,7 +392,73 @@ export interface RuntimeExtension {
   readonly file?: string;
   /** ADR-0032: the extension's published footer status; null = none. Ephemeral. */
   status: string | null;
+  /** ADR-0062 (#1130): slash commands this instance registered, in call order. */
+  readonly commands: ExtensionCommand[];
+  /** ADR-0062 (#1132): the one panel this instance registered (null = none). */
+  panel: ExtensionPanel | null;
+  /** ADR-0062 (#1132): overlays this instance registered, in call order. */
+  readonly overlays: ExtensionOverlay[];
+  /** ADR-0053: the capability slots actually granted to this instance —
+   * the manifest when there is one, otherwise the code's own declaration. */
+  grantedCapabilities: string[];
 }
+
+/** One refused extension-command registration (ADR-0062): reported in
+ * `/extensions`, never silently dropped. */
+export interface ExtensionCommandRefusal {
+  readonly extension: string;
+  readonly name: string;
+  readonly reason: "reserved" | "taken" | "invalid";
+}
+
+/** One refused panel/overlay registration (ADR-0062, #1132): reported in
+ * `/extensions`, never silently dropped. */
+export interface ExtensionUIRefusal {
+  readonly extension: string;
+  readonly kind: "panel" | "overlay";
+  readonly name: string;
+  readonly reason: "exhausted" | "taken" | "invalid";
+}
+
+/** ADR-0062 (#1132): the capacity the rail allots panels — explicit, not
+ * automatic: no eviction, collapse/reopen is manual from `/extensions`. */
+export const MAX_PANELS = 4;
+
+/** The overlay a client currently shows full-screen, when any. */
+export interface ActiveExtensionOverlay {
+  readonly extension: string;
+  readonly name: string;
+}
+
+/** The `extension_loaded` payload for one instance: the registration
+ * facts (ADR-0062 #1132) ride the load event, so the headless `/extensions`
+ * fold reports panels and overlays with no second store. */
+function loadedEvent(instance: RuntimeExtension): AgentEvent {
+  const base: {
+    type: "extension_loaded";
+    name: string;
+    version: string;
+    panels?: string[];
+    overlays?: string[];
+    capabilities?: string[];
+  } = {
+    type: "extension_loaded",
+    name: instance.def.name,
+    version: instance.def.version,
+  };
+  if (instance.panel !== null) base.panels = [instance.panel.name];
+  if (instance.overlays.length > 0) base.overlays = instance.overlays.map((o) => o.name);
+  // ADR-0053: the startup announcement — each enabled extension's
+  // capabilities ride its load event, so the session's start chrome
+  // states what powers are in force.
+  if (instance.grantedCapabilities.length > 0) base.capabilities = [...instance.grantedCapabilities];
+  return base as AgentEvent;
+}
+
+/** The invocation outcome of one extension command (ADR-0062). */
+export type ExtensionCommandResult =
+  | { ok: true; extension: string; output: string }
+  | { ok: false; error: string };
 
 /**
  * #981: one session's ADR-0032 §3 accounting. It is keyed by *session*, not
@@ -219,6 +487,12 @@ interface ExtensionStore {
   consents: Record<string, true>;
   /** `absolute-path:content-hash` -> approved dependency list. */
   dependencies: Record<string, ExtensionDependencies>;
+  /** The manifest file's path -> the manifest the grant covers: its own
+   * SHA-256 and the capabilities it declared. Keyed by manifest *path*
+   * (not content identity): a widening edit usually edits the code too, so
+   * the identity changes and only the path is stable across the diff
+   * (ADR-0061). */
+  manifests: Record<string, { hash: string; capabilities: string[] }>;
 }
 
 const EMPTY_HOOKS = (): HookSet => ({
@@ -288,6 +562,81 @@ const OWNER_BUDGET = "\u0000owner";
 const MAX_PAYLOAD_BYTES = 8 * 1024;
 
 /**
+ * ADR-0053 (mask/alter log events): the log's chrome event names. An
+ * `appendEvent` naming one is refused with `reserved_event_name` — an
+ * extension record is always an `extension_event` naming its extension,
+ * never a forged entry of the session's own record.
+ */
+const RESERVED_EVENT_NAMES: ReadonlySet<string> = new Set([
+  "assistant_delta",
+  "branch_dangling",
+  "branch_switched",
+  "browser_unavailable",
+  "cancelled",
+  "commercial_declaration",
+  "compaction_dangling",
+  "compaction_failed",
+  "compaction_skipped",
+  "compaction",
+  "declared_window",
+  "done",
+  "error",
+  "extension_control",
+  "extension_event",
+  "extension_failed",
+  "extension_loaded",
+  "fallback",
+  "finish",
+  "lane_created",
+  "lane_transitioned",
+  "mcp_refused",
+  "mcp_server_failed",
+  "mcp_server_started",
+  "mcp_server_stopped",
+  "memory_updated",
+  "mention_warnings",
+  "model_call_start",
+  "model_call",
+  "model_switched",
+  "orchestration_stopped",
+  "permission_denied",
+  "permission_granted",
+  "permission_requested",
+  "permission_rule_added",
+  "permission_rules_restored",
+  "prompt_override",
+  "quota_episode",
+  "quota_observation",
+  "reasoning_delta",
+  "reasoning_end",
+  "reasoning_start",
+  "reasoning",
+  "route_serving",
+  "session_file_growth",
+  "session_mode",
+  "session_note",
+  "session_pinned",
+  "session_renamed",
+  "session_resumed",
+  "session_start",
+  "skill_invoked",
+  "subagent_result",
+  "subagent_spawn",
+  "switch_refused",
+  "task_declared",
+  "task_outcome",
+  "task_verification",
+  "text_delta",
+  "tool_call",
+  "tool_calls",
+  "tool_progress",
+  "tool_result",
+  "tree_bookmarked",
+  "usage",
+  "user_message",
+]);
+
+/**
  * ADR-0032 redaction heuristic, now the shared module (ADR-0058, #1105):
  * the same key heuristic serves the session log writer — one heuristic,
  * not several. Still keys-only here: an extension payload is serialized
@@ -340,8 +689,35 @@ async function importDefinition(file: string): Promise<unknown> {
 
 export class ExtensionRuntime {
   readonly #options: ExtensionRuntimeOptions;
+  /** ADR-0056: the effective turn-path hook ceiling (ms). */
+  readonly #hookTimeoutMs: number;
+  /** ADR-0054: the prompt-section replacement window (ms). */
+  readonly #replacementWindowMs: number;
   readonly #mohHome: string;
   readonly #instances: RuntimeExtension[] = [];
+  /**
+   * ADR-0062 (#1130): the slash names the client's own surfaces own — its
+   * native commands plus every skill alias. Extension commands colliding
+   * with one are refused at registration (precedence: native > skills >
+   * extension); the core cannot know these names itself, so the client
+   * that assembles the session supplies them.
+   */
+  readonly #reservedCommandNames: ReadonlySet<string>;
+  /** ADR-0062 (#1130): refused command registrations, in refusal order. */
+  readonly #commandRefusals: ExtensionCommandRefusal[] = [];
+  /** ADR-0062 (#1132): refused panel/overlay registrations, in refusal order. */
+  readonly #uiRefusals: ExtensionUIRefusal[] = [];
+  /** ADR-0062 (#1132): the overlay a client currently shows, null = none. */
+  #activeOverlay: ActiveExtensionOverlay | null = null;
+  /** Overlay open() guard: only the extension whose command is currently
+   * running may open its overlay; hooks and retained callbacks cannot.
+   * #1143: async-context keyed — each `invokeCommand` chains its owner
+   * through AsyncLocalStorage, so two interleaved invocations (a command
+   * awaiting input while another starts) each keep their own guard,
+   * however their promises interleave. */
+  readonly #commandOwners = new AsyncLocalStorage<RuntimeExtension>();
+  /** ADR-0062 (#1132): subscribers of overlay open requests. */
+  readonly #overlayListeners = new Set<(overlay: ActiveExtensionOverlay) => void>();
   readonly #pending: AgentEvent[] = [];
   readonly #listeners = new Set<(event: AgentEvent) => void>();
   /**
@@ -365,6 +741,14 @@ export class ExtensionRuntime {
    * adopted (not duplicated) when the id arrives.
    */
   #ownerSessionId: string | null = null;
+  /**
+   * ADR-0053 + ADR-0055 (#998 follow-up): the execution seam behind the
+   * `spawn-subagent` capability, attached by the session that owns its
+   * SubagentHost. Extensions capture the ctx closure at setup (before any
+   * session exists), so the seam is resolved lazily at call time; a call
+   * with no attached host is refused loudly, never silently dropped.
+   */
+  #subagentHost: SubagentHost | null = null;
   /** ADR-0032: subscribers of status publishes (extension name + text|null). */
   readonly #statusListeners = new Set<(extension: string, text: string | null) => void>();
   readonly #watchers = new Map<string, FSWatcher>();
@@ -389,6 +773,306 @@ export class ExtensionRuntime {
   constructor(options: ExtensionRuntimeOptions = {}) {
     this.#options = options;
     this.#mohHome = options.mohHome ?? resolve(homedir(), ".moh");
+    this.#hookTimeoutMs = options.hookTimeoutMs ?? DEFAULT_HOOK_TIMEOUT_MS;
+    this.#replacementWindowMs = options.replacementWindowMs ?? PROMPT_REPLACEMENT_WINDOW_MS;
+    this.#reservedCommandNames = new Set((options.reservedCommandNames ?? []).map((n) => n.toLowerCase()));
+  }
+
+  /**
+   * ADR-0062 (#1130): every registered extension command, in extension
+   * registration then call order — what `/extensions` and the command
+   * completion list.
+   */
+  extensionCommands(): { extension: string; name: string; description: string }[] {
+    return this.#instances.flatMap((i) =>
+      i.commands.map((c) => ({
+        extension: i.def.name,
+        name: c.name,
+        description: typeof c.description === "string" && c.description.length > 0 ? c.description : `command by ${i.def.name}`,
+      })),
+    );
+  }
+
+  /** ADR-0062 (#1130): every refused command registration, with its reason. */
+  commandRefusals(): readonly ExtensionCommandRefusal[] {
+    return this.#commandRefusals;
+  }
+
+  /** ADR-0062 (#1132): every registered panel, in extension order — one
+   * per extension (a second registration from the same extension is
+   * refused). Empty without the grant or without registrations. */
+  panels(): { extension: string; name: string; description: string; maxHeight?: number; render(): unknown }[] {
+    return this.#instances
+      .filter((i) => i.panel !== null)
+      .map((i) => ({
+        extension: i.def.name,
+        name: i.panel!.name,
+        description: typeof i.panel!.description === "string" && i.panel!.description.length > 0 ? i.panel!.description : `panel by ${i.def.name}`,
+        ...(typeof i.panel!.maxHeight === "number" && i.panel!.maxHeight > 0 ? { maxHeight: i.panel!.maxHeight } : {}),
+        render: () => i.panel!.render(),
+      }));
+  }
+
+  /** ADR-0062 (#1132): every registered overlay, in extension then call order. */
+  overlays(): { extension: string; name: string; description: string; render(): unknown }[] {
+    return this.#instances.flatMap((i) =>
+      i.overlays.map((o) => ({
+        extension: i.def.name,
+        name: o.name,
+        description: typeof o.description === "string" && o.description.length > 0 ? o.description : `overlay by ${i.def.name}`,
+        render: () => o.render(),
+      })),
+    );
+  }
+
+  /** ADR-0062 (#1132): every refused panel/overlay registration, with its reason. */
+  uiRefusals(): readonly ExtensionUIRefusal[] {
+    return this.#uiRefusals;
+  }
+
+  /** ADR-0062 (#1132): the overlay the client currently shows, null = none. */
+  activeOverlay(): ActiveExtensionOverlay | null {
+    return this.#activeOverlay;
+  }
+
+  /** ADR-0062 (#1132): closes the active overlay; a no-op when none. */
+  closeOverlay(): void {
+    this.#activeOverlay = null;
+  }
+
+  /** ADR-0062 (#1132): subscribes to overlay open requests; returns the
+   * unsubscribe function. A client with a surface renders the named
+   * overlay full-screen; a headless client subscribes to nothing and the
+   * open contributes nothing visible. */
+  onOverlayOpen(listener: (overlay: ActiveExtensionOverlay) => void): () => void {
+    this.#overlayListeners.add(listener);
+    return () => this.#overlayListeners.delete(listener);
+  }
+
+  /** ADR-0062 (#1132): the registration path behind `ctx.registerPanel`.
+   * `replacing` is the outgoing instance during a hot-reload: it still
+   * sits in `#instances` while the fresh instance's setup runs, and the
+   * slot it holds is the one being handed over — counting it would make
+   * an extension lose its panel on an ordinary edit whenever the rail is
+   * full (`4 + 1 > 4`). */
+  #registerPanel(instance: RuntimeExtension, panel: ExtensionPanel, replacing?: RuntimeExtension): void {
+    const extension = instance.def.name;
+    const name = typeof (panel as { name?: unknown } | null)?.name === "string" ? panel.name : "";
+    if (!/^[a-z0-9][a-z0-9-]*$/.test(name) || typeof panel?.render !== "function") {
+      this.#refuseUI(extension, "panel", typeof name === "string" ? name : "", "invalid");
+      return;
+    }
+    if (instance.panel !== null) {
+      this.#refuseUI(extension, "panel", name, "taken");
+      return;
+    }
+    const existing = this.#instances.filter((i) => i.panel !== null && i !== replacing).length;
+    if (existing + 1 > MAX_PANELS) {
+      this.#refuseUI(extension, "panel", name, "exhausted");
+      return;
+    }
+    instance.panel = panel;
+  }
+
+  /** ADR-0062 (#1132): the registration path behind `ctx.registerOverlay`.
+   * Returns the `open()` handle the extension's command calls. */
+  #registerOverlay(instance: RuntimeExtension, overlay: ExtensionOverlay): { open(): void } {
+    const extension = instance.def.name;
+    const name = typeof (overlay as { name?: unknown } | null)?.name === "string" ? overlay.name : "";
+    if (!/^[a-z0-9][a-z0-9-]*$/.test(name) || typeof overlay?.render !== "function") {
+      this.#refuseUI(extension, "overlay", typeof name === "string" ? name : "", "invalid");
+      return { open: () => {} };
+    }
+    const taken = instance.overlays.some((o) => o.name === name);
+    if (taken) {
+      this.#refuseUI(extension, "overlay", name, "taken");
+      return { open: () => {} };
+    }
+    instance.overlays.push(overlay);
+    return {
+      open: () => {
+        // #1143: the owner is whoever's invocation this callback runs in —
+        // keyed by async context, so an interleaved second command cannot
+        // steal or lose the first's overlay open() guard.
+        if (this.#commandOwners.getStore() !== instance) {
+          this.#emitFailed(extension, "overlay_open_refused", `overlay "${name}" can only be opened by this extension's command`);
+          return;
+        }
+        const active = { extension, name };
+        this.#activeOverlay = active;
+        for (const listener of this.#overlayListeners) listener(active);
+      },
+    };
+  }
+
+  #refuseUI(extension: string, kind: ExtensionUIRefusal["kind"], name: string, reason: ExtensionUIRefusal["reason"]): void {
+    this.#uiRefusals.push({ extension, kind, name, reason });
+    const why =
+      reason === "exhausted"
+        ? `panel slot exhausted (${MAX_PANELS}/${MAX_PANELS}) — disable a panel in /extensions`
+        : reason === "taken"
+          ? kind === "panel"
+            ? "one panel per extension"
+            : "the overlay name is already taken by this extension"
+          : `the ${kind} needs a valid name (letters, digits, hyphens) and a render()`;
+    this.#emitFailed(extension, `${kind}_refused`, `${kind} "${name}" refused: ${why}`);
+  }
+
+  /**
+   * ADR-0062 (#1130): runs one extension command by slash name. This is
+   * the headless door too: a client with no UI invokes here and prints the
+   * returned text — the same output the TUI shows, never a mock. A
+   * throwing handler refuses the invocation with a visible
+   * `extension_failed` record and never throws to the caller.
+   */
+  async invokeCommand(name: string, args: string): Promise<ExtensionCommandResult> {
+    const wanted = name.toLowerCase();
+    for (const instance of this.#instances) {
+      const command = instance.commands.find((c) => c.name === wanted);
+      if (!command) continue;
+      // #1143: the owner rides the async context, not a single field —
+      // two interleaved invocations (a command awaiting input while
+      // another starts) must each keep their own owner, or the first
+      // `finally` clears the second's.
+      return this.#commandOwners.run(instance, async () => {
+        try {
+          const output = await command.run({ args });
+          return { ok: true, extension: instance.def.name, output: typeof output === "string" ? output : String(output ?? "") };
+        } catch (err) {
+          const message = errMessage(err);
+          this.#emitFailed(instance.def.name, "command_failed", `command "${command.name}" failed: ${message}`);
+          return { ok: false, error: message };
+        }
+      });
+    }
+    return { ok: false, error: `no extension command "${name}"` };
+  }
+
+  /** ADR-0062 (#1130): the registration path behind `ctx.registerCommand`. */
+  #registerCommand(instance: RuntimeExtension, command: ExtensionCommand): void {
+    const extension = instance.def.name;
+    const name = typeof (command as { name?: unknown } | null)?.name === "string" ? command.name : "";
+    // Lowercase only (the contract's promise on `ExtensionCommand.name`):
+    // a mixed-case name would register under one spelling and never answer
+    // to its lowercase slash form — refused instead, never half-registered.
+    if (!/^[a-z0-9][a-z0-9-]*$/.test(name)) {
+      this.#refuseCommand(extension, typeof name === "string" ? name : "", "invalid");
+      return;
+    }
+    const key = name.toLowerCase();
+    if (this.#reservedCommandNames.has(key)) {
+      this.#refuseCommand(extension, name, "reserved");
+      return;
+    }
+    // During setup the instance is not yet in `#instances` (it is pushed
+    // after setup settles), so the same-extension check is its own clause.
+    const taken = this.#instances.some((i) => i.commands.some((c) => c.name === key)) || instance.commands.some((c) => c.name === key);
+    if (taken) {
+      this.#refuseCommand(extension, name, "taken");
+      return;
+    }
+    if (typeof command.run !== "function") {
+      this.#refuseCommand(extension, name, "invalid");
+      return;
+    }
+    instance.commands.push(command);
+  }
+
+  #refuseCommand(extension: string, name: string, reason: ExtensionCommandRefusal["reason"]): void {
+    this.#commandRefusals.push({ extension, name, reason });
+    const why =
+      reason === "reserved"
+        ? "collides with a native command or skill (native > skills > extension)"
+        : reason === "taken"
+          ? "the name is already taken by another extension command"
+          : "the name must be letters, digits and hyphens, and the command needs a run()";
+    this.#emitFailed(extension, "command_refused", `command "/${name}" refused: ${why}`);
+  }
+
+  /** ADR-0056: the effective turn-path hook ceiling (ms). */
+  get hookTimeoutMs(): number {
+    return this.#hookTimeoutMs;
+  }
+
+  /**
+   * ADR-0056/#1126: runs one hook invocation under the wall-clock
+   * ceiling. Expired or thrown, the hook contributes nothing — the
+   * caller sees `undefined` — and one visible `extension_failed` record
+   * says so. A hook that answers *after* the ceiling is abandoned: its
+   * late rejection is swallowed (already recorded) and its late value is
+   * never read. The runtime holds no per-hook timer after the race
+   * settles.
+   */
+  async #runCapped<T>(
+    instance: RuntimeExtension,
+    hookLabel: string,
+    run: () => Promise<T> | T,
+    ceilingMs: number = this.#hookTimeoutMs,
+  ): Promise<{ out: T | undefined; timedOut: boolean }> {
+    let timedOut = false;
+    let deadline: ReturnType<typeof setTimeout> | undefined;
+    // The throw is captured INSIDE the racing promise: a rejecting race
+    // member and the wall clock settle in either order, and the outcome
+    // (one visible record, no contribution) must not depend on which won.
+    let failed = false;
+    let failure: unknown;
+    const pending = (async () => {
+      try {
+        // ADR-0053: extension code runs marked, so the core's privileged
+        // seams can refuse a prohibition attempted from inside a hook.
+        return await runInExtensionScope(instance.def.name, run);
+      } catch (err) {
+        failed = true;
+        failure = err;
+        return undefined as T;
+      }
+    })();
+    const out = await Promise.race([
+      pending,
+      new Promise<undefined>((resolve) => {
+        deadline = setTimeout(() => {
+          timedOut = true;
+          resolve(undefined);
+        }, ceilingMs);
+      }),
+    ]);
+    if (deadline !== undefined) clearTimeout(deadline);
+    if (timedOut) {
+      this.#recordHookError({
+        type: "extension_failed",
+        name: instance.def.name,
+        reason: "hook_timeout",
+        message: `the ${hookLabel} hook did not answer within ${ceilingMs}ms; it contributed nothing`,
+      });
+      // #1143: a throw that lands after the timeout won the race would
+      // otherwise go unrecorded — `failed`/`failure` in the abandoned
+      // promise are never read. One bounded late-error record keeps "a
+      // non-answer is absence, never authority" honest. The record rides
+      // the same error bucket this dispatch drained into: captured here,
+      // because the abandoned promise resumes outside the async scope.
+      const bucket = this.#borrowedSessions.getStore()?.errors ?? this.#hookErrors;
+      void pending.catch(() => {}).then(() => {
+        if (failed) {
+          bucket.push({
+            type: "extension_failed",
+            name: instance.def.name,
+            reason: "hook_late_error",
+            message: `the ${hookLabel} hook threw after its ${ceilingMs}ms timeout: ${errMessage(failure)}`,
+          });
+        }
+      });
+      return { out: undefined, timedOut };
+    }
+    if (failed) {
+      this.#recordHookError({
+        type: "extension_failed",
+        name: instance.def.name,
+        reason: "hook",
+        message: errMessage(failure),
+      });
+      return { out: undefined, timedOut: false };
+    }
+    return { out: out as T, timedOut: false };
   }
 
   /** Successfully loaded instances, in registration order. */
@@ -448,6 +1132,15 @@ export class ExtensionRuntime {
   onStatusChange(listener: (extension: string, text: string | null) => void): () => void {
     this.#statusListeners.add(listener);
     return () => this.#statusListeners.delete(listener);
+  }
+
+  /**
+   * ADR-0053/#998: the owning session attaches its SubagentHost so a
+   * granted `spawn-subagent` capability has something to execute through.
+   * The envelope (session cap, iteration ceiling) lives on the host.
+   */
+  attachSubagentHost(host: SubagentHost): void {
+    this.#subagentHost = host;
   }
 
   /** ADR-0032: the currently published statuses, in registration order. */
@@ -668,6 +1361,99 @@ export class ExtensionRuntime {
   }
 
   /**
+ * ADR-0064 + ADR-0065: the session binds its live deny answer for the path
+ * scope. A deny rule on a covered path beats every path grant per call —
+ * the grant never widens what moh itself may do. Read at call time, so a
+ * runtime rule added mid-session applies to the next host operation.
+ */
+#pathDeny: ((resolvedAbsPath: string) => boolean) | null = null;
+
+bindPathDeny(isDenied: (resolvedAbsPath: string) => boolean): void {
+  this.#pathDeny = isDenied;
+}
+
+  /**
+   * ADR-0067: the session binds its tool-execution seam. The `runTool`
+   * host method exists only when a `tool:` scope was granted, but the
+   * session (which owns the runner and the gate) may not exist yet at
+   * load time — the seam binds later, like the deny answers.
+   */
+  #toolSeam: ToolSeam | null = null;
+
+  bindToolSeam(seam: ToolSeam): void {
+    this.#toolSeam = seam;
+  }
+
+  /**
+   * ADR-0068: the session binds its model-call seam. Extension setup may
+   * run before a session exists — the seam binds later, like the tool
+   * seam. A call made with no session bound is refused loudly, never
+   * silently dropped.
+   */
+  #modelSeam: ModelSeam | null = null;
+
+  bindModelSeam(seam: ModelSeam): void {
+    this.#modelSeam = seam;
+  }
+
+  /**
+   * ADR-0067: the session binds its contributed-tool sink. A registration
+   * made before a session exists (setup runs during load) is held and
+   * applied — and logged — at bind time, so the `tool_contributed` event
+   * lands inside the session's log deterministically.
+   */
+  #toolContributor: ((registration: { extension: string; tool: unknown }) => void) | null = null;
+  #pendingContributed: { extension: string; tool: unknown }[] = [];
+
+  bindToolContributor(contributor: (registration: { extension: string; tool: unknown }) => void): void {
+    this.#toolContributor = contributor;
+    const pending = this.#pendingContributed.splice(0);
+    for (const registration of pending) {
+      contributor(registration);
+      // ADR-0067: the registration record lands with the session's log —
+      // emitted at bind time, never during setup, so a replay sees it
+      // where the tool became callable.
+      this.#emit({ type: "tool_contributed", extension: registration.extension, tool: (registration.tool as { name: string }).name });
+    }
+  }
+
+  /** True when any loaded extension holds a `contribute-tool:<name>` grant. */
+  hasContributedToolScopes(): boolean {
+    return this.#instances.some((e) => contributeToolScopesOf(e.grantedCapabilities).length > 0);
+  }
+
+  /**
+   * ADR-0067 `registerTool`: the name must be one the consent named; a
+   * mismatch is a loud `extension_failed` and the tool never reaches the
+   * model. With a session bound, the tool registers immediately (and the
+   * `tool_contributed` record rides the session's log); without one, the
+   * registration is held for `bindToolContributor`.
+   */
+  #registerContributedTool(instance: RuntimeExtension, tool: ExtensionContributedTool, grantedNames: readonly string[]): void {
+    const extension = instance.def.name;
+    const name = typeof (tool as { name?: unknown } | null)?.name === "string" ? tool.name : "";
+    if (name === "" || !contributesTool(name, [...grantedNames.map((n) => `${CONTRIBUTE_TOOL_SCOPE_PREFIX}${n}`)])) {
+      this.#emitFailed(extension, "register_tool_refused", `contribute-tool: the registered tool name "${name}" is not one the consent granted (${grantedNames.map((n) => `"${n}"`).join(", ") || "none"})`);
+      return;
+    }
+    if (typeof tool.execute !== "function") {
+      this.#emitFailed(extension, "register_tool_refused", `contribute-tool: "${name}" has no execute()`);
+      return;
+    }
+    const registration = { extension, tool };
+    if (this.#toolContributor) this.#toolContributor(registration);
+    else this.#pendingContributed.push(registration);
+    // The `tool_contributed` record is emitted by `bindToolContributor`
+    // at bind time — the log of the session where the tool became
+    // callable, never a setup-time orphan event.
+  }
+
+  /** True when any loaded extension holds a `tool:<name|*>` grant. */
+  hasToolScopes(): boolean {
+    return this.#instances.some((e) => toolScopesOf(e.grantedCapabilities).length > 0);
+  }
+
+  /**
    * Resolves when every registration started so far has settled (the
    * bundled-definition path and the client's file source register
    * fire-and-forget from the assembly; the first turn waits on this so a
@@ -735,15 +1521,33 @@ export class ExtensionRuntime {
    * never-answered file must not execute a single line, headless included.
    * A granted answer is persisted against the identity (path + bytes), so an
    * unchanged file never asks again and an edited one always does.
+   *
+   * ADR-0061: for a file load the grant also covers the **manifest** — its
+   * own SHA-256 and the capabilities it declared. An unchanged manifest is
+   * part of the silent load; a manifest whose hash changed re-asks, and a
+   * widening edit shows the capability diff in the question.
    */
   async #ensureConsent(
     identity: string,
-    info: { file?: string; hash?: string; name?: string; version?: string },
+    info: {
+      file?: string;
+      hash?: string;
+      name?: string;
+      version?: string;
+      capabilities?: readonly string[];
+    },
     bundled: boolean,
+    manifest?: ManifestAuthority,
   ): Promise<{ ok: true } | { ok: false; reason: string; message: string }> {
     if (bundled) return { ok: true };
     const store = this.#readStore();
-    if (store.consents[identity]) return { ok: true };
+    // The grant is (code bytes, manifest bytes): either half changing means
+    // a new question. The manifest record is keyed by manifest path because
+    // the content identity is not stable across a widening edit — the code
+    // usually changes with the manifest.
+    const stored = manifest ? store.manifests[manifest.path] : undefined;
+    const manifestUnchanged = manifest ? stored?.hash === manifest.hash : true;
+    if (store.consents[identity] && manifestUnchanged) return { ok: true };
     if (!this.#options.consent) {
       const message = "extension not previously enabled and no consent flow is available";
       // The host's own channel (a headless client's stderr): the log
@@ -751,6 +1555,9 @@ export class ExtensionRuntime {
       this.#options.onWarning?.(`extension ${info.name ?? info.file ?? identity}: not loaded — ${message}`);
       return { ok: false, reason: "consent", message };
     }
+    // The widening the user must see: what the new manifest declares that
+    // the previously granted one did not.
+    const added = manifest && stored ? capabilityDiff(stored.capabilities, info.capabilities ?? []).added : [];
     let granted: boolean;
     try {
       granted = await this.#options.consent({
@@ -758,12 +1565,19 @@ export class ExtensionRuntime {
         ...(info.hash ? { hash: info.hash } : {}),
         ...(info.name ? { name: info.name } : {}),
         ...(info.version ? { version: info.version } : {}),
+        ...(info.capabilities?.length ? { capabilities: info.capabilities } : {}),
+        ...(added.length ? { addedCapabilities: added } : {}),
+        // ADR-0066: the total-wildcard justification rides the question.
+        ...(manifest?.reasoning !== undefined ? { reasoning: manifest.reasoning } : {}),
       });
     } catch (err) {
       return { ok: false, reason: "consent", message: errMessage(err) };
     }
     if (!granted) return { ok: false, reason: "consent", message: "user declined to enable the extension" };
     store.consents[identity] = true;
+    if (manifest && info.capabilities) {
+      store.manifests[manifest.path] = { hash: manifest.hash, capabilities: [...info.capabilities] };
+    }
     this.#writeStore(store);
     return { ok: true };
   }
@@ -782,11 +1596,27 @@ export class ExtensionRuntime {
       this.#emitFailed(basename(abs), "load_failed", "extension file could not be read");
       return false;
     }
-    const gate = await this.#ensureConsent(identity, { file: abs, hash: identityHash(identity) }, false);
+    // ADR-0061: the manifest before everything — it is what consent reads,
+    // so a file with no (or a malformed, or a not-its-own) manifest refuses
+    // here, asking nothing and importing nothing. Not even top-level code
+    // of an unmanifested module runs.
+    const manifest = readExtensionManifest(abs);
+    if (!manifest.ok) {
+      this.#emitFailed(basename(abs), "manifest", manifest.message);
+      return false;
+    }
+    const gate = await this.#ensureConsent(
+      identity,
+      { file: abs, hash: identityHash(identity), capabilities: manifest.manifest.capabilities },
+      false,
+      manifest.authority,
+    );
     if (!gate.ok) {
       this.#emitFailed(basename(abs), gate.reason, gate.message);
       return false;
     }
+    const prepared = await this.#prepareFileDeps(abs);
+    if (!prepared) return false;
     let def: unknown;
     try {
       def = await importDefinition(abs);
@@ -794,7 +1624,7 @@ export class ExtensionRuntime {
       this.#emitFailed(basename(abs), "load_failed", errMessage(err));
       return false;
     }
-    return this.#load(def, abs);
+    return this.#load(def, abs, {}, manifest.manifest.capabilities);
   }
 
   /** Watch registered files and hot-reload on change (state preserved). */
@@ -815,6 +1645,10 @@ export class ExtensionRuntime {
   }
 
   #scheduleReload(file: string): void {
+    // ADR-0053 absolute prohibition: disabling or replacing another
+    // extension is core-only work. A reload triggered from extension code
+    // would do exactly that (swap or retire an instance) — refused.
+    assertNoExtensionScope("disable-extension", "trigger an extension reload (disable/replace another extension)");
     clearTimeout(this.#reloadTimers.get(file));
     this.#reloadTimers.set(
       file,
@@ -830,17 +1664,37 @@ export class ExtensionRuntime {
     const index = this.#instances.findIndex((i) => i.file === file);
     if (index === -1) return;
     const previous = this.#instances[index]!;
+    // Everything below speaks about the canonical path, like the load path —
+    // the manifest lookup and the consent store key must match it.
+    file = canonicalModulePath(file);
+    // ADR-0061: the manifest is re-read before anything else — a missing or
+    // malformed one keeps the previous instance, exactly like a refused
+    // consent would: what serves is the last state the user approved.
+    const manifest = readExtensionManifest(file);
+    if (!manifest.ok) {
+      this.#options.onWarning?.(`extension ${previous.def.name}: reload refused (${manifest.message}); previous instance kept`);
+      this.#emitFailed(previous.def.name, "reload_failed", `${manifest.message}; previous instance kept`);
+      return;
+    }
     // #834 (security): the edited bytes are consented BEFORE they are
     // imported. A reload evaluates the new file, so an edit the user has not
     // answered for must not run: the ask names the extension (the previous
     // instance knows it) and its new hash, and a refusal keeps the previous
-    // instance in place.
+    // instance in place. A widening manifest edit shows the capability diff
+    // in the question (#1125).
     const identity = contentIdentity(file);
     if (identity) {
       const gate = await this.#ensureConsent(
         identity,
-        { file, hash: identityHash(identity), name: previous.def.name, version: previous.def.version },
+        {
+          file,
+          hash: identityHash(identity),
+          name: previous.def.name,
+          version: previous.def.version,
+          capabilities: manifest.manifest.capabilities,
+        },
         false,
+        manifest.authority,
       );
       if (!gate.ok) {
         this.#options.onWarning?.(`extension ${previous.def.name}: reload refused (${gate.reason}); previous instance kept`);
@@ -848,6 +1702,7 @@ export class ExtensionRuntime {
         return;
       }
     }
+    if (!await this.#prepareFileDeps(file)) return;
     let def: unknown;
     try {
       def = await importDefinition(file);
@@ -860,7 +1715,7 @@ export class ExtensionRuntime {
       return;
     }
     // Seed the fresh instance with the previous state so setup() sees it.
-    const fresh = await this.#instantiate(def, file, previous.state);
+    const fresh = await this.#instantiate(def, file, previous.state, {}, manifest.manifest.capabilities, previous);
     if (!fresh.ok) {
       this.#options.onWarning?.(
         `extension ${previous.def.name}: reload refused (${fresh.reason}); previous instance kept`,
@@ -875,17 +1730,22 @@ export class ExtensionRuntime {
       for (const listener of this.#statusListeners) listener(previous.def.name, null);
     }
     this.#instances[index] = fresh.instance;
-    this.#emit({ type: "extension_loaded", name: fresh.instance.def.name, version: fresh.instance.def.version });
+    this.#emit(loadedEvent(fresh.instance));
   }
 
-  async #load(def: unknown, file: string | undefined, options: RegisterOptions = {}): Promise<boolean> {
-    const result = await this.#instantiate(def, file, undefined, options);
+  async #load(
+    def: unknown,
+    file: string | undefined,
+    options: RegisterOptions = {},
+    manifestCaps?: readonly string[],
+  ): Promise<boolean> {
+    const result = await this.#instantiate(def, file, undefined, options, manifestCaps);
     if (!result.ok) {
       this.#emitFailed(result.name ?? basename(file ?? "(unknown)"), result.reason, result.message);
       return false;
     }
     this.#instances.push(result.instance);
-    this.#emit({ type: "extension_loaded", name: result.instance.def.name, version: result.instance.def.version });
+    this.#emit(loadedEvent(result.instance));
     return true;
   }
 
@@ -895,6 +1755,13 @@ export class ExtensionRuntime {
     file: string | undefined,
     seedState?: Record<string, unknown>,
     options: RegisterOptions = {},
+    manifestCaps?: readonly string[],
+    /** The instance this one replaces (a hot-reload): excluded from the
+     * rail's capacity count, whose slot is being handed over (#1132). */
+    replacing?: RuntimeExtension,
+    /** ADR-0066: the manifest authority the consent signed (its
+     * `reasoning` travels from the same bytes, never a re-read). */
+    manifestAuthority?: ManifestAuthority,
   ): Promise<
     | { ok: true; instance: RuntimeExtension }
     | ({ ok: false; name?: string; reason: string; message: string })
@@ -932,20 +1799,84 @@ export class ExtensionRuntime {
     // candidate definition exists the grant is already stored and this is a
     // lookup — which also re-checks the bytes, catching a file swapped in
     // between. For an in-memory registration it is the question itself.
+    const recheck = file ? readExtensionManifest(file) : undefined;
+    // ADR-0061: the grant covers manifest bytes too; re-derived here so a
+    // manifest swapped in between ask and import is caught.
+    const consentAuthority = file
+      ? (recheck?.ok ? recheck.authority : undefined)
+      : options.manifest?.hash
+        ? {
+            hash: options.manifest.hash,
+            path: options.manifest.path ?? options.manifest.hash,
+            capabilities: options.manifest.capabilities,
+            ...(options.manifest.reasoning !== undefined ? { reasoning: options.manifest.reasoning } : {}),
+          }
+        : undefined;
     const consent = await this.#ensureConsent(
       identity,
-      { ...(file ? { file } : {}), ...(hash ? { hash } : {}), name, version: d.version },
+      {
+        ...(file ? { file } : {}),
+        ...(hash ? { hash } : {}),
+        name,
+        version: d.version,
+        // Re-derives the manifest here too: a file swapped in between the
+        // pre-import ask and this lookup is caught rather than trusted.
+        ...(recheck?.ok ? { capabilities: recheck.manifest.capabilities } : {}),
+      },
       bundled,
+      consentAuthority,
     );
     if (!consent.ok) return { ok: false, name, reason: consent.reason, message: consent.message };
+    // The subset check itself: only where a manifest exists to check against
+    // (every file load; a bundled source that declares one).
+    const authority = manifestCaps ?? options.manifest?.capabilities;
+    if (authority) {
+      const defCaps: unknown = (d as { capabilities?: unknown }).capabilities;
+      // A non-string entry is not dropped: it coerces into a slot the
+      // manifest will not have declared, so the refusal names it.
+      const codeCaps = (Array.isArray(defCaps) ? defCaps : []).map((c) => (typeof c === "string" ? c : String(c)));
+      const subset = capabilitiesSubset(codeCaps, authority);
+      if (!subset.ok) {
+        return {
+          ok: false,
+          name,
+          reason: "capability_undeclared",
+          message: `extension uses capabilities not declared in its manifest: ${subset.undeclared.join(", ")}`,
+        };
+      }
+    }
     // Per-change dependency authorization, bound to the same content identity.
-    const deps = d.dependencies ?? [];
+    // ADR-0070 (#1166): when the manifest declares `dependencies`, the
+    // manifest is the authority — exact pins moh installs into the
+    // extension's own dependency directory. The install (like the consent)
+    // is per content identity: a changed dep list is a new question whose
+    // answer is remembered; a refusal keeps the previously approved tree.
+    const manifestDeps: Record<string, string> | undefined =
+      recheck?.ok ? recheck.manifest.dependencies : consentAuthority?.dependencies;
+    const codeDeps = d.dependencies ?? [];
+    // A code-level declaration disagreeing with the manifest is a loud
+    // refusal: one source of truth, the manifest the consent signed.
+    if (manifestDeps !== undefined && codeDeps.length > 0) {
+      const manifestKeys = Object.entries(manifestDeps).map(([pkg, ver]) => `${pkg}@${ver}`).sort();
+      if (!sameDeps(manifestKeys, codeDeps)) {
+        return {
+          ok: false,
+          name,
+          reason: "deps_undeclared",
+          message: `extension code declares dependencies (${codeDeps.join(", ")}) that differ from its manifest's (${manifestKeys.join(", ")}) — the manifest is the authority (ADR-0070)`,
+        };
+      }
+    }
+    const deps = manifestDeps
+      ? Object.entries(manifestDeps).map(([pkg, ver]) => `${pkg}@${ver}`).sort()
+      : codeDeps;
     const approved = store.dependencies[identity] ?? [];
     if (!bundled && !sameDeps(deps, approved)) {
       if (deps.length > 0 && !this.#options.authorizeDependencies) {
-        // Honest refusal (v1, #834): no host installs dependencies yet, so
-        // an extension that needs them cannot run — never a half-promise.
-        return { ok: false, name, reason: "deps_unauthorized", message: `extension declares dependencies (${deps.join(", ")}) and this host cannot install them` };
+        // Honest refusal (v1, #834): no host authorization seam, so an
+        // extension that needs dependencies cannot run — never a
+        // half-promise.
+        return { ok: false, name, reason: "deps_unauthorized", message: `extension declares dependencies (${deps.join(", ")}) and no dependency authorization flow is available` };
       }
       if (deps.length > 0) {
         let granted: boolean;
@@ -955,6 +1886,8 @@ export class ExtensionRuntime {
           return { ok: false, name, reason: "deps_unauthorized", message: errMessage(err) };
         }
         if (!granted) {
+          // ADR-0070: a refusal keeps the previously approved tree — the
+          // dependency directory is untouched and the load simply fails.
           return { ok: false, name, reason: "deps_unauthorized", message: `user declined dependencies: ${deps.join(", ")}` };
         }
       }
@@ -969,8 +1902,143 @@ export class ExtensionRuntime {
       hooks: EMPTY_HOOKS(),
       file,
       status: null,
+      commands: [],
+      panel: null,
+      overlays: [],
+      grantedCapabilities: [],
     };
+    // ADR-0053 + ADR-0062 (#1130): enforcement by absence. The
+    // registration API exists on the context only when the grant covers
+    // the slot — the manifest when there is one (the authority consent
+    // signed), otherwise the code's own declaration (an in-memory
+    // registration has no manifest to exceed).
+    const granted = authority ?? (Array.isArray((d as { capabilities?: unknown }).capabilities) ? ((d as { capabilities: string[] }).capabilities).map((c) => String(c)) : []);
+    // ADR-0065: an absolute path inside a `path:` capability fails loudly
+    // at load — a capability naming outside-the-project targets is exactly
+    // what consent must not hide. Checked before setup ever runs.
+    for (const capability of granted) {
+      if (!isPathScope(capability)) continue;
+      const validity = validatePathScope(capability);
+      if (!validity.ok) return { ok: false, name, reason: "invalid_path_scope", message: validity.message };
+    }
+    // ADR-0066: a malformed `host:` scope fails loudly at load; the total
+    // wildcard `host:*` exists only with a manifest `reasoning` string —
+    // the author's justification the consent question displays. The
+    // manifest is the only source: an in-memory registration without one
+    // cannot claim the total wildcard at all.
+    for (const capability of granted) {
+      if (!isHostScope(capability)) continue;
+      const validity = validateHostScope(capability);
+      if (!validity.ok) return { ok: false, name, reason: "invalid_host_scope", message: validity.message };
+      if (capability !== TOTAL_HOST_WILDCARD) continue;
+      // One authority only: the manifest object consent signed (or the
+      // registration's declared authority) — never a second disk read.
+      const declared = consentAuthority?.reasoning;
+      if (typeof declared !== "string" || declared.trim() === "") {
+        return {
+          ok: false,
+          name,
+          reason: "missing_reasoning",
+          message: `"${TOTAL_HOST_WILDCARD}" requires a "${HOST_SCOPE_REASONING_KEY}" string in the extension manifest — the justification the consent question displays`,
+        };
+      }
+    }
+    // ADR-0069: a malformed `credential:<ref>` scope fails loudly at load,
+    // like its path/host siblings — a ref no `credential:` grammar can
+    // name must never reach consent, let alone a fetch.
+    for (const capability of granted) {
+      if (!isCredentialScope(capability)) continue;
+      const validity = validateCredentialScope(capability);
+      if (!validity.ok) return { ok: false, name, reason: "invalid_credential_scope", message: validity.message };
+    }
+    // ADR-0067: the tool scopes validate at load like their scope
+    // siblings. An invocation name must be a name a session can look up
+    // (the wildcard is its own grammar); a contribution is always named
+    // exactly — a wildcard contribution would hide which tools the
+    // extension's code actually adds.
+    for (const capability of granted) {
+      if (isToolScope(capability)) {
+        const validity = validateToolScope(capability);
+        if (!validity.ok) return { ok: false, name, reason: "invalid_tool_scope", message: validity.message };
+      } else if (isContributeToolScope(capability)) {
+        const validity = validateContributeToolScope(capability);
+        if (!validity.ok) return { ok: false, name, reason: "invalid_tool_scope", message: validity.message };
+      }
+    }
+    // ADR-0068: an `endpoint:<ref>` scope validates at load like its
+    // scope siblings — the ref is an endpoint name from moh.json, never
+    // an "endpoint/model" pair (the model is a call-time choice).
+    for (const capability of granted) {
+      if (!isEndpointScope(capability)) continue;
+      const validity = validateEndpointScope(capability);
+      if (!validity.ok) return { ok: false, name, reason: "invalid_endpoint_scope", message: validity.message };
+    }
+    instance.grantedCapabilities = [...granted];
+    const commandSlot: { registerCommand?: ExtensionSetupContext["registerCommand"] } = granted.includes("contribute-commands")
+      ? { registerCommand: (command: ExtensionCommand) => this.#registerCommand(instance, command) }
+      : {};
+    // ADR-0062 (#1132): same enforcement-by-absence for the UI slots.
+    const panelSlot: { registerPanel?: ExtensionSetupContext["registerPanel"] } = granted.includes("contribute-panels")
+      ? { registerPanel: (panel: ExtensionPanel) => this.#registerPanel(instance, panel, replacing) }
+      : {};
+    const overlaySlot: { registerOverlay?: ExtensionSetupContext["registerOverlay"] } = granted.includes("contribute-overlays")
+      ? { registerOverlay: (overlay: ExtensionOverlay) => this.#registerOverlay(instance, overlay) }
+      : {};
+    // ADR-0067: the contributed-tool slot. Present only when the grant
+    // covers at least one `contribute-tool:<name>` scope (enforcement by
+    // absence); the registered name must be one the consent named, and
+    // the tool lands in the session via the bound contributor — the same
+    // runner and gate as every session tool.
+    const contributedNames = contributeToolScopesOf(granted).map(contributeToolName);
+    const toolSlot: { registerTool?: ExtensionSetupContext["registerTool"] } =
+      contributedNames.length > 0
+        ? { registerTool: (tool) => this.#registerContributedTool(instance, tool, contributedNames) }
+        : {};
+    // ADR-0053 + ADR-0055 (#998 follow-up): the spawn-subagent slot.
+    // Present only when granted (enforcement by absence); the envelope is
+    // intersected at every call, and a refusal is a loud
+    // `extension_failed` with the child never created.
+    const spawnSlot: Pick<ExtensionSetupContext, "spawnSubagent" | "subagentActivity"> = granted.includes("spawn-subagent")
+      ? {
+          spawnSubagent: (spec) => this.#spawnSubagentFor(instance, spec),
+          subagentActivity: (callId) => this.#subagentActivityFor(instance, callId),
+        }
+      : {};
+    // ADR-0064 + ADR-0065: the host-performs seam. Present only when the
+    // grant covers at least one `path:<glob>` scope (enforcement by
+    // absence); the scope check runs per call, before the host performs.
+    const scopes = pathScopesOf(granted);
+    const hostScopes = hostScopesOf(granted);
+    // ADR-0069: a credential scope is a scope in its own right — the seam
+    // exists when one is granted even without a host scope, so an
+    // authenticated call is refused on the host check, not by absence.
+    const credScopes = credentialScopesOf(granted);
+    // ADR-0067: the tool scopes. `runTool` rides the same seam object —
+    // present only when a `tool:<name|*>` scope was granted; the per-call
+    // check is whole-tool, the execution and gate live in the session.
+    const toolScopes = toolScopesOf(granted);
+    const toolHost = this.#toolHostFor(instance, toolScopes);
+    // ADR-0068: the endpoint scopes. `modelCall`/`listModels` ride the
+    // same seam object — present only when at least one `endpoint:<ref>`
+    // scope was granted; the per-call check is one-ref-exact.
+    const endpointScopes = endpointScopesOf(granted);
+    const endpointHost = this.#endpointHostFor(instance, endpointScopes);
+    const fileHost = this.#fileHostFor(instance, scopes);
+    const netHost = this.#networkHostFor(instance, [...hostScopes, ...credScopes]);
+    // Both scopes land on one seam object; a method absent at runtime
+    // means no scope of its kind was granted (enforcement by absence).
+    const hostObject = { ...fileHost, fetch: netHost.fetch, runTool: toolHost.runTool, modelCall: endpointHost.modelCall, listModels: endpointHost.listModels } as ExtensionHost;
+    const hostSlot: Pick<ExtensionSetupContext, "host"> =
+      scopes.length > 0 || hostScopes.length > 0 || credScopes.length > 0 || toolScopes.length > 0 || endpointScopes.length > 0
+        ? { host: hostObject }
+        : {};
     const ctx: ExtensionSetupContext = {
+      ...commandSlot,
+      ...panelSlot,
+      ...overlaySlot,
+      ...toolSlot,
+      ...spawnSlot,
+      ...hostSlot,
       state: instance.state,
       appendToPrompt: (note) => instance.notes.push(note),
       // ADR-0036: one per-turn note per instance, replacing; `null` removes.
@@ -1008,6 +2076,299 @@ export class ExtensionRuntime {
   #emitFailed(name: string, reason: string, message: string): void {
     this.#emit({ type: "extension_failed", name, reason, message });
   }
+  /**
+   * ADR-0053 + ADR-0055: the `spawn-subagent` capability's execution path.
+   * The envelope is the host's business; here we enforce the structural
+   * limits — no grandchildren (extension code running on a borrowed
+   * child's dispatch may not spawn), a loud `extension_failed` on every
+   * refusal, and attribution of the child to this extension.
+   */
+  async #spawnSubagentFor(
+    instance: RuntimeExtension,
+    spec: ExtensionSpawnSpec,
+  ): Promise<{ callId: string; status: "done" | "error" | "cancelled"; output: string; error?: string }> {
+    const name = instance.def.name;
+    const refuse = (reason: string, message: string) => {
+      this.#emitFailed(name, reason, message);
+      return { callId: "", status: "error" as const, output: "", error: message };
+    };
+    // ADR-0055 "may not create grandchildren": extension code running
+    // inside a borrowed (child) session's dispatch is the child speaking —
+    // depth one is what keeps the envelope checkable at every level.
+    if (this.#borrowedSessions.getStore() !== undefined) {
+      return refuse("no_grandchildren", `extension "${name}" attempted to spawn from inside a subagent — grandchildren are refused`);
+    }
+    const host = this.#subagentHost;
+    if (!host) {
+      return refuse("spawn_unavailable", `extension "${name}" holds the spawn-subagent capability but this session exposes no subagent host`);
+    }
+    try {
+      return await host.spawnForExtension(name, spec);
+    } catch (err) {
+      if (err instanceof ExtensionSpawnRefusedError) {
+        return refuse(err.reason, err.message);
+      }
+      return refuse("spawn_failed", errMessage(err));
+    }
+  }
+
+  /**
+   * ADR-0064 + ADR-0065: the `path:<glob>` scope's execution path. One
+   * check-scope module decides every call (`checkPathScope`); a refusal
+   * is a typed result plus one `host_refused` event — never an exception,
+   * never an `extension_failed`; a performed operation is one `host_op`
+   * event with the resolved path. The host acted in the world; the log
+   * records it.
+   */
+  /**
+   * ADR-0067: the `runTool` half of the host seam. Scope + logging live
+   * here (the runtime stamps the extension and writes `host_op` /
+   * `host_refused`); lookup, gate and execution live in the session
+   * behind `#toolSeam` — the model's exact gate path, with this
+   * extension named as the ask's requester.
+   */
+  #hostRefused(event: Omit<Extract<AgentEvent, { type: "host_refused" }>, "type">): void {
+    this.#emit({ type: "host_refused", ...event });
+  }
+
+  #toolHostFor(instance: RuntimeExtension, scopes: readonly string[]): { runTool?: (name: string, args: unknown) => Promise<HostRunToolResult> } {
+    if (scopes.length === 0) return {};
+    const name = instance.def.name;
+    return {
+      runTool: async (tool, args): Promise<HostRunToolResult> => {
+        const callId = newUlid();
+        // Whole-tool grant, per call: the wildcard or an exact name —
+        // never argv sub-scoping (ADR-0067).
+        const checked = checkScope({ kind: "tool", ref: tool }, scopes);
+        if (!checked.ok) {
+          this.#hostRefused({ callId, extension: name, op: "run_tool", tool, reason: "outside_scope" });
+          return { ok: false, reason: "outside_scope" };
+        }
+        const seam = this.#toolSeam;
+        if (!seam) {
+          // No session bound (a bare runtime, a test): the tool cannot
+          // run — refused loudly, never silently dropped.
+          this.#hostRefused({ callId, extension: name, op: "run_tool", tool, reason: "failed" });
+          return { ok: false, reason: "failed", message: "no session is bound to this extension runtime" };
+        }
+        const result = await seam.runTool({ extension: name, tool, args });
+        if (result.ok) {
+          this.#emit({ type: "host_op", callId, extension: name, op: "run_tool", tool, outcome: "ok" });
+          return { ok: true, output: result.output };
+        }
+        // An unknown tool is a scope-answer-shaped refusal; a gate refusal
+        // ("denied") is a policy answer, not a fault — both log visibly.
+        this.#emit(
+          result.reason === "unknown_tool"
+            ? { type: "host_refused", callId, extension: name, op: "run_tool", tool, reason: "unknown_tool" }
+            : { type: "host_op", callId, extension: name, op: "run_tool", tool, outcome: result.reason, ...(result.message !== undefined ? { message: result.message } : {}) },
+        );
+        return { ok: false, reason: result.reason, ...(result.message !== undefined ? { message: result.message } : {}) };
+      },
+    };
+  }
+
+  /**
+   * ADR-0068: the endpoint scope's half of the host seam. Scope + logging
+   * live here (the runtime stamps the extension and writes `host_op` /
+   * `host_refused`); endpoint resolution, the single-shot Route call, the
+   * thinking-capability check and usage accounting live in the session
+   * behind `#modelSeam`. One ref per grant, exact match, per call; the
+   * model id is never scoped. A refusal is a typed result plus one
+   * `host_refused` event — never an exception, never `extension_failed`.
+   */
+  #endpointHostFor(instance: RuntimeExtension, scopes: readonly string[]): {
+    modelCall?: (request: {
+      endpoint: string;
+      model: string;
+      messages: ReadonlyArray<{ role: "system" | "user" | "assistant"; content: string }>;
+      thinkingLevel?: ThinkingLevel;
+      signal?: AbortSignal;
+    }) => Promise<HostModelCallResult>;
+    listModels?: (endpoint: string) => Promise<HostListModelsResult>;
+  } {
+    if (scopes.length === 0) return {};
+    const name = instance.def.name;
+    const refused = (callId: string, op: HostOpName, reason: Extract<AgentEvent, { type: "host_refused" }>["reason"], model?: string) => {
+      this.#hostRefused({ callId, extension: name, op, reason, ...(model !== undefined ? { model } : {}) });
+    };
+    return {
+      modelCall: async (request): Promise<HostModelCallResult> => {
+        const callId = newUlid();
+        const endpoint = typeof request.endpoint === "string" ? request.endpoint : "";
+        const modelRef = `${endpoint}/${typeof request.model === "string" ? request.model : ""}`;
+        // One ref per grant, per call: the endpoint name must be one the
+        // consent named exactly.
+        if (!checkScope({ kind: "endpoint", ref: endpoint }, scopes).ok) {
+          refused(callId, "model_call", "outside_scope", modelRef);
+          return { ok: false, reason: "outside_scope" };
+        }
+        const seam = this.#modelSeam;
+        if (!seam) {
+          refused(callId, "model_call", "failed", modelRef);
+          return { ok: false, reason: "failed", message: "no session is bound to this extension runtime" };
+        }
+        const result = await seam.modelCall({ extension: name, endpoint, model: request.model, messages: request.messages, thinkingLevel: request.thinkingLevel, signal: request.signal });
+        if (result.ok) {
+          // ADR-0068: no parallel event type — the session's `model_call`
+          // record (requester-marked) carries the call; this `host_op` is
+          // the seam's own audit line.
+          this.#emit({ type: "host_op", callId, extension: name, op: "model_call", outcome: "ok", model: result.model });
+          return result;
+        }
+        if (result.reason === "failed") {
+          this.#emit({ type: "host_op", callId, extension: name, op: "model_call", outcome: "failed", model: modelRef, ...(result.message !== undefined ? { message: result.message } : {}) } as AgentEvent);
+          return result;
+        }
+        // unknown_endpoint / unsupported_level: scope-answer-shaped
+        // refusals, logged as refusals.
+        refused(callId, "model_call", result.reason, modelRef);
+        return result;
+      },
+      listModels: async (endpoint): Promise<HostListModelsResult> => {
+        const callId = newUlid();
+        if (typeof endpoint !== "string" || !checkScope({ kind: "endpoint", ref: endpoint }, scopes).ok) {
+          refused(callId, "list_models", "outside_scope", endpoint);
+          return { ok: false, reason: "outside_scope" };
+        }
+        const seam = this.#modelSeam;
+        if (!seam) {
+          refused(callId, "list_models", "failed", endpoint);
+          return { ok: false, reason: "failed", message: "no session is bound to this extension runtime" };
+        }
+        const result = await seam.listModels({ endpoint });
+        if (result.ok) {
+          this.#emit({ type: "host_op", callId, extension: name, op: "list_models", outcome: "ok", model: endpoint });
+          return result;
+        }
+        if (result.reason === "failed") {
+          refused(callId, "list_models", "failed", endpoint);
+          return result;
+        }
+        refused(callId, "list_models", result.reason, endpoint);
+        return result;
+      },
+    };
+  }
+
+  #fileHostFor(instance: RuntimeExtension, scopes: readonly string[]): Omit<ExtensionHost, "fetch" | "runTool" | "modelCall" | "listModels"> {
+    const name = instance.def.name;
+    const root = this.#options.projectRoot ?? process.cwd();
+    const isDenied = this.#pathDeny ?? this.#options.isPathDenied ?? (() => false);
+    const opEvent = (
+      op: HostOpName,
+      resolved: string,
+      extra: { bytes?: number; to?: string } = {},
+    ): AgentEvent =>
+      ({
+        type: "host_op",
+        callId: newUlid(),
+        extension: name,
+        op,
+        path: resolved,
+        outcome: "ok",
+        ...(extra.bytes !== undefined ? { bytes: extra.bytes } : {}),
+        ...(extra.to !== undefined ? { to: extra.to } : {}),
+      }) as AgentEvent;
+    const check = (op: HostOpName, requested: string): { ok: true; resolved: string } | { ok: false; result: HostOpResult } => {
+      const checked = checkScope({ kind: "path", path: requested, root, isDenied }, scopes);
+      const callId = newUlid();
+      if (!checked.ok) {
+        this.#hostRefused({
+          callId,
+          extension: name,
+          op,
+          path: requested,
+          reason: checked.reason,
+          ...(checked.resolved !== undefined ? { resolved: checked.resolved } : {}),
+        });
+        return { ok: false, result: { ok: false, reason: checked.reason, ...(checked.resolved !== undefined ? { resolved: checked.resolved } : {}) } };
+      }
+      return { ok: true, resolved: checked.resolved };
+    };
+    const performed = (op: HostOpName, resolved: string, bytes?: number, to?: string): HostOpResult => {
+      this.#emit(opEvent(op, resolved, { ...(bytes !== undefined ? { bytes } : {}), ...(to !== undefined ? { to } : {}) }));
+      return { ok: true, resolved, ...(bytes !== undefined ? { bytes } : {}) };
+    };
+    return {
+      readFile: (path) => {
+        const gate = check("read", path);
+        if (!gate.ok) return Promise.resolve(gate.result as HostReadResult);
+        try {
+          const content = readFileSync(gate.resolved, "utf8");
+          this.#emit(opEvent("read", gate.resolved));
+          return Promise.resolve({ ok: true, resolved: gate.resolved, content });
+        } catch (err) {
+          return Promise.resolve({ ok: false as const, reason: "failed", resolved: gate.resolved, message: errMessage(err) });
+        }
+      },
+      writeFile: (path, content) => {
+        const gate = check("write", path);
+        if (!gate.ok) return Promise.resolve(gate.result);
+        try {
+          mkdirSync(dirname(gate.resolved), { recursive: true });
+          writeFileSync(gate.resolved, content, "utf8");
+          return Promise.resolve(performed("write", gate.resolved, Buffer.byteLength(content, "utf8")));
+        } catch (err) {
+          return Promise.resolve({ ok: false as const, reason: "failed", resolved: gate.resolved, message: errMessage(err) });
+        }
+      },
+      appendFile: (path, content) => {
+        const gate = check("append", path);
+        if (!gate.ok) return Promise.resolve(gate.result);
+        try {
+          mkdirSync(dirname(gate.resolved), { recursive: true });
+          appendFileSync(gate.resolved, content, "utf8");
+          return Promise.resolve(performed("append", gate.resolved, Buffer.byteLength(content, "utf8")));
+        } catch (err) {
+          return Promise.resolve({ ok: false as const, reason: "failed", resolved: gate.resolved, message: errMessage(err) });
+        }
+      },
+      rename: (from, to) => {
+        const fromGate = check("rename", from);
+        if (!fromGate.ok) return Promise.resolve(fromGate.result);
+        const toGate = check("rename", to);
+        if (!toGate.ok) return Promise.resolve(toGate.result);
+        try {
+          mkdirSync(dirname(toGate.resolved), { recursive: true });
+          renameSync(fromGate.resolved, toGate.resolved);
+          return Promise.resolve(performed("rename", fromGate.resolved, undefined, toGate.resolved));
+        } catch (err) {
+          return Promise.resolve({ ok: false as const, reason: "failed", resolved: fromGate.resolved, message: errMessage(err) });
+        }
+      },
+      delete: (path) => {
+        const gate = check("delete", path);
+        if (!gate.ok) return Promise.resolve(gate.result);
+        try {
+          const stats = statSync(gate.resolved);
+          if (stats.isDirectory()) rmdirSync(gate.resolved);
+          else rmSync(gate.resolved);
+          return Promise.resolve(performed("delete", gate.resolved));
+        } catch (err) {
+          return Promise.resolve({ ok: false as const, reason: "failed", resolved: gate.resolved, message: errMessage(err) });
+        }
+      },
+      readlink: (path): Promise<HostReadLinkResult> => {
+        const gate = check("readlink", path);
+        if (!gate.ok) return Promise.resolve(gate.result);
+        try {
+          const target = readlinkSync(gate.resolved);
+          this.#emit(opEvent("readlink", gate.resolved));
+          return Promise.resolve({ ok: true, resolved: gate.resolved, target });
+        } catch (err) {
+          return Promise.resolve({ ok: false as const, reason: "failed", resolved: gate.resolved, message: errMessage(err) });
+        }
+      },
+    };
+  }
+
+  /** ADR-0055: bounded activity of a child this extension spawned. */
+  async #subagentActivityFor(instance: RuntimeExtension, callId: string) {
+    const host = this.#subagentHost;
+    if (!host) return null;
+    return host.activityFor(instance.def.name, callId);
+  }
 
   /**
    * ADR-0032 `appendEvent`: stamping, validation, size cap, per-turn
@@ -1016,9 +2377,22 @@ export class ExtensionRuntime {
    */
   #appendExtensionEvent(instance: RuntimeExtension, event: ExtensionEventInput): void {
     const name = instance.def.name;
-    const rawName = (event ?? ({} as ExtensionEventInput)).name;
+    let rawName = (event ?? ({} as ExtensionEventInput)).name;
     if (typeof rawName !== "string" || rawName.trim() === "") {
       this.#emit({ type: "extension_failed", name, reason: "invalid_event", message: "appendEvent requires a non-empty name" });
+      return;
+    }
+    // ADR-0053 absolute prohibition (mask/alter log events), enforcement
+    // point: an extension event is always stamped `extension_event` with
+    // its own extension name, and a name that would impersonate the log's
+    // chrome is refused outright — the log's record stays the core's.
+    if (RESERVED_EVENT_NAMES.has(rawName)) {
+      this.#emit({
+        type: "extension_failed",
+        name,
+        reason: "reserved_event_name",
+        message: `"${rawName}" is a reserved log event name; extension events are recorded as extension_event`,
+      });
       return;
     }
     let payload: unknown;
@@ -1120,18 +2494,80 @@ export class ExtensionRuntime {
     return resolve(this.#mohHome, "extensions.json");
   }
 
+  /**
+   * ADR-0070: installs (or re-verifies) an extension's declared
+   * dependency tree into its own directory under the moh-owned
+   * `extension-deps` root, before the extension's setup ever runs. A
+   * failure — a scripted dependency, a checksum mismatch, lockfile
+   * drift — refuses the load with the reason carried to the user.
+   * The moh-owned tarball cache (`extension-deps/.cache/`) is consulted
+   * before the network and populated after verification, so a re-install
+   * works offline exactly as long as its digests match (AC5).
+   */
+  async #prepareFileDeps(file: string): Promise<boolean> {
+    const manifest = readExtensionManifest(file);
+    if (!manifest.ok) return false;
+    const deps = manifest.manifest.dependencies;
+    if (!deps || Object.keys(deps).length === 0) return true;
+    const name = manifest.manifest.name;
+    const identity = contentIdentity(file)!;
+    const requested = Object.entries(deps).map(([pkg, version]) => `${pkg}@${version}`).sort();
+    const store = this.#readStore();
+    if (!sameDeps(requested, store.dependencies[identity] ?? [])) {
+      if (!await this.#options.authorizeDependencies?.(name, requested)) {
+        this.#emitFailed(name, "deps_unauthorized", `user declined dependencies: ${requested.join(", ")}`);
+        return false;
+      }
+    }
+    const installed = await this.#installDeps(name, deps);
+    const linked = installed.ok ? linkDepsTree(extensionDepsDir(this.#mohHome, name), dirname(file)) : installed;
+    if (!linked.ok) {
+      this.#emitFailed(name, "deps_install_failed", linked.message);
+      return false;
+    }
+    store.dependencies[identity] = requested;
+    this.#writeStore(store);
+    return true;
+  }
+
+  async #installDeps(name: string, dependencies: Record<string, string>): Promise<{ ok: true } | { ok: false; message: string }> {
+    try {
+      const result = await installExtensionDeps({
+        dependencies,
+        depsDir: extensionDepsDir(this.#mohHome, name),
+        io: this.#options.depsIo ?? realRegistryIo(),
+        cache: depsTarballCache(this.#mohHome),
+      });
+      if (result.ok) return { ok: true };
+      return { ok: false, message: `dependency install failed for ${name}: ${result.reason}` };
+    } catch (err) {
+      return { ok: false, message: `dependency install failed for ${name}: ${err instanceof Error ? err.message : String(err)}` };
+    }
+  }
+
   #readStore(): ExtensionStore {
     const file = this.#storeFile();
-    if (!existsSync(file)) return { consents: {}, dependencies: {} };
+    if (!existsSync(file)) return { consents: {}, dependencies: {}, manifests: {} };
     try {
       const parsed = JSON.parse(readFileSync(file, "utf8")) as Partial<ExtensionStore>;
-      return { consents: parsed.consents ?? {}, dependencies: parsed.dependencies ?? {} };
+      return {
+        consents: parsed.consents ?? {},
+        dependencies: parsed.dependencies ?? {},
+        // ADR-0061: stores written before manifests existed simply have none
+        // recorded — the next load records the manifest it was asked about.
+        manifests: parsed.manifests ?? {},
+      };
     } catch {
-      return { consents: {}, dependencies: {} };
+      return { consents: {}, dependencies: {}, manifests: {} };
     }
   }
 
   #writeStore(store: ExtensionStore): void {
+    // ADR-0053 absolute prohibition: no extension may read or write the
+    // consent store — no consent can authorize it. The guard is the
+    // enforcement point: entered from extension code, this throws the
+    // typed refusal before a byte is written.
+    assertNoExtensionScope("consent-files", "read or write the extension consent store (extensions.json)");
     const file = this.#storeFile();
     mkdirSync(this.#mohHome, { recursive: true, mode: 0o700 });
     writeFileSync(file, JSON.stringify(store, null, 2), { mode: 0o600 });
@@ -1179,19 +2615,9 @@ export class ExtensionRuntime {
     let confirm: BeforeTurnDispatch["confirm"];
     for (const instance of this.#instances) {
       for (const hook of instance.hooks.beforeTurn) {
-        let out: BeforeTurnResult | void;
-        try {
-          out = await hook(ctx);
-        } catch (err) {
-          this.#recordHookError({
-            type: "extension_failed",
-            name: instance.def.name,
-            reason: "hook",
-            message: errMessage(err),
-          });
-          continue;
-        }
-        if (!out) continue;
+        // ADR-0056: expired or thrown, the hook contributes nothing.
+        const { out, timedOut } = await this.#runCapped(instance, "beforeTurn", () => hook(ctx));
+        if (timedOut || !out) continue;
         if (model === undefined && typeof out.model === "string" && out.model.trim() !== "") {
           model = out.model.trim();
           modelBy = instance.def.name;
@@ -1231,19 +2657,10 @@ export class ExtensionRuntime {
     for (const instance of this.#instances) {
       for (const entry of instance.hooks.onToolResult) {
         if (!entry.tools.includes(call.name)) continue;
-        let out: ToolResultHookResult | void;
-        try {
-          out = await entry.hook(call);
-        } catch (err) {
-          this.#recordHookError({
-            type: "extension_failed",
-            name: instance.def.name,
-            reason: "hook",
-            message: errMessage(err),
-          });
-          continue;
-        }
-        if (!out) continue;
+        // ADR-0056: expired or thrown, the hook contributes nothing —
+        // the original result proceeds to the model.
+        const { out, timedOut } = await this.#runCapped(instance, "onToolResult", () => entry.hook(call));
+        if (timedOut || !out) continue;
         const reason = out.withhold?.reason;
         if (typeof reason !== "string" || reason.trim() === "") {
           // A withhold with no reason would replace the result with an
@@ -1306,11 +2723,14 @@ export class ExtensionRuntime {
         const abandoned = new AbortController();
         let deadline: ReturnType<typeof setTimeout> | undefined;
         const pending = (async () =>
-          hook({
-            ...ctx,
-            hookTimeoutMs,
-            signal: abandoned.signal,
-          }))();
+          // ADR-0053: extension code runs marked (see #runCapped).
+          runInExtensionScope(instance.def.name, () =>
+            hook({
+              ...ctx,
+              hookTimeoutMs,
+              signal: abandoned.signal,
+            }),
+          ))();
         // A late answer is not worthless: it still tells its own author the
         // cut never landed. Registered before the race so no resolution can
         // slip past it, and only acted on when the window actually won.
@@ -1382,9 +2802,115 @@ export class ExtensionRuntime {
     return { drop, onApplied, errors: this.#drainErrors() };
   }
 
-  async dispatchBeforeModelCall(ctx: Parameters<BeforeModelCallHook>[0]): Promise<AgentEvent[]> {
-    await this.#each("beforeModelCall", (h) => h(ctx));
-    return this.#drainErrors();
+  /**
+   * ADR-0054 + ADR-0056 (#1126): the composed deadline dispatch. The hook
+   * itself runs to the turn-path ceiling (default 30 s); only the
+   * returned prompt-section replacement is judged against the shorter
+   * ADR-0054 window (default 5 s). Outcomes per hook:
+   *
+   * - answers within the replacement window → its `sections` count, in
+   *   registration order;
+   * - answers between the window and the ceiling → the replacement is
+   *   forfeit (the core's own text serves that call, one visible record
+   *   says so) but the hook's other contributions still count;
+   * - never answers within the ceiling → it contributes nothing, one
+   *   visible record says so, and it is not retried within the turn.
+   */
+  async dispatchBeforeModelCall(ctx: Parameters<BeforeModelCallHook>[0]): Promise<BeforeModelCallDispatch> {
+    const replacements: BeforeModelCallDispatch["replacements"] = [];
+    const timeouts: BeforeModelCallDispatch["timeouts"] = [];
+    // The sentinel keeps a hook's own `void` return distinguishable from
+    // a lost race, and the ceiling from the hook's own answer.
+    const WINDOW_LOST = Symbol("replacement_window_lost");
+    const CEILING_HIT = Symbol("hook_ceiling_hit");
+    for (const instance of this.#instances) {
+      for (const hook of instance.hooks.beforeModelCall) {
+        // The composed clocks (ADR-0054 + ADR-0056): the hook promise is
+        // raced against the replacement window first, then — if the
+        // window is lost — against the ceiling for the REST of its own
+        // budget. A lost window forfeits only the sections; the hook's
+        // other work still counts until the ceiling.
+        const started = Date.now();
+        let windowTimer: ReturnType<typeof setTimeout> | undefined;
+        let ceilingTimer: ReturnType<typeof setTimeout> | undefined;
+        let failed = false;
+        let failure: unknown;
+        const pending = (async () => {
+          try {
+            // ADR-0053: extension code runs marked (see #runCapped).
+            return await runInExtensionScope(instance.def.name, () => hook(ctx));
+          } catch (err) {
+            failed = true;
+            failure = err;
+            return undefined;
+          }
+        })();
+        const window = new Promise<symbol>((resolve) => {
+          windowTimer = setTimeout(() => resolve(WINDOW_LOST), this.#replacementWindowMs);
+        });
+        let out = await Promise.race([pending, window]);
+        if (windowTimer !== undefined) clearTimeout(windowTimer);
+        if (out === WINDOW_LOST) {
+          // The replacement is forfeit; the core's own text serves this
+          // call. One visible record says so. The hook keeps its
+          // remaining budget to the ceiling.
+          timeouts.push({ by: instance.def.name, window: "replacement" });
+          this.#recordHookError({
+            type: "extension_failed",
+            name: instance.def.name,
+            reason: "replacement_timeout",
+            message: `the beforeModelCall hook answered after the ${this.#replacementWindowMs}ms replacement window; the core's own sections serve this call`,
+          });
+          const elapsed = Date.now() - started;
+          const remaining = Math.max(0, this.#hookTimeoutMs - elapsed);
+          const ceiling = new Promise<symbol>((resolve) => {
+            ceilingTimer = setTimeout(() => resolve(CEILING_HIT), remaining);
+          });
+          out = await Promise.race([pending, ceiling]);
+          if (ceilingTimer !== undefined) clearTimeout(ceilingTimer);
+          if (out === CEILING_HIT) {
+            timeouts.push({ by: instance.def.name, window: "hook" });
+            this.#recordHookError({
+              type: "extension_failed",
+              name: instance.def.name,
+              reason: "hook_timeout",
+              message: `the beforeModelCall hook did not answer within ${this.#hookTimeoutMs}ms; it contributed nothing`,
+            });
+            continue;
+          }
+          // Answered late: its other contributions counted (they already
+          // happened); the forfeited replacement is not revived.
+          if (failed) {
+            this.#recordHookError({
+              type: "extension_failed",
+              name: instance.def.name,
+              reason: "hook",
+              message: errMessage(failure),
+            });
+          }
+          continue;
+        }
+        if (failed) {
+          this.#recordHookError({
+            type: "extension_failed",
+            name: instance.def.name,
+            reason: "hook",
+            message: errMessage(failure),
+          });
+          continue;
+        }
+        const answered = (out ?? {}) as BeforeModelCallResult;
+        if (answered.sections && typeof answered.sections === "object") {
+          replacements.push({
+            by: instance.def.name,
+            version: instance.def.version,
+            capabilities: instance.def.capabilities ?? [],
+            sections: answered.sections,
+          });
+        }
+      }
+    }
+    return { replacements, timeouts, errors: this.#drainErrors() };
   }
 
   /**
@@ -1434,7 +2960,9 @@ export class ExtensionRuntime {
   }
 
   async dispatchAfterTurn(result: { status: string; reason?: string; message?: string }, synthetic = false): Promise<AgentEvent[]> {
-    await this.#each("afterTurn", (h) => h({ result, ...(synthetic ? { synthetic: true as const } : {}) }));
+    // ADR-0056: afterTurn is a turn-path hook — each invocation runs
+    // under the ceiling.
+    await this.#each("afterTurn", (h) => h({ result, ...(synthetic ? { synthetic: true as const } : {}) }), undefined, this.#hookTimeoutMs);
     return this.#drainErrors();
   }
 
@@ -1449,19 +2977,11 @@ export class ExtensionRuntime {
   ): Promise<{ veto: boolean; ask: boolean; reason?: string; by?: string; errors: AgentEvent[] }> {
     for (const instance of this.#instances) {
       for (const hook of instance.hooks.onToolCall) {
-        let out: ToolCallHookResult | void;
-        try {
-          out = await hook(call);
-        } catch (err) {
-          this.#recordHookError({
-            type: "extension_failed",
-            name: instance.def.name,
-            reason: "hook",
-            message: errMessage(err),
-          });
-          continue;
-        }
-        if (out && (out.veto || out.ask)) {
+        // ADR-0056: expired or thrown, the hook contributes nothing — a
+        // silence never vetoes, never asks.
+        const { out, timedOut } = await this.#runCapped(instance, "onToolCall", () => hook(call));
+        if (timedOut || !out) continue;
+        if (out.veto || out.ask) {
           return {
             veto: out.veto === true,
             ask: out.veto !== true && out.ask === true,
@@ -1479,11 +2999,18 @@ export class ExtensionRuntime {
     key: K,
     invoke: (hook: HookSet[K][number]) => Promise<void> | void,
     only?: readonly RuntimeExtension[],
+    /** ADR-0056: pass a ceiling to run each invocation under the turn-path wall clock. */
+    hookTimeoutMs?: number,
   ): Promise<void> {
     for (const instance of only ?? this.#instances) {
       for (const hook of instance.hooks[key]) {
+        if (hookTimeoutMs !== undefined) {
+          await this.#runCapped(instance, String(key), () => invoke(hook), hookTimeoutMs);
+          continue;
+        }
         try {
-          await (invoke(hook) as Promise<void> | void);
+          // ADR-0053: extension code runs marked (see #runCapped).
+          await (runInExtensionScope(instance.def.name, () => invoke(hook)) as Promise<void> | void);
         } catch (err) {
           this.#recordHookError({
             type: "extension_failed",
@@ -1500,5 +3027,196 @@ export class ExtensionRuntime {
     const borrowed = this.#borrowedSessions.getStore();
     if (borrowed) return borrowed.errors.splice(0, borrowed.errors.length);
     return this.#hookErrors.splice(0, this.#hookErrors.length);
+  }
+
+  /**
+   * ADR-0066: the `host:<domain>` scope's execution path. One check-scope
+   * module decides every request and every redirect hop
+   * (`checkHostScope`); a refusal is a typed result plus one
+   * `host_refused` event — never an exception, never an
+   * `extension_failed`; a completed request is one `host_op` event with
+   * the final host, path, status and byte count. The response is fully
+   * buffered bytes with a fixed size limit (`too_large` past it); no
+   * streaming in this phase. Under `host:` alone the request is
+   * anonymous — an authenticated request needs the matching
+   * `credential:<ref>` scope too (F2b owns custody and injection).
+   */
+  #networkHostFor(instance: RuntimeExtension, scopes: readonly string[]): { fetch?: (url: string, options?: HostFetchOptions) => Promise<HostFetchResult> } {
+    if (scopes.length === 0) return {};
+    const name = instance.def.name;
+    // ADR-0066: the host deny seam is its own callback — path rules never
+    // match hostnames. Absent, no deny check runs.
+    const isDenied = this.#options.isHostDenied ?? (() => false);
+    return {
+      fetch: async (raw: string, options?: HostFetchOptions): Promise<HostFetchResult> => {
+        // #1162: the request side. GET (default) or POST; a body is POST-
+        // only and capped by the same fixed limit the response is — a
+        // mis-sized request is a typed refusal, never a silent truncation.
+        const method = options?.method === "POST" ? "POST" : "GET";
+        if (options?.body !== undefined && method !== "POST") {
+          this.#hostRefused({ callId: newUlid(), extension: name, op: "fetch", path: String(raw), reason: "failed", method });
+          return { ok: false, reason: "failed", message: "a request body requires method POST" };
+        }
+        const bodyBytes: Uint8Array | undefined =
+          options?.body === undefined ? undefined
+          : typeof options.body === "string" ? new TextEncoder().encode(options.body)
+          : options.body;
+        if (bodyBytes !== undefined && bodyBytes.byteLength > MAX_FETCH_BYTES) {
+          this.#hostRefused({ callId: newUlid(), extension: name, op: "fetch", path: String(raw), reason: "too_large", method });
+          return { ok: false, reason: "too_large", message: `request body exceeds the ${MAX_FETCH_BYTES} byte limit` };
+        }
+        const contentType = options?.contentType ?? (bodyBytes !== undefined ? "application/json" : undefined);
+        // ADR-0069: an authenticated request needs the matching
+        // `credential:<ref>` scope granted (the intersection of two
+        // grants). Under `host:` alone the request stays anonymous.
+        let credentialRef: string | undefined;
+        let credentialValue: string | undefined;
+        if (options?.credential !== undefined) {
+          const ref = String(options.credential);
+          const granted = checkScope({ kind: "credential", ref }, scopes).ok;
+          if (!granted) {
+            this.#hostRefused({ callId: newUlid(), extension: name, op: "fetch", path: String(raw), reason: "outside_scope", credential: ref });
+            return { ok: false, reason: "outside_scope", message: `no credential:<${ref}> scope granted` };
+          }
+          // Resolve host-side, just before the request: the value lives
+          // only in this closure — never in the seam's return shape.
+          credentialValue = this.#options.credentialStore?.get(ref);
+          if (credentialValue === undefined) {
+            this.#hostRefused({ callId: newUlid(), extension: name, op: "fetch", path: String(raw), reason: "unknown_credential", credential: ref });
+            return { ok: false, reason: "unknown_credential" };
+          }
+          credentialRef = ref;
+        }
+        const headers: Record<string, string> = {};
+        if (credentialValue !== undefined) headers.authorization = `Bearer ${credentialValue}`;
+        if (contentType !== undefined) headers["content-type"] = contentType;
+        let current: URL;
+        try {
+          current = new URL(raw);
+        } catch {
+          this.#hostRefused({ callId: newUlid(), extension: name, op: "fetch", path: String(raw), reason: "invalid_url" });
+          return { ok: false, reason: "invalid_url", message: "not a valid URL" };
+        }
+        let origin = "";
+        for (let hop = 0; hop <= MAX_REDIRECTS; hop++) {
+          const callId = newUlid();
+          const checked = checkScope({ kind: "host", url: current, isDenied }, scopes);
+          if (!checked.ok) {
+            this.#hostRefused({
+              callId,
+              extension: name,
+              op: "fetch",
+              path: `${current.pathname}${current.search}`,
+              reason: checked.reason,
+              ...(checked.target !== undefined ? { target: checked.target } : {}),
+            });
+            return { ok: false, reason: checked.reason, ...(checked.target !== undefined ? { target: checked.target } : {}) };
+          }
+          let response: Response;
+          try {
+            // `redirect: "manual"`: every hop is our own scope decision,
+            // never the fetch implementation's. The credential rides
+            // every in-scope hop (ADR-0069); a POST replays its body —
+            // the request was one operation, the hops are transport.
+            response = await fetch(current, {
+              redirect: "manual",
+              method,
+              ...(bodyBytes !== undefined ? { body: bodyBytes as BodyInit } : {}),
+              ...(Object.keys(headers).length > 0 ? { headers } : {}),
+              ...(options?.signal !== undefined ? { signal: options.signal } : {}),
+            });
+          } catch (err) {
+            this.#hostRefused({ callId, extension: name, op: "fetch", path: `${current.pathname}${current.search}`, reason: "failed", method });
+            return { ok: false, reason: "failed", message: errMessage(err) };
+          }
+          if (response.status >= 300 && response.status < 400) {
+            const location = response.headers.get("location");
+            if (location === null) {
+              // A redirect with no destination: nothing to follow — serve
+              // the 3xx body as the answer, like any other status.
+              return await this.#consumeFetchResponse(instance, callId, current, response, credentialRef, method);
+            }
+            let next: URL;
+            try {
+              next = new URL(location, current);
+            } catch {
+              this.#hostRefused({ callId, extension: name, op: "fetch", path: `${current.pathname}${current.search}`, reason: "failed" });
+              return { ok: false, reason: "failed", message: `redirect target is not a valid URL: ${location}` };
+            }
+            if (next.origin === origin) {
+              // A loop back to an origin already visited: refuse rather
+              // than spin to the hop ceiling.
+              this.#hostRefused({
+                callId,
+                extension: name,
+                op: "fetch",
+                path: `${next.pathname}${next.search}`,
+                reason: "outside_scope",
+                target: next.host,
+              });
+              return { ok: false, reason: "outside_scope", target: next.host, message: "redirect loop" };
+            }
+            origin = current.origin;
+            current = next;
+            continue;
+          }
+          return await this.#consumeFetchResponse(instance, callId, current, response, credentialRef, method);
+        }
+        this.#hostRefused({ callId: newUlid(), extension: name, op: "fetch", path: `${current.pathname}${current.search}`, reason: "outside_scope", target: current.host });
+        return { ok: false, reason: "outside_scope", target: current.host, message: `more than ${MAX_REDIRECTS} redirects` };
+      },
+    };
+  }
+
+  /** Buffers one in-scope response within the size limit and logs it.
+   * The cap is enforced mid-read: a chunked response that oversizes is
+   * aborted while streaming, never fully buffered first. */
+  async #consumeFetchResponse(instance: RuntimeExtension, callId: string, url: URL, response: Response, credentialRef?: string, method?: string): Promise<HostFetchResult> {
+    const name = instance.def.name;
+    const pathAndQuery = `${url.pathname}${url.search}`;
+    const tooLarge = (): HostFetchResult => {
+      this.#hostRefused({ callId, extension: name, op: "fetch", path: pathAndQuery, reason: "too_large", target: url.host });
+      return { ok: false, reason: "too_large", message: `response exceeds the ${MAX_FETCH_BYTES} byte limit` };
+    };
+    // Enforce the cap on the body as it arrives: consume the stream in
+    // chunks and refuse the moment the limit is crossed — a lying or
+    // absent content-length cannot make the host swallow 10 GB.
+    const reader = response.body?.getReader();
+    if (!reader) {
+      this.#hostRefused({ callId, extension: name, op: "fetch", path: pathAndQuery, reason: "failed", target: url.host });
+      return { ok: false, reason: "failed", message: "response has no readable body" };
+    }
+    const chunks: Uint8Array[] = [];
+    let total = 0;
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      total += value.byteLength;
+      if (total > MAX_FETCH_BYTES) {
+        await reader.cancel();
+        return tooLarge();
+      }
+      chunks.push(value);
+    }
+    const merged = new Uint8Array(total);
+    let offset = 0;
+    for (const chunk of chunks) {
+      merged.set(chunk, offset);
+      offset += chunk.byteLength;
+    }
+    this.#emit({
+      type: "host_op",
+      callId,
+      extension: name,
+      op: "fetch",
+      path: pathAndQuery,
+      outcome: "ok",
+      host: url.host,
+      status: response.status,
+      bytes: total,
+      ...(credentialRef !== undefined ? { credential: credentialRef } : {}),
+      ...(method !== undefined ? { method } : {}),
+    });
+    return { ok: true, status: response.status, bytes: merged, finalHost: url.host };
   }
 }

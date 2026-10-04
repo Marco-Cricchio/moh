@@ -1,5 +1,6 @@
 import { realpathSync } from "node:fs";
 import { isAbsolute, relative, resolve as pathResolve } from "node:path";
+import { assertNoExtensionScope } from "./extension-scope";
 
 export type PermissionDecision = "allow" | "ask" | "deny";
 export type PermissionTier = "builtin" | "config" | "runtime";
@@ -91,6 +92,10 @@ export function formatRule(rule: PermissionRule): string {
  */
 export function parseRule(str: string, effect: RuleEffect, tier: PermissionTier = "config"): PermissionRule {
   if (str === "") throw new RuleError(`empty ${effect} rule`);
+  // #1143: a bare `*` rule would match every invocation of every tool
+  // (including write/bash/spawn) — refuse it fail-closed. There is no
+  // documented all-tools wildcard; scope rules per tool.
+  if (str.trim() === "*") throw new RuleError(`invalid ${effect} rule "*": there is no all-tools wildcard; name the tool`);
   const colon = str.indexOf(":");
   if (colon === -1) {
     return { tier, tool: str, effect };
@@ -204,6 +209,9 @@ export const DEFAULT_TOOL_PERMISSIONS: Record<string, PermissionDecision> = {
   glob: "allow",
   grep: "allow",
   todo: "allow",
+  // Read-only by construction (#1165): the allow-list inside the tool is
+  // the whole safety story, so the gate treats it like the other reads.
+  git: "allow",
   write: "ask",
   edit: "ask",
   bash: "ask",
@@ -382,6 +390,9 @@ export class PermissionResolver {
     }
     const ov = opts.overrides ?? {};
     for (const [tool, decision] of Object.entries(ov.tools ?? {})) {
+      // #1143: `"*": "allow"` would become a tool-level rule matching every
+      // invocation (fail-open). Refuse it: the resolver throws on load.
+      if (tool === "*") throw new RuleError(`invalid tools override "*": there is no all-tools wildcard; name the tool`);
       if (decision === "allow" || decision === "deny") {
         rules.push({ tier: "config", tool, effect: decision });
       }
@@ -409,6 +420,9 @@ export class PermissionResolver {
 
   /** #849: rotates the mode in-session; the session appends the chrome event. */
   setMode(mode: SessionMode): void {
+    // ADR-0053 absolute prohibition (grant/alter permissions): the mode is
+    // the user's or the client's decision — extension code never moves it.
+    assertNoExtensionScope("permissions", "alter the permission mode");
     this.#mode = mode;
   }
 
@@ -419,6 +433,11 @@ export class PermissionResolver {
 
   /** Stores a rule granted by an "always" answer (tier forced to runtime). */
   addRuntimeRule(rule: Omit<PermissionRule, "tier"> & Partial<Pick<PermissionRule, "tier">>): void {
+    // ADR-0053 absolute prohibition (grant/alter permissions): a rule is
+    // the user's grammar — an "always" answer's or the client's, never an
+    // extension's. Entered from extension code, this throws the typed
+    // refusal and no rule is written.
+    assertNoExtensionScope("permissions", "add a permission rule");
     const { tier: _ignored, ...rest } = rule;
     this.#rules.push({ ...rest, tier: "runtime" });
     if (rest.tool === "bash" && rest.effect === "allow" && !rest.tokens && !rest.path) {

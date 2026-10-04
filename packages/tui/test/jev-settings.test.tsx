@@ -16,6 +16,11 @@ import { SettingsPanel } from "../src/SettingsPanel";
 import { DEFAULT_USER_CONFIG, type UserConfig } from "../src/user-config";
 import { ThemeProvider, THEMES, DEFAULT_THEME } from "../src/themes";
 import { stripAnsi, waitForCondition } from "./helpers";
+import { fileCredentialStore } from "../../core/src/credential-scope";
+
+// #1162: these tests drive the credential store — the 0600-file fallback
+// under each test's isolated home, never the developer's keychain.
+process.env.MOH_SECRET_STORE = "file";
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
@@ -94,11 +99,8 @@ async function openKeyInput(i: ReturnType<typeof render>) {
   await sleep(30);
 }
 
-const storedKey = (home: string): string | undefined => {
-  const file = userConfigFile(home);
-  if (!existsSync(file)) return undefined;
-  return readTypesafeConfig(file).apiKey;
-};
+/** #1162: the key lives in the credential store, not in config. */
+const storedKey = (home: string): string | undefined => fileCredentialStore({ home }).get("typesafe");
 
 describe("settings Jev entry (#784)", () => {
   test("the row renders and the disclosure shows under the entry", async () => {
@@ -157,9 +159,8 @@ describe("settings Jev entry (#784)", () => {
 
   test("an invalid key never overwrites a stored one", async () => {
     const { cwd, home } = setup();
-    const file = userConfigFile(home);
     mkdirSync(join(home, ".moh"), { recursive: true });
-    writeFileSync(file, JSON.stringify({ typesafe: { apiKey: "sk-previous-abcd" } }));
+    fileCredentialStore({ home }).set("typesafe", "sk-previous-abcd");
     const { i } = mount(cwd, home, async () => ({ status: "invalid", message: "HTTP 401" }));
     await sleep(30);
     await openKeyInput(i);
@@ -211,9 +212,9 @@ describe("settings Jev entry (#784)", () => {
 
   test("an existing key shows as active with a masked hint", async () => {
     const { cwd, home } = setup();
-    const file = userConfigFile(home);
     mkdirSync(join(home, ".moh"), { recursive: true });
-    writeFileSync(file, JSON.stringify({ typesafe: { apiKey: "sk-existing-abcd", timeoutMs: 1200 } }));
+    writeFileSync(userConfigFile(home), JSON.stringify({ typesafe: { timeoutMs: 1200 } }));
+    fileCredentialStore({ home }).set("typesafe", "sk-existing-abcd");
     const { i } = mount(cwd, home, async () => ({ status: "active", latencyMs: 1 }));
     await sleep(30);
     const frame = stripAnsi(i.lastFrame() ?? "");
@@ -267,9 +268,12 @@ describe("settings Jev entry: model routing (#787)", () => {
 
     expect(storedRouting(home)).toBe(false);
     expect(toasts.some((t) => t.includes("routing off"))).toBe(true);
-    // The read-modify-write keeps the key and every unrelated section.
+    // The read-modify-write keeps the key (in the store, #1162) and every
+    // unrelated section.
+    expect(storedKey(home)).toBe("sk-keep-abcd");
     const written = readTypesafeConfig(file);
-    expect(written.apiKey).toBe("sk-keep-abcd");
+    expect(written.routing).toBe(false);
+    expect(written.apiKey).toBeUndefined();
     i.unmount();
   });
 });
@@ -320,7 +324,9 @@ describe("settings Jev entry: anti-injection (#791)", () => {
 
     expect(storedInjection(home)).toBe(false);
     expect(toasts.some((t) => t.includes("anti-injection off"))).toBe(true);
-    expect(readTypesafeConfig(file).apiKey).toBe("sk-keep-abcd");
+    // #1162: the key survives — in the store, not the config file.
+    expect(storedKey(home)).toBe("sk-keep-abcd");
+    expect(readTypesafeConfig(file).apiKey).toBeUndefined();
     i.unmount();
   });
 });
@@ -485,7 +491,9 @@ describe("settings Jev entry: prompt classification (#788/#833)", () => {
         await waitForSelection("API key");
         expect(frame().replace(/[\s│]+/g, " ")).toContain(`Classification ${next ? "on" : "off"}`);
       }
-      expect(readTypesafeConfig(file).apiKey).toBe("sk-keep-me");
+      // #1162: the key survives — in the store, not the config file.
+      expect(storedKey(home)).toBe("sk-keep-me");
+      expect(readTypesafeConfig(file).apiKey).toBeUndefined();
       expect(JSON.parse(readFileSync(file, "utf8")).telemetry).toBe(true);
     } finally {
       i.unmount();

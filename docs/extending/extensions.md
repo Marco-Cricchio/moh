@@ -49,7 +49,9 @@ export default defineExtension({
 A host loads it with `ExtensionRuntime.registerFile()` and passes the
 runtime into the session — the full runnable host script is at
 [examples/run-extension.ts](examples/run-extension.ts) (`bun
-docs/extending/examples/run-extension.ts` from the repo root). Its core:
+docs/extending/examples/run-extension.ts` from the repo root; the example
+also ships its [manifest](examples/moh.extension.json), which a file load
+requires — see "The manifest" below). Its core:
 
 ```ts
 import { builtinTools, createSession, ExtensionRuntime, MockProvider } from "@moh/core";
@@ -76,8 +78,54 @@ await session.dispose();
 | `name` | `string` | unique extension name |
 | `version` | `string` | extension's own version |
 | `apiVersion` | `string` | `"major.minor"`; **mandatory**, major must match the host |
-| `dependencies` | `string[]` | optional npm specs; installed by the host, per-change authorization |
+| `capabilities` | `string[]` | optional capability slots this code uses; every entry must be declared in the manifest (below) or the load refuses |
+| `dependencies` | `string[]` | legacy code-level shape; the **manifest's `dependencies` is the authority** (ADR-0070) — a code list that disagrees refuses (`deps_undeclared`) |
 | `setup(ctx)` | function | receives the `ExtensionSetupContext` |
+
+## The manifest (`moh.extension.json`, ADR-0061)
+
+A file extension loads only with a **static manifest** beside its entry
+point — `moh.extension.json` in the same directory, naming the file:
+
+```json
+{
+  "name": "no-rm-rf",
+  "version": "0.1.0",
+  "entry": "no-rm-rf.mjs",
+  "capabilities": [],
+  "dependencies": { "zod": "3.23.8" }
+}
+```
+
+- `name`, `version` — the extension's identity, declared *outside* the
+  code so the consent question can state it before anything runs.
+- `entry` — the file (or files: an array shares one capability set across
+  several entry modules) this manifest speaks for. A manifest whose entry
+  names another file is not your module's, and your module loads as if
+  there were none.
+- `capabilities` — the slots the user is being asked to grant.
+- `dependencies` (ADR-0070, #1166) — the npm packages moh installs for
+  you, **exact versions only**: `{ "zod": "3.23.8" }`. A range
+  (`"^3.23.8"`, `"*"`, `"latest"`, …) is a manifest validation error
+  naming the package — the consent decides on specific bytes, never on a
+  range. See [Dependencies: the extension-deps installer](#dependencies-the-extension-deps-installer-adr-0070-1166).
+
+The manifest is the **authority**: the consent question reads and signs it
+(the SHA-256 of the manifest joins the entry file's hash in what a yes
+covers), and at import the runtime verifies every capability your
+`defineExtension` declares is declared in the manifest — a **superset
+refuses the load loudly**, naming the offending slot
+(`extension_failed { reason: "capability_undeclared" }`), never silently
+works. A **missing or malformed manifest refuses the load before consent
+is even asked and before the module is imported**: not one line of your
+code — top level included — runs. A package with several entry modules
+declares them all in one manifest's `entry` array.
+
+A **widening edit** — a manifest that adds capabilities, usually together
+with the code that uses them — is a new question, and the question shows
+the **capability diff**: `new since last approval: contribute-panels`.
+Narrowing edits also re-ask (any manifest byte change does); only the
+added slots are highlighted.
 
 ## ExtensionSetupContext
 
@@ -92,6 +140,126 @@ await session.dispose();
 - Hook registration: `onSessionStart`, `onSessionEnd`, `beforeTurn`,
   `beforeModelCall`, `onToolCall`, `onToolResult`, `onCompaction`,
   `onEvent`, `afterTurn`.
+- `registerCommand(command)` — contribute a slash command
+  (`/deploy-status`), **only present when the `contribute-commands`
+  capability is granted** (apiVersion 1.11, ADR-0062): without the grant
+  the property does not exist on the context. The command returns its own
+  text output — the same text the TUI shows and headless `moh run` prints
+  — so there is exactly one behavior per command. Name collisions resolve
+  native > skills > extension: a colliding or invalid registration is
+  refused visibly and reported in `/extensions`, and your extension keeps
+  running.
+- `registerPanel(panel)` — contribute one panel to the extensions rail,
+  **only present when the `contribute-panels` capability is granted**
+  (apiVersion 1.12, ADR-0062): without the grant the property does not
+  exist on the context. One panel per extension; at most 4 panels are
+  visible across all extensions — a further registration is refused at
+  load (`panel slot exhausted (4/4)`) and there is no automatic eviction:
+  collapsing and reopening is manual, from `/extensions`. The panel's
+  `render()` returns arbitrary Ink elements the client draws in the rail
+  zone — opaque to the core, never wrapping native components. A
+  permission-gated action triggered from a panel callback flows through
+  the existing gate (see "Interaction is gated" below) — the gated path
+  is the only path.
+- `registerOverlay(overlay)` — contribute a full-screen overlay, **only
+  present when the `contribute-overlays` capability is granted**
+  (apiVersion 1.12, ADR-0062). It returns `{ open() }`; call `open()`
+  from your own command's `run()` (the command is how the user opens the
+  overlay). The client shows it full-screen; the user closes it with
+  `Esc`. In a client with no surface (headless), `open()` contributes
+  nothing — visible absence, never a simulated rendering.
+- `spawnSubagent(spec)` — spawn one subagent child session, **only
+  present when the `spawn-subagent` capability is granted** (apiVersion
+  1.13, ADR-0053 + ADR-0055): delegation is a capability, and the enable
+  consent granted an **envelope** — at most ten children per extension
+  per session, each within the session's own iteration ceiling. Every
+  request is intersected with that envelope at spawn time: a request
+  outside it is refused loudly (`extension_failed`, the promise resolves
+  with an error result), never silently narrowed. Spawning from inside a
+  child's dispatch is refused — no grandchildren — and the owner's one
+  stop aborts every child you started. The spec mirrors the model-facing
+  spawn tool (`preset`, `task`, `systemPrompt`, `allowedTools`,
+  `maxIterations`); unknown tool names and presets refuse the spawn.
+- `subagentActivity(callId)` — bounded turn-activity read of a child you
+  spawned (same capability slot, apiVersion 1.13): the child-tail shape —
+  messages, tool calls and outcomes, activity — never the provider
+  reasoning. A callId you did not spawn resolves to `null`: a session you
+  did not create does not exist for you, and there is no API that reads
+  or resumes one.
+- `registerTool(tool)` — contribute a tool the session's model can call,
+  **only present when a `contribute-tool:<name>` capability is granted**
+  (apiVersion 1.14, ADR-0067). The registered tool's `name` must be one
+  the consent named — anything else is refused visibly
+  (`extension_failed`) and the tool never reaches the model. The
+  contributed tool rides the same runner and permission gate as every
+  session tool: the model sees and calls it like any tool, and your code
+  runs when the model invokes it — a different trust shape from asking
+  the host to run an existing tool (see "The host seam" below).
+
+## The host seam (ADR-0064–0067)
+
+`ctx.host` is the one surface through which your extension asks the host
+to perform an operation — moh's own code executing under the scopes your
+manifest declares. **It is present only when the enable consent covers at
+least one scope** (enforcement by absence; check with
+`typeof ctx.host === "object"`). No OS sandbox: consent is the whole
+boundary, the scope constrains requests to the seam — not your code —
+and every performed operation lands in the log as `host_op`, every
+refusal as `host_refused` (typed reasons, never exceptions).
+
+- `path:<glob>` (ADR-0065, apiVersion 1.13) — `readFile`, `writeFile`,
+  `appendFile`, `rename`, `delete`, `readlink` over project-root-relative
+  globs. `readlink` is an implemented read-family metadata operation, not
+  a separate scope. One grant covers the whole file family; the user's deny rules
+  beat the grant per call; the log records the real (symlink-resolved)
+  target.
+- `host:<domain>` (ADR-0066, apiVersion 1.13) — `fetch(url, options)`:
+  https only, every redirect hop re-checked against the allowlist, fully
+  buffered responses with a fixed size limit. A safety guard follows at
+  most five redirects, refusing longer chains with `outside_scope` and
+  a `more than 5 redirects` message even when all hosts are allowed. `host:*` exists only with a
+  manifest `reasoning` the consent displays.
+- `credential:<ref>` (ADR-0069, apiVersion 1.13) — an authenticated fetch
+  passes `credential: "<ref>"`; the host resolves the ref and injects the
+  value itself. The value never crosses the seam; there is no
+  read-the-value API.
+- `tool:<name|*>` (ADR-0067, apiVersion 1.14) —
+  `runTool(name, args)` asks the host to run one registered session tool
+  through the normal runner and permission gate: the model's exact gate
+  path (extension veto > user rules > mode), and an ask names your
+  extension as the requester. Whole-tool grant — `tool:bash` authorizes
+  Bash entire; no argv sub-scoping; the user's rules decide each call.
+  `tool:*` covers every session tool, built-in and MCP, and its consent
+  sentence says so plainly. A tool outside the grant refuses
+  `{ ok: false, reason: "outside_scope" }`; a tool the session does not
+  register refuses `unknown_tool`; a refused ask refuses `denied`.
+  `tool:git` names the built-in read-only `git` tool: an inspection
+  allow-list (status, diff, log, show, rev-parse, ls-files, branch,
+  remote, describe, config reads) that refuses mutating commands and
+  repository-relocating flags before any spawn — the grant for reading
+  a repository's state without holding the shell.
+- `endpoint:<ref>` (ADR-0068, apiVersion 1.15) — `modelCall({ endpoint,
+  model, messages, thinkingLevel?, signal? })` asks the host for one
+  single-shot model call against an endpoint your grant named, executed
+  through moh's Route: no host-managed loop, no conversation state — you
+  compose the messages and read the answer (`text`, `usage`, the serving
+  `model`). Provider credentials never cross the seam, and provider
+  reasoning of these calls is not persisted. `listModels(endpoint)`
+  lists the granted endpoint's models — part of the same grant. A
+  per-call `thinkingLevel` is honored only within the model's declared
+  thinking capability: an unsupported level refuses `unsupported_level`,
+  never a remapping. Every call is recorded as an ordinary `model_call`
+  log event naming your extension as the requester, and its tokens are
+  separated by requester in the turn's `done` usage rollup — the owner
+  sees what you consumed. A second endpoint is `outside_scope`.
+- `contribute-tool:<name>` (ADR-0067, apiVersion 1.14) — the
+  contribution slot, a different power with a different consent sentence
+  ("will add a `<name>` tool the model can call; its code runs when the
+  model invokes it"). See `registerTool` above. There is no reserved
+  `custom:` marker; the two shapes never share one string.
+
+Scope prefixes are known capability slots only once their phase ships:
+a typo in a declared scope is a manifest error (ADR-0071).
 
 ## Hooks and their ordering
 
@@ -109,7 +277,10 @@ permissions. Within one turn, the ordering is:
    It fires before the turn's provider is read and before anything is
    logged, so a turn that is never sent leaves no trace.
 3. Per model call: `beforeModelCall` — read the assembled prompt
-   (`{ sections, system, version }`) and messages; read-only.
+   (`{ sections, system, version }`) and messages; optionally return
+   `{ sections: { <name>: "<replacement>" | null } }` to replace a prompt
+   section (apiVersion 1.11, ADR-0054 — see "Replacing a prompt section"
+   below).
 4. Per tool call: `onToolCall` — return `{ veto: true, reason? }` to deny,
    or `{ ask: true, reason? }` to hand the call to the human consent flow;
    runs before the permission gate's user-rule tiers.
@@ -120,6 +291,9 @@ permissions. Within one turn, the ordering is:
    `onModelError` — return `{ model: "<endpoint>/<model-id>" }` to propose
    an alternative the core retries the call on, within the same turn
    (apiVersion 1.10, ADR-0059).
+6b. At setup, with the `contribute-commands` grant: `registerCommand` —
+   contribute a slash command executable like a native one (apiVersion
+   1.11, ADR-0062, below).
 7. Per event-log entry: `onEvent` — every event, appended order, including
    the `tool_call`/`tool_result` pair your veto produced. Dispatch runs on a
    serial queue, so hooks see events shortly after they are appended.
@@ -127,10 +301,64 @@ permissions. Within one turn, the ordering is:
    (`{ status, reason?, message? }`).
 9. `onSessionEnd` — once, when the client disposes the session.
 
+**Deadlines (ADR-0056).** Every turn-path hook invocation — `beforeTurn`,
+`beforeModelCall`, `onToolCall`, `onToolResult`, `afterTurn` — runs under a
+wall-clock ceiling, default 30 s and configurable via moh.json
+`hookTimeoutMs`. Expired or thrown, the hook contributes nothing and the
+turn proceeds with one visible `extension_failed` record
+(`reason: "hook_timeout"`); the hook is not retried within the turn. A
+silence never vetoes, never asks. Within `beforeModelCall`, a returned
+`sections` replacement is judged against a separate, shorter 5 s window
+(ADR-0054): returned past it, the core's own text serves that call
+(`reason: "replacement_timeout"`) — but the hook's other work still counts
+to the ceiling. The dispatch hands the composer the replacements that beat
+the window and the hooks that lost a clock; applying them (capability
+checks, one author per section, the provenance line, the `prompt_override`
+record) is the composer's work.
+
 A veto outranks user permission rules and applies even in
 yolo mode — extensions can only restrict, never widen. The denial
 produces the same denied `tool_result` the model sees for any denial, so
 the loop can react to it.
+
+## Replacing a prompt section (ADR-0054)
+
+`beforeModelCall` may return `{ sections: Partial<Record<SectionName, string | null>> }`:
+each entry replaces that section's text for the call about to be made,
+with `null` meaning *hidden*. Six data sections are replaceable —
+`environment`, `tools`, `skills`, `memory`, `session_state`, `mpm` —
+plus your own contribution sections; `base` and the project's
+instruction files are never replaceable (they are moh's identity and the
+user's own words), and a section added later defaults to not
+replaceable.
+
+- **Capability, per section.** Replacing `memory` needs the capability
+  slot `replace-prompt-section:memory` declared in your code and your
+  manifest (one slot per section, so the consent question names exactly
+  what you may touch). Without the grant the replacement is refused at
+  runtime — a visible `extension_failed { reason: "section_not_granted" }`
+  — and the core's own text serves that call.
+- **One author per section.** A second extension returning a replacement
+  for an already-replaced section is refused with
+  `extension_failed { reason: "section_contested" }`; the first author's
+  text stands. Dispatch stays in registration order.
+- **Provenance.** The core writes one line at the head of a replaced
+  section (`[extension: your-ext v1.2.0 — section replaced]`), so the
+  model can tell which text is not moh's voice. Hiding a section is
+  recorded as `hidden`, never a silent omission.
+- **The record.** When the set of contributions in force changes — a
+  section replaced, hidden, or restored to core text — the session log
+  gains one `prompt_override` chrome event naming section, author,
+  version and mode. It never records the words; replay reconstructs what
+  was in force from these events alone.
+- **It follows the runtime into children.** A subagent child borrows the
+  dispatch too: the same replacements shape the child's prompt, and the
+  refusals and `prompt_override` records land in the child's own log.
+- **Disengaging.** Nothing is persisted: the replacement is a per-call
+  projection of what your hook returns. Stop returning it and the core's
+  text stands, recorded once as `restored`; disabling the extension
+  removes it entirely. A slow hook that misses the 5 s window loses only
+  the replacement (the deadline composition above).
 
 ## Choosing the model of a turn
 
@@ -508,7 +736,7 @@ extension's note.
 ## Versioning policy
 
 - The host speaks `MOH_EXTENSION_API_VERSION` (`"major.minor"`); the
-  current version is **1.10** (1.1 added `ask` and the two observation
+  current version is **1.15** (1.1 added `ask` and the two observation
   seams; 1.2 added `beforeTurn`; 1.3 added the `extension_control`
   command channel; 1.4 added `onToolResult`, `confirm.onResolved` and
   `onCompaction`; 1.5 added `setPromptNote`; 1.6 added `requestTurn`;
@@ -518,7 +746,19 @@ extension's note.
   and the `applied: false` outcome on its `onApplied` callback; 1.10
   added the `onModelError` hook, ADR-0059; still 1.10, #1110 added the
   same `endpointCooldowns` list the `beforeTurn` context already carries
-  to the `onModelError` context).
+  to the `onModelError` context; 1.11 added the prompt-section
+  replacement return value on `beforeModelCall`, ADR-0054, and
+  `registerCommand`, the `contribute-commands` capability slot, #1130;
+  1.12 added `registerPanel` and `registerOverlay`, the
+  `contribute-panels` / `contribute-overlays` capability slots, #1132;
+  1.13 added `spawnSubagent` and `subagentActivity`, the
+  `spawn-subagent` capability slot — delegation per ADR-0053/ADR-0055,
+  #998 — and the `capabilities` list on `extension_loaded` (the startup
+  announcement of what each enabled extension holds); 1.14 added the
+  tool scopes per ADR-0067, #1163 — `ctx.host.runTool` under
+  `tool:<name|*>` and `ctx.registerTool` under `contribute-tool:<name>`.
+  1.15 added the endpoint scope per ADR-0068, #1164 — `ctx.host.modelCall`
+  and `ctx.host.listModels` under `endpoint:<ref>`.
 - **Additive-only within a major**: new hooks and context fields may be
   added; existing ones never change meaning or disappear. Deprecated APIs
   survive one full major.
@@ -530,6 +770,15 @@ extension's note.
   an unknown outcome key (`ask` on a 1.0 runtime) is dropped and the call
   proceeds, an unknown context method is simply absent. Fail-open, never an
   error.
+
+  **One caveat for a capability-gated method**: an *absent* method is not a
+  no-op. An extension written against 1.12 that calls `ctx.registerPanel(...)`
+  unconditionally throws a `TypeError` inside `setup()` on a 1.11 host, and a
+  throwing setup refuses the load (`extension_failed`). Guard it as the
+  contract says — `if (typeof ctx.registerPanel === "function")` — or
+  declare the method's absence as part of your extension's own
+  compatibility story. A capability you did not declare is absent by
+  design; a version gap simply widens what can be absent.
 
 ## Where a client loads extensions from
 
@@ -548,12 +797,15 @@ every hook, that order is part of the contract.
 
 **Consent is content-bound, and it comes before the code runs.** An
 extension is arbitrary code running in-process, so the first load asks: a
-modal in the TUI naming the file and a SHA-256 of its exact bytes, and
-stating that there is no sandbox. A `true` answer is remembered in
-`~/.moh/extensions.json` against the **resolved path plus that hash** — so
-the same file loads silently afterwards, and editing it asks again (the
-hash changed). There is nothing to remember a *name*: two files claiming
-the same extension name are two different pieces of code.
+modal in the TUI naming the file, a SHA-256 of its exact bytes, the
+capabilities its manifest declares, and a statement that there is no
+sandbox. A `true` answer is remembered in `~/.moh/extensions.json` against
+the **resolved path plus the module's hash and the manifest's hash** (ADR-0061)
+— so the same bytes load silently afterwards, and editing the module *or*
+its manifest asks again (a hash changed; a widening edit shows the
+capability diff in the question). There is nothing to remember a *name*:
+two files claiming the same extension name are two different pieces of
+code.
 
 The order matters and is the point: **the question is answered before the
 file is imported**, because importing a module evaluates it. A file you
@@ -573,17 +825,49 @@ field is ignored).
 nobody to ask: an extension that was never enabled is skipped — never
 imported, so never executed — with a visible
 `extension_failed { reason: "consent" }` in the log and one line on stderr.
-The session continues and the exit code is untouched.
+A file with no (or a malformed) `moh.extension.json` is refused the same
+way (`reason: "manifest"`) before any question could be asked. The session
+continues and the exit code is untouched.
 
 **There is no sandbox.** An extension runs with the same privileges as moh:
 it can read `~/.moh/config`, your credentials and the network. Consent is
 the only boundary, and it is a one-time yes for a specific set of bytes —
 read the file before you answer.
 
-**Dependencies are not installed yet.** An extension that declares
-`dependencies` is refused loudly (`extension_failed { reason:
-"deps_unauthorized" }`): no host installs them in v1, and a half-promise
-would be worse than an honest refusal.
+### Dependencies: the extension-deps installer (ADR-0070, #1166)
+
+Declare what you need in the **manifest**; moh installs it:
+
+```json
+{ "dependencies": { "zod": "3.23.8" } }
+```
+
+- **Exact pins only.** A range is a manifest validation error (above).
+- **Install = download + digest verification + layout.** moh writes its
+  own lockfile (`~/.moh/extension-deps/<your-extension>/lock.json`) with
+  per-package SRI digests, direct and transitive, and re-verifies the
+  tree at every install — drift between tree and lockfile is a loud
+  error (the `npm ci` contract), and a drifted load refuses with
+  `extension_failed { reason: "deps_install_failed" }`.
+- **Your tree is yours alone.** One directory per extension
+  (`~/.moh/extension-deps/<name>/`); you cannot resolve another
+  extension's dependencies, and none can resolve yours.
+- **No lifecycle script ever runs.** A dependency declaring
+  `install`/`postinstall` (typically a native build) refuses to install
+  with the package named. The escape hatch is the platform norm:
+  **bundle the artifact** — ship compiled code, not a build step.
+- **Consent covers the bytes.** The first load with a dependency list
+  asks, showing each entry by name and version (`zod@3.23.8`); a changed
+  list asks again; a refusal keeps the previously approved tree and the
+  load fails (`deps_unauthorized`). Headless (nobody to ask) refuses too.
+- **Removal is deletion.** `moh extension remove <name>` deletes your
+  dependency directory immediately; there is no shared store and no
+  automatic GC.
+
+A code-level `dependencies` array on `defineExtension` remains legal for
+in-memory registrations, but for a file load the manifest is the
+authority: a code list that disagrees with it refuses loudly
+(`deps_undeclared`).
 
 **Hot-reload is on for loaded files.** A session watches what it loaded;
 editing a file re-imports it, re-runs `setup()` with the previous
@@ -591,19 +875,65 @@ editing a file re-imports it, re-runs `setup()` with the previous
 reload keeps the previous instance and is visible on both channels (the log
 and the host's warning line).
 
+## Installing packages: `moh extension add`
+
+Beyond files you write yourself, extensions can be installed from exactly
+two **immutable sources** (ADR-0061) — immutable because the consent binds
+to the SHA-256 of what was installed, and only a fixed, checksum-verified
+artifact keeps that binding meaningful:
+
+    moh extension add @scope/name@1.2.0     # npm scoped package
+    moh extension add github:owner/repo@v1.2.0   # GitHub release (repo + tag)
+
+Without `--user` the package lands in `<project>/extensions/<name>/`;
+with `--user`, in `~/.moh/extensions/<name>/` — the two roots the loader
+already scans (see the table above).
+
+`add` performs **static checks only**; package code is never executed —
+not at install, not ever by this command:
+
+- the manifest (`moh.extension.json`) must be present and well-formed;
+- the artifact is verified against the source's own digest (npm's
+  `dist.integrity`; a GitHub release's committed `.sha256` asset). A
+  mismatch refuses with both digests, and a release that publishes no
+  digest is refused outright — an unverifiable artifact is never installed;
+- an unknown capability slot **warns** but does not refuse — the slot
+  vocabulary grows, and the load-time consent still decides what runs;
+- package.json dependencies are **noted**; moh installs only the
+  manifest's own `dependencies` (ADR-0070 — exact pins, digest-verified,
+  no scripts).
+
+**Installation never authorizes.** The first session that loads the
+installed file asks the same consent question as any other file, naming
+the resolved path, the SHA-256 of its bytes and manifest, and the
+capabilities the manifest declares. A raw URL or tarball is refused: there
+is no third source.
+
+`moh extension list` shows what is installed in both scopes; `moh
+extension remove <name>` deletes by manifest name, project scope first.
+When the same package identity exists in both scopes, the existing
+discovery precedence decides — the project copy loads, and the ignored
+dotdir copy is reported as a visible line, not an error.
+
 ## Loading, lifecycle, failure
 
 - Loading goes through `ExtensionRuntime.registerFile(file)` (dynamic,
   cache-busted import), `registerFiles(files)` (several files in order, as
   one pending registration) or `register(def)` (in-memory). For file
-  modules, the runtime binds enable consent to the resolved absolute path
-  and a SHA-256 hash of its contents, persisted in
-  `<mohHome>/extensions.json`. Editing a file or loading another file that
-  claims the same name requires consent again; an unchanged file loads
-  silently. The approved npm dependency list is bound to that same content
-  identity and is authorized again after a changed module requests
-  dependencies. Both are host-supplied seams; with no consent seam and
-  nothing stored, the load is refused.
+  modules, the runtime binds enable consent to the resolved absolute path,
+  a SHA-256 hash of the module's contents **and a SHA-256 of the manifest**
+  (ADR-0061), persisted in `<mohHome>/extensions.json`. Editing the module
+  or its manifest requires consent again; unchanged bytes load silently.
+  A widening manifest edit shows the capability diff in the question. The
+  approved npm dependency list is bound to that same content identity and
+  is authorized again after a changed manifest requests dependencies
+  (ADR-0070: the question shows the deps by name and version; a refusal
+  keeps the previously approved tree, and the approved tree is
+  re-verified against its lockfile at every load). All
+  are host-supplied seams; with no consent seam and nothing stored, the
+  load is refused. A grant recorded before manifests existed (an earlier
+  moh version) is not silently honored: the first load after the upgrade
+  asks once, with the manifest in the question, and re-remembers.
 - `register(def, { bundled: true })` marks code the *host shipped*
   (first-party bundled code, the Jev extension): consent and dependency
   authorization are skipped, because those bytes never came from the user's
@@ -628,11 +958,14 @@ and the host's warning line).
   before the first turn, so a snapshot taken at wiring time would be empty.
 - Hot-reload: `startWatch()` watches the registered files; on change the
   module is re-imported and `setup()` re-runs with the previous `ctx.state`
-  seeded in. A failed reload keeps the previous instance running and is
-  reported as an `extension_failed` log event, plus the host's own warning
-  line when it has one (`onWarning` — a headless client's stderr; a TUI
-  renders the log line itself). A client's session starts the watch itself
-  and stops it at dispose.
+  seeded in. The manifest is re-read first: a missing or malformed one, or
+  a widening edit the user declines, keeps the previous instance serving
+  (ADR-0061 — the last approved state is what runs). A failed reload keeps
+  the previous instance running and is reported as an `extension_failed`
+  log event, plus the host's own warning line when it has one
+  (`onWarning` — a headless client's stderr; a TUI renders the log line
+  itself). A client's session starts the watch itself and stops it at
+  dispose.
 - `ready()` resolves when every registration started so far has settled;
   file loads register their promise synchronously, so a caller that awaits
   `ready()` before its first turn never runs with half its extensions

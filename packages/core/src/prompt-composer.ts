@@ -81,7 +81,6 @@ export interface BeforeModelCallContext {
   readonly messages: readonly Message[];
 }
 
-export type BeforeModelCallHook = (ctx: BeforeModelCallContext) => void | Promise<void>;
 
 /** Default combined character budget for AGENTS.md + CONTEXT.md. */
 export const DEFAULT_INSTRUCTIONS_BUDGET = 20_000;

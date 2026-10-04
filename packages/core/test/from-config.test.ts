@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { appendFileSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { sessionFromConfig } from "../src/session/from-config";
+import { sessionFromConfig, projectRootFor } from "../src/session/from-config";
 import { MockProvider, declaredMcpServers, type MohConfig } from "../src/index";
 
 function tempProject(): { cwd: string; home: string; cleanup: () => void } {
@@ -374,6 +374,71 @@ describe("single-writer guard (#400)", () => {
         if (line.trim() === "") continue;
         expect(() => JSON.parse(line)).not.toThrow();
       }
+    } finally {
+      cleanup();
+    }
+  });
+});
+
+// Lane worktrees (ADR-0060): moh.json is gitignored, so `git worktree add`
+// leaves the worktree without it. Project-scoped reads must resolve against
+// the owning main checkout, or a lane assembles with the empty config
+// (default provider, no mpm, the 50-turn default cap) — the bug class the
+// lane rollout exposed.
+describe("sessionFromConfig — lane worktree config fallback", () => {
+  test("projectRootFor: worktree without moh.json resolves to the main checkout", () => {
+    const { cwd, home, cleanup } = tempProject();
+    try {
+      // mainCheckoutFor recognizes the checkout root by the `.git` anchor
+      // beside the lane worktree — a bare directory stands in for a repo.
+      mkdirSync(join(cwd, ".git"), { recursive: true });
+      writeFileSync(join(cwd, "moh.json"), JSON.stringify({ provider: "mock" }));
+      const worktree = join(cwd, "..", ".moh-lanes", "project", "lane-a");
+      mkdirSync(worktree, { recursive: true });
+      expect(projectRootFor(worktree)).toBe(cwd);
+      expect(projectRootFor(cwd)).toBe(cwd);
+      // A worktree with its own moh.json keeps it.
+      writeFileSync(join(worktree, "moh.json"), JSON.stringify({ maxIterations: 7 }));
+      expect(projectRootFor(worktree)).toBe(worktree);
+      // A plain directory outside any lane stays itself.
+      const plain = join(home, "elsewhere");
+      mkdirSync(plain, { recursive: true });
+      expect(projectRootFor(plain)).toBe(plain);
+    } finally {
+      cleanup();
+    }
+  });
+
+  test("a session assembled in a lane worktree reads moh.json from the main checkout", async () => {
+    const { cwd, home, cleanup } = tempProject();
+    try {
+      // Main checkout: explicit mock provider + a maxIterations (9) that
+      // differs from the 50 default — it must reach the session, or the
+      // lane would stop at 50 turns even with the config set.
+      writeFileSync(
+        join(cwd, "moh.json"),
+        JSON.stringify({ provider: "mock", maxIterations: 9, mpm: { enabled: false } }),
+      );
+      const worktree = join(cwd, "..", ".moh-lanes", "project", "lane-b");
+      mkdirSync(worktree, { recursive: true });
+      const result = sessionFromConfig({
+        cwd: worktree,
+        home,
+        provider: MockProvider.scripted([{ deltas: [], finish: "tool_calls", toolCalls: [{ name: "bash", args: { command: "true" } }] }]),
+      });
+      expect("error" in result).toBe(false);
+      if ("error" in result) return;
+      const events: any[] = [];
+      void (async () => {
+        for await (const e of result.session.events) events.push(e);
+      })();
+      await result.session.send("loop until the cap");
+      await result.session.dispose();
+      // The cap is observable in the turn shape: the scripted tool-call loop
+      // must stop at 9 iterations (moh.json), not the 50 default — the
+      // #1099 wrap-up call follows as the final model_call.
+      const toolCalls = events.filter((e) => e.type === "tool_call");
+      expect(toolCalls.length).toBe(9);
     } finally {
       cleanup();
     }

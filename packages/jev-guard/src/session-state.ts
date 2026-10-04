@@ -7,8 +7,25 @@
  * command means a different thing on a different tree). Outside a git repo
  * the key is the command alone. The cache serves full verdicts: an "ask"
  * served from cache still prompts normally.
+ *
+ * T7 (#1165): the snapshot itself moved off child processes — `gitSnapshot`
+ * is now async over the injected `GitRead` (one `ctx.host.runTool("git", …)`
+ * per read, logged at the seam). `null` = off-repo or refused read: the
+ * key falls back to the command alone, the cache still works.
  */
-import { spawnSync } from "node:child_process";
+import type { GitRead } from "./diff";
+
+export type { GitRead } from "./diff";
+
+/** Reads the compact git snapshot for a cwd; null outside a git repo or
+ * when the host refuses (the seam logs the refusal — never a silent I/O). */
+export async function gitSnapshot(read: GitRead, cwd: string): Promise<string | null> {
+  const branch = await read(["rev-parse", "--abbrev-ref", "HEAD"]);
+  if (branch === null || branch.trim() === "") return null;
+  const dirty = await read(["status", "--porcelain"]);
+  if (dirty === null) return null;
+  return `${branch.trim()}:${dirty.length > 0 ? "dirty" : "clean"}`;
+}
 
 /** One judged bash command + its environment snapshot. */
 export interface GuardrailState {
@@ -20,15 +37,6 @@ export interface GuardrailState {
 
 export function guardrailStateKey(state: GuardrailState): string {
   return state.git === null ? state.command : `${state.git}\u0000${state.command}`;
-}
-
-/** Reads the compact git snapshot for a cwd; null outside a git repo. */
-export function gitSnapshot(cwd: string): string | null {
-  const branch = spawnSync("git", ["rev-parse", "--abbrev-ref", "HEAD"], { cwd, timeout: 1000 });
-  if (branch.status !== 0) return null;
-  const dirty = spawnSync("git", ["status", "--porcelain"], { cwd, timeout: 1000 });
-  if (dirty.status !== 0) return null;
-  return `${branch.stdout.toString().trim()}:${dirty.stdout.length > 0 ? "dirty" : "clean"}`;
 }
 
 /** A cached verdict. `ask` carries the ratified modal badge text ("Jev: caso

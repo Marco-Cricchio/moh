@@ -38,6 +38,7 @@ import {
   type Tool,
   type TrackerBackend,
 } from "@moh/core";
+import { BASE_COMMANDS, workflowCommands } from "./commands";
 import { EXTENSION_CONSENT_TOOL } from "./permission-gate";
 import { bundledExtensionSources } from "./bundled-extensions";
 import { homedir } from "node:os";
@@ -94,6 +95,13 @@ export function makeSession(options: OpenSessionOptions): MakeSessionResult {
     cwd: options.cwd,
     home: options.home,
     provider: options.provider,
+    // ADR-0062 (#1130): the slash names the TUI's own surfaces own — base
+    // commands, the workflow skill aliases, and `skills` itself. Extension
+    // commands colliding with any of them are refused at registration.
+    reservedCommandNames: [
+      ...BASE_COMMANDS.map((command) => command.name),
+      ...workflowCommands().map((command) => command.name),
+    ],
     // #826: the first-party bundled extensions this client ships. The core
     // hosts them without importing them; a bare library user gets none.
     bundledExtensions: bundledExtensionSources(options.home),
@@ -121,6 +129,14 @@ export function makeSession(options: OpenSessionOptions): MakeSessionResult {
                     ...(request.version ? { version: request.version } : {}),
                     ...(request.file ? { file: request.file } : {}),
                     ...(request.hash ? { hash: request.hash } : {}),
+                    // ADR-0061: the manifest's declared capabilities — what
+                    // the user is being asked to grant — and, on a widening
+                    // re-ask, the diff the question must name.
+                    ...(request.capabilities?.length ? { capabilities: request.capabilities } : {}),
+                    ...(request.addedCapabilities?.length ? { addedCapabilities: request.addedCapabilities } : {}),
+                    // ADR-0070: a dependency authorization ask shows the
+                    // deps by name and version — the bytes a yes installs.
+                    ...(request.dependencies?.length ? { dependencies: request.dependencies } : {}),
                   },
                   // The label names what is known: the extension on a re-ask
                   // (an edited file), the file itself on a first-time ask,

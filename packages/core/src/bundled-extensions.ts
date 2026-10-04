@@ -25,6 +25,7 @@
 import type { ExtensionRuntime, RuntimeExtension } from "./extensions";
 import type { EndpointProfile } from "./config";
 import type { ModelPoolResult } from "./model-pool";
+import type { CredentialStore } from "./credential-scope";
 
 /** What `resolveBundledExtensions` hands an active descriptor. */
 export interface BundledActivationContext {
@@ -46,6 +47,14 @@ export interface BundledActivationContext {
   routingPool?: readonly string[];
   /** The session's skill roster (bundled first-party + user skills). */
   skillRoster: () => Promise<readonly { name: string; description: string }[]>;
+  /**
+   * ADR-0069 + #1162: the credential store behind `credential:<ref>`
+   * scopes — keychain when available, the 0600-file fallback otherwise.
+   * An extension whose activation fact lives in a stored credential reads
+   * its presence here; the value is never taken (no read-the-value API on
+   * the seam, and activation needs the fact, not the secret).
+   */
+  credentialStore?: CredentialStore;
 }
 
 /**
@@ -62,6 +71,13 @@ export interface BundledActivationContext {
 export interface BundledExtensionSource {
   /** The extension's registered name — identity for state, control, lookups. */
   readonly name: string;
+  /**
+   * ADR-0061: the capabilities the package's own `moh.extension.json`
+   * declares, surfaced by the vendor's descriptor (the core never reads
+   * another package's file). When present, the same subset rule applies at
+   * registration: code capabilities not declared here refuse the load.
+   */
+  readonly manifest?: { hash?: string; path?: string; capabilities: readonly string[] };
   /** Builds the definition to register. Called only when `active` is true. */
   activate(context: BundledActivationContext): unknown;
   /**
@@ -70,9 +86,16 @@ export interface BundledExtensionSource {
    * extension run in this session? Effect-free — no writes, no network —
    * and a malformed block is the extension's business, not a failed
    * assembly (the client treats a throw as "not active").
+   *
+   * #1162: `credentialStore` lets a descriptor answer "is the credential
+   * stored?" without ever reading its value (presence only). The client
+   * passes its own store — the same one the assembly will.
    */
-  evaluateActive?(readConfig: (file: string) => string, configFile: string): boolean;
-  /**
+  evaluateActive?(
+    readConfig: (file: string) => string,
+    configFile: string,
+    credentialStore?: CredentialStore,
+  ): boolean;  /**
    * One line for the session log when this source is *not* active — the
    * extension's own words, because the core has none: only the extension
    * knows what the user would have to do about it. Absent = silence (a
@@ -160,7 +183,23 @@ export function resolveBundledExtensions(options: {
       continue;
     }
     anyActive = true;
-    void options.runtime.register(descriptor.activate(options.context), { bundled: true });
+    const { manifest, ...rest } = descriptor;
+    void options.runtime.register(descriptor.activate(options.context), {
+      bundled: true,
+      ...rest,
+      // A bundled source without a hash derives its store key from the name
+      // (in-memory identities have no path); only the capabilities are
+      // load-bearing today — a bundled registration skips consent.
+      ...(manifest?.capabilities?.length
+        ? {
+            manifest: {
+              hash: manifest.hash ?? "",
+              path: manifest.path ?? manifest.hash ?? descriptor.name,
+              capabilities: manifest.capabilities,
+            },
+          }
+        : {}),
+    });
     // The reader is lazy on purpose: the instance may not exist yet at this
     // point (the registration above is in flight), so the wiring captures
     // the runtime, not a snapshot of `instances`.

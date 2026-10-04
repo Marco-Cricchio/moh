@@ -12,6 +12,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { BrowserToolchainStatus } from "@moh/core";
 import { browserCommand } from "../src/browser";
+import { runCli, SPAWN_TEST_TIMEOUT_MS } from "./spawn-harness";
 
 function io() {
   const out: string[] = [];
@@ -46,7 +47,7 @@ describe("moh browser (#936)", () => {
     expect(text()).toContain("usage: moh browser");
     expect(text()).toContain("install   install or refresh playwright-core");
     expect(text()).toContain("--with-chromium");
-  });
+  }, SPAWN_TEST_TIMEOUT_MS);
 
   test("status is the default subcommand and renders one row per component", async () => {
     const { stdout, stderr, text } = io();
@@ -134,12 +135,12 @@ describe("moh browser (#936)", () => {
     const cwd = join(root, "proj");
     mkdirSync(home, { recursive: true });
     mkdirSync(cwd, { recursive: true });
-    const proc = Bun.spawnSync(
-      ["bun", join(import.meta.dir, "..", "src", "cli.ts"), "browser", "status", "--cwd", cwd],
-      { env: { ...process.env, HOME: home }, stdout: "pipe", stderr: "pipe" },
-    );
-    const stdout = new TextDecoder().decode(proc.stdout);
-    expect(proc.exitCode).toBe(1);
+    // The other spawn-based file that stayed outside the child's cwd: the
+    // command is handed an explicit --cwd, so the harness runs from the
+    // project dir instead of relying on the parent's.
+    const r = runCli(["browser", "status", "--cwd", cwd], { cwd, home });
+    const stdout = r.stdout;
+    expect(r.code).toBe(1);
     expect(stdout).toContain("ready for a headless launch: no");
     expect(stdout).toContain("playwright-core is not installed");
   });

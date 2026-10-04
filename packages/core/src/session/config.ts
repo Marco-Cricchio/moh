@@ -169,7 +169,7 @@ export interface SessionConfig {
     Partial<
       Pick<
         import("../extensions").ExtensionRuntime,
-        "dispatchBeforeTurn" | "dispatchModelError" | "checkToolResultHooks"
+        "dispatchBeforeTurn" | "dispatchModelError" | "checkToolResultHooks" | "dispatchBeforeModelCall"
       >
     >;
   /**

@@ -4,7 +4,8 @@ import { Text, useInput } from "ink";
 import { join } from "node:path";
 import { homedir } from "node:os";
 import { endpointModelCatalog, fallbackIneligibleReason, fetchLiveCatalogs, liveListings, loadMohConfig, loadMergedConfig, listOpenAiCompatModels, MAX_ITERATIONS_UNLIMITED, probeBrowserToolchain, readUserProviderConfig, removeUserEndpoint, renderTosCard, saveUserProviderRef, setUserEndpointFallbackEligible, setUserEndpointModel, summarizeLiveCatalogReport, tosCardFor, writeMohConfig, userConfigFile, DEFAULT_MAX_ITERATIONS, type BrowserToolchainStatus, type LiveModelListing, type MohConfig } from "@moh/core";
-import { validateJevKey, readTypesafeConfig, removeTypesafeApiKey, resolveTypesafeConfig, saveTypesafeApiKey, saveTypesafeClassification, saveTypesafeGuardrail, saveTypesafeInjection, saveTypesafeLint, saveTypesafeRerank, saveTypesafeRouting, saveTypesafeSkills, maskApiKey, JEV_USE_CASE_DESCRIPTIONS, TYPESAFE_TIMEOUT_MS_DEFAULT, type JevKeyValidation } from "@moh/jev-guard";
+import { validateJevKey, readTypesafeConfig, removeTypesafeKey, migrateTypesafeKey, resolveTypesafeConfig, saveTypesafeApiKey, saveTypesafeClassification, saveTypesafeGuardrail, saveTypesafeInjection, saveTypesafeLint, saveTypesafeRerank, saveTypesafeRouting, saveTypesafeSkills, maskApiKey, JEV_USE_CASE_DESCRIPTIONS, TYPESAFE_TIMEOUT_MS_DEFAULT, transportFromFetch, TYPESAFE_CREDENTIAL_REF, type JevKeyValidation, type JevTransport } from "@moh/jev-guard";
+import { defaultCredentialStore, validateCredentialScope } from "@moh/core";
 import { setIcons } from "./icons";
 import { THEMES, THEME_ORDER } from "./themes";
 import { deleteUserTheme, guessExtendsOf, listUserThemes, loadUserTheme, saveUserTheme, themeLabelFor } from "./user-themes";
@@ -56,6 +57,27 @@ interface Row {
   key: string;
   label: string;
   value: string;
+}
+
+/**
+ * #1162: the Settings entry's pre-mint validation transport — a plain
+ * bearer POST carrying the key the user just typed. The value is not a
+ * stored credential yet, so the host's credential injection does not
+ * apply; once validation passes it is minted into the store and from then
+ * on only the host ever sees it. The extension package itself stays free
+ * of raw fetch — this lives in the client that owns the surface.
+ */
+function plainJevTransport(apiKey: string): JevTransport {
+  return transportFromFetch(
+    (url, init) =>
+      fetch(url, {
+        method: "POST",
+        headers: { authorization: `Bearer ${apiKey}`, "content-type": "application/json", ...init.headers },
+        body: init.body,
+        ...(init.signal !== undefined ? { signal: init.signal } : {}),
+      }),
+    {},
+  );
 }
 
 /** #498: the preset cycle for the max-iterations row. "unlimited" is the
@@ -233,12 +255,23 @@ export function SettingsPanel({ cwd, home, config, onChange, modelLabel, onProvi
   // are display-only here) and switches the default `provider` ref.
   // #784: the Jev (TypeSafe) entry — key input, status, remove, disclosure.
   const jevFile = userFile;
+  // #1162: the key is a credential. Mounting the panel runs the one-time
+  // legacy migration, then presence in the store is the whole status.
+  const jevStore = useMemo(() => defaultCredentialStore(home ?? homedir()), [home]);
+  // Once per mount: the migration writes (store + config), so it must not
+  // re-run on every render — a render is a read, never a write.
+  const migrated = useRef(false);
+  if (!migrated.current) {
+    migrated.current = true;
+    migrateTypesafeKey(jevStore, jevFile);
+  }
   const readJev = (): JevState => {
     try {
-      const resolved = resolveTypesafeConfig(readTypesafeConfig(jevFile));
+      const stored = jevStore.get(TYPESAFE_CREDENTIAL_REF) !== undefined;
+      const resolved = resolveTypesafeConfig(readTypesafeConfig(jevFile), stored);
       return {
         active: resolved.active,
-        ...(resolved.apiKey ? { keyHint: maskApiKey(resolved.apiKey) } : {}),
+        ...(stored && jevStore.get(TYPESAFE_CREDENTIAL_REF) ? { keyHint: maskApiKey(jevStore.get(TYPESAFE_CREDENTIAL_REF)!) } : {}),
         timeoutMs: resolved.timeoutMs,
         guardrail: resolved.guardrail,
         routing: resolved.routing,
@@ -258,7 +291,7 @@ export function SettingsPanel({ cwd, home, config, onChange, modelLabel, onProvi
     : jev.active
       ? `active (key ${jev.keyHint ?? "…"}, timeout ${jev.timeoutMs}ms)`
       : "inactive";
-  const validate = validateKey ?? ((key: string) => validateJevKey(key, { timeoutMs: jev.timeoutMs }));
+  const validate = validateKey ?? ((key: string) => validateJevKey({ timeoutMs: jev.timeoutMs, transport: plainJevTransport(key) }));
   type Sub =
     | { kind: "endpoint"; cursor: number }
     | { kind: "jev"; cursor: number }
@@ -272,9 +305,18 @@ export function SettingsPanel({ cwd, home, config, onChange, modelLabel, onProvi
     | { kind: "fallback"; cursor: number }
     | { kind: "model-free"; name: string; userOwned: boolean; purpose: "default" | "fallback"; value: string }
     | { kind: "remove"; options: string[]; cursor: number }
+    | { kind: "secrets"; cursor: number }
+    | { kind: "secret-value"; ref: string; value: string; busy: boolean; message?: string }
     | { kind: "tos"; provider: string }
     | { kind: "theme-pick"; options: ThemeRef[]; cursor: number }
     const [sub, setSub] = useState<Sub | null>(null);
+  // ADR-0069 (#1161): the user-mint secret surface. Names only — the
+  // values live in the store and are never displayed or echoed.
+  const secretNames = useMemo(() => defaultCredentialStore(home ?? homedir()).list(), [home]);
+  const secretOptions = useMemo(
+    () => [...secretNames.map((ref) => `rm ${ref}`), "+ add a secret…"],
+    [secretNames],
+  );
   /** Every level but `tos` carries a cursor row. */
   const hasCursor = (s: Sub): s is Extract<Sub, { cursor: number }> => "cursor" in s;
   /**
@@ -435,6 +477,7 @@ export function SettingsPanel({ cwd, home, config, onChange, modelLabel, onProvi
     }
     if (sub.kind === "model-free") return [];
     if (sub.kind === "jev") return [...JEV_OPTIONS];
+    if (sub.kind === "secrets") return secretOptions;
     if (sub.kind === "remove") return sub.options;
     if (sub.kind === "fallback") {
       // Every endpoint is listed: one that cannot be a stop says why, rather
@@ -451,7 +494,7 @@ export function SettingsPanel({ cwd, home, config, onChange, modelLabel, onProvi
     return (moh.endpoints ?? []).map((e) => e.name);
   }, [sub, moh, projectNames, remote]);
 
-  const subCursor = sub && (sub.kind === "endpoint" || sub.kind === "remove" || sub.kind === "model" || sub.kind === "jev" || sub.kind === "fallback") ? sub.cursor : 0;
+  const subCursor = sub && (sub.kind === "endpoint" || sub.kind === "remove" || sub.kind === "model" || sub.kind === "jev" || sub.kind === "fallback" || sub.kind === "secrets") ? sub.cursor : 0;
   // #1042: the Jev sub-menu's scope/disclosure paragraph wraps to a
   // terminal-dependent number of rows (four disclosures on, a 45-char
   // interior, it is ~13 rows on its own) — it must be counted before the
@@ -528,6 +571,8 @@ export function SettingsPanel({ cwd, home, config, onChange, modelLabel, onProvi
         return setSub({ kind: "jev", cursor: 0 });
       case "handoff":
         return onConfigureHandoff?.();
+      case "secrets":
+        return setSub({ kind: "secrets", cursor: 0 });
       case "maxIterations": {
         // #498: → (enter) cycles forward, shift+tab cycles backward.
         const current = moh.maxIterations ?? DEFAULT_MAX_ITERATIONS;
@@ -580,7 +625,7 @@ export function SettingsPanel({ cwd, home, config, onChange, modelLabel, onProvi
         }
         // Active or unverified: both are the user's decision to store.
         try {
-          saveTypesafeApiKey(jevFile, trimmed);
+          saveTypesafeApiKey(jevStore, trimmed, jevFile);
         } catch (e) {
           setSub({
             kind: "jev-key",
@@ -608,7 +653,7 @@ export function SettingsPanel({ cwd, home, config, onChange, modelLabel, onProvi
    * next session on (nothing to disable in the running one). */
   const removeJevKey = () => {
     try {
-      removeTypesafeApiKey(jevFile);
+      removeTypesafeKey(jevStore);
     } catch (e) {
       return onToast(`jev: could not remove the key (${e instanceof Error ? e.message : String(e)})`);
     }
@@ -882,6 +927,38 @@ export function SettingsPanel({ cwd, home, config, onChange, modelLabel, onProvi
       if (input && !key.ctrl && !key.meta) return setSub({ ...sub, value: sub.value + input, message: undefined });
       return;
     }
+    if (sub?.kind === "secret-value") {
+      if (sub.busy) return;
+      // Two phases: the ref name first (a non-empty printable name), then
+      // the value. Enter moves between them; the value is never echoed.
+      if (sub.ref === "") {
+        if (key.backspace || key.delete) return setSub({ ...sub });
+        if ((key.return || input === "\n")) {
+          if (!sub.value.trim()) return; // no name yet — nothing to confirm
+          const name = sub.value.trim();
+          const valid = validateCredentialScope(`credential:${name}`);
+          if (!valid.ok) return setSub({ ...sub, message: valid.message });
+          return setSub({ ...sub, ref: name, value: "", message: undefined });
+        }
+        if (input && !key.ctrl && !key.meta && !/\s/.test(input)) return setSub({ ...sub, value: sub.value + input, message: undefined });
+        return;
+      }
+      if (key.backspace || key.delete) return setSub({ ...sub, value: sub.value.slice(0, -1) });
+      if (key.return || input === "\n") {
+        if (!sub.value) return; // empty value: nothing to store
+        try {
+          defaultCredentialStore(home ?? homedir()).set(sub.ref, sub.value);
+          onToast(`secret \`${sub.ref}\` stored`);
+          return setSub({ kind: "secrets", cursor: 0 });
+        } catch (e) {
+          // A store failure (locked keychain, unwritable file) is visible
+          // where the user is typing — never a silent "stored".
+          return setSub({ ...sub, value: "", message: e instanceof Error ? e.message : String(e) });
+        }
+      }
+      if (input && !key.ctrl && !key.meta) return setSub({ ...sub, value: sub.value + input, message: undefined });
+      return;
+    }
     if (sub?.kind === "model-free") {
       if (key.backspace || key.delete) return setSub({ ...sub, value: sub.value.slice(0, -1) });
       if ((key.return || input === "\n") && sub.value.trim()) {
@@ -984,6 +1061,16 @@ export function SettingsPanel({ cwd, home, config, onChange, modelLabel, onProvi
             : 0;
         const option = subOptions[index];
         if (option === undefined) return;
+        if (sub.kind === "secrets") {
+          const option = subOptions[index] ?? "";
+          if (option.startsWith("rm ")) {
+            const ref = option.slice(3);
+            defaultCredentialStore(home ?? homedir()).delete(ref);
+            onToast(`secret \`${ref}\` deleted`);
+            return setSub(null); // options recompute from the store; close rather than point at a moved row
+          }
+          return setSub({ kind: "secret-value", ref: "", value: "", busy: false });
+        }
         if (sub.kind === "jev") {
           // Status is a read-only row: enter on it is a no-op (no probe, no
           // toast spam) — the panel already shows the live value.
@@ -1174,6 +1261,24 @@ export function SettingsPanel({ cwd, home, config, onChange, modelLabel, onProvi
                     : "saved as defaultModel in moh.json"}
               </Dim>
             </>
+          ) : sub.kind === "secrets" ? (
+            <>
+              {subWin.above > 0 && <Dim>{` ↑ ${subWin.above} more`}</Dim>}
+              {subOptions.slice(subWin.start, subWin.start + subWin.count).map((option, i) => {
+                const index = subWin.start + i;
+                const selected = index === sub.cursor;
+                return (
+                  <Text key={option} {...(selected ? selectionStyle(theme) : {})}>
+                    {truncate(` ${selected ? "›" : " "} ${option}${selected ? " " : ""}`, innerWidth)}
+                  </Text>
+                );
+              })}
+              {subWin.below > 0 && <Dim>{` ↓ ${subWin.below} more`}</Dim>}
+              <Text> </Text>
+              <Dim>
+                {`extension secrets (ADR-0069): the values are never shown — an extension granted credential:<ref> uses one through the host. enter on "rm <ref>" deletes; "+ add a secret…" asks for a name, then the value.`}
+              </Dim>
+            </>
           ) : sub.kind === "jev" ? (
             <>
               {subWin.above > 0 && <Dim>{` ↑ ${subWin.above} more`}</Dim>}
@@ -1247,6 +1352,18 @@ export function SettingsPanel({ cwd, home, config, onChange, modelLabel, onProvi
                 <Text key={idx} color={theme.dim}>{line}</Text>
               ))}
               {jevParagraphHidden && <Text color={theme.dim}>{truncate("… disclosures truncated — esc, open /jev, or a taller terminal shows the rest", innerWidth)}</Text>}
+            </>
+          ) : sub.kind === "secret-value" ? (
+            <>
+              <Text bold>{`name: ${sub.ref}${sub.ref ? "" : (sub.value || "▏")}`}</Text>
+              {sub.ref && <Text bold>{`value: ${"•".repeat(Math.min(24, sub.value.length))}▏`}</Text>}
+              <Text> </Text>
+              <Dim>
+                {sub.message ??
+                  (sub.ref
+                    ? "type the value, enter stores it — it is never displayed again"
+                    : "type a name for the secret, enter continues to the value")}
+              </Dim>
             </>
           ) : sub.kind === "jev-key" ? (
             <>
@@ -1340,7 +1457,7 @@ export function SettingsPanel({ cwd, home, config, onChange, modelLabel, onProvi
                 ? "enter opens the browser setup: enable it for this project, pick headless/headful, install the toolchain"
                 : "enter change · esc close"}
         </Dim>
-      )}
+          )}
     </Dialog>
   );
 }

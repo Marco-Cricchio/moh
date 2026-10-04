@@ -442,6 +442,10 @@ type AgentEventBase =
    * failed, or superseded by a retry/fallback stop). Its reasoning stays
    * displayable, but replay must not treat its partial content as a valid
    * assistant message. */ failed?: true;
+    /** ADR-0068: who asked for the call — absent for the session's own
+     * loop; an extension's host-seam call names itself. The `done` rollup
+     * separates extension consumption by this. */
+    requester?: { kind: "extension"; extension: string };
     /** #1099: provider-reported usage detail beside the aggregate pair —
      * absent when the provider did not report it (never zero-filled); cache
      * tokens are a subset of input, never added to it. */
@@ -514,7 +518,21 @@ type AgentEventBase =
        * and the run degraded to the LLM summarizer), or absent for the
        * default LLM summarizer. Chrome — audit only. */
       summarizer?: string }
-  | { type: "extension_loaded"; name: string; version: string }
+  | {
+      type: "extension_loaded";
+      name: string;
+      version: string;
+      /** ADR-0062 (#1132): the rail panel and overlay names this instance
+       * registered, present only when there are any. Registration facts
+       * ride the load event so the headless `/extensions` fold reports
+       * them with no second store; the discount of *rendering* them stays
+       * client-side (visible absence, never a mock). */
+      panels?: string[];
+      overlays?: string[];
+      /** ADR-0053: the startup announcement — the capability slots this
+       * enabled extension holds, present only when there are any. */
+      capabilities?: string[];
+    }
   | { type: "extension_failed"; name: string; reason: string; message: string }
   /**
    * ADR-0032 (apiVersion 1.1): a structured record an extension appended
@@ -523,6 +541,47 @@ type AgentEventBase =
    * fed to the model, never a turn error. Clients render one subdued line.
    */
   | { type: "extension_event"; extension: string; name: string; payload?: unknown }
+  /**
+   * ADR-0064 + ADR-0065 (apiVersion 1.13): the host performed one
+   * operation an extension asked for through `ctx.host`. One event per
+   * performed operation, success and refusal — the owner can answer "what
+   * did this extension do?" without reconstruction. `path` is the
+   * **resolved** target (symlinks followed), never the requested path;
+   * `bytes` present only when the operation touched content; `to` on
+   * rename names the resolved destination. Chrome only — never model
+   * context, never a turn error. Secret redaction applies downstream.
+   */
+  | { type: "host_op"; callId: string; extension: string; op: "read" | "write" | "append" | "rename" | "delete" | "readlink" | "fetch" | "run_tool" | "model_call" | "list_models";
+      path?: string; outcome: "ok" | "denied" | "failed"; bytes?: number; to?: string; host?: string; status?: number; credential?: string; method?: string; tool?: string; /** ADR-0068: the endpoint/model ref the operation named. */
+      model?: string }
+  /**
+   * ADR-0064: one host-performed operation was refused by the scope check.
+   * Distinct from `extension_failed` (extension faults): a refusal is a
+   * policy answer, never a crash. `reason` is the typed refusal reason;
+   * `target` (ADR-0066) names the request or redirect host a fetch was
+   * refused for.
+   */
+  | { type: "host_refused"; callId: string; extension: string; op: "read" | "write" | "append" | "rename" | "delete" | "readlink" | "fetch" | "run_tool" | "model_call" | "list_models";
+      path?: string; reason: "outside_scope" | "invalid_path" | "invalid_url" | "unknown_credential" | "unknown_tool" | "unknown_endpoint" | "unsupported_level" | "denied" | "too_large" | "failed"; resolved?: string; target?: string; credential?: string; method?: string; tool?: string; /** ADR-0068: the endpoint/model ref the operation named. */
+      model?: string }
+  /**
+   * ADR-0054 (#1129): a prompt-section composition change — a section
+   * replaced or hidden by an extension, or restored to core text. Chrome
+   * only, appended when the set of contributions in force changes, never
+   * per model call; replay reconstructs what was in force. The event
+   * records who and which part, never the words: extension text does not
+   * enter the log verbatim (it is reproducible from the extension's code
+   * and the version recorded here).
+   */
+  | { type: "prompt_override"; section: string; extension: string; version: string;
+      mode: "replaced" | "hidden" | "restored" }
+  /**
+   * ADR-0067: an extension registered a contributed tool under a granted
+   * `contribute-tool:<name>` capability. The registration record — the
+   * contributor is visible here, while the model's later calls of the
+   * tool are ordinary tool_call/tool_result pairs. Chrome only.
+   */
+  | { type: "tool_contributed"; extension: string; tool: string }
   /**
    * ADR-0038 (apiVersion 1.3): a client command addressed to one running
    * extension (`AgentSession.setExtensionState`). The payload is opaque to
@@ -719,8 +778,36 @@ type AgentEventBase =
       validFrom: string;
       validUntil?: string;
     }
-  /** Subagents (#13): a child session was spawned; `log` is its own JSONL file. */
-  | { type: "subagent_spawn"; callId: string; name: string; preset?: string; log: string }
+  /**
+   * Subagents (#13); orchestration requester/limits (ADR-0055, #1127):
+   * `requester` names who asked — the model, or the extension by name —
+   * and `limits` records the scopes actually applied to the child (its
+   * tool allow-list when one was set, the effective permission mode, the
+   * applied iteration cap). Together they make an orchestration's children
+   * derivable from the log across restarts, with no session identity.
+   */
+  | {
+      type: "subagent_spawn";
+      callId: string;
+      name: string;
+      preset?: string;
+      log: string;
+      requester: { kind: "model" } | { kind: "extension"; extension: string };
+      limits: {
+        /** The child's applied tool allow-list, when the spec named one. */
+        tools?: string[];
+        /** The effective permission mode the child runs under. */
+        mode: "normal" | "auto-accept" | "yolo";
+        /** The applied per-turn iteration cap (resolved, never undefined). */
+        maxIterations: number;
+      };
+    }
+  /**
+   * ADR-0055 "one stop" (#1127): everything one orchestration started was
+   * stopped — the listed live children were aborted. Chrome only; the
+   * aborted children still land their own `subagent_result` (cancelled).
+   */
+  | { type: "orchestration_stopped"; callIds: string[]; stoppedAt: string }
   /** Subagent finished; usage tokens accumulated by the child, where exposed. */
   | {
       type: "subagent_result";

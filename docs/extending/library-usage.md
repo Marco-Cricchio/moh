@@ -14,6 +14,13 @@ Everything you need is the ADR-0004 keep-list exported from
 3. **Headless permission seams** — permission rules as strings, one
    grammar everywhere (ADR-0007), plus optional consent callbacks.
 
+For host-scope consent, `scopeEffectSentence` renders the core-owned effect
+sentence. Credential setup exposes `defaultCredentialStore`,
+`validateCredentialScope`, and the `CredentialStore` interface;
+`sessionFromConfig({ credentialStore })` accepts an injected store. Scope
+matching, grammar tables, transport limits, and concrete credential-store
+implementations are internal, not exports from `@moh/core` (ADR-0004).
+
 ## A working walkthrough
 
 The full runnable script lives at
@@ -460,6 +467,20 @@ offer ("provider default (preference X unsupported)"). The capability
 calculation itself is `thinkingStatesForRef(ref, endpoints)`: per-model
 config declaration > endpoint-level declaration > normalized catalog map.
 Catalog `minimal` keys normalize into the canonical scale there (#256).
+
+## Subagent stop control (ADR-0055, #1127)
+
+A session with subagents enabled exposes three read/act doors for clients.
+`liveSubagents()` lists the children currently in flight — callId, name, and
+the spawn's `requester`/`limits` as recorded on each `subagent_spawn` event.
+`stopSubagents()` is the ADR-0055 "one stop": it aborts every live child the
+session spawned, appends one `orchestration_stopped` chrome event naming
+their callIds, and returns the ids; children already settled contribute
+nothing, and stopping never unloads an extension. `setSpawnRequester()`
+attributes subsequent spawns — the model by default, or a named orchestration
+extension — and because every spawn event carries its requester and applied
+limits, an orchestration's children are derivable from the log across
+restarts with no session identity.
 
 ## Session handoff transport (#433)
 
