@@ -209,12 +209,15 @@ refusal as `host_refused` (typed reasons, never exceptions).
 
 - `path:<glob>` (ADR-0065, apiVersion 1.13) — `readFile`, `writeFile`,
   `appendFile`, `rename`, `delete`, `readlink` over project-root-relative
-  globs. One grant covers the whole file family; the user's deny rules
+  globs. `readlink` is an implemented read-family metadata operation, not
+  a separate scope. One grant covers the whole file family; the user's deny rules
   beat the grant per call; the log records the real (symlink-resolved)
   target.
 - `host:<domain>` (ADR-0066, apiVersion 1.13) — `fetch(url, options)`:
   https only, every redirect hop re-checked against the allowlist, fully
-  buffered responses with a fixed size limit. `host:*` exists only with a
+  buffered responses with a fixed size limit. A safety guard follows at
+  most five redirects, refusing longer chains with `outside_scope` and
+  a `more than 5 redirects` message even when all hosts are allowed. `host:*` exists only with a
   manifest `reasoning` the consent displays.
 - `credential:<ref>` (ADR-0069, apiVersion 1.13) — an authenticated fetch
   passes `credential: "<ref>"`; the host resolves the ref and injects the

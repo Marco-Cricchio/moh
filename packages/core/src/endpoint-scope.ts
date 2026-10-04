@@ -62,6 +62,7 @@ export type EndpointScopeCheck = { ok: true } | { ok: false; reason: "outside_sc
  */
 export function checkEndpointScope(endpoint: string, scopes: readonly string[]): EndpointScopeCheck {
   for (const scope of scopes) {
+    if (!isEndpointScope(scope)) continue;
     const check = validateEndpointScope(scope);
     if (check.ok && check.ref === endpoint) return { ok: true };
   }

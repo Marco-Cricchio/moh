@@ -60,14 +60,15 @@ import type { BeforeTurnResult } from "@moh/extension";
 import type { AgentEvent, ExtensionStatus, ThinkingLevel, TokenUsage } from "./types";
 import type { ExtensionSpawnSpec } from "@moh/extension";
 import type { SubagentHost } from "./subagents";
+import { checkScope } from "./check-scope";
 import { ExtensionSpawnRefusedError } from "./extension-scope";
 import { capabilityDiff, capabilitiesSubset, readExtensionManifest, type ManifestAuthority } from "./extension-manifest";
 import { depsTarballCache, extensionDepsDir, installExtensionDeps, linkDepsTree } from "./extension-deps";
 import { realRegistryIo, type RegistryIo } from "./extension-registry";
-import { checkHostScope, checkPathScope, hostScopesOf, isHostScope, isPathScope, MAX_FETCH_BYTES, MAX_REDIRECTS, HOST_SCOPE_REASONING_KEY, TOTAL_HOST_WILDCARD, validateHostScope, validatePathScope, pathScopesOf } from "./host-scope";
-import { credentialScopesOf, credentialScopeRef, isCredentialScope, validateCredentialScope, type CredentialStore } from "./credential-scope";
-import { isToolScope, validateToolScope, toolScopesOf, checkToolScope, isContributeToolScope, validateContributeToolScope, contributesTool, toolScopeName, contributeToolScopesOf, contributeToolName, CONTRIBUTE_TOOL_SCOPE_PREFIX } from "./tool-scope";
-import { isEndpointScope, validateEndpointScope, endpointScopesOf, checkEndpointScope } from "./endpoint-scope";
+import { hostScopesOf, isHostScope, isPathScope, MAX_FETCH_BYTES, MAX_REDIRECTS, HOST_SCOPE_REASONING_KEY, TOTAL_HOST_WILDCARD, validateHostScope, validatePathScope, pathScopesOf } from "./host-scope";
+import { credentialScopesOf, isCredentialScope, validateCredentialScope, type CredentialStore } from "./credential-scope";
+import { isToolScope, validateToolScope, toolScopesOf, isContributeToolScope, validateContributeToolScope, contributesTool, toolScopeName, contributeToolScopesOf, contributeToolName, CONTRIBUTE_TOOL_SCOPE_PREFIX } from "./tool-scope";
+import { isEndpointScope, validateEndpointScope, endpointScopesOf } from "./endpoint-scope";
 import { newUlid } from "./session/ulid";
 
 type HostOpName = "read" | "write" | "append" | "rename" | "delete" | "readlink" | "fetch" | "run_tool" | "model_call" | "list_models";
@@ -2126,6 +2127,10 @@ bindPathDeny(isDenied: (resolvedAbsPath: string) => boolean): void {
    * behind `#toolSeam` — the model's exact gate path, with this
    * extension named as the ask's requester.
    */
+  #hostRefused(event: Omit<Extract<AgentEvent, { type: "host_refused" }>, "type">): void {
+    this.#emit({ type: "host_refused", ...event });
+  }
+
   #toolHostFor(instance: RuntimeExtension, scopes: readonly string[]): { runTool?: (name: string, args: unknown) => Promise<HostRunToolResult> } {
     if (scopes.length === 0) return {};
     const name = instance.def.name;
@@ -2134,16 +2139,16 @@ bindPathDeny(isDenied: (resolvedAbsPath: string) => boolean): void {
         const callId = newUlid();
         // Whole-tool grant, per call: the wildcard or an exact name —
         // never argv sub-scoping (ADR-0067).
-        const checked = checkToolScope(tool, scopes);
+        const checked = checkScope({ kind: "tool", ref: tool }, scopes);
         if (!checked.ok) {
-          this.#emit({ type: "host_refused", callId, extension: name, op: "run_tool", tool, reason: "outside_scope" });
+          this.#hostRefused({ callId, extension: name, op: "run_tool", tool, reason: "outside_scope" });
           return { ok: false, reason: "outside_scope" };
         }
         const seam = this.#toolSeam;
         if (!seam) {
           // No session bound (a bare runtime, a test): the tool cannot
           // run — refused loudly, never silently dropped.
-          this.#emit({ type: "host_refused", callId, extension: name, op: "run_tool", tool, reason: "failed" });
+          this.#hostRefused({ callId, extension: name, op: "run_tool", tool, reason: "failed" });
           return { ok: false, reason: "failed", message: "no session is bound to this extension runtime" };
         }
         const result = await seam.runTool({ extension: name, tool, args });
@@ -2184,8 +2189,8 @@ bindPathDeny(isDenied: (resolvedAbsPath: string) => boolean): void {
   } {
     if (scopes.length === 0) return {};
     const name = instance.def.name;
-    const refused = (callId: string, op: HostOpName, reason: string, model?: string) => {
-      this.#emit({ type: "host_refused", callId, extension: name, op, reason, ...(model !== undefined ? { model } : {}) } as AgentEvent);
+    const refused = (callId: string, op: HostOpName, reason: Extract<AgentEvent, { type: "host_refused" }>["reason"], model?: string) => {
+      this.#hostRefused({ callId, extension: name, op, reason, ...(model !== undefined ? { model } : {}) });
     };
     return {
       modelCall: async (request): Promise<HostModelCallResult> => {
@@ -2194,7 +2199,7 @@ bindPathDeny(isDenied: (resolvedAbsPath: string) => boolean): void {
         const modelRef = `${endpoint}/${typeof request.model === "string" ? request.model : ""}`;
         // One ref per grant, per call: the endpoint name must be one the
         // consent named exactly.
-        if (!checkEndpointScope(endpoint, scopes).ok) {
+        if (!checkScope({ kind: "endpoint", ref: endpoint }, scopes).ok) {
           refused(callId, "model_call", "outside_scope", modelRef);
           return { ok: false, reason: "outside_scope" };
         }
@@ -2222,7 +2227,7 @@ bindPathDeny(isDenied: (resolvedAbsPath: string) => boolean): void {
       },
       listModels: async (endpoint): Promise<HostListModelsResult> => {
         const callId = newUlid();
-        if (typeof endpoint !== "string" || !checkEndpointScope(endpoint, scopes).ok) {
+        if (typeof endpoint !== "string" || !checkScope({ kind: "endpoint", ref: endpoint }, scopes).ok) {
           refused(callId, "list_models", "outside_scope", endpoint);
           return { ok: false, reason: "outside_scope" };
         }
@@ -2266,11 +2271,10 @@ bindPathDeny(isDenied: (resolvedAbsPath: string) => boolean): void {
         ...(extra.to !== undefined ? { to: extra.to } : {}),
       }) as AgentEvent;
     const check = (op: HostOpName, requested: string): { ok: true; resolved: string } | { ok: false; result: HostOpResult } => {
-      const checked = checkPathScope(requested, scopes, root, isDenied);
+      const checked = checkScope({ kind: "path", path: requested, root, isDenied }, scopes);
       const callId = newUlid();
       if (!checked.ok) {
-        this.#emit({
-          type: "host_refused",
+        this.#hostRefused({
           callId,
           extension: name,
           op,
@@ -3050,7 +3054,7 @@ bindPathDeny(isDenied: (resolvedAbsPath: string) => boolean): void {
         // mis-sized request is a typed refusal, never a silent truncation.
         const method = options?.method === "POST" ? "POST" : "GET";
         if (options?.body !== undefined && method !== "POST") {
-          this.#emit({ type: "host_refused", callId: newUlid(), extension: name, op: "fetch", path: String(raw), reason: "failed", method });
+          this.#hostRefused({ callId: newUlid(), extension: name, op: "fetch", path: String(raw), reason: "failed", method });
           return { ok: false, reason: "failed", message: "a request body requires method POST" };
         }
         const bodyBytes: Uint8Array | undefined =
@@ -3058,7 +3062,7 @@ bindPathDeny(isDenied: (resolvedAbsPath: string) => boolean): void {
           : typeof options.body === "string" ? new TextEncoder().encode(options.body)
           : options.body;
         if (bodyBytes !== undefined && bodyBytes.byteLength > MAX_FETCH_BYTES) {
-          this.#emit({ type: "host_refused", callId: newUlid(), extension: name, op: "fetch", path: String(raw), reason: "too_large", method });
+          this.#hostRefused({ callId: newUlid(), extension: name, op: "fetch", path: String(raw), reason: "too_large", method });
           return { ok: false, reason: "too_large", message: `request body exceeds the ${MAX_FETCH_BYTES} byte limit` };
         }
         const contentType = options?.contentType ?? (bodyBytes !== undefined ? "application/json" : undefined);
@@ -3069,16 +3073,16 @@ bindPathDeny(isDenied: (resolvedAbsPath: string) => boolean): void {
         let credentialValue: string | undefined;
         if (options?.credential !== undefined) {
           const ref = String(options.credential);
-          const granted = scopes.some((c) => isCredentialScope(c) && credentialScopeRef(c) === ref);
+          const granted = checkScope({ kind: "credential", ref }, scopes).ok;
           if (!granted) {
-            this.#emit({ type: "host_refused", callId: newUlid(), extension: name, op: "fetch", path: String(raw), reason: "outside_scope", credential: ref });
+            this.#hostRefused({ callId: newUlid(), extension: name, op: "fetch", path: String(raw), reason: "outside_scope", credential: ref });
             return { ok: false, reason: "outside_scope", message: `no credential:<${ref}> scope granted` };
           }
           // Resolve host-side, just before the request: the value lives
           // only in this closure — never in the seam's return shape.
           credentialValue = this.#options.credentialStore?.get(ref);
           if (credentialValue === undefined) {
-            this.#emit({ type: "host_refused", callId: newUlid(), extension: name, op: "fetch", path: String(raw), reason: "unknown_credential", credential: ref });
+            this.#hostRefused({ callId: newUlid(), extension: name, op: "fetch", path: String(raw), reason: "unknown_credential", credential: ref });
             return { ok: false, reason: "unknown_credential" };
           }
           credentialRef = ref;
@@ -3090,16 +3094,15 @@ bindPathDeny(isDenied: (resolvedAbsPath: string) => boolean): void {
         try {
           current = new URL(raw);
         } catch {
-          this.#emit({ type: "host_refused", callId: newUlid(), extension: name, op: "fetch", path: String(raw), reason: "invalid_url" });
+          this.#hostRefused({ callId: newUlid(), extension: name, op: "fetch", path: String(raw), reason: "invalid_url" });
           return { ok: false, reason: "invalid_url", message: "not a valid URL" };
         }
         let origin = "";
         for (let hop = 0; hop <= MAX_REDIRECTS; hop++) {
           const callId = newUlid();
-          const checked = checkHostScope(current, scopes, isDenied);
+          const checked = checkScope({ kind: "host", url: current, isDenied }, scopes);
           if (!checked.ok) {
-            this.#emit({
-              type: "host_refused",
+            this.#hostRefused({
               callId,
               extension: name,
               op: "fetch",
@@ -3123,7 +3126,7 @@ bindPathDeny(isDenied: (resolvedAbsPath: string) => boolean): void {
               ...(options?.signal !== undefined ? { signal: options.signal } : {}),
             });
           } catch (err) {
-            this.#emit({ type: "host_refused", callId, extension: name, op: "fetch", path: `${current.pathname}${current.search}`, reason: "failed", method });
+            this.#hostRefused({ callId, extension: name, op: "fetch", path: `${current.pathname}${current.search}`, reason: "failed", method });
             return { ok: false, reason: "failed", message: errMessage(err) };
           }
           if (response.status >= 300 && response.status < 400) {
@@ -3137,14 +3140,13 @@ bindPathDeny(isDenied: (resolvedAbsPath: string) => boolean): void {
             try {
               next = new URL(location, current);
             } catch {
-              this.#emit({ type: "host_refused", callId, extension: name, op: "fetch", path: `${current.pathname}${current.search}`, reason: "failed" });
+              this.#hostRefused({ callId, extension: name, op: "fetch", path: `${current.pathname}${current.search}`, reason: "failed" });
               return { ok: false, reason: "failed", message: `redirect target is not a valid URL: ${location}` };
             }
             if (next.origin === origin) {
               // A loop back to an origin already visited: refuse rather
               // than spin to the hop ceiling.
-              this.#emit({
-                type: "host_refused",
+              this.#hostRefused({
                 callId,
                 extension: name,
                 op: "fetch",
@@ -3160,7 +3162,7 @@ bindPathDeny(isDenied: (resolvedAbsPath: string) => boolean): void {
           }
           return await this.#consumeFetchResponse(instance, callId, current, response, credentialRef, method);
         }
-        this.#emit({ type: "host_refused", callId: newUlid(), extension: name, op: "fetch", path: `${current.pathname}${current.search}`, reason: "outside_scope", target: current.host });
+        this.#hostRefused({ callId: newUlid(), extension: name, op: "fetch", path: `${current.pathname}${current.search}`, reason: "outside_scope", target: current.host });
         return { ok: false, reason: "outside_scope", target: current.host, message: `more than ${MAX_REDIRECTS} redirects` };
       },
     };
@@ -3173,7 +3175,7 @@ bindPathDeny(isDenied: (resolvedAbsPath: string) => boolean): void {
     const name = instance.def.name;
     const pathAndQuery = `${url.pathname}${url.search}`;
     const tooLarge = (): HostFetchResult => {
-      this.#emit({ type: "host_refused", callId, extension: name, op: "fetch", path: pathAndQuery, reason: "too_large", target: url.host });
+      this.#hostRefused({ callId, extension: name, op: "fetch", path: pathAndQuery, reason: "too_large", target: url.host });
       return { ok: false, reason: "too_large", message: `response exceeds the ${MAX_FETCH_BYTES} byte limit` };
     };
     // Enforce the cap on the body as it arrives: consume the stream in
@@ -3181,7 +3183,7 @@ bindPathDeny(isDenied: (resolvedAbsPath: string) => boolean): void {
     // absent content-length cannot make the host swallow 10 GB.
     const reader = response.body?.getReader();
     if (!reader) {
-      this.#emit({ type: "host_refused", callId, extension: name, op: "fetch", path: pathAndQuery, reason: "failed", target: url.host });
+      this.#hostRefused({ callId, extension: name, op: "fetch", path: pathAndQuery, reason: "failed", target: url.host });
       return { ok: false, reason: "failed", message: "response has no readable body" };
     }
     const chunks: Uint8Array[] = [];

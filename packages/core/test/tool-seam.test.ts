@@ -12,7 +12,7 @@ import { z } from "zod";
 import { join } from "node:path";
 import type { ExtensionDefinition, ExtensionHost, ExtensionSetupContext } from "@moh/extension";
 import { ExtensionRuntime } from "../src/extensions";
-import { scopeEffectSentence } from "../src/host-scope";
+import { scopeEffectSentence } from "../src/scope-effect";
 import type { AgentEvent } from "../src/types";
 import { sessionFromConfig, MockProvider } from "../src";
 import type { AgentSession } from "../src/session/session";

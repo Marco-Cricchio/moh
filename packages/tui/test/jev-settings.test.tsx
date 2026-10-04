@@ -16,7 +16,7 @@ import { SettingsPanel } from "../src/SettingsPanel";
 import { DEFAULT_USER_CONFIG, type UserConfig } from "../src/user-config";
 import { ThemeProvider, THEMES, DEFAULT_THEME } from "../src/themes";
 import { stripAnsi, waitForCondition } from "./helpers";
-import { fileCredentialStore } from "@moh/core";
+import { fileCredentialStore } from "../../core/src/credential-scope";
 
 // #1162: these tests drive the credential store — the 0600-file fallback
 // under each test's isolated home, never the developer's keychain.

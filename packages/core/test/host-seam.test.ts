@@ -7,13 +7,11 @@
  */
 import { afterEach, describe, expect, test } from "bun:test";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
-// existsSync kept: documents intent at the trueCaseRel walk boundary.
-void existsSync;
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ExtensionDefinition, ExtensionHost, ExtensionSetupContext } from "@moh/extension";
 import { ExtensionRuntime } from "../src/extensions";
-import { scopeEffectSentence } from "../src/host-scope";
+import { scopeEffectSentence } from "../src/scope-effect";
 import type { AgentEvent } from "../src/types";
 
 const roots: string[] = [];
@@ -144,15 +142,39 @@ describe("path scope: containment follows the real filesystem", () => {
     if (!result.ok) expect(result.reason).toBe("outside_scope");
   });
 
-  test("case follows the filesystem (APFS-insensitive: a mis-cased grant match still works)", async () => {
+  test("uppercase grant follows actual filesystem case behavior, including missing targets", async () => {
     const root = project();
-    writeFileSync(join(root, "src", "MixedCase.ts"), "m");
+    const insensitive = existsSync(join(root, "SRC", "A.TS"));
+    const events: AgentEvent[] = [];
+    const host = (await probe(root, ["path:SRC/**/*.TS"], events)).host as ExtensionHost;
+    const read = await host.readFile("src/a.ts");
+    expect(read.ok).toBe(insensitive);
+    if (read.ok) expect(read.content).toContain("export const a");
+    else expect(read.reason).toBe("outside_scope");
+    const write = await host.writeFile("src/new/deep/b.ts", "new");
+    expect(write.ok).toBe(insensitive);
+    expect(existsSync(join(root, "src/new/deep/b.ts"))).toBe(insensitive);
+    expect(events.filter((e) => e.type === "host_refused")).toHaveLength(insensitive ? 0 : 2);
+  });
+
+  test("lowercase grant covers differently cased requests only on insensitive filesystems", async () => {
+    const root = project();
+    const insensitive = existsSync(join(root, "SRC", "A.TS"));
+    const host = (await probe(root, ["path:src/**/*.ts"], [])).host as ExtensionHost;
+    const result = await host.writeFile("SRC/new/B.TS", "new");
+    expect(result.ok).toBe(insensitive);
+    if (!result.ok) expect(result.reason).toBe("outside_scope");
+  });
+
+  test("nonexistent targets beneath an escaping symlink remain outside scope", async () => {
+    const root = project();
+    const outside = project();
+    symlinkSync(outside, join(root, "src", "escape"));
     const events: AgentEvent[] = [];
     const host = (await probe(root, ["path:src/**"], events)).host as ExtensionHost;
-    // On a case-insensitive FS the file opens; on a sensitive one it is a
-    // miss — either way no crash and no grant escape.
-    const result = await host.readFile("src/mixedcase.ts");
-    if (result.ok) expect(result.content).toBe("m");
+    expect(await host.writeFile("src/escape/missing/deep.ts", "no")).toMatchObject({ ok: false, reason: "outside_scope" });
+    expect(existsSync(join(outside, "missing/deep.ts"))).toBe(false);
+    expect(events.filter((e) => e.type === "host_refused")).toHaveLength(1);
   });
 });
 

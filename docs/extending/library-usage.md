@@ -14,6 +14,13 @@ Everything you need is the ADR-0004 keep-list exported from
 3. **Headless permission seams** — permission rules as strings, one
    grammar everywhere (ADR-0007), plus optional consent callbacks.
 
+For host-scope consent, `scopeEffectSentence` renders the core-owned effect
+sentence. Credential setup exposes `defaultCredentialStore`,
+`validateCredentialScope`, and the `CredentialStore` interface;
+`sessionFromConfig({ credentialStore })` accepts an injected store. Scope
+matching, grammar tables, transport limits, and concrete credential-store
+implementations are internal, not exports from `@moh/core` (ADR-0004).
+
 ## A working walkthrough
 
 The full runnable script lives at
