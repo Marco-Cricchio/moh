@@ -1788,7 +1788,20 @@ function AppShell({
           />
         )}
         {overlay === "manual" && <ManualModal onClose={() => setOverlay(null)} />}
-        {overlay === "notes" && <NotesModal cwd={sessionCwd} home={home ?? homedir()} onClose={() => setOverlay(null)} />}
+        {overlay === "notes" && (
+          <NotesModal
+            cwd={sessionCwd}
+            home={home ?? homedir()}
+            onClose={() => setOverlay(null)}
+            onInject={(text) => {
+              // #1180: inject the selected note into the composer through
+              // the existing prefill seam (replaces the current draft, like
+              // every other prefill edge).
+              setComposerPrefill(text);
+              setOverlay(null);
+            }}
+          />
+        )}
         {overlay === "rename" && session && (
           <SessionRenameModal
             initialName={[...session.history()].reverse().find((event) => event.type === "session_renamed")?.name ?? ""}
