@@ -15,6 +15,7 @@ import { pipeline } from "node:stream/promises";
 // necessary, and why the laziness bought nothing.
 import { browserAvailability, BrowserSession } from "./browser";
 import { browserTool } from "./browser-tool";
+import { docsTool } from "./docs-tool";
 import { isPrivateHost } from "./net-guard";
 
 /**
@@ -1473,7 +1474,7 @@ export interface BuiltinToolsOptions {
 export function builtinTools(options: BuiltinToolsOptions = {}): Record<string, Tool> {
   const readLedger = new Map<string, ServedRead>();
   const runLedger = createRunLedger(options.ledgerRoot);
-  const all: Tool[] = [bashTool(runLedger, options.rerunMinMs), readTool(readLedger), write, edit, glob, grep, fetchTool, todo, gitTool, askUser];
+  const all: Tool[] = [bashTool(runLedger, options.rerunMinMs), readTool(readLedger), write, edit, glob, grep, fetchTool, todo, gitTool, askUser, docsTool];
   // #774 / ADR-0029: the browser tool registers only when explicitly
   // enabled. A missing toolchain is a visible diagnostic, never a turn
   // error and never a session failure — the other tools stay untouched.
