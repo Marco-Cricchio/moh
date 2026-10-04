@@ -1,17 +1,17 @@
 {
   "schemaVersion": 1,
-  "version": "0.57.1",
-  "generatedAt": "2026-10-04T13:40:11.443Z",
+  "version": "0.58.0",
+  "generatedAt": "2026-10-04T17:20:08.698Z",
   "sources": [
     {
       "name": "models.dev",
       "url": "https://models.dev/api.json",
-      "fetchedAt": "2026-10-04T13:40:11.092Z"
+      "fetchedAt": "2026-10-04T17:20:08.258Z"
     },
     {
       "name": "openrouter",
       "url": "https://openrouter.ai/api/v1/models",
-      "fetchedAt": "2026-10-04T13:40:11.304Z"
+      "fetchedAt": "2026-10-04T17:20:08.568Z"
     }
   ],
   "totals": {
@@ -923,28 +923,56 @@
         "provider": "openrouter",
         "id": "deepseek/deepseek-v4-pro-0813",
         "from": {
-          "input": 0.33,
-          "output": 4.2,
-          "cacheRead": 0.26
-        },
-        "to": {
           "input": 0.85,
           "output": 5,
           "cacheRead": 0.7
+        },
+        "to": {
+          "input": 0.55,
+          "output": 4.2,
+          "cacheRead": 0.45
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "z-ai/glm-5.2",
+        "from": {
+          "input": 0.38,
+          "output": 3.49,
+          "cacheRead": 0.26
+        },
+        "to": {
+          "input": 0.0504,
+          "output": 8,
+          "cacheRead": 0.0504
         }
       },
       {
         "provider": "openrouter",
         "id": "~moonshotai/kimi-latest",
         "from": {
-          "input": 0.6705,
+          "input": 0.6518,
           "output": 13,
           "cacheRead": 0.45
         },
         "to": {
-          "input": 0.6518,
+          "input": 0.629,
           "output": 13,
           "cacheRead": 0.45
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "~z-ai/glm-latest",
+        "from": {
+          "input": 0.05,
+          "output": 5,
+          "cacheRead": 0.04
+        },
+        "to": {
+          "input": 0.08,
+          "output": 5,
+          "cacheRead": 0.07
         }
       }
     ],
