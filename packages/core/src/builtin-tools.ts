@@ -1200,15 +1200,14 @@ const todo: Tool<z.infer<typeof todoSchema>> = {
 /**
  * The read-only `git` built-in tool (T7, #1165): the referent of the
  * `tool:git` whole-tool grant (ADR-0067). A read allow-list, nothing else:
- * an extension (Jev's diff/status snapshots) asks the host for repository
- * *reads* without holding the shell, and the model may call the same tool
- * under the ordinary gate. Every inspection subcommand Jev's uses need is
- * allowed verbatim; anything that mutates, moves history, or relocates the
- * repository (`-C`, `--git-dir`) is a typed refusal before any spawn —
- * whole-tool grant, never argv sub-scoping, so the tool itself is where
- * read-only is enforced. Non-zero exit is a failed tool_result carrying
- * stderr; outside a repository git's own wording is the failure, which the
- * consumers treat as "inert" (ratified fail-open).
+ * an extension asks the host for repository *reads* without holding the
+ * shell, and the model may call the same tool under the ordinary gate.
+ * Every inspection subcommand is allowed verbatim; anything that mutates,
+ * moves history, or relocates the repository (`-C`, `--git-dir`) is a typed
+ * refusal before any spawn — whole-tool grant, never argv sub-scoping, so
+ * the tool itself is where read-only is enforced. Non-zero exit is a failed
+ * tool_result carrying stderr; outside a repository git's own wording is
+ * the failure, which the consumers treat as "inert" (ratified fail-open).
  */
 const GIT_READ_SUBCOMMANDS = new Set([
   "status",
@@ -1227,6 +1226,9 @@ const GIT_RELOCATING_FLAGS = new Set(["-C", "--git-dir", "--work-tree"]);
 
 const gitSchema = z.object({
   args: z.array(z.string()).min(1).describe("Git arguments; the subcommand must be a read-only one."),
+  /** Optional working directory for the read; must stay inside the session
+   * root (the guardrail snapshots the cwd a bash command runs in). */
+  cwd: z.string().optional(),
 });
 const gitTool: Tool<z.infer<typeof gitSchema>> = {
   name: "git",
@@ -1237,6 +1239,18 @@ const gitTool: Tool<z.infer<typeof gitSchema>> = {
   inputSchema: gitSchema,
   execute(args, toolCtx) {
     const a = args.args;
+    // #1165: the per-call cwd, when given, must stay inside the session
+    // root — a read elsewhere is a different question the tool never
+    // answers (same containment terms as the path tools, #851).
+    let cwd = toolCtx.cwd;
+    if (args.cwd !== undefined) {
+      const abs = resolve(toolCtx.cwd, args.cwd);
+      const rel = relative(toolCtx.cwd, abs);
+      if (rel.startsWith("..") || isAbsolute(rel)) {
+        throw new Error(`git: cwd "${args.cwd}" is outside the session root`);
+      }
+      cwd = abs;
+    }
     let i = 0;
     while (i < a.length && (a[i]!.startsWith("-") || a[i]!.includes("="))) {
       const option = a[i]!;
@@ -1254,7 +1268,7 @@ const gitTool: Tool<z.infer<typeof gitSchema>> = {
       const rest = a.slice(i + 1).filter((t) => !t.startsWith("-"));
       if (rest.length > 1) throw new Error("git: read-only tool: config writes are not allowed (use `config --get/--list <key>`)");
     }
-    const out = Bun.spawnSync(["git", ...a], { cwd: toolCtx.cwd, stdout: "pipe", stderr: "pipe" });
+    const out = Bun.spawnSync(["git", ...a], { cwd, stdout: "pipe", stderr: "pipe" });
     if (out.exitCode !== 0) {
       const err = out.stderr.toString().trim();
       throw new Error(`git exited with code ${out.exitCode}${err ? `: ${err}` : ""}`);

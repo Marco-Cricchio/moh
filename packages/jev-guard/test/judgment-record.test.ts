@@ -38,7 +38,7 @@ const args = { command: "bun test" };
 const judged = async (outcome: JevOutcome) => {
   const records: Record<string, unknown>[] = [];
   const judge = createGuardrailJudge(
-    { client: fakeClient([outcome]), state: {}, append: (p) => records.push(p) },
+    { client: fakeClient([outcome]), state: {}, gitRead: () => Promise.resolve(""), append: (p) => records.push(p) },
     { cwd: () => process.cwd() },
   );
   const result = await judge.judge("c1", args);
@@ -49,7 +49,7 @@ describe("guardrail judgment record carries the verdict (#843)", () => {
   test("a pass aggregates into the turn record after flush; no key probability (#846)", async () => {
     const records: Record<string, unknown>[] = [];
     const judge = createGuardrailJudge(
-      { client: fakeClient([safe()]), state: {}, append: (p) => records.push(p) },
+      { client: fakeClient([safe()]), state: {}, gitRead: () => Promise.resolve(""), append: (p) => records.push(p) },
       { cwd: () => process.cwd() },
     );
     const result = await judge.judge("c1", args);
@@ -88,7 +88,7 @@ describe("guardrail judgment record carries the verdict (#843)", () => {
     const records: Record<string, unknown>[] = [];
     const outcome = okOutcome({ destructive: noul(0.9), in_scope: noul(0.9), exfiltration: noul(0.01), risk_level: score(0.2) });
     const judge = createGuardrailJudge(
-      { client: fakeClient([outcome]), state: {}, append: (p) => records.push(p) },
+      { client: fakeClient([outcome]), state: {}, gitRead: () => Promise.resolve(""), append: (p) => records.push(p) },
       { cwd: () => process.cwd() },
     );
     await judge.judge("c1", args);
@@ -102,7 +102,7 @@ describe("guardrail judgment record carries the verdict (#843)", () => {
     const records: Record<string, unknown>[] = [];
     const outcome = okOutcome({ destructive: noul(0.01), in_scope: noul(0.99), exfiltration: noul(0.01), risk_level: score(0.1) });
     const judge = createGuardrailJudge(
-      { client: fakeClient([outcome]), state: {}, append: (p) => records.push(p) },
+      { client: fakeClient([outcome]), state: {}, gitRead: () => Promise.resolve(""), append: (p) => records.push(p) },
       { cwd: () => process.cwd() },
     );
     await judge.judge("c1", args);
@@ -125,7 +125,7 @@ describe("guardrail pass aggregation (#846)", () => {
     const denyCmd = { ...args, command: "rm -rf /" };
     const denyOutcome = okOutcome({ destructive: noul(0.9), in_scope: noul(0.9), exfiltration: noul(0.01), risk_level: score(0.2) });
     const judge = createGuardrailJudge(
-      { client: fakeClient([safe(), denyOutcome]), state: {}, append: (p) => records.push(p) },
+      { client: fakeClient([safe(), denyOutcome]), state: {}, gitRead: () => Promise.resolve(""), append: (p) => records.push(p) },
       { cwd: () => process.cwd() },
     );
     await judge.judge("c1", safeCmd);
@@ -142,7 +142,7 @@ describe("guardrail pass aggregation (#846)", () => {
   test("a turn with no passing calls flushes nothing", () => {
     const records: Record<string, unknown>[] = [];
     const judge = createGuardrailJudge(
-      { client: fakeClient([]), state: {}, append: (p) => records.push(p) },
+      { client: fakeClient([]), state: {}, gitRead: () => Promise.resolve(""), append: (p) => records.push(p) },
       { cwd: () => process.cwd() },
     );
     judge.flushPasses();
@@ -154,7 +154,7 @@ describe("guardrail pass aggregation (#846)", () => {
     const sameCmd = { ...args, command: "bun test" };
     const denyOutcome = okOutcome({ destructive: noul(0.9), in_scope: noul(0.9), exfiltration: noul(0.01), risk_level: score(0.2) });
     const judge = createGuardrailJudge(
-      { client: fakeClient([safe(), denyOutcome]), state: {}, append: (p) => records.push(p) },
+      { client: fakeClient([safe(), denyOutcome]), state: {}, gitRead: () => Promise.resolve(""), append: (p) => records.push(p) },
       { cwd: () => process.cwd() },
     );
     await judge.judge("c1", sameCmd);
@@ -179,7 +179,7 @@ describe("guardrail pass aggregation (#846)", () => {
     // each shelling out to `gitSnapshot` would breach bun's 5 s test
     // timeout without adding coverage.
     const judge = createGuardrailJudge(
-      { client: fakeClient([]), state: {}, append: (p) => records.push(p) },
+      { client: fakeClient([]), state: {}, gitRead: () => Promise.resolve(""), append: (p) => records.push(p) },
       { cwd: () => process.cwd() },
     );
     for (let i = 0; i < 320; i += 1) judge.aggregatePassForTest(`call_${String(i).padStart(4, "0")}_abcdefghijklmnopqrst`);
@@ -205,7 +205,7 @@ describe("#846: a tool-heavy turn stays under the event cap", () => {
     const records: Record<string, unknown>[] = [];
     const judge = createGuardrailJudge(
       // One live outcome; the other 69 judgments are cache hits.
-      { client: fakeClient([safe()]), state: {}, append: (p) => records.push(p) },
+      { client: fakeClient([safe()]), state: {}, gitRead: () => Promise.resolve(""), append: (p) => records.push(p) },
       { cwd: () => process.cwd() },
     );
     for (let i = 0; i < 70; i++) await judge.judge(`c${i}`, args);

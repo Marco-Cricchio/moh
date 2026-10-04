@@ -34,6 +34,21 @@ interface FakeCtx {
 function fakeCtx(mode: FakeCtx["mode"] = "normal"): ExtensionSetupContext & FakeCtx {
   const hooks: Record<string, unknown> = {
     state: {},
+    // #1165: the guardrail's snapshot reads cross the seam; the fake host
+    // runs the same read-only git the real one would, so cache invalidation
+    // keeps its "first snapshot clears the cache" behavior.
+    host: {
+      runTool: async (_tool: string, args: { args: string[]; cwd?: string }) => {
+        const { execFileSync } = await import("node:child_process");
+        try {
+          return { ok: true, output: execFileSync("git", args.args, { cwd: args.cwd ?? process.cwd() }).toString() };
+        } catch (err) {
+          const e = err as { status?: number; stdout?: Buffer };
+          if (e.status === 1) return { ok: true, output: e.stdout?.toString() ?? "" };
+          return { ok: false, reason: "failed" as const, message: "git failed" };
+        }
+      },
+    },
     appendToPrompt: () => {},
     setPromptNote: () => {},
     appendEvent: (event: { name: string; payload?: unknown }) => (hooks as unknown as FakeCtx).events.push(event),
@@ -215,7 +230,8 @@ describe("jev-guard extension setup (#786)", () => {
     await runHook(ctx.toolHooks, bash);
     expect(ctx.statuses.at(-1)).toContain("in_scope");
     // …and the very next judged call is unreachable, so the outage text
-    // takes the slot the note was holding.
+    // takes the slot the note was holding. The cache must not serve call 2:
+    // a different cwd (and thus a different snapshot key) forces a live call.
     failNext = true;
     await runHook(ctx.toolHooks, { callId: "c4", name: "bash", args: { command: "bun test", cwd: "/srv" } });
     expect(ctx.statuses.at(-1)).toBe("∅ jev offline");

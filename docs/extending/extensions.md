@@ -224,6 +224,11 @@ refusal as `host_refused` (typed reasons, never exceptions).
   sentence says so plainly. A tool outside the grant refuses
   `{ ok: false, reason: "outside_scope" }`; a tool the session does not
   register refuses `unknown_tool`; a refused ask refuses `denied`.
+  `tool:git` names the built-in read-only `git` tool: an inspection
+  allow-list (status, diff, log, show, rev-parse, ls-files, branch,
+  remote, describe, config reads) that refuses mutating commands and
+  repository-relocating flags before any spawn — the grant for reading
+  a repository's state without holding the shell.
 - `endpoint:<ref>` (ADR-0068, apiVersion 1.15) — `modelCall({ endpoint,
   model, messages, thinkingLevel?, signal? })` asks the host for one
   single-shot model call against an endpoint your grant named, executed

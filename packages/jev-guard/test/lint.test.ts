@@ -197,6 +197,19 @@ describe("#851: code-rubric gate", () => {
   });
 });
 
+// #1165: the gate's git reads are async over the injected seam runner; the
+// tests keep walking the real repository through the same binary.
+const realGitRead = (cwd: string) => (args: readonly string[]) => {
+  try {
+    return Promise.resolve(execFileSync("git", [...args], { cwd }).toString());
+  } catch (err) {
+    const e = err as { status?: number; stdout?: Buffer };
+    // Status 1 = "differences found" for the diff forms — an answer.
+    if (e.status === 1) return Promise.resolve(e.stdout?.toString() ?? "");
+    return Promise.resolve(null);
+  }
+};
+
 describe("lint gate runner (#789)", () => {
   // The gate reads the real filesystem through `discoverRubrics(deps.root)`:
   // a fixture directory is materialized in /tmp per test.
@@ -232,6 +245,7 @@ describe("lint gate runner (#789)", () => {
         {
           judge: createLintJudge({ client, append: () => {} }),
           root,
+          gitRead: realGitRead(root),
           requestTurn: async (text) => {
             requests.push(text);
             return true;
@@ -266,6 +280,7 @@ describe("lint gate runner (#789)", () => {
         {
           judge: createLintJudge({ client, append: () => {} }),
           root,
+          gitRead: realGitRead(root),
           requestTurn: async (text) => {
             requests.push(text);
             return true;
@@ -293,7 +308,7 @@ describe("lint gate runner (#789)", () => {
       });
       const stops: { reason: string }[] = [];
       const gate = createLintGate(
-        { judge: createLintJudge({ client, append: () => {} }), root, requestTurn: async () => true, reportStop: (reason) => stops.push({ reason }) },
+        { judge: createLintJudge({ client, append: () => {} }), root, gitRead: realGitRead(root), requestTurn: async () => true, reportStop: (reason) => stops.push({ reason }) },
         createLintTaskState(),
       );
       gate.observeToolCall("write", { path: "src/a.ts" });
@@ -315,7 +330,7 @@ describe("lint gate runner (#789)", () => {
       });
       const stops: { reason: string }[] = [];
       const gate = createLintGate(
-        { judge: createLintJudge({ client, append: () => {} }), root, requestTurn: async () => true, reportStop: (reason) => stops.push({ reason }) },
+        { judge: createLintJudge({ client, append: () => {} }), root, gitRead: realGitRead(root), requestTurn: async () => true, reportStop: (reason) => stops.push({ reason }) },
         createLintTaskState(),
       );
       expect(await gate.onTaskEnd()).toBe(0);
@@ -340,6 +355,7 @@ describe("lint gate runner (#789)", () => {
         {
           judge: createLintJudge({ client, append: () => {} }),
           root,
+          gitRead: realGitRead(root),
           requestTurn: async (text) => {
             requests.push(text);
             return true;
@@ -378,7 +394,7 @@ describe("lint gate runner (#789)", () => {
       });
       const requests: string[] = [];
       const gate = createLintGate(
-        { judge: createLintJudge({ client, append: () => {} }), root, requestTurn: async (t) => { requests.push(t); return true; }, reportStop: () => {} },
+        { judge: createLintJudge({ client, append: () => {} }), root, gitRead: realGitRead(root), requestTurn: async (t) => { requests.push(t); return true; }, reportStop: () => {} },
         createLintTaskState(),
       );
       // The reproduction: writes at absolute outside-root paths that the
@@ -405,7 +421,7 @@ describe("lint gate runner (#789)", () => {
         return PASS_ANSWERS;
       });
       const gate = createLintGate(
-        { judge: createLintJudge({ client, append: () => {} }), root, requestTurn: async () => true, reportStop: () => {} },
+        { judge: createLintJudge({ client, append: () => {} }), root, gitRead: realGitRead(root), requestTurn: async () => true, reportStop: () => {} },
         createLintTaskState(),
       );
       gate.observeToolCall("write", { path: draft });
@@ -429,7 +445,7 @@ describe("lint gate runner (#789)", () => {
       });
       const requests: string[] = [];
       const gate = createLintGate(
-        { judge: createLintJudge({ client, append: () => {} }), root, requestTurn: async (t) => { requests.push(t); return true; }, reportStop: () => {} },
+        { judge: createLintJudge({ client, append: () => {} }), root, gitRead: realGitRead(root), requestTurn: async (t) => { requests.push(t); return true; }, reportStop: () => {} },
         createLintTaskState(),
       );
       gate.observeToolCall("edit", { path: "README.md" });
@@ -455,7 +471,7 @@ describe("lint gate runner (#789)", () => {
       const { client } = fakeClient(() => ({ ...PASS_ANSWERS, error_handling: noul(0.2) }));
       const requests: string[] = [];
       const gate = createLintGate(
-        { judge: createLintJudge({ client, append: () => {} }), root, requestTurn: async (t) => { requests.push(t); return true; }, reportStop: () => {} },
+        { judge: createLintJudge({ client, append: () => {} }), root, gitRead: realGitRead(root), requestTurn: async (t) => { requests.push(t); return true; }, reportStop: () => {} },
         createLintTaskState(),
       );
       gate.observeToolCall("write", { path: draft }); // refused in the real session
@@ -487,7 +503,7 @@ describe("lint gate runner (#789)", () => {
       });
       const stops: { reason: string }[] = [];
       const gate = createLintGate(
-        { judge: createLintJudge({ client, append: () => {} }), root, requestTurn: async () => true, reportStop: (reason) => stops.push({ reason }) },
+        { judge: createLintJudge({ client, append: () => {} }), root, gitRead: realGitRead(root), requestTurn: async () => true, reportStop: (reason) => stops.push({ reason }) },
         createLintTaskState(),
       );
       gate.observeToolCall("write", { path: "src/a.ts" });

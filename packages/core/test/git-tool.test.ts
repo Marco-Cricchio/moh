@@ -96,4 +96,10 @@ describe("read-only git tool (#1165)", () => {
     expect(email.trim()).toBe("t@t");
     expect(() => git.execute({ args: ["config", "user.email", "x@x"] }, ctx)).toThrow(/read-only/i);
   });
+
+  test("an optional per-call cwd works inside the root and refuses outside it (#1165)", async () => {
+    const sub = await git.execute({ args: ["status", "--porcelain"], cwd: "." }, ctx);
+    expect(sub).toBe("");
+    expect(() => git.execute({ args: ["status"], cwd: "/etc" }, ctx)).toThrow(/outside the session root/i);
+  });
 });
