@@ -30,6 +30,16 @@ describe("describePermissionRequest", () => {
     expect(view.detail).toEqual(["issue: #357"]);
     expect(view.rulePreview).toBe("tracker_claim");
   });
+
+  // ADR-0070 (#1166): a dependency authorization ask shows the new deps
+  // by name and version, plus the never-a-script fact, and never a rule.
+  test("extension deps ask renders the dependency list by name@version", () => {
+    const view = describePermissionRequest("extension", { name: "chart", dependencies: ["zod@3.23.8", "left-pad@1.3.0"] });
+    expect(view.detail).toContain("name: chart");
+    expect(view.detail).toContain("dependencies: zod@3.23.8, left-pad@1.3.0");
+    expect(view.detail).toContain("exact-pinned install: no lifecycle script ever runs (ADR-0070)");
+    expect(view.rulePreview).toBeNull();
+  });
 });
 
 describe("PermissionGate", () => {

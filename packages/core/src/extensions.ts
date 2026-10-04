@@ -204,6 +204,12 @@ export interface ExtensionConsentRequest {
    * displays. Present only when the manifest declares one.
    */
   reasoning?: string;
+  /**
+   * ADR-0070 (#1166): the extension's declared npm dependencies, by name
+   * and version (`zod@3.23.8`) — present on a dependency authorization
+   * ask, so the question shows exactly which new bytes the yes installs.
+   */
+  dependencies?: readonly string[];
 }
 
 export interface ExtensionRuntimeOptions {
