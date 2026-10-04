@@ -132,6 +132,15 @@ Use `/ask-moh` when you are unsure which skill, command, or workflow fits the
 job. It routes a plain-language question to the relevant built-in guidance or
 answers from the user manual rather than inventing undocumented behavior.
 
+## Asking about moh itself
+
+The agent has the user manual bundled in the binary available through the
+`moh_docs` tool: for any question about moh's own capabilities — commands,
+panels, overlays, config keys, permissions, providers, extensions — it reads
+the shipped manual before answering and cites the page as `Manual → <Title>`.
+If no page covers the question, it says so instead of guessing. This works
+everywhere, including binary installs with no codebase checkout.
+
 ## GitHub and issue workflows
 
 The optional workflow includes guided support for reporting bugs, turning an
