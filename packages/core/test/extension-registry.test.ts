@@ -15,6 +15,7 @@ import {
   listInstalledExtensions,
   parseExtensionRef,
   removeInstalledExtension,
+  scopeGrammarValidity,
   verifyIntegrity,
   type NpmPackument,
   type RegistryIo,
@@ -125,6 +126,21 @@ describe("verifyIntegrity", () => {
   });
 });
 
+describe("scopeGrammarValidity (ADR-0071)", () => {
+  test("a typo in any shipped prefix's grammar is refused with a clear message", () => {
+    for (const typo of ["path:/abs", "host:", "credential:", "tool:", "contribute-tool:bad name", "endpoint:"]) {
+      const result = scopeGrammarValidity(typo);
+      expect(result.ok).toBe(false);
+      if (!result.ok) expect(result.message).toContain(`invalid scope "${typo}"`);
+    }
+  });
+  test("valid shipped scopes and truly novel slots pass untouched", () => {
+    for (const capability of ["path:src/**", "host:api.example.com", "credential:ref", "tool:git", "contribute-tool:search", "endpoint:zen", "observe", "time-travel"]) {
+      expect(scopeGrammarValidity(capability).ok).toBe(true);
+    }
+  });
+});
+
 describe("installExtension (npm)", () => {
   test("installs without executing package code: manifest read, checksum verified, files extracted", async () => {
     const tgz = new TextEncoder().encode("tarball-1");
@@ -172,6 +188,52 @@ describe("installExtension (npm)", () => {
     if (result.ok) {
       expect(result.warnings.join(" ")).toContain("time-travel");
       expect(result.notes.join(" ")).toContain("consent");
+    }
+  });
+
+  test("a typo in a shipped scope's grammar is a manifest error, never a warning (ADR-0071)", async () => {
+    const tgz = new TextEncoder().encode("typo-bytes");
+    const io = fakeRegistryIo({ packument: packumentFor(tgz), tgzBytes: tgz });
+    const originalExtract = io.extractTgz.bind(io);
+    (io as { extractTgz: typeof io.extractTgz }).extractTgz = async (bytes, dir) => {
+      await originalExtract(bytes, dir);
+      writeFileSync(
+        join(dir, "package", MANIFEST_FILE),
+        JSON.stringify({ ...GOOD_MANIFEST, capabilities: ["path:/etc/passwd"] }),
+      );
+    };
+    const result = await installExtension({ ref: { source: "npm", package: "@scope/name", version: "1.2.0" }, destRoot: tempDir(), io });
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.reason).toContain("path:/etc/passwd");
+    }
+  });
+
+  test("one valid scope per shipped prefix installs with no unknown-slot warnings", async () => {
+    const tgz = new TextEncoder().encode("scopes-bytes");
+    const io = fakeRegistryIo({ packument: packumentFor(tgz), tgzBytes: tgz });
+    const originalExtract = io.extractTgz.bind(io);
+    (io as { extractTgz: typeof io.extractTgz }).extractTgz = async (bytes, dir) => {
+      await originalExtract(bytes, dir);
+      writeFileSync(
+        join(dir, "package", MANIFEST_FILE),
+        JSON.stringify({
+          ...GOOD_MANIFEST,
+          capabilities: [
+            "path:src/**",
+            "host:api.example.com",
+            "credential:typesafe",
+            "tool:git",
+            "contribute-tool:search",
+            "endpoint:zen",
+          ],
+        }),
+      );
+    };
+    const result = await installExtension({ ref: { source: "npm", package: "@scope/name", version: "1.2.0" }, destRoot: tempDir(), io });
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.warnings).toEqual([]);
     }
   });
 

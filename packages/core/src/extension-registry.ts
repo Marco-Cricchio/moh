@@ -19,9 +19,10 @@ import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { MANIFEST_FILE, readExtensionManifest, type ExtensionManifest } from "./extension-manifest";
-import { PATH_SCOPE_PREFIX, HOST_SCOPE_PREFIX } from "./host-scope";
-import { CREDENTIAL_SCOPE_PREFIX } from "./credential-scope";
-import { TOOL_SCOPE_PREFIX, CONTRIBUTE_TOOL_SCOPE_PREFIX } from "./tool-scope";
+import { PATH_SCOPE_PREFIX, HOST_SCOPE_PREFIX, validatePathScope, validateHostScope } from "./host-scope";
+import { CREDENTIAL_SCOPE_PREFIX, validateCredentialScope } from "./credential-scope";
+import { TOOL_SCOPE_PREFIX, CONTRIBUTE_TOOL_SCOPE_PREFIX, validateToolScope, validateContributeToolScope } from "./tool-scope";
+import { ENDPOINT_SCOPE_PREFIX, validateEndpointScope } from "./endpoint-scope";
 
 /** npm integrity digests (`sha512-...`) we can verify. */
 export type IntegrityAlgorithm = "sha512" | "sha1";
@@ -153,6 +154,11 @@ function checkManifest(pkgDir: string): { manifest: ExtensionManifest; warnings:
   const warnings: string[] = [];
   const notes: string[] = [];
   for (const capability of result.manifest.capabilities) {
+    // ADR-0071: a shipped scope prefix's grammar is enforced here — a
+    // typo is a manifest error at install/scan time, never a warning the
+    // consent would echo as legitimate.
+    const grammar = scopeGrammarValidity(capability);
+    if (!grammar.ok) return { reason: grammar.message };
     if (!isKnownCapability(capability)) {
       warnings.push(`unknown capability slot "${capability}" — the load-time consent still decides what it grants`);
     }
@@ -176,8 +182,8 @@ export const KNOWN_CAPABILITY_SLOTS: readonly string[] = [
 
 /**
  * ADR-0071: a scope prefix becomes a known slot only when its phase
- * ships. Phase F1 ships `path:<glob>` (ADR-0065) — any glob it carries is
- * known; later prefixes are still unknown-slot warnings.
+ * ships. All four phases have shipped (F1–F4), so every shipped prefix
+ * is known; truly novel slots keep warning.
  */
 export function isKnownCapability(capability: string): boolean {
   return (
@@ -185,10 +191,37 @@ export function isKnownCapability(capability: string): boolean {
     capability.startsWith(PATH_SCOPE_PREFIX) ||
     capability.startsWith(HOST_SCOPE_PREFIX) ||
     capability.startsWith(CREDENTIAL_SCOPE_PREFIX) ||
-    // ADR-0071 phase F3a ships the tool scopes (ADR-0067).
     capability.startsWith(TOOL_SCOPE_PREFIX) ||
-    capability.startsWith(CONTRIBUTE_TOOL_SCOPE_PREFIX)
+    capability.startsWith(CONTRIBUTE_TOOL_SCOPE_PREFIX) ||
+    capability.startsWith(ENDPOINT_SCOPE_PREFIX)
   );
+}
+
+/** One shipped scope grammar per prefix, matched longest-prefix first so `contribute-tool:` never reads as `tool:`. */
+type ScopeValidity = { ok: true } | { ok: false; message: string };
+const SHIPPED_SCOPE_GRAMMARS: readonly (readonly [prefix: string, validate: (capability: string) => ScopeValidity])[] = [
+  [CONTRIBUTE_TOOL_SCOPE_PREFIX, validateContributeToolScope],
+  [CREDENTIAL_SCOPE_PREFIX, validateCredentialScope],
+  [ENDPOINT_SCOPE_PREFIX, validateEndpointScope],
+  [PATH_SCOPE_PREFIX, validatePathScope],
+  [HOST_SCOPE_PREFIX, validateHostScope],
+  [TOOL_SCOPE_PREFIX, validateToolScope],
+];
+
+/**
+ * ADR-0071: grammar validity of a capability against the shipped scope
+ * prefixes. A capability starting with a shipped prefix must satisfy that
+ * prefix's grammar; anything else is not this function's business (the
+ * unknown-slot warning covers it).
+ */
+export function scopeGrammarValidity(capability: string): ScopeValidity {
+  for (const [prefix, validate] of SHIPPED_SCOPE_GRAMMARS) {
+    if (!capability.startsWith(prefix)) continue;
+    const validity = validate(capability);
+    if (!validity.ok) return { ok: false, message: `invalid scope "${capability}": ${validity.message}` };
+    return { ok: true };
+  }
+  return { ok: true };
 }
 
 function readNpmDependencies(pkgDir: string): string[] {

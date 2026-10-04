@@ -19,6 +19,21 @@ All six scope arcs have resolved ADRs (0064–0070). This decision sequences the
 
 **No soft deprecations**: when a phase ships, its way is the only way for newly loaded manifests. The consent machinery (bytes-change → new question, `capabilityDiff` for widenings) already covers the transition with no code change.
 
+## Shippability checklist — verified at phase close (T9, #1167)
+
+Every shipped scope carries all three shippability requirements, verified against the shipped surface:
+
+| Scope | Consent sentence | Log events | Typed refusals |
+|---|---|---|---|
+| `path:<glob>` (0065) | `scopeEffectSentence` | `host_op` / `host_refused` | `{ ok: false, reason: "outside_scope" }`, load-time `invalid_path_scope` |
+| `host:<domain>` (0066) | `scopeEffectSentence` | `host_op` / `host_refused` | `outside_scope`, `missing_reasoning` for `host:*`, load-time `invalid_host_scope` |
+| `credential:<ref>` (0069) | `credentialEffectSentence` | `host_op` / `host_refused` | unknown-ref loud typed refusal, load-time `invalid_credential_scope` |
+| `tool:<name|*>` (0067) | `toolEffectSentence` | `host_op` / `host_refused` | `outside_scope`, unknown tool, load-time `invalid_tool_scope` |
+| `contribute-tool:<name>` (0067) | `contributeToolEffectSentence` | `tool_contributed` at bind | consent-name mismatch refused, load-time `invalid_tool_scope` |
+| `endpoint:<ref>` (0068) | `endpointEffectSentence` | `model_call` with `requester: "extension:<name>"` | capability-clamped thinking, outside-envelope refusal |
+
+With all four phases shipped, the shipped prefixes are enforced at install/scan time: `scopeGrammarValidity` checks a capability against its prefix's grammar and a typo is a manifest error (the install refuses), never a warning the consent would echo; truly novel slots keep warning and load.
+
 ## Consequences
 
 This is the phase plan `/to-spec` consumes; the map #996's decision work is complete.
