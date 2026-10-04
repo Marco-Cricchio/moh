@@ -45,6 +45,13 @@ export interface GuardrailJudgeDeps {
   /** The extension state store (cache + last git snapshot live here). */
   state: Record<string, unknown>;
   /**
+   * #1165: the seam runner — one read-only git read through the host
+   * (`ctx.host.runTool("git", …)` under `tool:git`). `null` = the read
+   * did not answer (off-repo, refusal, no grant): the snapshot is null,
+   * the cache keys on the command alone, fail-open as ratified.
+   */
+  gitRead: (args: readonly string[], cwd: string) => Promise<string | null>;
+  /**
    * #843: where the judgment record goes, when the caller wants it appended
    * by the judge itself — the decision is computed after the client call,
    * so the record (which must carry it) can only be built here. Absent: the
@@ -54,8 +61,12 @@ export interface GuardrailJudgeDeps {
 }
 
 /** Extracts and normalizes the judged state for a bash call. */
-function bashState(command: string, cwd: string): GuardrailState {
-  const git = gitSnapshot(cwd);
+async function bashState(
+  gitRead: GuardrailJudgeDeps["gitRead"],
+  command: string,
+  cwd: string,
+): Promise<GuardrailState> {
+  const git = await gitSnapshot((args) => gitRead(args, cwd), cwd);
   return { command: command.slice(0, COMMAND_STATE_MAX), cwd, git };
 }
 
@@ -130,10 +141,19 @@ export interface GuardrailJudgeHost {
   mode: () => "normal" | "auto-accept" | "yolo";
   /** The effective cwd the bash command runs in (best-effort from args). */
   cwd: (args: unknown) => string;
+  /**
+   * #1165 review: the project root the git-snapshot invalidation reads.
+   * The judged per-call snapshot keys on the command's own cwd, but the
+   * turn-end/session-start invalidation must sample the same repository
+   * the session works in — `process.cwd()` answers a different question
+   * whenever the process was started outside the project.
+   */
+  projectRoot: () => string;
 }
 
 const UNKNOWN_MODE = (): "normal" => "normal";
 const DEFAULT_CWD = (): string => process.cwd();
+const DEFAULT_PROJECT_ROOT = DEFAULT_CWD;
 
 /** #846: the turn's pass aggregate — the count is derived from the ids,
  * so the two can never disagree, and the ids are what keeps "judged and
@@ -186,6 +206,7 @@ export function createGuardrailJudge(
 ) {
   const mode = host.mode ?? UNKNOWN_MODE;
   const cwdOf = host.cwd ?? DEFAULT_CWD;
+  const projectRoot = host.projectRoot ?? DEFAULT_PROJECT_ROOT;
   const cache = (deps.state.cache as ReturnType<typeof createGuardrailCache> | undefined) ?? createGuardrailCache();
   deps.state.cache = cache;
   const lastGit = (deps.state.lastGit as string | null | undefined) ?? null;
@@ -218,13 +239,15 @@ export function createGuardrailJudge(
       for (const chunk of chunkPasses(callIds)) deps.append?.(passesRecord(chunk));
     },
     /** Test-only seam: a judged callId joins the turn's aggregate without
-     * driving `judge` (each real call shells out to `gitSnapshot`). */
+     * driving `judge` (each real call reads the snapshot through the seam). */
     aggregatePassForTest(callId: string): void {
       aggregatePass(callId);
     },
-    /** Drops the cache when the git snapshot changed since the last look. */
-    invalidateOnGitChange(): void {
-      const git = gitSnapshot(process.cwd());
+    /** Drops the cache when the git snapshot changed since the last look.
+     * Async over the seam (#1165); the hooks that call it already await. */
+    async invalidateOnGitChange(): Promise<void> {
+      const root = projectRoot();
+      const git = await gitSnapshot((args) => deps.gitRead(args, root), root);
       if (git !== deps.state.lastGit) {
         cache.clear();
         deps.state.lastGit = git;
@@ -249,7 +272,7 @@ export function createGuardrailJudge(
       const a = (args ?? {}) as Record<string, unknown>;
       const command = typeof a.command === "string" ? a.command : "";
       if (!command) return { verdict: { verdict: "pass" }, cached: false, state: { command: "", cwd: cwdOf(args), git: null } };
-      const judged = bashState(command, cwdOf(args));
+      const judged = await bashState(deps.gitRead, command, cwdOf(args));
       const cacheKey = guardrailStateKey(judged);
       const hit = cache.get(cacheKey);
       // #843: a cache hit is a real judgment record too — the verdict plus

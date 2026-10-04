@@ -23,6 +23,7 @@ import { PATH_SCOPE_PREFIX, HOST_SCOPE_PREFIX, validatePathScope, validateHostSc
 import { CREDENTIAL_SCOPE_PREFIX, validateCredentialScope } from "./credential-scope";
 import { TOOL_SCOPE_PREFIX, CONTRIBUTE_TOOL_SCOPE_PREFIX, validateToolScope, validateContributeToolScope } from "./tool-scope";
 import { ENDPOINT_SCOPE_PREFIX, validateEndpointScope } from "./endpoint-scope";
+import { removeExtensionDeps } from "./extension-deps";
 
 /** npm integrity digests (`sha512-...`) we can verify. */
 export type IntegrityAlgorithm = "sha512" | "sha1";
@@ -88,6 +89,45 @@ export interface RegistryIo {
   fetchBytes(url: string): Promise<{ ok: true; body: Uint8Array } | { ok: false; status?: number; message: string }>;
   /** Decompress + untar a .tgz into `dir` (real impl: `tar -xzf` via Bun). */
   extractTgz(tgz: Uint8Array, dir: string): Promise<void>;
+}
+
+/**
+ * The real registry IO: fetch for text/bytes, system tar for extraction.
+ * Shared by `moh extension add` (CLI) and the ADR-0070 dependency
+ * installer (runtime); tests always inject a fake instead.
+ */
+export function realRegistryIo(): RegistryIo {
+  return {
+    async fetchText(url: string) {
+      try {
+        const res = await fetch(url, { headers: { accept: "application/json" } });
+        if (!res.ok) return { ok: false, status: res.status, message: `HTTP ${res.status} for ${url}` };
+        return { ok: true, body: await res.text() };
+      } catch (err) {
+        return { ok: false, message: err instanceof Error ? err.message : String(err) };
+      }
+    },
+    async fetchBytes(url: string) {
+      try {
+        const res = await fetch(url);
+        if (!res.ok) return { ok: false, status: res.status, message: `HTTP ${res.status} for ${url}` };
+        return { ok: true, body: new Uint8Array(await res.arrayBuffer()) };
+      } catch (err) {
+        return { ok: false, message: err instanceof Error ? err.message : String(err) };
+      }
+    },
+    async extractTgz(tgz: Uint8Array, dir: string) {
+      const proc = Bun.spawn(["tar", "-xzf", "-", "-C", dir], {
+        stdin: "pipe",
+        stdout: "ignore",
+        stderr: "pipe",
+      });
+      proc.stdin.write(tgz);
+      proc.stdin.end();
+      const code = await proc.exited;
+      if (code !== 0) throw new Error(`tar extraction failed (exit ${code}): ${await new Response(proc.stderr).text()}`);
+    },
+  };
 }
 
 /** One installed extension as `list` reports it. */
@@ -164,7 +204,7 @@ function checkManifest(pkgDir: string): { manifest: ExtensionManifest; warnings:
     }
   }
   const deps = readNpmDependencies(pkgDir);
-  if (deps.length) notes.push(`declares npm dependencies: ${deps.join(", ")} — not installed by moh; nothing is executed here, and the load-time consent governs the code`);
+  if (deps.length) notes.push(`declares npm dependencies in package.json: ${deps.join(", ")} — moh installs only the manifest's own "dependencies" (ADR-0070, exact pins, no scripts); nothing is executed here, and the load-time consent governs the code`);
   return { manifest: result.manifest, warnings, notes };
 }
 
@@ -424,6 +464,10 @@ export function removeInstalledExtension(name: string, options: { mohHome: strin
       if (checked.manifest.name === name) {
         try {
           rmSync(path, { recursive: true, force: true });
+          // ADR-0070: removal deletes the extension's dependency directory
+          // immediately — the root holds nothing else, so this is the
+          // whole of GC. A never-installed tree is a no-op.
+          removeExtensionDeps(options.mohHome, name);
         } catch (err) {
           return { ok: false, reason: `cannot remove ${path}: ${err instanceof Error ? err.message : String(err)}` };
         }

@@ -6,6 +6,7 @@
   ],
   "capabilities": [
     "host:api.typesafe.ai",
-    "credential:typesafe"
+    "credential:typesafe",
+    "tool:git"
   ]
 }

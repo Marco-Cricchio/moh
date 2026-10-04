@@ -79,7 +79,7 @@ await session.dispose();
 | `version` | `string` | extension's own version |
 | `apiVersion` | `string` | `"major.minor"`; **mandatory**, major must match the host |
 | `capabilities` | `string[]` | optional capability slots this code uses; every entry must be declared in the manifest (below) or the load refuses |
-| `dependencies` | `string[]` | optional npm specs; installed by the host, per-change authorization |
+| `dependencies` | `string[]` | legacy code-level shape; the **manifest's `dependencies` is the authority** (ADR-0070) — a code list that disagrees refuses (`deps_undeclared`) |
 | `setup(ctx)` | function | receives the `ExtensionSetupContext` |
 
 ## The manifest (`moh.extension.json`, ADR-0061)
@@ -92,7 +92,8 @@ point — `moh.extension.json` in the same directory, naming the file:
   "name": "no-rm-rf",
   "version": "0.1.0",
   "entry": "no-rm-rf.mjs",
-  "capabilities": []
+  "capabilities": [],
+  "dependencies": { "zod": "3.23.8" }
 }
 ```
 
@@ -103,6 +104,11 @@ point — `moh.extension.json` in the same directory, naming the file:
   names another file is not your module's, and your module loads as if
   there were none.
 - `capabilities` — the slots the user is being asked to grant.
+- `dependencies` (ADR-0070, #1166) — the npm packages moh installs for
+  you, **exact versions only**: `{ "zod": "3.23.8" }`. A range
+  (`"^3.23.8"`, `"*"`, `"latest"`, …) is a manifest validation error
+  naming the package — the consent decides on specific bytes, never on a
+  range. See [Dependencies: the extension-deps installer](#dependencies-the-extension-deps-installer-adr-0070-1166).
 
 The manifest is the **authority**: the consent question reads and signs it
 (the SHA-256 of the manifest joins the entry file's hash in what a yes
@@ -224,6 +230,11 @@ refusal as `host_refused` (typed reasons, never exceptions).
   sentence says so plainly. A tool outside the grant refuses
   `{ ok: false, reason: "outside_scope" }`; a tool the session does not
   register refuses `unknown_tool`; a refused ask refuses `denied`.
+  `tool:git` names the built-in read-only `git` tool: an inspection
+  allow-list (status, diff, log, show, rev-parse, ls-files, branch,
+  remote, describe, config reads) that refuses mutating commands and
+  repository-relocating flags before any spawn — the grant for reading
+  a repository's state without holding the shell.
 - `endpoint:<ref>` (ADR-0068, apiVersion 1.15) — `modelCall({ endpoint,
   model, messages, thinkingLevel?, signal? })` asks the host for one
   single-shot model call against an endpoint your grant named, executed
@@ -820,10 +831,40 @@ it can read `~/.moh/config`, your credentials and the network. Consent is
 the only boundary, and it is a one-time yes for a specific set of bytes —
 read the file before you answer.
 
-**Dependencies are not installed yet.** An extension that declares
-`dependencies` is refused loudly (`extension_failed { reason:
-"deps_unauthorized" }`): no host installs them in v1, and a half-promise
-would be worse than an honest refusal.
+### Dependencies: the extension-deps installer (ADR-0070, #1166)
+
+Declare what you need in the **manifest**; moh installs it:
+
+```json
+{ "dependencies": { "zod": "3.23.8" } }
+```
+
+- **Exact pins only.** A range is a manifest validation error (above).
+- **Install = download + digest verification + layout.** moh writes its
+  own lockfile (`~/.moh/extension-deps/<your-extension>/lock.json`) with
+  per-package SRI digests, direct and transitive, and re-verifies the
+  tree at every install — drift between tree and lockfile is a loud
+  error (the `npm ci` contract), and a drifted load refuses with
+  `extension_failed { reason: "deps_install_failed" }`.
+- **Your tree is yours alone.** One directory per extension
+  (`~/.moh/extension-deps/<name>/`); you cannot resolve another
+  extension's dependencies, and none can resolve yours.
+- **No lifecycle script ever runs.** A dependency declaring
+  `install`/`postinstall` (typically a native build) refuses to install
+  with the package named. The escape hatch is the platform norm:
+  **bundle the artifact** — ship compiled code, not a build step.
+- **Consent covers the bytes.** The first load with a dependency list
+  asks, showing each entry by name and version (`zod@3.23.8`); a changed
+  list asks again; a refusal keeps the previously approved tree and the
+  load fails (`deps_unauthorized`). Headless (nobody to ask) refuses too.
+- **Removal is deletion.** `moh extension remove <name>` deletes your
+  dependency directory immediately; there is no shared store and no
+  automatic GC.
+
+A code-level `dependencies` array on `defineExtension` remains legal for
+in-memory registrations, but for a file load the manifest is the
+authority: a code list that disagrees with it refuses loudly
+(`deps_undeclared`).
 
 **Hot-reload is on for loaded files.** A session watches what it loaded;
 editing a file re-imports it, re-runs `setup()` with the previous
@@ -855,8 +896,9 @@ not at install, not ever by this command:
   digest is refused outright — an unverifiable artifact is never installed;
 - an unknown capability slot **warns** but does not refuse — the slot
   vocabulary grows, and the load-time consent still decides what runs;
-- declared npm dependencies are **noted**, never installed (see
-  `deps_unauthorized` above).
+- package.json dependencies are **noted**; moh installs only the
+  manifest's own `dependencies` (ADR-0070 — exact pins, digest-verified,
+  no scripts).
 
 **Installation never authorizes.** The first session that loads the
 installed file asks the same consent question as any other file, naming
@@ -881,7 +923,10 @@ dotdir copy is reported as a visible line, not an error.
   or its manifest requires consent again; unchanged bytes load silently.
   A widening manifest edit shows the capability diff in the question. The
   approved npm dependency list is bound to that same content identity and
-  is authorized again after a changed module requests dependencies. All
+  is authorized again after a changed manifest requests dependencies
+  (ADR-0070: the question shows the deps by name and version; a refusal
+  keeps the previously approved tree, and the approved tree is
+  re-verified against its lockfile at every load). All
   are host-supplied seams; with no consent seam and nothing stored, the
   load is refused. A grant recorded before manifests existed (an earlier
   moh version) is not silently honored: the first load after the upgrade

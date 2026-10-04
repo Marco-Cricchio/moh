@@ -319,18 +319,32 @@ export function createJevGuardExtension(options: JevGuardOptions): ExtensionDefi
       // to lethal checks only; a warm `off` disarms it entirely, in yolo
       // too (#850, ADR-0041) — from the next call.
       const judge = createGuardrailJudge(
-        { client, state: ctx.state ?? {}, append: (record) => ctx.appendEvent({ name: "jev_judgment", payload: record }) },
+        {
+          client,
+          state: ctx.state ?? {},
+          // T7 (#1165): the guardrail's git snapshot reads the repository
+          // through the seam's `git` tool under the `tool:git` grant —
+          // every read logged, every refusal typed. A refused read maps
+          // to `null` (off-repo equivalent): the cache keys on the
+          // command alone, fail-open as ratified.
+          gitRead: (args, cwd) => jevGitRead(ctx, args, cwd),
+          append: (record) => ctx.appendEvent({ name: "jev_judgment", payload: record }),
+        },
         {
           mode: () => mode,
           cwd: (args) => {
             const a = (args ?? {}) as Record<string, unknown>;
             return typeof a.cwd === "string" ? a.cwd : process.cwd();
           },
+          // #1165 review: the invalidation samples the session's project
+          // root, not the process cwd — a different question when the
+          // process was started outside the repository.
+          projectRoot: () => lintOptions?.root ?? process.cwd(),
         },
       );
 
-      ctx.onSessionStart(() => {
-        judge.invalidateOnGitChange();
+      ctx.onSessionStart(async () => {
+        await judge.invalidateOnGitChange();
       });
       ctx.onEvent(({ event }) => {
         if (event.type === "session_mode" && (event.mode === "normal" || event.mode === "auto-accept" || event.mode === "yolo")) {
@@ -341,12 +355,12 @@ export function createJevGuardExtension(options: JevGuardOptions): ExtensionDefi
           judge.invalidateCache();
         }
       });
-      ctx.afterTurn(() => {
+      ctx.afterTurn(async () => {
         // #846: the turn's passing judgments land as one aggregate record —
         // one line per turn instead of one per bash call keeps an ordinary
         // tool-heavy turn far below the per-turn event cap.
         judge.flushPasses();
-        judge.invalidateOnGitChange();
+        await judge.invalidateOnGitChange();
         // #1013/ADR-0032 §7: the guardrail note is a *turn* fact published
         // on a session-scoped seam. Cleared at turn end — but only when
         // nothing else (this extension's own outage text, or another
@@ -452,6 +466,11 @@ export function createJevGuardExtension(options: JevGuardOptions): ExtensionDefi
             append: (payload) => ctx.appendEvent({ name: "jev_judgment", payload }),
           }),
           root: lintOptions.root,
+          // T7 (#1165): the gate's diff/status reads cross the seam's
+          // `git` tool under `tool:git` — same grant, same gate, one
+          // host_op per read. A refused read is `null` → gate inert
+          // (the ratified fail-open), never a false correction.
+          gitRead: (args, cwd) => jevGitRead(ctx, args, cwd),
           // ADR-0037: the core-mediated synthetic turn. Absent on a 1.5-
           // or-older runtime — the gate degrades to judgment-only (the
           // record still lands, no correction turn is requested).
@@ -959,6 +978,25 @@ const refusedTransport: JevTransport = async () => ({
   message: "host seam unavailable (no host: scope granted)",
 });
 
+/**
+ * T7 (#1165): the one git reader for Jev's snapshot/diff reads — one
+ * `ctx.host.runTool("git", …)` per read under the `tool:git` grant.
+ * Everything that is not a clean answer — no seam (no grant), an
+ * outside-scope or unknown-tool refusal, a gate denial, a non-zero git
+ * exit — maps to `null`, the shape "this read did not answer" had all
+ * along. The seam logs every refusal; nothing here re-logs or throws.
+ */
+async function jevGitRead(
+  ctx: Pick<ExtensionSetupContext, "host">,
+  args: readonly string[],
+  cwd: string,
+): Promise<string | null> {
+  const host = ctx.host;
+  if (typeof host !== "object" || host === null || typeof host.runTool !== "function") return null;
+  const result = await host.runTool("git", { args: [...args], cwd });
+  return result.ok ? result.output : null;
+}
+
 export default createJevGuardExtension;
 
 export {
@@ -1129,7 +1167,7 @@ export {
   RUBRIC_TRUNCATION_MARKER,
   type RubricDoc,
 } from "./rubrics";
-export { captureHead, inGitRepo, taskDiff } from "./diff";
+export { createGitReader, taskDiff, type GitRead, type GitReader } from "./diff";
 // #790: MPM seed rerank — per-candidate noul fan-out over the over-threshold
 // seed set. One question per candidate, never an aggregated Score; the kept
 // candidates are returned to the orientation module to assemble a rescued

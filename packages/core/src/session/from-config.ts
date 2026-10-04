@@ -141,6 +141,15 @@ export interface SessionConsent {
    */
   onExtensionConsent?: (request: ExtensionConsentRequest) => Promise<boolean> | boolean;
   /**
+   * ADR-0070 (#1166): the dependency authorization for a client-loaded
+   * extension whose manifest declares `dependencies` — asked whenever the
+   * declared list differs from the approved one, showing the new deps by
+   * name and version. Absent falls back to `onExtensionConsent` (the deps
+   * ride the same question); both absent = refused, headless included. A
+   * refusal keeps the previously approved tree and refuses the load.
+   */
+  onExtensionDependencies?: (name: string, deps: readonly string[]) => Promise<boolean> | boolean;
+  /**
    * ADR-0062 (#1130): the slash names the client's own surfaces own — its
    * native commands plus every skill alias. Extension commands colliding
    * with one of these are refused at registration (native > skills >
@@ -340,6 +349,14 @@ export function sessionFromConfig(options: SessionFromConfigOptions): SessionFro
       ...(onExtensionConsent
         ? {
             consent: (request) => onExtensionConsent(request),
+            // ADR-0070: the deps question rides the same client seam —
+            // the dedicated channel when the client provides one, the
+            // enable-consent question (with `dependencies` on the request)
+            // otherwise.
+            authorizeDependencies: (name: string, deps: readonly string[]) =>
+              options.consent!.onExtensionDependencies
+                ? options.consent!.onExtensionDependencies(name, deps)
+                : onExtensionConsent({ name, dependencies: deps }),
           }
         : { onWarning: (message: string) => process.stderr.write(`moh: ${message}\n`) }),
     });

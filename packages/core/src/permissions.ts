@@ -209,6 +209,9 @@ export const DEFAULT_TOOL_PERMISSIONS: Record<string, PermissionDecision> = {
   glob: "allow",
   grep: "allow",
   todo: "allow",
+  // Read-only by construction (#1165): the allow-list inside the tool is
+  // the whole safety story, so the gate treats it like the other reads.
+  git: "allow",
   write: "ask",
   edit: "ask",
   bash: "ask",

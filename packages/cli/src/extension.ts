@@ -14,6 +14,7 @@ import {
   installExtension,
   listInstalledExtensions,
   parseExtensionRef,
+  realRegistryIo,
   removeInstalledExtension,
   type RegistryIo,
 } from "@moh/core";
@@ -43,41 +44,6 @@ export interface ExtensionOptions {
   io?: RegistryIo;
   stdout?: NodeJS.WritableStream;
   stderr?: NodeJS.WritableStream;
-}
-
-/** The real registry IO: fetch for text/bytes, system tar for extraction. */
-async function realRegistryIo(): Promise<RegistryIo> {
-  return {
-    async fetchText(url: string) {
-      try {
-        const res = await fetch(url, { headers: { accept: "application/json" } });
-        if (!res.ok) return { ok: false, status: res.status, message: `HTTP ${res.status} for ${url}` };
-        return { ok: true, body: await res.text() };
-      } catch (err) {
-        return { ok: false, message: err instanceof Error ? err.message : String(err) };
-      }
-    },
-    async fetchBytes(url: string) {
-      try {
-        const res = await fetch(url);
-        if (!res.ok) return { ok: false, status: res.status, message: `HTTP ${res.status} for ${url}` };
-        return { ok: true, body: new Uint8Array(await res.arrayBuffer()) };
-      } catch (err) {
-        return { ok: false, message: err instanceof Error ? err.message : String(err) };
-      }
-    },
-    async extractTgz(tgz: Uint8Array, dir: string) {
-      const proc = Bun.spawn(["tar", "-xzf", "-", "-C", dir], {
-        stdin: "pipe",
-        stdout: "ignore",
-        stderr: "pipe",
-      });
-      proc.stdin.write(tgz);
-      proc.stdin.end();
-      const code = await proc.exited;
-      if (code !== 0) throw new Error(`tar extraction failed (exit ${code}): ${await new Response(proc.stderr).text()}`);
-    },
-  };
 }
 
 export async function extensionCommand(options: ExtensionOptions): Promise<number> {
@@ -120,7 +86,7 @@ async function add(
     return 2;
   }
   const destRoot = user ? join(ctx.mohHome, "extensions") : join(ctx.cwd, "extensions");
-  const result = await installExtension({ ref: parsed.ref, destRoot, io: ctx.io ?? (await realRegistryIo()) });
+  const result = await installExtension({ ref: parsed.ref, destRoot, io: ctx.io ?? realRegistryIo() });
   if (!result.ok) {
     ctx.err.write(`moh extension add: ${result.reason}\n`);
     if (result.expected && result.actual) {

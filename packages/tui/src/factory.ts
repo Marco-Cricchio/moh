@@ -134,6 +134,9 @@ export function makeSession(options: OpenSessionOptions): MakeSessionResult {
                     // re-ask, the diff the question must name.
                     ...(request.capabilities?.length ? { capabilities: request.capabilities } : {}),
                     ...(request.addedCapabilities?.length ? { addedCapabilities: request.addedCapabilities } : {}),
+                    // ADR-0070: a dependency authorization ask shows the
+                    // deps by name and version — the bytes a yes installs.
+                    ...(request.dependencies?.length ? { dependencies: request.dependencies } : {}),
                   },
                   // The label names what is known: the extension on a re-ask
                   // (an edited file), the file itself on a first-time ask,

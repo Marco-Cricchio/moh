@@ -10,6 +10,7 @@
  * what a missing or malformed manifest means for a load.
  */
 import { createHash } from "node:crypto";
+import { isExactVersion } from "./extension-deps";
 import { existsSync, readFileSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
 
@@ -36,6 +37,29 @@ export interface ExtensionManifest {
    * declares them all and shares one capability set. */
   readonly entry: readonly string[];
   readonly capabilities: readonly CapabilitySlot[];
+  /**
+   * ADR-0070 (#1166): the npm dependencies moh installs for this
+   * extension — exact versions only. A range delegates to the registry
+   * a decision the consent already made on specific bytes, so a
+   * non-exact spec is a manifest validation error naming the package.
+   */
+  readonly dependencies?: Readonly<Record<string, string>>;
+}
+
+export type ManifestDependenciesCheck = { ok: true } | { ok: false; message: string };
+
+/** Exactness validation for a manifest's `dependencies` object. */
+export function checkManifestDependencies(value: unknown): ManifestDependenciesCheck {
+  if (value === undefined) return { ok: true };
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    return { ok: false, message: `${MANIFEST_FILE} "dependencies" must be an object of { package: exact-version }` };
+  }
+  for (const [name, spec] of Object.entries(value as Record<string, unknown>)) {
+    if (typeof spec !== "string" || !isExactVersion(spec)) {
+      return { ok: false, message: `${MANIFEST_FILE} declares a non-exact version for "${name}": "${String(spec)}" — dependencies are exact versions only (ADR-0070); a range would delegate to the registry a decision the consent makes on specific bytes` };
+    }
+  }
+  return { ok: true };
 }
 
 /** What consent signs about one manifest: its own SHA-256 (`hash`), the
@@ -47,6 +71,8 @@ export interface ManifestAuthority {
   readonly capabilities: readonly string[];
   /** ADR-0066: the manifest's `reasoning`, when it declares one. */
   readonly reasoning?: string;
+  /** ADR-0070: the manifest's exact-pinned `dependencies`, when declared. */
+  readonly dependencies?: Readonly<Record<string, string>>;
 }
 
 export type ManifestReadResult =
@@ -69,6 +95,10 @@ function isManifestValue(value: unknown): value is ExtensionManifest {
     if (!Array.isArray(v.capabilities) || !v.capabilities.every((c) => typeof c === "string")) return false;
   }
   if (v.reasoning !== undefined && typeof v.reasoning !== "string") return false;
+  if (v.dependencies !== undefined) {
+    if (typeof v.dependencies !== "object" || v.dependencies === null || Array.isArray(v.dependencies)) return false;
+    if (!Object.values(v.dependencies as Record<string, unknown>).every((s) => typeof s === "string")) return false;
+  }
   return true;
 }
 
@@ -80,6 +110,9 @@ function normalizeManifest(value: unknown): ExtensionManifest {
     version: v.version as string,
     entry: Object.freeze((Array.isArray(entry) ? entry : [entry]) as string[]),
     capabilities: Object.freeze((v.capabilities as string[] | undefined) ?? []),
+    ...(v.dependencies !== undefined
+      ? { dependencies: Object.freeze({ ...(v.dependencies as Record<string, string>) }) }
+      : {}),
     ...(typeof v.reasoning === "string" ? { reasoning: v.reasoning } : {}),
   };
 }
@@ -114,8 +147,14 @@ export function readExtensionManifest(entryFile: string): ManifestReadResult {
     return {
       ok: false,
       reason: "malformed",
-      message: `${MANIFEST_FILE} must declare { name, version, entry, capabilities? } with string values`,
+      message: `${MANIFEST_FILE} must declare { name, version, entry, capabilities?, dependencies? } with string values`,
     };
+  }
+  // ADR-0070: a range in `dependencies` is a validation error naming the
+  // package — consent decides on exact bytes, never on a range.
+  const depsCheck = checkManifestDependencies((parsed as { dependencies?: unknown }).dependencies);
+  if (!depsCheck.ok) {
+    return { ok: false, reason: "malformed", message: depsCheck.message };
   }
   const manifest = normalizeManifest(parsed);
   const base = basename(entryFile);
@@ -135,6 +174,7 @@ export function readExtensionManifest(entryFile: string): ManifestReadResult {
       hash: createHash("sha256").update(bytes).digest("hex"),
       path: file,
       capabilities: manifest.capabilities,
+      ...(manifest.dependencies !== undefined ? { dependencies: manifest.dependencies } : {}),
       ...(manifest.reasoning !== undefined ? { reasoning: manifest.reasoning } : {}),
     },
   };

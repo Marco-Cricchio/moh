@@ -7,7 +7,7 @@
  */
 import { afterEach, describe, expect, test } from "bun:test";
 import { createHash } from "node:crypto";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -21,6 +21,7 @@ import {
   type RegistryIo,
 } from "../src/extension-registry";
 import { MANIFEST_FILE } from "../src/extension-manifest";
+import { DEPS_LOCK_FILE, EXTENSION_DEPS_DIR, extensionDepsDir } from "../src/extension-deps";
 
 const dirs: string[] = [];
 afterEach(() => {
@@ -360,5 +361,24 @@ describe("listInstalledExtensions / removeInstalledExtension", () => {
     // the dotdir copy still exists and is now the listed one
     expect(listInstalledExtensions({ mohHome: join(home, ".moh"), cwd })[0]?.scope).toBe("user");
     expect(removeInstalledExtension("absent", { mohHome: join(home, ".moh"), cwd }).ok).toBe(false);
+  });
+
+  test("remove deletes the extension's dependency directory too (ADR-0070)", () => {
+    const home = tempDir();
+    const cwd = tempDir();
+    const mohHome = join(home, ".moh");
+    mkdirSync(join(mohHome, "extensions"), { recursive: true });
+    writePkg(join(mohHome, "extensions"), "depped");
+    // A dependency tree under the moh-owned extension-deps root.
+    const depsDir = extensionDepsDir(mohHome, "depped");
+    mkdirSync(join(depsDir, "node_modules", "zod"), { recursive: true });
+    writeFileSync(join(depsDir, "node_modules", "zod", "package.json"), "{}");
+    writeFileSync(join(depsDir, DEPS_LOCK_FILE), "{}");
+    const result = removeInstalledExtension("depped", { mohHome, cwd });
+    expect(result.ok).toBe(true);
+    // The dependency directory went with the package; the root holds
+    // nothing else (no shared store, no GC).
+    expect(existsSync(depsDir)).toBe(false);
+    expect(existsSync(join(mohHome, EXTENSION_DEPS_DIR))).toBe(true);
   });
 });

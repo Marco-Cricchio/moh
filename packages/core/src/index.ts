@@ -31,6 +31,7 @@ import {
 } from "./extensions";
 import {
   installExtension,
+  realRegistryIo,
   listInstalledExtensions,
   parseExtensionRef,
   removeInstalledExtension,
@@ -857,6 +858,7 @@ export {
   listInstalledExtensions,
   parseExtensionRef,
   removeInstalledExtension,
+  realRegistryIo,
   registryRoots,
   verifyIntegrity,
   KNOWN_CAPABILITY_SLOTS,
