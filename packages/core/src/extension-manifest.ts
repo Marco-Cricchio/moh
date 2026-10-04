@@ -10,6 +10,7 @@
  * what a missing or malformed manifest means for a load.
  */
 import { createHash } from "node:crypto";
+import { isExactVersion } from "./extension-deps";
 import { existsSync, readFileSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
 
@@ -45,10 +46,6 @@ export interface ExtensionManifest {
   readonly dependencies?: Readonly<Record<string, string>>;
 }
 
-/** ADR-0070: an exact semver (optionally prerelease/build-suffixed).
- * The one spec shape a manifest may declare. */
-const EXACT_VERSION = /^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$/;
-
 export type ManifestDependenciesCheck = { ok: true } | { ok: false; message: string };
 
 /** Exactness validation for a manifest's `dependencies` object. */
@@ -58,7 +55,7 @@ export function checkManifestDependencies(value: unknown): ManifestDependenciesC
     return { ok: false, message: `${MANIFEST_FILE} "dependencies" must be an object of { package: exact-version }` };
   }
   for (const [name, spec] of Object.entries(value as Record<string, unknown>)) {
-    if (typeof spec !== "string" || !EXACT_VERSION.test(spec.trim())) {
+    if (typeof spec !== "string" || !isExactVersion(spec)) {
       return { ok: false, message: `${MANIFEST_FILE} declares a non-exact version for "${name}": "${String(spec)}" — dependencies are exact versions only (ADR-0070); a range would delegate to the registry a decision the consent makes on specific bytes` };
     }
   }
