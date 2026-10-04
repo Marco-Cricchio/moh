@@ -91,10 +91,19 @@ export function NotesModal({ cwd, home, onClose, onInject, notesPath }: NotesMod
   const [mode, setMode] = useState<Mode>({ kind: "list" });
   const [confirm, setConfirm] = useState<"save" | "discard" | "stay" | null>(null);
   const [dirty, setDirty] = useState(false);
+  const [readError, setReadError] = useState(false);
 
   useEffect(() => {
     let live = true;
-    readProjectNotes(path).then((loaded) => live && setNotes(sortNotes(loaded)));
+    // A failed read degrades to an empty, writable list with a visible
+    // hint — never an endless "loading…" and never a lost write path.
+    readProjectNotes(path)
+      .then((loaded) => live && setNotes(sortNotes(loaded)))
+      .catch(() => {
+        if (!live) return;
+        setNotes([]);
+        setReadError(true);
+      });
     return () => {
       live = false;
     };
@@ -125,9 +134,9 @@ export function NotesModal({ cwd, home, onClose, onInject, notesPath }: NotesMod
     const rest = (notes ?? []).filter((n) => n.id !== current.id);
     if (text.trim() === "") {
       // An emptied note is a deleted note — the list is the truth.
-      persist(rest);
+      void persist(rest);
     } else if (current.id === null) {
-      persist([...rest, newNote(text)]);
+      void persist([...rest, newNote(text)]);
     } else {
       const existing = (notes ?? []).find((n) => n.id === current.id);
       persist(rest.concat([{ ...(existing ?? newNote("")), id: current.id, text, updatedAt: Date.now() }]));
@@ -264,7 +273,7 @@ export function NotesModal({ cwd, home, onClose, onInject, notesPath }: NotesMod
     }
     if (input === "d") {
       const note = ordered[cursor]!;
-      persist(ordered.filter((n) => n.id !== note.id));
+      void persist(ordered.filter((n) => n.id !== note.id));
       setCursor((c) => Math.max(0, Math.min(c, ordered.length - 2)));
       return;
     }
@@ -285,7 +294,9 @@ export function NotesModal({ cwd, home, onClose, onInject, notesPath }: NotesMod
       {notes === null ? (
         <Dim>loading…</Dim>
       ) : ordered.length === 0 ? (
-        <Dim>no notes yet — press a to write the first one</Dim>
+        readError
+          ? <Dim>could not read the notes file — starting empty; saving here rewrites it</Dim>
+          : <Dim>no notes yet — press a to write the first one</Dim>
       ) : (
         <>
           {win.above !== 0 ? <Dim> ↑ {win.above} more</Dim> : null}
