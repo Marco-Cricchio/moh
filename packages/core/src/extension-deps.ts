@@ -152,6 +152,13 @@ export async function installExtensionDeps(options: InstallDepsOptions): Promise
     return { ok: false, package: exact.package, reason: `"${exact.spec}" is not an exact version for ${exact.package} — the manifest declares exact versions only (ADR-0070)` };
   }
   if (Object.keys(dependencies).length === 0) return { ok: true, installed: 0, offline: true };
+  // The npm ci contract, half one: an existing tree must still match its
+  // own lockfile before anything re-installs — drift is a loud error and
+  // the tree is never silently rebuilt over what consent approved.
+  if (existsSync(depsDir)) {
+    const verdict = verifyDepsTree(depsDir);
+    if (!verdict.ok) return { ok: false, reason: verdict.reason };
+  }
 
   // Resolve the full transitive closure first — nothing lands until the
   // whole tree resolves, every digest is known, and no package scripts.

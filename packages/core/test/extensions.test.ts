@@ -6,11 +6,13 @@
  * dependency authorization.
  */
 import { afterEach, describe, expect, test } from "bun:test";
-import { existsSync, mkdtempSync, mkdirSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
 import { createSession, ExtensionRuntime, MockProvider, PromptComposer } from "../src/index";
 import { canonicalModulePath, DEFAULT_HOOK_TIMEOUT_MS, PROMPT_REPLACEMENT_WINDOW_MS } from "../src/extensions";
+import { DEPS_LOCK_FILE, extensionDepsDir } from "../src/extension-deps";
+import { createHash } from "node:crypto";
 import { defineExtension, MOH_EXTENSION_API_VERSION, parseApiVersion } from "@moh/extension";
 import type { AgentEvent, ExtensionConsentRequest, Tool } from "../src/index";
 import type { ExtensionDefinition, ExtensionSetupContext } from "@moh/extension";
@@ -475,6 +477,160 @@ describe("content-bound file consent", () => {
     const changed = new ExtensionRuntime({ mohHome: dir, consent: () => true, authorizeDependencies: (_name, deps) => { dependencyRequests.push(deps); return true; } });
     expect(await changed.registerFile(file)).toBe(true);
     expect(dependencyRequests).toEqual([["left@1"], ["right@2"]]);
+  });
+});
+
+// ADR-0070 (#1166): the manifest's `dependencies` install into a
+// per-extension directory under the moh-owned extension-deps root;
+// consent re-asks on change; refusal and drift keep the old tree.
+describe("extension-deps installation (ADR-0070)", () => {
+  const sri = (bytes: Uint8Array) => `sha512-${createHash("sha512").update(bytes).digest("base64")}`;
+  const tarballFor = (name: string, version: string) => new TextEncoder().encode(`tgz:${name}@${version}`);
+  const DEP_URL = (name: string, version: string) => `https://registry.npmjs.org/${name}/-/${name}-${version}.tgz`;
+
+  /** Fake registry io: `name@version` entries, tarballs extract to a package root. */
+  function fakeDepsIo(packages: Record<string, string>): Parameters<typeof ExtensionRuntime.prototype.register>[0] extends never ? never : any {
+    return {
+      async fetchText(url: string) {
+        const name = decodeURIComponent(url.split("/").pop() ?? "");
+        if (!(name in packages)) return { ok: false as const, message: `no packument ${name}` };
+        return { ok: true as const, body: JSON.stringify({ "dist-tags": { latest: packages[name] }, versions: { [packages[name]]: { dist: { tarball: DEP_URL(name, packages[name]), integrity: sri(tarballFor(name, packages[name])) } } } }) };
+      },
+      async fetchBytes(url: string) {
+        const m = /org\/(.+)\/-\//.exec(url);
+        const name = m?.[1] ?? "";
+        const version = url.split("-").pop()?.replace(".tgz", "") ?? "";
+        const bytes = tarballFor(name, version);
+        if (!packages[name]) return { ok: false as const, message: `no tarball ${url}` };
+        return { ok: true as const, body: bytes };
+      },
+      async extractTgz(bytes: Uint8Array, dir: string) {
+        const text = new TextDecoder().decode(bytes);
+        const m = /^tgz:([^@]+)@(.+)$/.exec(text);
+        if (!m) throw new Error(`bad tgz ${text.slice(0, 30)}`);
+        mkdirSync(join(dir, "package"), { recursive: true });
+        writeFileSync(join(dir, "package", "package.json"), JSON.stringify({ name: m[1], version: m[2] }));
+        writeFileSync(join(dir, "package", "index.js"), "");
+      },
+    };
+  }
+
+  /** A file extension whose manifest declares exact dependencies. */
+  function writeDepExt(path: string, name: string, deps: Record<string, string> | undefined, body = `export default { name: ${JSON.stringify(name)}, version: "1.0.0", apiVersion: "1.0", setup() {} };`): string {
+    writeFileSync(path, body);
+    writeFileSync(
+      join(dirname(path), "moh.extension.json"),
+      JSON.stringify({ name, version: "1.0.0", entry: basename(path), capabilities: [], ...(deps ? { dependencies: deps } : {}) }),
+    );
+    return path;
+  }
+
+  test("manifest deps install into the per-extension tree, consent authorized, re-load silent", async () => {
+    const dir = tempDir();
+    const file = writeDepExt(join(dir, "ext.mjs"), "with-deps", { zod: "3.23.8" });
+    const io = fakeDepsIo({ zod: "3.23.8" });
+    const asks: string[][] = [];
+    const rt = new ExtensionRuntime({
+      mohHome: dir,
+      consent: () => true,
+      authorizeDependencies: (_n, deps) => { asks.push([...deps]); return true; },
+      depsIo: io,
+    });
+    expect(await rt.registerFile(file)).toBe(true);
+    // Consent asked once, by name@version.
+    expect(asks).toEqual([["zod@3.23.8"]]);
+    const depsDir = extensionDepsDir(dir, "with-deps");
+    expect(existsSync(join(depsDir, "node_modules", "zod", "package.json"))).toBe(true);
+    expect(existsSync(join(depsDir, DEPS_LOCK_FILE))).toBe(true);
+    // Reload with unchanged everything: no re-ask, tree re-verified.
+    const rt2 = new ExtensionRuntime({
+      mohHome: dir,
+      consent: () => false,
+      authorizeDependencies: () => { asks.push(["asked-again"]); return true; },
+      depsIo: io,
+    });
+    expect(await rt2.registerFile(file)).toBe(true);
+    expect(asks).toHaveLength(1);
+  });
+
+  test("changed deps re-ask showing the new deps; refusal keeps the old tree", async () => {
+    const dir = tempDir();
+    const file = writeDepExt(join(dir, "ext.mjs"), "dep-change", { zod: "3.23.8" });
+    const io = fakeDepsIo({ zod: "3.23.8", "left-pad": "1.3.0" });
+    const first = new ExtensionRuntime({
+      mohHome: dir,
+      consent: () => true,
+      authorizeDependencies: () => true,
+      depsIo: io,
+    });
+    expect(await first.registerFile(file)).toBe(true);
+    const depsDir = extensionDepsDir(dir, "dep-change");
+    const lockBefore = readFileSync(join(depsDir, DEPS_LOCK_FILE), "utf8");
+    // The manifest (and so the content identity) changes with the deps.
+    writeDepExt(file, "dep-change", { zod: "3.23.8", "left-pad": "1.3.0" });
+    const asked: string[][] = [];
+    const declined = new ExtensionRuntime({
+      mohHome: dir,
+      consent: () => true,
+      authorizeDependencies: (_n, deps) => { asked.push([...deps]); return false; },
+      depsIo: io,
+    });
+    expect(await declined.registerFile(file)).toBe(false);
+    expect(asked).toEqual([["left-pad@1.3.0", "zod@3.23.8"]]);
+    expect(declined.consumeLoadEvents().find((e) => e.type === "extension_failed")).toMatchObject({ name: "dep-change", reason: "deps_unauthorized" });
+    // The old tree is untouched by the refused install.
+    expect(readFileSync(join(depsDir, DEPS_LOCK_FILE), "utf8")).toBe(lockBefore);
+    // Granting the widened list installs it.
+    const granted = new ExtensionRuntime({
+      mohHome: dir,
+      consent: () => true,
+      authorizeDependencies: () => true,
+      depsIo: io,
+    });
+    expect(await granted.registerFile(file)).toBe(true);
+    expect(existsSync(join(depsDir, "node_modules", "left-pad", "package.json"))).toBe(true);
+  });
+
+  test("a drifted tree is a loud load refusal (deps_install_failed)", async () => {
+    const dir = tempDir();
+    const file = writeDepExt(join(dir, "ext.mjs"), "drifty", { zod: "3.23.8" });
+    const io = fakeDepsIo({ zod: "3.23.8" });
+    const first = new ExtensionRuntime({
+      mohHome: dir,
+      consent: () => true,
+      authorizeDependencies: () => true,
+      depsIo: io,
+    });
+    expect(await first.registerFile(file)).toBe(true);
+    // Tamper with the installed tree.
+    const depsDir = extensionDepsDir(dir, "drifty");
+    rmSync(join(depsDir, "node_modules", "zod"), { recursive: true });
+    const second = new ExtensionRuntime({
+      mohHome: dir,
+      consent: () => false,
+      authorizeDependencies: () => true,
+      depsIo: io,
+    });
+    expect(await second.registerFile(file)).toBe(false);
+    expect(second.consumeLoadEvents().find((e) => e.type === "extension_failed")).toMatchObject({ name: "drifty", reason: "deps_install_failed" });
+  });
+
+  test("code-level deps disagreeing with the manifest refuse loudly (deps_undeclared)", async () => {
+    const dir = tempDir();
+    const file = writeDepExt(
+      join(dir, "ext.mjs"),
+      "liar",
+      { zod: "3.23.8" },
+      `export default { name: "liar", version: "1.0.0", apiVersion: "1.0", dependencies: ["evil@1.0.0"], setup() {} };`,
+    );
+    const rt = new ExtensionRuntime({
+      mohHome: dir,
+      consent: () => true,
+      authorizeDependencies: () => true,
+      depsIo: fakeDepsIo({ zod: "3.23.8", evil: "1.0.0" }),
+    });
+    expect(await rt.registerFile(file)).toBe(false);
+    expect(rt.consumeLoadEvents().find((e) => e.type === "extension_failed")).toMatchObject({ name: "liar", reason: "deps_undeclared" });
   });
 });
 

@@ -221,9 +221,9 @@ describe("installExtensionDeps", () => {
     const tamperedRegistry = freshRegistry();
     tamperedRegistry.packuments["zod"] = {
       "dist-tags": { latest: "3.23.8" },
-      versions: { "3.23.8": { dist: { tarball: registry.packuments["zod"].versions!["3.23.8"].dist!.tarball, integrity: sri(tampered) } } },
+      versions: { "3.23.8": { dist: { tarball: registry.packuments["zod"].versions!["3.23.8"].dist!.tarball!, integrity: sri(tampered) } } },
     };
-    tamperedRegistry.tarballs.set(registry.packuments["zod"].versions!["3.23.8"].dist!.tarball, tampered);
+    tamperedRegistry.tarballs.set(registry.packuments["zod"].versions!["3.23.8"].dist!.tarball!, tampered);
     const second = await installExtensionDeps({ dependencies: { zod: "3.23.8" }, depsDir, io: fakeIo(tamperedRegistry) });
     expect(second.ok).toBe(false);
     if (!second.ok) {
@@ -257,7 +257,7 @@ describe("installExtensionDeps", () => {
   test("offline install works from cache entries whose digest matches the lockfile", async () => {
     const registry = freshRegistry();
     registerPackage(registry, "zod", "3.23.8");
-    const url = registry.packuments["zod"].versions!["3.23.8"].dist!.tarball;
+    const url = registry.packuments["zod"].versions!["3.23.8"].dist!.tarball!;
     const bytes = registry.tarballs.get(url)!;
     const depsDir = join(tempDir(), "ext");
     // First install populates a caller-owned cache.

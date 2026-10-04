@@ -89,6 +89,45 @@ export interface RegistryIo {
   extractTgz(tgz: Uint8Array, dir: string): Promise<void>;
 }
 
+/**
+ * The real registry IO: fetch for text/bytes, system tar for extraction.
+ * Shared by `moh extension add` (CLI) and the ADR-0070 dependency
+ * installer (runtime); tests always inject a fake instead.
+ */
+export function realRegistryIo(): RegistryIo {
+  return {
+    async fetchText(url: string) {
+      try {
+        const res = await fetch(url, { headers: { accept: "application/json" } });
+        if (!res.ok) return { ok: false, status: res.status, message: `HTTP ${res.status} for ${url}` };
+        return { ok: true, body: await res.text() };
+      } catch (err) {
+        return { ok: false, message: err instanceof Error ? err.message : String(err) };
+      }
+    },
+    async fetchBytes(url: string) {
+      try {
+        const res = await fetch(url);
+        if (!res.ok) return { ok: false, status: res.status, message: `HTTP ${res.status} for ${url}` };
+        return { ok: true, body: new Uint8Array(await res.arrayBuffer()) };
+      } catch (err) {
+        return { ok: false, message: err instanceof Error ? err.message : String(err) };
+      }
+    },
+    async extractTgz(tgz: Uint8Array, dir: string) {
+      const proc = Bun.spawn(["tar", "-xzf", "-", "-C", dir], {
+        stdin: "pipe",
+        stdout: "ignore",
+        stderr: "pipe",
+      });
+      proc.stdin.write(tgz);
+      proc.stdin.end();
+      const code = await proc.exited;
+      if (code !== 0) throw new Error(`tar extraction failed (exit ${code}): ${await new Response(proc.stderr).text()}`);
+    },
+  };
+}
+
 /** One installed extension as `list` reports it. */
 export interface InstalledExtension {
   name: string;
