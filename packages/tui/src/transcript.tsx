@@ -118,6 +118,8 @@ const TOOL_ACTION: Record<string, string> = {
   fetch: "fetched a page",
   todo: "updated the plan",
   bash: "ran a command",
+  // #1194 (ADR-0072): the docs consultation reads moh's own manual.
+  moh_docs: "checked the moh manual",
   // Owner UX: the spawn line names the child it started — preset or
   // explicit name, never the bare "used spawn".
   spawn: "spawn subagent",

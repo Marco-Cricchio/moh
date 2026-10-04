@@ -85,4 +85,7 @@ and models, permissions, MCP, skills and workflow mode, memory and
 compaction, plus generated reference pages for the commands, the CLI and
 the config schema. Press `ctrl+h` (or run `/help`) anywhere in the TUI,
 or `moh manual <page-id>` from the shell. If reading is not your style,
-`/ask-moh <question>` routes your question over the same manual.
+`/ask-moh <question>` routes your question over the same manual — and the
+agent itself consults it through the `moh_docs` tool whenever you ask
+about moh's own capabilities, so the answer comes from this manual, not
+from memory.
