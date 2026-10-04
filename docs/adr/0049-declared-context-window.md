@@ -87,7 +87,19 @@ its number for the formula to match. Each shipped formula is pinned by a test ca
 
 ### Only a real refusal teaches
 
-The number is adopted when the provider *actually refused*. A declared number is by
+The number is adopted when the provider *actually refused* — and, since #1199, "refused" is
+enforced as the error's **`context_length` kind alone**. A failure of any other kind that
+merely carries a recognizable window formula (a hostile or broken upstream body reachable
+from T2/T3) teaches nothing: no event, no store learn. What keeps the real wordings the kind
+classifier's keyword regex misses (Anthropic's "prompt is too long", Moonshot's "model token
+limit", llama.cpp's "exceeds available context size") on the learning path is that a shipped
+formula match at 400/422 is itself refusal evidence in `classifyStatus`, read on the
+untruncated text like the extraction above. One plausibility bound guards the number itself:
+a window smaller than the session's last measured input tokens plus the fixed 8k fit reserve
+cannot be real — the context already outgrew it — so it is rejected with one deduplicated
+trace line and never learned; with no measurement on record the guard abstains.
+
+A declared number is by
 definition one the provider accepts — it just said so by rejecting a larger request — so the
 correction applies in **both directions**: when the catalog over-claimed (1,000,000 declared
 against 131,072 refused) *and* when it under-claimed (8,000 against 131,072 refused). The
