@@ -92,8 +92,13 @@ export const SECRETS_FILE = "secrets.json";
  * each other's secrets, and a temporary home (a test, a lane) cannot see
  * the ambient user's credential.
  */
+/** Length of the home digest carried in a keychain account (#1178). */
+const KEYCHAIN_DIGEST_CHARS = 16;
+/** `security`'s exit code for "item not found" — a fine delete, a miss on get. */
+const SECURITY_NOT_FOUND = 44;
+
 export function keychainAccount(home: string, ref: string): string {
-  const digest = createHash("sha256").update(home).digest("hex").slice(0, 16);
+  const digest = createHash("sha256").update(home).digest("hex").slice(0, KEYCHAIN_DIGEST_CHARS);
   return `${digest}:${ref}`;
 }
 
@@ -119,15 +124,15 @@ const defaultSecurityRunner: SecurityRunner = (args) => {
  * a legacy fallback on `get` and cleanup on `delete` — never from a
  * temporary home, which is the isolation this scoping exists for.
  */
-export function keychainCredentialStore(ledgerHome: string, run: SecurityRunner = defaultSecurityRunner): CredentialStore | undefined {
+export function keychainCredentialStore(home: string, run: SecurityRunner = defaultSecurityRunner): CredentialStore | undefined {
   if (process.platform !== "darwin") return undefined;
   const service = "moh-secret";
-  const isAmbientHome = ledgerHome === homedir();
-  const account = (ref: string): string => keychainAccount(ledgerHome, ref);
+  const isAmbientHome = home === homedir();
+  const account = (ref: string): string => keychainAccount(home, ref);
   // Names-only ledger under the given home: the keychain has no
   // list-by-service, so a set/delete records the ref name (never the
   // value) beside the keychain item — `list()` stays truthful.
-  const names = fileCredentialStore({ home: ledgerHome });
+  const names = fileCredentialStore({ home: home });
   return {
     get: (ref) => {
       const r = run(["find-generic-password", "-s", service, "-a", account(ref), "-w"]);
@@ -151,15 +156,16 @@ export function keychainCredentialStore(ledgerHome: string, run: SecurityRunner 
       names.set(ref, "");
     },
     delete: (ref) => {
-      const r = run(["delete-generic-password", "-s", service, "-a", account(ref)]);
-      // "not found" (exit 44) is a fine delete; any other failure is one.
-      if (!r.ok && r.exit !== 44) throw new Error(`keychain delete failed (security exit ${r.exit}): ${r.err}`);
-      let removed = r.ok;
+      // "not found" (SECURITY_NOT_FOUND) is a fine delete; any other failure is one.
+      const remove = (acc: string): boolean => {
+        const r = run(["delete-generic-password", "-s", service, "-a", acc]);
+        if (!r.ok && r.exit !== SECURITY_NOT_FOUND) throw new Error(`keychain delete failed (security exit ${r.exit}): ${r.err}`);
+        return r.ok;
+      };
+      let removed = remove(account(ref));
       if (isAmbientHome) {
         // Legacy cleanup: a pre-scoping bare-account item, ambient home only.
-        const legacy = run(["delete-generic-password", "-s", service, "-a", ref]);
-        if (!legacy.ok && legacy.exit !== 44) throw new Error(`keychain delete failed (security exit ${legacy.exit}): ${legacy.err}`);
-        removed = removed || legacy.ok;
+        removed = remove(ref) || removed;
       }
       names.delete(ref);
       return removed;

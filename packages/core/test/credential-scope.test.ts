@@ -245,7 +245,7 @@ describe("credential scope: fetch end to end", () => {
 describe("#1178 keychain accounts are home-scoped", () => {
   type SecCall = { args: string[]; out: string; ok: boolean; exit: number | null };
   /** A fake `security` runner: a scripted map of account -> value. */
-  function fakeSecurity(items: Record<string, string>, home: string) {
+  function fakeSecurity(items: Record<string, string>) {
     const calls: SecCall[] = [];
     const run = (args: string[]): { ok: boolean; out: string; err: string; exit: number | null } => {
       calls.push({ args, out: "", ok: false, exit: 44 });
@@ -276,8 +276,8 @@ describe("#1178 keychain accounts are home-scoped", () => {
     const homeB = "/tmp/moh-home-b";
     // The keychain is shared (user-global); only the account differs.
     const shared: Record<string, string> = { [`${keychainAccount(homeA, "typesafe")}`]: "real-secret" };
-    const storeA = keychainCredentialStore(homeA, fakeSecurity(shared, homeA).run);
-    const storeB = keychainCredentialStore(homeB, fakeSecurity(shared, homeB).run);
+    const storeA = keychainCredentialStore(homeA, fakeSecurity(shared).run);
+    const storeB = keychainCredentialStore(homeB, fakeSecurity(shared).run);
     expect(storeA).toBeDefined();
     expect(storeB).toBeDefined();
     expect(storeA!.get("typesafe")).toBe("real-secret");
@@ -290,23 +290,23 @@ describe("#1178 keychain accounts are home-scoped", () => {
 
   test("a legacy bare-account item is honored only from the ambient home", () => {
     const shared: Record<string, string> = { typesafe: "pre-1178-secret" };
-    const store = keychainCredentialStore(homedir(), fakeSecurity(shared, homedir()).run);
+    const store = keychainCredentialStore(homedir(), fakeSecurity(shared).run);
     expect(store!.get("typesafe")).toBe("pre-1178-secret");
     const tempShared: Record<string, string> = { typesafe: "pre-1178-secret" };
-    const tempStore = keychainCredentialStore("/tmp/moh-temp-home", fakeSecurity(tempShared, "/tmp/moh-temp-home").run);
+    const tempStore = keychainCredentialStore("/tmp/moh-temp-home", fakeSecurity(tempShared).run);
     expect(tempStore!.get("typesafe")).toBeUndefined();
   });
 
   test("delete from the ambient home cleans the legacy bare-account item too", () => {
     const shared: Record<string, string> = { [keychainAccount(homedir(), "typesafe")]: "v", typesafe: "legacy" };
-    const store = keychainCredentialStore(homedir(), fakeSecurity(shared, homedir()).run);
+    const store = keychainCredentialStore(homedir(), fakeSecurity(shared).run);
     expect(store!.delete("typesafe")).toBe(true);
     expect(shared).toEqual({});
   });
 
   test("set/delete under a temporary home never touch the bare legacy account", () => {
     const shared: Record<string, string> = { typesafe: "legacy" };
-    const store = keychainCredentialStore("/tmp/moh-temp-home", fakeSecurity(shared, "/tmp/moh-temp-home").run);
+    const store = keychainCredentialStore("/tmp/moh-temp-home", fakeSecurity(shared).run);
     store!.set("typesafe", "v");
     store!.delete("typesafe");
     expect(shared).toEqual({ typesafe: "legacy" });
