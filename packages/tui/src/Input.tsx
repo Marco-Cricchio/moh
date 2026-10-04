@@ -88,15 +88,17 @@ function isEmptyDraft(lines: readonly string[]): boolean {
   return lines.length === 1 && lines[0] === "";
 }
 
-function graphemes(value: string): Intl.SegmentData[] {
+/** Exported for the notes modal editor (#1180), which shares the
+ * grapheme-safe column arithmetic with the composer. */
+export function graphemes(value: string): Intl.SegmentData[] {
   return [...new Intl.Segmenter(undefined, { granularity: "grapheme" }).segment(value)];
 }
 
-function previousColumn(value: string, column: number): number {
+export function previousColumn(value: string, column: number): number {
   return graphemes(value).filter((part) => part.index < column).at(-1)?.index ?? 0;
 }
 
-function nextColumn(value: string, column: number): number {
+export function nextColumn(value: string, column: number): number {
   const next = graphemes(value).find((part) => part.index >= column);
   return next ? next.index + next.segment.length : value.length;
 }

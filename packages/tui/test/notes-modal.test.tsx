@@ -24,10 +24,10 @@ async function tempPath(): Promise<string> {
   return join(await mkdtemp(join(tmpdir(), "moh-notes-")), "notes.jsonl");
 }
 
-function mount(notesPath: string, onClose: () => void = () => {}) {
+function mount(notesPath: string, onClose: () => void = () => {}, onInject?: (text: string) => void) {
   const instance = render(
     <ThemeProvider value={THEMES[DEFAULT_THEME]}>
-      <NotesModal cwd="/nowhere" home="/nowhere" notesPath={notesPath} onClose={onClose} />
+      <NotesModal cwd="/nowhere" home="/nowhere" notesPath={notesPath} onClose={onClose} onInject={onInject} />
     </ThemeProvider>,
   );
   return instance;
@@ -140,6 +140,78 @@ describe("NotesModal", () => {
     const after = await readProjectNotes(path);
     expect(after.length).toBe(1);
     expect(after[0]!.id).toBe(b.id);
+    instance.unmount();
+  });
+
+  test("cursor editing: left arrow moves back, typing inserts at the cursor", async () => {
+    const path = await tempPath();
+    await writeProjectNotes(path, [newNote("helo")]);
+    const instance = mount(path);
+    await waitFor(instance, "helo");
+    instance.stdin.write("e"); // edit
+    await sleep(30);
+    instance.stdin.write("\x1b[D"); // left
+    await sleep(20);
+    instance.stdin.write("\x1b[D"); // left
+    await sleep(20);
+    instance.stdin.write("l"); // insert between "hel" and "o"
+    await sleep(30);
+    instance.stdin.write("\x13"); // ctrl+s
+    await sleep(60);
+    const notes = await readProjectNotes(path);
+    expect(notes[0]!.text).toBe("hello");
+    instance.unmount();
+  });
+
+  test("cursor editing: backspace removes the grapheme before the cursor, not the last", async () => {
+    const path = await tempPath();
+    await writeProjectNotes(path, [newNote("hello")]);
+    const instance = mount(path);
+    await waitFor(instance, "hello");
+    instance.stdin.write("e");
+    await sleep(30);
+    instance.stdin.write("\x1b[D"); // left — cursor before "o"
+    await sleep(20);
+    instance.stdin.write("\x1b[D"); // left — cursor before "l"
+    await sleep(20);
+    instance.stdin.write("\x7f"); // backspace removes the first "l"
+    await sleep(30);
+    instance.stdin.write("\x13");
+    await sleep(60);
+    const notes = await readProjectNotes(path);
+    expect(notes[0]!.text).toBe("helo");
+    instance.unmount();
+  });
+
+  test("long lines word-wrap instead of truncating in the editor", async () => {
+    const path = await tempPath();
+    const long = "a".repeat(120);
+    await writeProjectNotes(path, [newNote(long)]);
+    const instance = mount(path);
+    await waitFor(instance, "aaaa");
+    instance.stdin.write("e");
+    await sleep(30);
+    const frame = stripAnsi(instance.lastFrame() ?? "");
+    // No truncation marker and every character is painted on the wrapped
+    // rows (the test viewport wraps 120 chars into 3 rows, so assert on
+    // the character count, not a contiguous substring).
+    expect(frame).not.toContain("…");
+    expect((frame.replace(/\s/g, "").match(/a/g) ?? []).length).toBeGreaterThanOrEqual(long.length);
+    instance.unmount();
+  });
+
+  test("i injects the selected note through the onInject seam", async () => {
+    const path = await tempPath();
+    await writeProjectNotes(path, [newNote("inject me")]);
+    let injected: string | null = null;
+    const onInject = (text: string) => {
+      injected = text;
+    };
+    const instance = mount(path, () => {}, onInject);
+    await waitFor(instance, "inject me");
+    instance.stdin.write("i");
+    await sleep(30);
+    expect(injected === "inject me" ? injected : "missing").toBe("inject me");
     instance.unmount();
   });
 
