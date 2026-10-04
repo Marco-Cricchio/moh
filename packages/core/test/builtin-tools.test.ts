@@ -125,6 +125,25 @@ describe("built-in tools", () => {
     await expect(tools.read.execute({ path: join(cwd, "missing") }, ctx)).rejects.toThrow();
   });
 
+  // #1186: a directory `path` and a nonexistent `path` used to surface as
+  // raw errno lines (EISDIR / ENOENT from the raw open). Name the miss so
+  // the model can correct course without re-probing.
+  test("read names a directory path and a missing path instead of throwing errno", async () => {
+    mkdirSync(join(cwd, "adir"), { recursive: true });
+    await expect(
+      tools.read.execute({ path: join(cwd, "adir") }, ctx),
+    ).rejects.toThrow(/path is a directory, not a file/);
+    await expect(
+      tools.read.execute({ path: join(cwd, "adir", "missing.ts") }, ctx),
+    ).rejects.toThrow(/no such path: /);
+  });
+
+  test("grep names a nonexistent path instead of a raw ENOENT (#1186)", async () => {
+    await expect(
+      tools.grep.execute({ path: join(cwd, "no", "such", "dir"), pattern: "x" }, ctx),
+    ).rejects.toThrow(/no such path: /);
+  });
+
   test("glob finds files by pattern", async () => {
     mkdirSync(join(cwd, "src"), { recursive: true });
     writeFileSync(join(cwd, "src", "a.ts"), "1");
