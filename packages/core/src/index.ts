@@ -334,7 +334,7 @@ export { formatModelPair } from "./model-pair";
 // re-exported so a client needs one import for the whole seam.
 export type { TurnConfirmOutcome } from "@moh/extension";
 export type { ExtensionCommand, ExtensionCommandContext } from "@moh/extension";
-import { McpRuntime, mcpServerEntrySchema, declaredUserMcpServers, isProjectServerTrusted, persistProjectMcpTrust, type DeclaredMcpServer, type McpServerEntry, type McpRuntimeOptions } from "./mcp";
+import { McpRuntime, mcpServerEntrySchema, isHttpMcpUrl, MCP_MAX_RESPONSE_BYTES, declaredUserMcpServers, isProjectServerTrusted, persistProjectMcpTrust, type DeclaredMcpServer, type McpServerEntry, type McpRuntimeOptions } from "./mcp";
 import {
   loadMohConfig,
   writeMohConfig,
@@ -910,6 +910,8 @@ export {
   RuleError,
   McpRuntime,
   mcpServerEntrySchema,
+  isHttpMcpUrl,
+  MCP_MAX_RESPONSE_BYTES,
   loadMohConfig,
   writeMohConfig,
   upsertEndpoint,

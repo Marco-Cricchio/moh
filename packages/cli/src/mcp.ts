@@ -13,6 +13,7 @@ import {
   userConfigFile,
   declaredMcpServers,
   declaredUserMcpServers,
+  isHttpMcpUrl,
   loadMohConfig,
   mcpServerEntrySchema,
   upsertMcpServer,
@@ -109,6 +110,10 @@ function addServer(argv: string[], cwd: string, home: string | undefined, out: N
   const cmd = parsed.positionals.slice(1);
   let entry: McpServerEntry;
   if (parsed.strings["url"]) {
+    if (!isHttpMcpUrl(parsed.strings["url"])) {
+      err.write(`moh mcp add: --url must be an http(s) URL (got "${parsed.strings["url"]}")\n`);
+      return 2;
+    }
     const headers: Record<string, string> = {};
     for (const h of parsed.lists["header"] ?? []) {
       const i = h.indexOf(":");

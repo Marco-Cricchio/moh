@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync, mkdirSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync, mkdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { mcpCommand } from "../src/mcp";
@@ -54,6 +54,18 @@ describe("moh mcp", () => {
     r = await run(["remove", "search"], cwd, home);
     expect(r.code).toBe(0);
     expect(JSON.parse(readFileSync(join(cwd, "moh.json"), "utf8")).mcpServers.search).toBeUndefined();
+  });
+
+    test("add refuses a non-http(s) --url loudly (audit-v3 MCP-1)", async () => {
+    const cwd = tmp();
+    const home = fakeHome();
+    const r = await run(["add", "shady", "--url", "file:///etc/mcp"], cwd, home);
+    expect(r.code).toBe(2);
+    expect(r.err).toContain("http(s)");
+    expect(existsSync(join(cwd, "moh.json"))).toBe(false);
+    const r2 = await run(["add", "shady", "--url", "ftp://example.com/mcp"], cwd, home);
+    expect(r2.code).toBe(2);
+    expect(r2.err).toContain("http(s)");
   });
 
   test("add --user writes to ~/.moh/config without clobbering other keys", async () => {

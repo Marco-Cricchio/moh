@@ -4,7 +4,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createSession, McpRuntime, MockProvider, sessionFromConfig, type AgentEvent, type DeclaredMcpServer } from "../src/index";
 import { projectSlug } from "../src/session-store";
-import { McpError } from "../src/mcp";
+import { McpError, mcpServerEntrySchema } from "../src/mcp";
+import { MCP_MAX_RESPONSE_BYTES } from "../src/mcp/transport-http";
 
 const SERVER = join(import.meta.dir, "fixtures", "mcp-stdio-server.ts");
 
@@ -316,6 +317,44 @@ describe("McpRuntime (HTTP streamable)", () => {
     expect(failure?.reason).toBe("start_failed");
     expect(runtime.status()[0]!.state).toBe("failed");
   });
+});
+
+describe("audit-v3 MCP-1: http transport hardening", () => {
+  test("the config schema accepts only http(s) URLs", () => {
+    const good = { type: "http", url: "https://example.com/mcp" };
+    expect(mcpServerEntrySchema.safeParse(good).success).toBe(true);
+    expect(mcpServerEntrySchema.safeParse({ type: "http", url: "http://localhost:3000/mcp" }).success).toBe(true);
+    for (const url of ["ftp://example.com/mcp", "file:///etc/mcp", "not-a-url", "//example.com/mcp", ""]) {
+      const parsed = mcpServerEntrySchema.safeParse({ type: "http", url });
+      expect(parsed.success).toBe(false);
+    }
+  });
+
+  test("a non-http(s) URL fails loudly at runtime, never a silent skip", async () => {
+    const events: AgentEvent[] = [];
+    const runtime = makeRuntime([{ name: "bad", scope: "user", transport: { type: "http", url: "ftp://example.com/mcp" } }], events);
+    await runtime.ensureStarted();
+    const failure = events.find((e) => e.type === "mcp_server_failed") as Extract<AgentEvent, { type: "mcp_server_failed" }>;
+    expect(failure?.reason).toBe("start_failed");
+    expect(failure?.message).toContain("http(s)");
+    expect(runtime.status()[0]!.state).toBe("failed");
+  });
+
+  test("a response body beyond the byte cap is refused, not buffered unbounded", async () => {
+    // One oversized SSE frame: the old drain loop buffered it whole.
+    const frame = `event: message\ndata: ${"x".repeat(MCP_MAX_RESPONSE_BYTES + 1024)}\n\n`;
+    const s = Bun.serve({ port: 0, fetch: () => new Response(frame, { headers: { "content-type": "text/event-stream" } }) });
+    try {
+      const events: AgentEvent[] = [];
+      const runtime = makeRuntime([{ name: "fat", scope: "user", transport: { type: "http", url: `http://localhost:${s.port}/mcp` } }], events);
+      await runtime.ensureStarted();
+      const failure = events.find((e) => e.type === "mcp_server_failed") as Extract<AgentEvent, { type: "mcp_server_failed" }>;
+      expect(failure?.message).toContain("cap");
+      expect(runtime.status()[0]!.state).toBe("failed");
+    } finally {
+      s.stop(true);
+    }
+  }, 20_000);
 });
 
 describe("AgentSession MCP integration", () => {
