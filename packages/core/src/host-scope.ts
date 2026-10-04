@@ -12,7 +12,9 @@
  *   manifest capability is invalid and fails loudly at load;
  * - `..` segments are rejected before resolution; symlinks are resolved
  *   and the resolved target is what the scope checks; case follows the
- *   real filesystem.
+ *   real filesystem, **per path component**, and a case-insensitive
+ *   match folds the glob's literal letters without ever rewriting its
+ *   classes or ranges.
  */
 import { readdirSync, realpathSync, lstatSync, statSync } from "node:fs";
 import { isAbsolute, relative, resolve, dirname, basename, join } from "node:path";
@@ -192,14 +194,17 @@ export function checkPathScope(
   // existing ancestor (creation inside an escaping symlinked directory is
   // still caught — the parent is the real target).
   const resolved = resolveReal(abs);
-  const rel = relative(realpathSync(projectRoot), resolved);
+  const root = realpathSync(projectRoot);
+  const rel = relative(root, resolved);
   if (rel === "" || rel.startsWith("..") || isAbsolute(rel)) {
     return { ok: false, reason: "outside_scope", resolved };
   }
   // Observe the target filesystem, not the OS: macOS can host sensitive
   // volumes and Linux can host insensitive ones. Missing tails inherit
   // the nearest existing directory's behavior.
-  if (!matchesAnyScope(rel, scopes, caseInsensitiveAt(dirname(resolved)))) {
+  const components = rel.split("/").filter((s) => s !== "");
+  const insensitive = components.map((_, i) => caseInsensitiveAt(join(root, ...components.slice(0, i))));
+  if (!matchesPathScopes(rel, scopes, insensitive)) {
     return { ok: false, reason: "outside_scope", resolved };
   }
   if (isDenied(resolved)) {
@@ -208,19 +213,104 @@ export function checkPathScope(
   return { ok: true, resolved };
 }
 
-function matchesAnyScope(rel: string, scopes: readonly string[], insensitive: boolean): boolean {
+/**
+ * Whether one project-relative path matches any granted `path:<glob>`.
+ *
+ * `componentInsensitive[i]` is the case behavior of the directory that
+ * *contains* path component `i` (`components[i-1]`'s directory, the root
+ * for `i = 0`), as observed on the real filesystem. It is deliberately
+ * per component: deriving one answer from the leaf directory and
+ * applying it to the whole path let a sensitive ancestor (`SRC` on a
+ * sensitive volume) match a request for `src` on the strength of an
+ * insensitive mount deeper down the same path.
+ *
+ * Exported as the tests-only seam: `checkPathScope` computes the answers
+ * from the filesystem, a test can hand in the mixed-mount shapes a plain
+ * temp directory cannot produce.
+ */
+export function matchesPathScopes(rel: string, scopes: readonly string[], componentInsensitive: readonly boolean[]): boolean {
+  // Fold only when *every* component of the resolved path sits on an
+  // insensitive filesystem. A mixed path (a sensitive ancestor above an
+  // insensitive mount, or the reverse) keeps exact-case matching: the
+  // conservative answer is to require the spelling the scope wrote,
+  // never to widen the grant on a partial answer.
+  const fold = componentInsensitive.length > 0 && componentInsensitive.every(Boolean);
   return scopes.some((capability) => {
     if (!isPathScope(capability)) return false;
     const check = validatePathScope(capability);
     if (!check.ok) return false;
-    try {
-      const glob = insensitive ? check.glob.toLowerCase() : check.glob;
-      const path = insensitive ? rel.toLowerCase() : rel;
-      return glob === path || new Bun.Glob(glob).match(path);
-    } catch {
-      return false;
-    }
+    return globMatches(check.glob, rel, fold);
   });
+}
+
+/** Exactly-case glob match; a malformed pattern refuses rather than throws. */
+function globMatchesExactly(glob: string, rel: string): boolean {
+  try {
+    return new Bun.Glob(glob).match(rel);
+  } catch {
+    return false;
+  }
+}
+
+function globMatches(glob: string, rel: string, foldAllowed: boolean): boolean {
+  if (glob === rel) return true;
+  if (!foldAllowed) return globMatchesExactly(glob, rel);
+  const folded = foldGlobCase(glob);
+  if (folded === null || folded === glob) return globMatchesExactly(glob, rel);
+  // The folded match is the case-insensitive reading of the pattern: it
+  // widens literal letters to both cases and touches nothing else, so it
+  // is a superset of the exact match for a positive pattern and a subset
+  // for a negated one. A negated grant must not be widened by the exact
+  // reading alone — `path:!src/**` still excludes `SRC/a.ts` on an
+  // insensitive filesystem — so the folded answer is authoritative
+  // whenever it exists; the exact match remains for positive patterns
+  // only, as a belt on exotic patterns this fold may under-approximate.
+  if (globMatchesExactly(folded, rel)) return true;
+  return isNegatedPattern(glob) ? false : globMatchesExactly(glob, rel);
+}
+
+/** An odd leading `!` run negates the whole pattern (Bun.Glob dialect). */
+function isNegatedPattern(glob: string): boolean {
+  let bangs = 0;
+  while (glob[bangs] === "!") bangs++;
+  return bangs % 2 === 1;
+}
+
+/**
+ * Syntax-preserving case fold of one glob: every bare ASCII letter
+ * becomes its two-case class (`s` → `[sS]`), while character classes,
+ * ranges, negations, braces, wildcards and separators are copied
+ * verbatim. Lowercasing the whole pattern is what made `[!A-z]` into
+ * `[!a-z]` — a different set (`_.txt` flips from excluded to admitted),
+ * i.e. an over-grant. `null` when the pattern carries an escape (`\`),
+ * whose literal meaning two-case expansion cannot preserve: the caller
+ * then stays exact instead of guessing.
+ */
+export function foldGlobCase(pattern: string): string | null {
+  let out = "";
+  for (let i = 0; i < pattern.length; i++) {
+    const ch = pattern[i]!;
+    if (ch === "\\") return null;
+    if (ch === "[") {
+      let j = i + 1;
+      if (pattern[j] === "!" || pattern[j] === "^") j++;
+      // A `]` immediately after the opening bracket (or after `!`/`^`)
+      // is a literal member, not the class terminator.
+      if (pattern[j] === "]") j++;
+      const close = pattern.indexOf("]", j);
+      if (close === -1) {
+        out += ch;
+        continue;
+      }
+      out += pattern.slice(i, close + 1);
+      i = close;
+      continue;
+    }
+    out += (ch >= "A" && ch <= "Z") || (ch >= "a" && ch <= "z")
+      ? `[${ch.toLowerCase()}${ch.toUpperCase()}]`
+      : ch;
+  }
+  return out;
 }
 
 /** realpath when the target exists; otherwise the nearest existing ancestor with the tail appended. */
