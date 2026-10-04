@@ -53,4 +53,14 @@ describe("SkillChooser", () => {
     expect(exited).toBe(1);
     i.unmount();
   });
+
+  test("an escape-bearing issue title renders inert (audit-v3 TUI-1)", async () => {
+    const i = mount({ issue: { id: "77", title: "fix\u001B]0;pwned\u0007login", state: "open", labels: [], assignees: [], blockedBy: [] } });
+    await sleep(20);
+    const raw = i.lastFrame() ?? "";
+    expect(raw).not.toContain("\u0007");
+    expect(raw).not.toContain("\u001B");
+    expect(stripAnsi(raw)).toContain("fixlogin");
+    i.unmount();
+  });
 });

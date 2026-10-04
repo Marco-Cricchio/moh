@@ -2,6 +2,7 @@ import React, { useMemo, useState } from "react";
 import { Text, useInput } from "ink";
 import { formatSkillCommand, skillRecommendations, type SkillRoutingConfig, type TrackerIssue } from "@moh/core";
 import { useTheme } from "./themes";
+import { sanitizeForDisplay } from "./render-sanitize";
 import { Dialog, Dim } from "./ui";
 
 export interface SkillChooserProps {
@@ -33,13 +34,13 @@ export function SkillChooser({ issue, routing, onChoose, onBack, onJustClaim }: 
 
   return (
     <Dialog title=" choose workflow " color={theme.purple}>
-      <Text wrap="truncate-end">{`#${issue.id} ${issue.title}`}</Text>
+      <Text wrap="truncate-end">{`#${sanitizeForDisplay(issue.id)} ${sanitizeForDisplay(issue.title)}`}</Text>
       <Text> </Text>
       {recommendations.length === 0 ? (
         <Dim>no workflow suggestion for these labels</Dim>
       ) : recommendations.map((route, index) => (
         <Text key={route.label} inverse={index === cursor} wrap="truncate-end">
-          <Text color={index === cursor ? theme.accent : undefined}>{` ${formatSkillCommand(route, issue.id)} `}</Text>
+          <Text color={index === cursor ? theme.accent : undefined}>{` ${sanitizeForDisplay(formatSkillCommand(route, issue.id))} `}</Text>
           <Dim>{`[${route.label}]`}</Dim>
         </Text>
       ))}
