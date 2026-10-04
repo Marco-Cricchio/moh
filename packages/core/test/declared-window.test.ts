@@ -10,7 +10,7 @@
  * seen a real refusal for is not shipped.
  */
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { MockProvider, createSession } from "../src/index";
@@ -159,16 +159,17 @@ describe("normalizeProviderError (#986)", () => {
     expect(normalizeProviderError(err).declaredWindow).toBe(131_072);
   });
 
-  test("the kind classification is untouched by the learning", () => {
-    // Every kind below is what the classifier answers TODAY: the taxonomy
-    // is not part of this change, and reading a window never moves a
-    // refusal from one kind to another.
+  test("the kind classification: shipped-formula wordings are refusals (#1199)", () => {
+    // The kind classifier keyword net misses the Anthropic/Moonshot/
+    // llama.cpp wordings; #1199 makes a recognized window formula itself
+    // refusal evidence at 400/422, so a real overflow in those wordings
+    // stays `context_length` and reaches the session's learning hook.
     for (const [message, kind] of [
       [OPENROUTER_REFUSAL, "context_length"],
       ["too many tokens: input length 14295 tokens", "context_length"],
-      ["prompt is too long: 208423 tokens > 200000 maximum", "invalid_request"],
-      ["Invalid request: Your request exceeded model token limit: 262144 (requested: 291351)", "invalid_request"],
-      ["request (130000 tokens) exceeds available context size (131072 tokens)", "invalid_request"],
+      ["prompt is too long: 208423 tokens > 200000 maximum", "context_length"],
+      ["Invalid request: Your request exceeded model token limit: 262144 (requested: 291351)", "context_length"],
+      ["request (130000 tokens) exceeds available context size (131072 tokens)", "context_length"],
       ["input length 14295 tokens exceeds the model limit", "invalid_request"],
       ["invalid temperature", "invalid_request"],
     ] as [string, ProviderErrorKind][]) {
@@ -176,17 +177,16 @@ describe("normalizeProviderError (#986)", () => {
     }
   });
 
-  test("a recognized refusal teaches whatever kind it was classified as", () => {
-    // Anthropic's wording is not classified `context_length` today, and
-    // this change does not touch that: what makes it a refusal is the
-    // provider stating its window, and that is what the session learns.
-    for (const message of [
-      "prompt is too long: 208423 tokens > 200000 maximum",
-      "Invalid request: Your request exceeded model token limit: 262144 (requested: 291351)",
-      "request (130000 tokens) exceeds available context size (131072 tokens)",
-    ]) {
-      expect(normalizeProviderError(rawRefusal(message)).declaredWindow).toBeDefined();
-    }
+  test("a recognizable window inside a non-400/422 failure keeps that failure's kind", () => {
+    // #1199: recognition never re-kinds a failure. A hostile or broken
+    // upstream body naming a window inside a 5xx is `overloaded` — and,
+    // gated on the kind, teaches nothing.
+    const overloaded = normalizeProviderError(rawRefusal("Invalid request: Your request exceeded model token limit: 262144 (requested: 291351)", 503));
+    expect(overloaded.kind).toBe("overloaded");
+    expect(overloaded.declaredWindow).toBe(262_144);
+    const network = normalizeProviderError(rawRefusal("request (130000 tokens) exceeds available context size (131072 tokens)", 504));
+    expect(network.kind).toBe("network");
+    expect(network.declaredWindow).toBe(131_072);
   });
 
   test("no formula matched: the error carries no declared window", () => {
@@ -331,6 +331,88 @@ describe("a real refusal teaches the window, for the session", () => {
     expect(learned.length).toBe(2);
     expect(learned.map((e) => e.window)).toEqual([131_072, 65_536]);
     expect(session.declaredWindowFor(ref)).toBe(65_536);
+  });
+
+  test("a window formula inside a non-refusal failure teaches nothing (#1199 AC1)", async () => {
+    // A hostile or broken upstream body (T2/T3) that names a window inside
+    // a 503 is `overloaded` — the kind is the gate, so no
+    // `declared_window` event, no store learn, and no trace line either
+    // (the trace is for refusals moh could not read).
+    const ref = "openrouter/x-ai/grok-4.20";
+    const mohHome = home();
+    const session = createSession({
+      provider: refusingProvider(rawRefusal("Invalid request: Your request exceeded model token limit: 262144 (requested: 291351)", 503), { ref }),
+      endpoints: endpoints({ name: "openrouter", type: "openrouter", defaultModel: "x-ai/grok-4.20" }),
+      compaction: { enabled: false },
+      mohHome,
+    });
+    await session.send("merge");
+    expect(session.declaredWindowFor(ref)).toBeUndefined();
+    expect(session.history().some((e) => e.type === "declared_window")).toBe(false);
+    expect(session.history().some((e) => e.type === "error" && e.reason === "overloaded")).toBe(true);
+    expect(existsSync(contextRefusalsFile(mohHome))).toBe(false);
+  });
+
+  test("a refusal declaring a window below the measured context plus reserve is rejected (#1199 AC2)", async () => {
+    // The session measured 200,000 input tokens on a served turn; a later
+    // `context_length` refusal declaring 131,072 cannot be real — the
+    // context already outgrew it. No learn, no event, one trace line.
+    const ref = "openrouter/x-ai/grok-4.20";
+    const mohHome = home();
+    let call = 0;
+    const provider: Provider = {
+      name: ref,
+      async *stream(): AsyncIterable<StreamEvent> {
+        if (call++ === 1) throw normalizeProviderError(rawRefusal(OPENROUTER_REFUSAL));
+        yield { type: "model_call_start", model: ref };
+        yield { type: "text_delta", text: "ok" };
+        yield { type: "usage", inputTokens: 200_000, outputTokens: 10 };
+        yield { type: "finish", reason: "stop" };
+      },
+    };
+    const session = createSession({
+      provider,
+      endpoints: endpoints({ name: "openrouter", type: "openrouter", defaultModel: "x-ai/grok-4.20" }),
+      compaction: { enabled: false },
+      mohHome,
+    });
+    await session.send("one"); // served, measures 200,000
+    await session.send("two"); // refuses, declaring 131,072 — implausible
+    expect(session.declaredWindowFor(ref)).toBeUndefined();
+    expect(session.history().some((e) => e.type === "declared_window")).toBe(false);
+    const lines = readFileSync(contextRefusalsFile(mohHome), "utf8").trim().split("\n");
+    expect(lines.length).toBe(1);
+    const entry = JSON.parse(lines[0]!);
+    expect(entry.model).toBe(ref);
+    expect(entry.message).toContain("implausible declared window 131072 (last measured 200000)");
+  });
+
+  test("a genuine refusal still teaches after a served turn (#1199 AC3)", async () => {
+    // The plausibility bound must not reject the real thing: the window
+    // (131,072) leaves the reserve inside the last measured context
+    // (100,000), so the correction lands and persists.
+    const ref = "openrouter/x-ai/grok-4.20";
+    let call = 0;
+    const provider: Provider = {
+      name: ref,
+      async *stream(): AsyncIterable<StreamEvent> {
+        if (call++ === 1) throw normalizeProviderError(rawRefusal(OPENROUTER_REFUSAL));
+        yield { type: "model_call_start", model: ref };
+        yield { type: "text_delta", text: "ok" };
+        yield { type: "usage", inputTokens: 100_000, outputTokens: 10 };
+        yield { type: "finish", reason: "stop" };
+      },
+    };
+    const session = createSession({
+      provider,
+      endpoints: endpoints({ name: "openrouter", type: "openrouter", defaultModel: "x-ai/grok-4.20" }),
+      compaction: { enabled: false },
+    });
+    await session.send("one"); // served, measures 100,000
+    await session.send("two"); // genuine refusal, declaring 131,072
+    const learned = session.history().find((e) => e.type === "declared_window") as Extract<AgentEvent, { type: "declared_window" }>;
+    expect(learned).toMatchObject({ model: ref, window: 131_072 });
+    expect(session.declaredWindowFor(ref)).toBe(131_072);
   });
 
   test("a refusal moh does not recognize changes no number and writes one trace line", async () => {

@@ -11,7 +11,7 @@ import { localTipAt, fileTailId, resolveEventRef } from "../session-store";
 import { activePath, pathTo, resolveHead } from "./event-log";
 import type { SessionConfig } from "./config";
 import { resolveProviderRef, defaultRegistry, type FrozenProviderRegistry, type RouteResolutionOptions } from "../provider-registry";
-import { contextFitFor } from "../context-fit";
+import { contextFitFor, CONTEXT_FIT_RESERVE } from "../context-fit";
 // ADR-0050 (#974): the selected/serving pair — one formatter, one accessor
 // pair, shared by every surface that states or derives from the model in use.
 import { formatModelPair, selectedModelOf, servingModelOf } from "../model-pair";
@@ -1549,6 +1549,22 @@ export class AgentSession {
         ...(endpointType ? { endpoint: endpointType } : {}),
         model: ref,
         message: err instanceof Error ? err.message : String(err),
+      });
+      return;
+    }
+    // #1199 plausibility bound: a real refusal cannot declare a window
+    // smaller than the context the session just measured plus the fixed
+    // fit reserve — the request fit inside it until the provider said
+    // otherwise. Such a number is a hostile or broken body riding a
+    // refusal, not a fact: no learn, no event, one deduplicated trace
+    // line. Without any measurement the guard abstains, never blocks.
+    const measured = this.lastMeasuredTokens();
+    if (measured !== undefined && declared < measured + CONTEXT_FIT_RESERVE) {
+      noteUnrecognizedContextRefusal({
+        home: this.#mohHome,
+        ...(endpointType ? { endpoint: endpointType } : {}),
+        model: ref,
+        message: `implausible declared window ${declared} (last measured ${measured}): ${err instanceof Error ? err.message : String(err)}`,
       });
       return;
     }

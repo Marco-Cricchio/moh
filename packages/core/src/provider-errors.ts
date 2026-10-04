@@ -266,6 +266,13 @@ export function classifyStatus(status: number, body: string, message: string): P
   if (status === 408 || status === 504) return "network";
   if (status === 413) return "context_length";
   if (status === 422 || status === 400) {
+    // #1199: the shipped declared-window formulas are themselves refusal
+    // evidence — a provider that states its window is refusing the
+    // request, whatever the classifier's keyword net catches. This is what
+    // keeps a real Anthropic/Moonshot/llama.cpp overflow (whose wording
+    // the keyword regex misses) `context_length`, so it still reaches the
+    // session's learning hook now that the hook is gated on the kind.
+    if (recognizeDeclaredWindow(`${body} ${message}`) !== undefined) return "context_length";
     if (/context (length|window)|too many tokens|maximum.*tokens/i.test(all)) return "context_length";
     return "invalid_request";
   }
