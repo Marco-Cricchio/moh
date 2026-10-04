@@ -568,7 +568,7 @@ import {
   type PublishHandoffOptions,
   type PublishHandoffResult,
 } from "./handoff-transport";
-import { createGistHandoffTransport, discoverGistHandoffs, ghUsername, spawnGh, type GistHandoffOffer, type DiscoverGistHandoffsOptions } from "./handoff-gist";
+import { createGistHandoffTransport, discoverGistHandoffs, ghUsername, spawnGh, type GhRunner, type GistHandoffOffer, type DiscoverGistHandoffsOptions } from "./handoff-gist";
 import { cloneHandoffRepo, isColdDirectory, pullHandoffTo, type CloneHandoffRepoOptions, type CloneHandoffRepoResult, type GitCall, type GitRunner, type PullHandoffOptions, type PullHandoffResult } from "./handoff-coldstart";
 import {
   discoverHandoff,
@@ -996,6 +996,7 @@ export {
   discoverGistHandoffs,
   ghUsername,
   spawnGh,
+  type GhRunner,
   // Cold-directory wizard (#595): the gate, clone and pull steps.
   isColdDirectory,
   cloneHandoffRepo,

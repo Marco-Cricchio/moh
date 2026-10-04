@@ -16,6 +16,7 @@ import {
   readRawHandoff,
   resolveTracker,
   spawnGh,
+  type GhRunner,
   type HandoffTransport,
   type TrackerBackend,
 } from "@moh/core";
@@ -74,6 +75,9 @@ export interface HandoffCommandOptions {
   /** The logged-in gh user override (tests); resolved via `ghUsername`
    * when absent (pull's author check, #451). */
   ghUser?: string;
+  /** The gh runner override (tests): pull resolves the logged-in user
+   * through it when `ghUser` is absent. */
+  gh?: GhRunner;
 }
 
 export async function handoffCommand(options: HandoffCommandOptions): Promise<number> {
@@ -239,15 +243,31 @@ async function handoffPullCommand(
     );
     return 1;
   }
-  // Resolve the logged-in gh user for the author check; when gh cannot
-  // tell us (gh missing/offline), skip the check — a v2 payload still
-  // carries its author, and the received gist is per-user anyway.
+  // Resolve the logged-in gh user for the author check. A failed lookup
+  // refuses loudly (audit-v3 CLI-1): proceeding without an expectedAuthor
+  // would silently bypass the per-persona author isolation — the check is
+  // absent only where the payload format itself carries no author (v1).
   let expectedAuthor: string | undefined;
   if (options.ghUser) {
     expectedAuthor = options.ghUser;
   } else {
-    const resolved = await ghUsername(spawnGh);
-    if (resolved.ok) expectedAuthor = resolved.user;
+    const resolved = await ghUsername(options.gh ?? spawnGh);
+    if (!resolved.ok) {
+      const why =
+        resolved.error.reason === "gh-missing"
+          ? "gh is not available"
+          : resolved.error.reason === "not-logged-in"
+            ? "gh is not logged in"
+            : resolved.error.reason === "failed"
+              ? resolved.error.message
+              : resolved.error.reason;
+      err.write(
+        `moh handoff pull: cannot verify the logged-in gh user (${why}) — refusing to import without the per-persona author check; ` +
+          'use "moh handoff import <file>" for the manual file path, or fix gh auth\n',
+      );
+      return 1;
+    }
+    expectedAuthor = resolved.user;
   }
   const result = await importHandoffFile({
     cwd,
