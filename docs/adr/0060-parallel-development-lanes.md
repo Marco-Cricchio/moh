@@ -101,6 +101,39 @@ worktree has NO uncommitted changes is removed — worktree, branch,
 registry row; its committed work lives on the branch until landed. Dirty
 lanes are reported, never touched. `/lanes` surfaces the cleanup door.
 
+## Amendment 3: in-modal deletion and `moh lanes delete` (2026-10-04)
+
+A stale lane could only be *abandoned* — the registry row stayed forever,
+and the TUI could not delete anything. Three refinements:
+
+**`moh lanes delete <lane-id> [--keep-worktree]`.** The destructive
+counterpart of `abandon`: worktree removed, branch deleted, registry row
+dropped — nothing left behind. `abandon` stays the reversible lifecycle
+step (status `abandoned`, branch deleted, worktree removed, row kept so
+the worktree path stays attributed); `delete` is the "forget this lane"
+step. Caveats are explicit, not hidden: `git worktree remove --force`
+discards uncommitted changes and `branch -D` drops unlanded commits —
+committed-but-unlanded work on the branch is lost with the branch.
+`--keep-worktree` degenerates to a forced registry-row drop, leaving git
+state on disk untouched (for "the filesystem is already gone / handled").
+
+**The `/lanes` modal owns the destructive doors.** `d` deletes the focused
+lane (y/N confirm), `x` drops only its registry row, `D` deletes every
+lane of every group behind a typed confirmation (`delete all`) that stops
+at the first refusal. This amends the "TUI and CLI are thin projections"
+stance for exactly these two irreversible operations: they are moments of
+user intent, not lifecycle transitions, and routing them through the CLI
+added friction without adding safety — the typed confirmation and the
+per-lane `y/N` are the safety. Everything else (integrate, resolve,
+abandon, status) stays CLI-first.
+
+**Deletion vs the worktree directory, precisely.** Both `abandon` and
+`delete` remove the worktree directory via `git worktree remove --force`;
+the shared `.moh-lanes/<repo>/` parent and the registry file are never
+deleted by lane operations (cleanup prunes rows, never the directory
+tree's root). A `delete` on a lane whose worktree is already missing
+removes only the branch and the row.
+
 ## Follow-up
 
 Implementation starts with the isolated lane lifecycle, then adds feature-group metadata and explicit relationships, followed by integration and resumable conflict state. A later decision may add a shared-runtime mode only if real workloads demonstrate that isolated worktrees are insufficient.

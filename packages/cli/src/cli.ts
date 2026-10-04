@@ -19,7 +19,7 @@ import { usageCommand, USAGE_USAGE } from "./usage";
 import { jevCommand, JEV_USAGE } from "./jev";
 import { secretCommand, SECRET_USAGE } from "./secret";
 import { trashCommand, TRASH_USAGE } from "./trash";
-import { lanesCommand, lanesRemoveCommand, LANES_USAGE } from "./lanes";
+import { lanesCommand, lanesRemoveCommand, lanesDeleteCommand, LANES_USAGE } from "./lanes";
 import { browserCommand, BROWSER_USAGE } from "./browser";
 import { CLI_VERSION } from "./version";
 
@@ -218,6 +218,7 @@ export async function main(
       return 0;
     }
     if (rest[0] === "remove") return lanesRemoveCommand({ argv: rest.slice(1), home: process.env.HOME, err: process.stderr });
+    if (rest[0] === "delete") return lanesDeleteCommand({ argv: rest.slice(1), home: process.env.HOME, err: process.stderr });
     return lanesCommand({ argv: rest, home: process.env.HOME, err: process.stderr });
   }
   if (command === "usage") {

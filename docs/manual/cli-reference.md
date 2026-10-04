@@ -304,6 +304,7 @@ usage: moh lanes group <name> [--target <ref>] [--cwd <dir>]
        moh lanes status <lane-id> <active|paused|ready|conflicted|abandoned> [--cwd <dir>]
        moh lanes abandon <lane-id> [--cwd <dir>]
        moh lanes remove <lane-id> [--force] [--cwd <dir>]
+       moh lanes delete <lane-id> [--keep-worktree] [--cwd <dir>]
        moh lanes cleanup [--min-age-days <n>] [--apply] [--cwd <dir>]
 
 Parallel development lanes (feature groups + isolated worktrees): each
@@ -329,6 +330,15 @@ never share uncommitted state. Metadata lives in
   abandon <lane-id>         remove the worktree, delete the branch, mark
                             the lane abandoned (release: the worktree path
                             can be reused by a new lane)
+  remove <lane-id> [--force] registry-only removal of one lane row (no git
+                            effects); refuses a lane whose worktree still
+                            exists or whose status is not landed/abandoned
+                            unless --force (abandon first for live git state)
+  delete <lane-id>          delete one lane outright: worktree (uncommitted
+                            changes discarded), branch (unlanded commits
+                            dropped) and registry row. --keep-worktree
+                            drops only the registry row, leaving git state
+                            on disk untouched
   cleanup [--apply]         stale-lane cleanup: lanes idle for at least
                             --min-age-days (default 7) whose worktree has
                             NO uncommitted changes are removed (worktree +

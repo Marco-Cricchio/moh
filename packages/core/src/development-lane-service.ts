@@ -221,6 +221,32 @@ export class DevelopmentLaneService {
   }
 
   /**
+   * Deletes one lane outright (ADR-0060 amendment 3): worktree, branch,
+   * registry row — the destructive counterpart of `abandon` that leaves
+   * nothing behind, not even the registry row. `deleteWorktree` (default
+   * true) removes the directory from disk with the committed-work caveat
+   * (`git worktree remove --force` discards uncommitted changes and the
+   * branch delete drops unlanded commits); `false` degenerates to the
+   * registry-only form. Never fails on an already-missing worktree.
+   */
+  async deleteLane(laneId: string, options: { deleteWorktree?: boolean } = {}): Promise<LaneOperationResult<DevelopmentLane>> {
+    const lane = this.#store.listLanes().find((candidate) => candidate.id === laneId);
+    if (!lane) return fail("registry", `unknown lane: ${laneId}`);
+    if (options.deleteWorktree === false) return this.remove(laneId, { force: true });
+    if (this.worktreeExists(lane)) {
+      const remove = await this.#git(["worktree", "remove", "--force", lane.worktreePath], { cwd: this.#cwd });
+      if (remove.code !== 0 && this.worktreeExists(lane)) {
+        return fail("git", remove.stderr.trim());
+      }
+    }
+    const branch = await this.#git(["branch", "-D", lane.branchRef], { cwd: this.#cwd });
+    if (branch.code !== 0) {
+      return fail("git", branch.stderr.trim());
+    }
+    return { ok: true, value: this.#store.removeLane(laneId) };
+  }
+
+  /**
    * Removes a single lane from the registry without touching git
    * (registry-only): the door for pruning a lane whose worktree and
    * branch are already gone. Refuses a lane with a live worktree or a
