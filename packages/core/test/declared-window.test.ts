@@ -153,6 +153,17 @@ describe("normalizeProviderError (#986)", () => {
     expect(normalized.message.endsWith("…")).toBe(true);
   });
 
+  test("classifies a verbose refusal as context_length from the untruncated text (#1199)", () => {
+    // The formula sits past the 300-character cap, so the bounded
+    // body/message cannot prove the refusal — the classification reads the
+    // untruncated text too, or the kind gate would silently drop a real
+    // refusal whose window rides unrecognized.
+    const padding = "x".repeat(400);
+    const normalized = normalizeProviderError(rawRefusal(`${padding} ${OPENROUTER_REFUSAL}`));
+    expect(normalized.kind).toBe("context_length");
+    expect(normalized.declaredWindow).toBe(131_072);
+  });
+
   test("reads a window out of a JSON body too", () => {
     const err = rawRefusal("invalid request", 400) as Error & { responseBody: string };
     err.responseBody = JSON.stringify({ error: { message: OPENROUTER_REFUSAL } });

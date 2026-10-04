@@ -37,7 +37,8 @@ export function normalizeProviderError(err: unknown, signal?: AbortSignal): Prov
     return new ProviderError("aborted", "request aborted by signal");
   }
 
-  const declaredWindow = recognizeDeclaredWindow(untruncatedText(err));
+  const rawText = untruncatedText(err);
+  const declaredWindow = recognizeDeclaredWindow(rawText);
 
   const status = findStatusCode(err);
   const message = describe(err);
@@ -55,7 +56,11 @@ export function normalizeProviderError(err: unknown, signal?: AbortSignal): Prov
   const fail = (kind: ProviderErrorKind, message: string) =>
     new ProviderError(kind, message, declaredWindow, transport);
   if (status !== undefined) {
-    return fail(classifyStatus(status, body, message), message);
+    // #1199: the 400/422 refusal branch reads the untruncated text too —
+    // a verbose refusal whose formula sits past the 300-character cap
+    // must still classify `context_length`, or the kind-gated learning
+    // would silently drop it while its window rides unrecognized.
+    return fail(classifyStatus(status, body, message, rawText), message);
   }
 
   // Transport-level failures (fetch failed, DNS, sockets).
@@ -249,8 +254,12 @@ function findField(value: unknown, field: string, seen: Set<object>, depth: numb
   return undefined;
 }
 
-/** Status-code classification, with body hints and 429 disambiguation. */
-export function classifyStatus(status: number, body: string, message: string): ProviderErrorKind {
+/** Status-code classification, with body hints and 429 disambiguation.
+ * `recognitionText` (#1199) is the untruncated failure text when the
+ * caller has it: the shipped declared-window formulas are refusal
+ * evidence, and a verbose refusal can lose its formula to the
+ * 300-character cap that bounds `body`/`message`. */
+export function classifyStatus(status: number, body: string, message: string, recognitionText?: string): ProviderErrorKind {
   const all = `${body} ${message}`.toLowerCase();
   // Body hints beat status codes: providers report billing failures with
   // varying statuses (z.ai: 400 + code 1113 "Insufficient balance").
@@ -272,7 +281,9 @@ export function classifyStatus(status: number, body: string, message: string): P
     // keeps a real Anthropic/Moonshot/llama.cpp overflow (whose wording
     // the keyword regex misses) `context_length`, so it still reaches the
     // session's learning hook now that the hook is gated on the kind.
-    if (recognizeDeclaredWindow(`${body} ${message}`) !== undefined) return "context_length";
+    // Read on the untruncated text when the caller has it (ADR-0049:
+    // recognition happens where the number still exists).
+    if (recognizeDeclaredWindow(recognitionText ?? `${body} ${message}`) !== undefined) return "context_length";
     if (/context (length|window)|too many tokens|maximum.*tokens/i.test(all)) return "context_length";
     return "invalid_request";
   }
