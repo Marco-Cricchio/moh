@@ -28,7 +28,7 @@ import {
   symlinkSync,
   writeFileSync,
 } from "node:fs";
-import { join, relative, resolve } from "node:path";
+import { dirname, join, relative, resolve } from "node:path";
 import type { RegistryIo } from "./extension-registry";
 
 /** The moh-owned root directory name under the moh home. */
@@ -380,24 +380,44 @@ function lockKeyPackage(key: string): string {
 
 /**
  * ADR-0070 resolvability: the extension's own directory gets a
- * `node_modules` symlink into its deps tree, so its bare imports resolve
- * through the standard walk — and only through its own tree. An existing
- * correct link is left alone; a wrong one is replaced.
+ * `node_modules` whose top-level packages link into its deps tree — the
+ * pnpm layout. A linked package resolves through the standard walk on
+ * every platform (a symlinked *node_modules directory itself* is not
+ * followed by Bun's Linux resolver), and only into the extension's own
+ * tree. An existing correct layout is left alone.
  */
 export function linkDepsTree(depsDir: string, extensionDir: string): { ok: true } | { ok: false; message: string } {
-  const target = join(depsDir, "node_modules");
+  const source = join(depsDir, "node_modules");
   const link = join(extensionDir, "node_modules");
   try {
-    if (existsSync(link)) {
-      try {
-        if (readlinkSync(link) === target) return { ok: true };
-      } catch {
-        /* a real node_modules dir, not a link — replace below only if broken */
+    mkdirSync(source, { recursive: true });
+    const wanted = new Map<string, string>();
+    for (const entry of readdirSync(source, { withFileTypes: true })) {
+      if (entry.name.startsWith(".")) continue;
+      if (entry.isDirectory() && entry.name.startsWith("@")) {
+        for (const leaf of readdirSync(join(source, entry.name), { withFileTypes: true })) {
+          if (leaf.isDirectory()) wanted.set(`${entry.name}/${leaf.name}`, join(source, entry.name, leaf.name));
+        }
+      } else if (entry.isDirectory()) {
+        wanted.set(entry.name, join(source, entry.name));
       }
     }
-    mkdirSync(depsDir, { recursive: true });
+    // Already correct: every wanted package resolves through the link.
+    let correct = wanted.size > 0 && existsSync(join(link, wanted.keys().next().value!.split("/").join("/"), "package.json"));
+    if (correct) {
+      for (const name of wanted.keys()) {
+        const dest = join(link, ...name.split("/"));
+        if (!existsSync(dest)) { correct = false; break; }
+      }
+    }
+    if (correct) return { ok: true };
     rmSync(link, { recursive: true, force: true });
-    symlinkSync(target, link, "dir");
+    mkdirSync(link, { recursive: true });
+    for (const [name, target] of wanted) {
+      const dest = join(link, ...name.split("/"));
+      mkdirSync(dirname(dest), { recursive: true });
+      symlinkSync(target, dest, "dir");
+    }
     return { ok: true };
   } catch (err) {
     return { ok: false, message: `cannot link the dependency tree into ${extensionDir}: ${err instanceof Error ? err.message : String(err)}` };

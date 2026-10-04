@@ -565,10 +565,9 @@ describe("extension-deps installation (ADR-0070)", () => {
       depsIo: io,
     });
     expect(await rt.registerFile(file)).toBe(true);
-    // The standard resolution walk through the extension's own directory
-    // lands inside its (and only its) dependency tree.
-    const link = join(dir, "node_modules");
-    expect(readlinkSync(link)).toBe(join(extensionDepsDir(dir, "resolver"), "node_modules"));
+    // The pnpm-shaped link: <extDir>/node_modules/zod -> the extension's
+    // own tree — and only its tree.
+    expect(readlinkSync(join(dir, "node_modules", "zod"))).toBe(join(extensionDepsDir(dir, "resolver"), "node_modules", "zod"));
     // Probe exactly what an extension import does: a bare specifier
     // resolved from the extension's own file, walking its node_modules.
     const resolved = realpathSync(createRequire(file).resolve("zod/package.json"));
