@@ -144,6 +144,12 @@ function describeOwnRequest(tool: string, args: unknown): PermissionRequestView 
         }).join(", ")}`,
       );
     }
+    // ADR-0070 (#1166): a dependency authorization ask shows the new deps
+    // by name and version — exactly the bytes a yes installs.
+    if (Array.isArray(a.dependencies) && a.dependencies.length > 0) {
+      detail.push(`dependencies: ${a.dependencies.map((d) => sanitizeForDisplay(String(d))).join(", ")}`);
+      detail.push("exact-pinned install: no lifecycle script ever runs (ADR-0070)");
+    }
     // #834 (security): a first-time file is asked about BEFORE it is imported
     // — the question has to come before the code runs — so it has made no
     // claims to show. Saying so is the honest prompt, not a defect.

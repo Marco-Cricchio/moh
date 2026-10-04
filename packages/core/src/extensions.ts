@@ -62,6 +62,8 @@ import type { ExtensionSpawnSpec } from "@moh/extension";
 import type { SubagentHost } from "./subagents";
 import { ExtensionSpawnRefusedError } from "./extension-scope";
 import { capabilityDiff, capabilitiesSubset, readExtensionManifest, type ManifestAuthority } from "./extension-manifest";
+import { depsTarballCache, extensionDepsDir, installExtensionDeps, linkDepsTree } from "./extension-deps";
+import { realRegistryIo, type RegistryIo } from "./extension-registry";
 import { checkHostScope, checkPathScope, hostScopesOf, isHostScope, isPathScope, MAX_FETCH_BYTES, MAX_REDIRECTS, HOST_SCOPE_REASONING_KEY, TOTAL_HOST_WILDCARD, validateHostScope, validatePathScope, pathScopesOf } from "./host-scope";
 import { credentialScopesOf, credentialScopeRef, isCredentialScope, validateCredentialScope, type CredentialStore } from "./credential-scope";
 import { isToolScope, validateToolScope, toolScopesOf, checkToolScope, isContributeToolScope, validateContributeToolScope, contributesTool, toolScopeName, contributeToolScopesOf, contributeToolName, CONTRIBUTE_TOOL_SCOPE_PREFIX } from "./tool-scope";
@@ -202,6 +204,12 @@ export interface ExtensionConsentRequest {
    * displays. Present only when the manifest declares one.
    */
   reasoning?: string;
+  /**
+   * ADR-0070 (#1166): the extension's declared npm dependencies, by name
+   * and version (`zod@3.23.8`) — present on a dependency authorization
+   * ask, so the question shows exactly which new bytes the yes installs.
+   */
+  dependencies?: readonly string[];
 }
 
 export interface ExtensionRuntimeOptions {
@@ -248,6 +256,13 @@ export interface ExtensionRuntimeOptions {
    * and the list is non-empty and not approved, the load is refused.
    */
   authorizeDependencies?: (name: string, deps: ExtensionDependencies) => Promise<boolean> | boolean;
+  /**
+   * ADR-0070 (#1166): the IO seam behind the dependency installer
+   * (network + tar). Defaults to the real registry IO; tests inject a
+   * fake. The install itself is moh's: download + digest verification +
+   * layout, never a script.
+   */
+  depsIo?: RegistryIo;
   /**
    * Non-event-log diagnostics: a load the user has to learn about on a
    * channel other than the log (a headless client's stderr, a hot-reload
@@ -1599,6 +1614,8 @@ bindPathDeny(isDenied: (resolvedAbsPath: string) => boolean): void {
       this.#emitFailed(basename(abs), gate.reason, gate.message);
       return false;
     }
+    const prepared = await this.#prepareFileDeps(abs);
+    if (!prepared) return false;
     let def: unknown;
     try {
       def = await importDefinition(abs);
@@ -1684,6 +1701,7 @@ bindPathDeny(isDenied: (resolvedAbsPath: string) => boolean): void {
         return;
       }
     }
+    if (!await this.#prepareFileDeps(file)) return;
     let def: unknown;
     try {
       def = await importDefinition(file);
@@ -1827,13 +1845,37 @@ bindPathDeny(isDenied: (resolvedAbsPath: string) => boolean): void {
       }
     }
     // Per-change dependency authorization, bound to the same content identity.
-    const deps = d.dependencies ?? [];
+    // ADR-0070 (#1166): when the manifest declares `dependencies`, the
+    // manifest is the authority — exact pins moh installs into the
+    // extension's own dependency directory. The install (like the consent)
+    // is per content identity: a changed dep list is a new question whose
+    // answer is remembered; a refusal keeps the previously approved tree.
+    const manifestDeps: Record<string, string> | undefined =
+      recheck?.ok ? recheck.manifest.dependencies : consentAuthority?.dependencies;
+    const codeDeps = d.dependencies ?? [];
+    // A code-level declaration disagreeing with the manifest is a loud
+    // refusal: one source of truth, the manifest the consent signed.
+    if (manifestDeps !== undefined && codeDeps.length > 0) {
+      const manifestKeys = Object.entries(manifestDeps).map(([pkg, ver]) => `${pkg}@${ver}`).sort();
+      if (!sameDeps(manifestKeys, codeDeps)) {
+        return {
+          ok: false,
+          name,
+          reason: "deps_undeclared",
+          message: `extension code declares dependencies (${codeDeps.join(", ")}) that differ from its manifest's (${manifestKeys.join(", ")}) — the manifest is the authority (ADR-0070)`,
+        };
+      }
+    }
+    const deps = manifestDeps
+      ? Object.entries(manifestDeps).map(([pkg, ver]) => `${pkg}@${ver}`).sort()
+      : codeDeps;
     const approved = store.dependencies[identity] ?? [];
     if (!bundled && !sameDeps(deps, approved)) {
       if (deps.length > 0 && !this.#options.authorizeDependencies) {
-        // Honest refusal (v1, #834): no host installs dependencies yet, so
-        // an extension that needs them cannot run — never a half-promise.
-        return { ok: false, name, reason: "deps_unauthorized", message: `extension declares dependencies (${deps.join(", ")}) and this host cannot install them` };
+        // Honest refusal (v1, #834): no host authorization seam, so an
+        // extension that needs dependencies cannot run — never a
+        // half-promise.
+        return { ok: false, name, reason: "deps_unauthorized", message: `extension declares dependencies (${deps.join(", ")}) and no dependency authorization flow is available` };
       }
       if (deps.length > 0) {
         let granted: boolean;
@@ -1843,6 +1885,8 @@ bindPathDeny(isDenied: (resolvedAbsPath: string) => boolean): void {
           return { ok: false, name, reason: "deps_unauthorized", message: errMessage(err) };
         }
         if (!granted) {
+          // ADR-0070: a refusal keeps the previously approved tree — the
+          // dependency directory is untouched and the load simply fails.
           return { ok: false, name, reason: "deps_unauthorized", message: `user declined dependencies: ${deps.join(", ")}` };
         }
       }
@@ -2444,6 +2488,57 @@ bindPathDeny(isDenied: (resolvedAbsPath: string) => boolean): void {
 
   #storeFile(): string {
     return resolve(this.#mohHome, "extensions.json");
+  }
+
+  /**
+   * ADR-0070: installs (or re-verifies) an extension's declared
+   * dependency tree into its own directory under the moh-owned
+   * `extension-deps` root, before the extension's setup ever runs. A
+   * failure — a scripted dependency, a checksum mismatch, lockfile
+   * drift — refuses the load with the reason carried to the user.
+   * The moh-owned tarball cache (`extension-deps/.cache/`) is consulted
+   * before the network and populated after verification, so a re-install
+   * works offline exactly as long as its digests match (AC5).
+   */
+  async #prepareFileDeps(file: string): Promise<boolean> {
+    const manifest = readExtensionManifest(file);
+    if (!manifest.ok) return false;
+    const deps = manifest.manifest.dependencies;
+    if (!deps || Object.keys(deps).length === 0) return true;
+    const name = manifest.manifest.name;
+    const identity = contentIdentity(file)!;
+    const requested = Object.entries(deps).map(([pkg, version]) => `${pkg}@${version}`).sort();
+    const store = this.#readStore();
+    if (!sameDeps(requested, store.dependencies[identity] ?? [])) {
+      if (!await this.#options.authorizeDependencies?.(name, requested)) {
+        this.#emitFailed(name, "deps_unauthorized", `user declined dependencies: ${requested.join(", ")}`);
+        return false;
+      }
+    }
+    const installed = await this.#installDeps(name, deps);
+    const linked = installed.ok ? linkDepsTree(extensionDepsDir(this.#mohHome, name), dirname(file)) : installed;
+    if (!linked.ok) {
+      this.#emitFailed(name, "deps_install_failed", linked.message);
+      return false;
+    }
+    store.dependencies[identity] = requested;
+    this.#writeStore(store);
+    return true;
+  }
+
+  async #installDeps(name: string, dependencies: Record<string, string>): Promise<{ ok: true } | { ok: false; message: string }> {
+    try {
+      const result = await installExtensionDeps({
+        dependencies,
+        depsDir: extensionDepsDir(this.#mohHome, name),
+        io: this.#options.depsIo ?? realRegistryIo(),
+        cache: depsTarballCache(this.#mohHome),
+      });
+      if (result.ok) return { ok: true };
+      return { ok: false, message: `dependency install failed for ${name}: ${result.reason}` };
+    } catch (err) {
+      return { ok: false, message: `dependency install failed for ${name}: ${err instanceof Error ? err.message : String(err)}` };
+    }
   }
 
   #readStore(): ExtensionStore {

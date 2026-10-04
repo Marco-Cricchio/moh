@@ -433,20 +433,48 @@ describe("sessionFromConfig loads the declared source (#834)", () => {
     expect(runtime.hasPendingRegistrations()).toBe(false);
   });
 
-  test("a declared dependency is refused loudly: no host installs them (v1)", async () => {
+  test("a declared dependency with no deps channel is refused loudly; with one, the ask rides onExtensionConsent (ADR-0070)", async () => {
     const { cwd, home, mohHome } = tempProject();
     writeModule(
       join(mohHome, "extensions", "needy.mjs"),
       vetoExtension("needy", "1.0.0", 'dependencies: ["left-pad@1.0.0"],'),
     );
     await withSession(
-      assemble({ cwd, home, provider: turnOnEcho(), consent: { onExtensionConsent: () => true } }),
+      // The enable question is answered yes; the dependency question no.
+      assemble({
+        cwd,
+        home,
+        provider: turnOnEcho(),
+        consent: { onExtensionConsent: (request) => !request.dependencies?.length },
+      }),
       async (session) => {
         await session.send("go");
         const failure = failedEvents(session.history()).find((e) => e.name === "needy");
         expect(failure).toMatchObject({ reason: "deps_unauthorized" });
         expect(failure!.message).toContain("left-pad@1.0.0");
         expect(session.history().some((e) => e.type === "extension_loaded")).toBe(false);
+      },
+    );
+    // ADR-0070: a consent seam that answers the deps question loads the
+    // extension (the code-level deps list is legacy-but-legal; the ask
+    // carries the deps by name@version for the client to display).
+    const asked: Array<Record<string, unknown>> = [];
+    await withSession(
+      assemble({
+        cwd,
+        home,
+        provider: turnOnEcho(),
+        consent: {
+          onExtensionConsent: (request) => {
+            if (request.dependencies?.length) asked.push({ name: request.name, deps: [...request.dependencies] });
+            return true;
+          },
+        },
+      }),
+      async (session) => {
+        await session.send("go");
+        expect(asked).toEqual([{ name: "needy", deps: ["left-pad@1.0.0"] }]);
+        expect(session.history().some((e) => e.type === "extension_loaded")).toBe(true);
       },
     );
   });
