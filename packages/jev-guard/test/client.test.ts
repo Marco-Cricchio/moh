@@ -5,6 +5,7 @@
  */
 import { describe, expect, test } from "bun:test";
 import {
+  JEV_AUTH_STATUS,
   JEV_ENDPOINT,
   JEV_MODEL,
   JEV_OFFLINE_STATUS,
@@ -175,8 +176,8 @@ describe("jev client: failure and retry policy", () => {
   });
 });
 
-describe("jev client: the offline signal", () => {
-  test("one status per transition: set on the outage, cleared on recovery", async () => {
+describe("jev client: the status signal (#1207 — outage and auth are two facts)", () => {
+  test("one status per transition: outage set on the failure, cleared on recovery", async () => {
     let fail = true;
     const statuses: (string | null)[] = [];
     const { impl } = fakeFetch([
@@ -198,6 +199,70 @@ describe("jev client: the offline signal", () => {
     fail = false;
     await client.judge(judgeInput());
     expect(statuses).toEqual([JEV_OFFLINE_STATUS, null]);
+  });
+
+  test("a rejected key publishes the auth text, not the outage (#1207)", async () => {
+    let status: number = 401;
+    const statuses: (string | null)[] = [];
+    const { impl } = fakeFetch([() => new Response("{}", { status })]);
+    const client = createJevClient({
+      transport: transportOf(impl),
+      sleep: async () => {},
+      onStatus: (text) => statuses.push(text),
+    });
+    await client.judge(judgeInput());
+    // One announcement, and it names the key — not the network.
+    expect(statuses).toEqual([JEV_AUTH_STATUS]);
+    // Still one announcement on a repeat (no per-call spam).
+    await client.judge(judgeInput());
+    expect(statuses).toEqual([JEV_AUTH_STATUS]);
+    // A healthy call turns the fact over: the auth text is replaced by the
+    // healthy clear, never silently held by a stale boolean.
+    let healthy = false;
+    const statuses2: (string | null)[] = [];
+    const { impl: impl2 } = fakeFetch([
+      () => {
+        if (healthy) return ok();
+        return new Response("{}", { status: 401 });
+      },
+    ]);
+    const client2 = createJevClient({
+      transport: transportOf(impl2),
+      sleep: async () => {},
+      onStatus: (text) => statuses2.push(text),
+    });
+    await client2.judge(judgeInput());
+    expect(statuses2).toEqual([JEV_AUTH_STATUS]);
+    healthy = true;
+    await client2.judge(judgeInput());
+    expect(statuses2).toEqual([JEV_AUTH_STATUS, null]);
+  });
+
+  test("the two failure texts replace each other — whichever failure is current is the one shown", async () => {
+    let status = 401;
+    const statuses: (string | null)[] = [];
+    const { impl } = fakeFetch([() => new Response("{}", { status })]);
+    const client = createJevClient({
+      transport: transportOf(impl),
+      sleep: async () => {},
+      onStatus: (text) => statuses.push(text),
+    });
+    await client.judge(judgeInput());
+    expect(statuses).toEqual([JEV_AUTH_STATUS]);
+    // The service goes down while the key is still bad: the outage text
+    // takes over (the current fact is the one published).
+    status = 500;
+    await client.judge(judgeInput());
+    expect(statuses).toEqual([JEV_AUTH_STATUS, JEV_OFFLINE_STATUS]);
+  });
+
+  test("a host-seam refusal stays silent: the offline signal is untouched (#1162)", async () => {
+    const statuses: (string | null)[] = [];
+    const refused: JevTransport = async () => ({ ok: false, kind: "refused", message: "outside scope" });
+    const client = createJevClient({ transport: refused, sleep: async () => {}, onStatus: (text) => statuses.push(text) });
+    await client.judge(judgeInput());
+    await client.judge(judgeInput());
+    expect(statuses).toEqual([]);
   });
 });
 
