@@ -336,6 +336,10 @@ export function createJevGuardExtension(options: JevGuardOptions): ExtensionDefi
             const a = (args ?? {}) as Record<string, unknown>;
             return typeof a.cwd === "string" ? a.cwd : process.cwd();
           },
+          // #1165 review: the invalidation samples the session's project
+          // root, not the process cwd — a different question when the
+          // process was started outside the repository.
+          projectRoot: () => lintOptions?.root ?? process.cwd(),
         },
       );
 

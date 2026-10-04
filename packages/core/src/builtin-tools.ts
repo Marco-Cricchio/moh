@@ -1207,7 +1207,7 @@ const todo: Tool<z.infer<typeof todoSchema>> = {
  * refusal before any spawn — whole-tool grant, never argv sub-scoping, so
  * the tool itself is where read-only is enforced. Non-zero exit is a failed
  * tool_result carrying stderr; outside a repository git's own wording is
- * the failure, which the consumers treat as "inert" (ratified fail-open).
+ * the failure — callers treat an off-repo read as a no-op, never a crash.
  */
 const GIT_READ_SUBCOMMANDS = new Set([
   "status",
@@ -1227,7 +1227,7 @@ const GIT_RELOCATING_FLAGS = new Set(["-C", "--git-dir", "--work-tree"]);
 const gitSchema = z.object({
   args: z.array(z.string()).min(1).describe("Git arguments; the subcommand must be a read-only one."),
   /** Optional working directory for the read; must stay inside the session
-   * root (the guardrail snapshots the cwd a bash command runs in). */
+   * root — a per-call cwd is how a caller reads a subdirectory's state. */
   cwd: z.string().optional(),
 });
 const gitTool: Tool<z.infer<typeof gitSchema>> = {
@@ -1241,15 +1241,11 @@ const gitTool: Tool<z.infer<typeof gitSchema>> = {
     const a = args.args;
     // #1165: the per-call cwd, when given, must stay inside the session
     // root — a read elsewhere is a different question the tool never
-    // answers (same containment terms as the path tools, #851).
+    // answers. Containment follows the real filesystem (resolvedInRoot,
+    // symlink-aware), the repo's one convention for path containment.
     let cwd = toolCtx.cwd;
     if (args.cwd !== undefined) {
-      const abs = resolve(toolCtx.cwd, args.cwd);
-      const rel = relative(toolCtx.cwd, abs);
-      if (rel.startsWith("..") || isAbsolute(rel)) {
-        throw new Error(`git: cwd "${args.cwd}" is outside the session root`);
-      }
-      cwd = abs;
+      cwd = resolvedInRoot(args.cwd, toolCtx.cwd);
     }
     let i = 0;
     while (i < a.length && (a[i]!.startsWith("-") || a[i]!.includes("="))) {

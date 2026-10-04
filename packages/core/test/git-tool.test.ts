@@ -18,7 +18,7 @@
  */
 import { describe, expect, test } from "bun:test";
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { builtinTools } from "../src/builtin-tools";
@@ -98,8 +98,9 @@ describe("read-only git tool (#1165)", () => {
   });
 
   test("an optional per-call cwd works inside the root and refuses outside it (#1165)", async () => {
-    const sub = await git.execute({ args: ["status", "--porcelain"], cwd: "." }, ctx);
+    mkdirSync(join(repo, "src"), { recursive: true });
+    const sub = await git.execute({ args: ["status", "--porcelain"], cwd: "src" }, ctx);
     expect(sub).toBe("");
-    expect(() => git.execute({ args: ["status"], cwd: "/etc" }, ctx)).toThrow(/outside the session root/i);
+    expect(() => git.execute({ args: ["status"], cwd: "/etc" }, ctx)).toThrow(/outside project root/i);
   });
 });

@@ -141,10 +141,19 @@ export interface GuardrailJudgeHost {
   mode: () => "normal" | "auto-accept" | "yolo";
   /** The effective cwd the bash command runs in (best-effort from args). */
   cwd: (args: unknown) => string;
+  /**
+   * #1165 review: the project root the git-snapshot invalidation reads.
+   * The judged per-call snapshot keys on the command's own cwd, but the
+   * turn-end/session-start invalidation must sample the same repository
+   * the session works in — `process.cwd()` answers a different question
+   * whenever the process was started outside the project.
+   */
+  projectRoot: () => string;
 }
 
 const UNKNOWN_MODE = (): "normal" => "normal";
 const DEFAULT_CWD = (): string => process.cwd();
+const DEFAULT_PROJECT_ROOT = DEFAULT_CWD;
 
 /** #846: the turn's pass aggregate — the count is derived from the ids,
  * so the two can never disagree, and the ids are what keeps "judged and
@@ -197,6 +206,7 @@ export function createGuardrailJudge(
 ) {
   const mode = host.mode ?? UNKNOWN_MODE;
   const cwdOf = host.cwd ?? DEFAULT_CWD;
+  const projectRoot = host.projectRoot ?? DEFAULT_PROJECT_ROOT;
   const cache = (deps.state.cache as ReturnType<typeof createGuardrailCache> | undefined) ?? createGuardrailCache();
   deps.state.cache = cache;
   const lastGit = (deps.state.lastGit as string | null | undefined) ?? null;
@@ -236,7 +246,8 @@ export function createGuardrailJudge(
     /** Drops the cache when the git snapshot changed since the last look.
      * Async over the seam (#1165); the hooks that call it already await. */
     async invalidateOnGitChange(): Promise<void> {
-      const git = await gitSnapshot((args) => deps.gitRead(args, process.cwd()), process.cwd());
+      const root = projectRoot();
+      const git = await gitSnapshot((args) => deps.gitRead(args, root), root);
       if (git !== deps.state.lastGit) {
         cache.clear();
         deps.state.lastGit = git;
