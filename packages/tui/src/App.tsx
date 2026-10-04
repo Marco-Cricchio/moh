@@ -72,7 +72,7 @@ import { fetchLiveCatalogs, liveListings, reportNeedsNotice, summarizeLiveCatalo
 import { QuotaModal } from "./QuotaModal";
 import { MpmModal } from "./MpmModal";
 import { JevModal } from "./JevModal";
-import { JEV_EXTENSION_NAME, readJevSummary, setJevUseCase, type JevStatusSummary } from "./jev-control";
+import { JEV_EXTENSION_NAME, readJevSummary, resolveJevChip, setJevUseCase, type JevStatusSummary } from "./jev-control";
 import { SessionRenameModal } from "./SessionRenameModal";
 import { SessionModal } from "./SessionModal";
 import { ExtensionsModal } from "./ExtensionsModal";
@@ -743,7 +743,10 @@ function AppShell({
     const read = () => {
       try {
         const next = readJevSummary((extension, name) => session.extensionState(extension, name));
-        if (alive) setJevStatus((prev) => (prev === next ? prev : next));
+        // An outage overrides the snapshot: nothing can judge while the
+        // client is down, so the chip says `offline`, never `active`.
+        const resolved = resolveJevChip(next, session.extensionStatuses());
+        if (alive) setJevStatus((prev) => (prev === resolved ? prev : resolved));
       } catch {
         if (alive) setJevStatus(null);
       }
