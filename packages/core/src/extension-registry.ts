@@ -22,6 +22,7 @@ import { MANIFEST_FILE, readExtensionManifest, type ExtensionManifest } from "./
 import { PATH_SCOPE_PREFIX, HOST_SCOPE_PREFIX } from "./host-scope";
 import { CREDENTIAL_SCOPE_PREFIX } from "./credential-scope";
 import { TOOL_SCOPE_PREFIX, CONTRIBUTE_TOOL_SCOPE_PREFIX } from "./tool-scope";
+import { removeExtensionDeps } from "./extension-deps";
 
 /** npm integrity digests (`sha512-...`) we can verify. */
 export type IntegrityAlgorithm = "sha512" | "sha1";
@@ -197,7 +198,7 @@ function checkManifest(pkgDir: string): { manifest: ExtensionManifest; warnings:
     }
   }
   const deps = readNpmDependencies(pkgDir);
-  if (deps.length) notes.push(`declares npm dependencies: ${deps.join(", ")} — not installed by moh; nothing is executed here, and the load-time consent governs the code`);
+  if (deps.length) notes.push(`declares npm dependencies in package.json: ${deps.join(", ")} — moh installs only the manifest's own "dependencies" (ADR-0070, exact pins, no scripts); nothing is executed here, and the load-time consent governs the code`);
   return { manifest: result.manifest, warnings, notes };
 }
 
@@ -430,6 +431,10 @@ export function removeInstalledExtension(name: string, options: { mohHome: strin
       if (checked.manifest.name === name) {
         try {
           rmSync(path, { recursive: true, force: true });
+          // ADR-0070: removal deletes the extension's dependency directory
+          // immediately — the root holds nothing else, so this is the
+          // whole of GC. A never-installed tree is a no-op.
+          removeExtensionDeps(options.mohHome, name);
         } catch (err) {
           return { ok: false, reason: `cannot remove ${path}: ${err instanceof Error ? err.message : String(err)}` };
         }
