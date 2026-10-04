@@ -4,16 +4,23 @@
  * a probe extension loaded through the runtime, `ctx.host` methods driven
  * directly, real files and real symlinks on a temp project root, events
  * asserted through the runtime's load-event channel.
+ *
+ * The case-matching regressions (issue #1160 follow-up) live here too:
+ * a case-insensitive match folds the glob's literal letters without
+ * rewriting its classes (`[!A-z]` keeps excluding `_`), and the FS case
+ * answer is per path component so a sensitive ancestor (`SRC` vs `src`)
+ * is never matched on an insensitive descendant's answer. The
+ * mixed-filesystem shapes a plain temp directory cannot produce are
+ * driven through the tests-only `matchesPathScopes` seam.
  */
 import { afterEach, describe, expect, test } from "bun:test";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
-// existsSync kept: documents intent at the trueCaseRel walk boundary.
-void existsSync;
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ExtensionDefinition, ExtensionHost, ExtensionSetupContext } from "@moh/extension";
 import { ExtensionRuntime } from "../src/extensions";
-import { scopeEffectSentence } from "../src/host-scope";
+import { scopeEffectSentence } from "../src/scope-effect";
+import { foldGlobCase, matchesPathScopes } from "../src/host-scope";
 import type { AgentEvent } from "../src/types";
 
 const roots: string[] = [];
@@ -144,15 +151,110 @@ describe("path scope: containment follows the real filesystem", () => {
     if (!result.ok) expect(result.reason).toBe("outside_scope");
   });
 
-  test("case follows the filesystem (APFS-insensitive: a mis-cased grant match still works)", async () => {
+  test("uppercase grant follows actual filesystem case behavior, including missing targets", async () => {
     const root = project();
-    writeFileSync(join(root, "src", "MixedCase.ts"), "m");
+    const insensitive = existsSync(join(root, "SRC", "A.TS"));
+    const events: AgentEvent[] = [];
+    const host = (await probe(root, ["path:SRC/**/*.TS"], events)).host as ExtensionHost;
+    const read = await host.readFile("src/a.ts");
+    expect(read.ok).toBe(insensitive);
+    if (read.ok) expect(read.content).toContain("export const a");
+    else expect(read.reason).toBe("outside_scope");
+    const write = await host.writeFile("src/new/deep/b.ts", "new");
+    expect(write.ok).toBe(insensitive);
+    expect(existsSync(join(root, "src/new/deep/b.ts"))).toBe(insensitive);
+    expect(events.filter((e) => e.type === "host_refused")).toHaveLength(insensitive ? 0 : 2);
+  });
+
+  test("lowercase grant covers differently cased requests only on insensitive filesystems", async () => {
+    const root = project();
+    const insensitive = existsSync(join(root, "SRC", "A.TS"));
+    const host = (await probe(root, ["path:src/**/*.ts"], [])).host as ExtensionHost;
+    const result = await host.writeFile("SRC/new/B.TS", "new");
+    expect(result.ok).toBe(insensitive);
+    if (!result.ok) expect(result.reason).toBe("outside_scope");
+  });
+
+  test("nonexistent targets beneath an escaping symlink remain outside scope", async () => {
+    const root = project();
+    const outside = project();
+    symlinkSync(outside, join(root, "src", "escape"));
     const events: AgentEvent[] = [];
     const host = (await probe(root, ["path:src/**"], events)).host as ExtensionHost;
-    // On a case-insensitive FS the file opens; on a sensitive one it is a
-    // miss — either way no crash and no grant escape.
-    const result = await host.readFile("src/mixedcase.ts");
-    if (result.ok) expect(result.content).toBe("m");
+    expect(await host.writeFile("src/escape/missing/deep.ts", "no")).toMatchObject({ ok: false, reason: "outside_scope" });
+    expect(existsSync(join(outside, "missing/deep.ts"))).toBe(false);
+    expect(events.filter((e) => e.type === "host_refused")).toHaveLength(1);
+  });
+});
+
+describe("path scope: case matching preserves glob syntax (regression)", () => {
+  test("a case-insensitive match folds literal letters, never the classes: [!A-z] keeps excluding `_`", async () => {
+    const root = project();
+    writeFileSync(join(root, "_.txt"), "under");
+    writeFileSync(join(root, "0.txt"), "zero");
+    const events: AgentEvent[] = [];
+    const host = (await probe(root, ["path:[!A-z].txt"], events)).host as ExtensionHost;
+
+    // `_` sits inside the written range A–z, so the class excludes it on
+    // every filesystem. The bug was lowering the pattern to `[!a-z]` — a
+    // different set that admits `_` — and granting on an insensitive FS.
+    expect(await host.readFile("_.txt")).toMatchObject({ ok: false, reason: "outside_scope" });
+    // The class still grants what it does name: `0` is outside A–z.
+    expect(await host.readFile("0.txt")).toMatchObject({ ok: true });
+    expect(events.filter((e) => e.type === "host_refused")).toHaveLength(1);
+  });
+
+  test("foldGlobCase expands literal letters and copies classes, ranges, braces and wildcards verbatim", () => {
+    expect(foldGlobCase("SRC/**/*.TS")).toBe("[sS][rR][cC]/**/*.[tT][sS]");
+    expect(foldGlobCase("[!A-z].txt")).toBe("[!A-z].[tT][xX][tT]");
+    expect(foldGlobCase("{src,lib}/**")).toBe("{[sS][rR][cC],[lL][iI][bB]}/**");
+    expect(foldGlobCase("src/a[bc]?.ts")).toBe("[sS][rR][cC]/[aA][bc]?.[tT][sS]");
+    // An escape cannot be expanded without changing what it means: stay exact.
+    expect(foldGlobCase("a\\b")).toBeNull();
+  });
+
+  test("a folded match keeps the class's written set — no over-grant, and no case-folded classes", () => {
+    expect(matchesPathScopes("_.txt", ["path:[!A-z].txt"], [true])).toBe(false);
+    expect(matchesPathScopes("0.txt", ["path:[!A-z].txt"], [true])).toBe(true);
+    expect(matchesPathScopes("src/a.ts", ["path:SRC/**/*.TS"], [true, true, true])).toBe(true);
+    expect(matchesPathScopes("src/a.ts", ["path:{SRC,lib}/**"], [true, true])).toBe(true);
+    // Conservative under-grant, never a widening: class membership is the
+    // set the author wrote, not a case-folded one.
+    expect(matchesPathScopes("A.txt", ["path:[a-z].txt"], [true])).toBe(false);
+    expect(matchesPathScopes("a.txt", ["path:[A-Z].txt"], [true])).toBe(false);
+  });
+
+  test("an escaped pattern stays exact instead of guessing", () => {
+    expect(matchesPathScopes("a.txt", ["path:\\A.txt"], [true])).toBe(false);
+    expect(matchesPathScopes("A.txt", ["path:\\A.txt"], [true])).toBe(true);
+  });
+
+  test("a negated grant stays negated case-insensitively: !src/** still excludes SRC/**", () => {
+    // On an insensitive filesystem `SRC/a.ts` is `src/a.ts`, so the
+    // exclusion must hold; the exact reading alone would grant it.
+    expect(matchesPathScopes("SRC/a.ts", ["path:!src/**"], [true, true])).toBe(false);
+    expect(matchesPathScopes("src/a.ts", ["path:!src/**"], [true, true])).toBe(false);
+    expect(matchesPathScopes("other.txt", ["path:!src/**"], [true])).toBe(true);
+    // On a sensitive filesystem `SRC/` is a distinct directory and stays granted.
+    expect(matchesPathScopes("SRC/a.ts", ["path:!src/**"], [false, false])).toBe(true);
+  });
+});
+
+describe("path scope: case behavior is per component (regression)", () => {
+  test("a sensitive ancestor is never matched on an insensitive descendant's answer", () => {
+    // root sensitive; `src` under it sensitive; `leaf` on an insensitive
+    // mount below: answers [false, true, true]. The old leaf-only probe
+    // read `leaf`'s answer and folded the whole path, so `SRC/**` granted
+    // `src/leaf/f.ts`.
+    expect(matchesPathScopes("src/leaf/f.ts", ["path:SRC/**"], [false, true, true])).toBe(false);
+    // The exact-case grant still works on the same mixed path.
+    expect(matchesPathScopes("src/leaf/f.ts", ["path:src/leaf/**"], [false, true, true])).toBe(true);
+  });
+
+  test("a mixed path never widens, in either direction", () => {
+    expect(matchesPathScopes("src/leaf/f.ts", ["path:SRC/LEAF/**"], [true, true, true])).toBe(true);
+    expect(matchesPathScopes("src/leaf/f.ts", ["path:SRC/LEAF/**"], [false, true, true])).toBe(false);
+    expect(matchesPathScopes("src/leaf/f.ts", ["path:SRC/leaf/**"], [true, false, true])).toBe(false);
   });
 });
 

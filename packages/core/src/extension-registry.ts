@@ -228,12 +228,7 @@ export const KNOWN_CAPABILITY_SLOTS: readonly string[] = [
 export function isKnownCapability(capability: string): boolean {
   return (
     KNOWN_CAPABILITY_SLOTS.includes(capability) ||
-    capability.startsWith(PATH_SCOPE_PREFIX) ||
-    capability.startsWith(HOST_SCOPE_PREFIX) ||
-    capability.startsWith(CREDENTIAL_SCOPE_PREFIX) ||
-    capability.startsWith(TOOL_SCOPE_PREFIX) ||
-    capability.startsWith(CONTRIBUTE_TOOL_SCOPE_PREFIX) ||
-    capability.startsWith(ENDPOINT_SCOPE_PREFIX)
+    SHIPPED_SCOPE_GRAMMARS.some(([prefix]) => capability.startsWith(prefix))
   );
 }
 

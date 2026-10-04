@@ -21,7 +21,7 @@ import {
   TOOL_SCOPE_PREFIX,
   CONTRIBUTE_TOOL_SCOPE_PREFIX,
 } from "../src/tool-scope";
-import { scopeEffectSentence } from "../src/host-scope";
+import { scopeEffectSentence } from "../src/scope-effect";
 import { isKnownCapability } from "../src/extension-registry";
 
 describe("tool scope validation", () => {

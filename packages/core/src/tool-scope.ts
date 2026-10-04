@@ -97,6 +97,7 @@ export type ToolScopeCheck = { ok: true } | { ok: false; reason: "outside_scope"
  */
 export function checkToolScope(tool: string, scopes: readonly string[]): ToolScopeCheck {
   for (const scope of scopes) {
+    if (!isToolScope(scope)) continue;
     const check = validateToolScope(scope);
     if (check.ok && (check.wildcard || check.name === tool)) return { ok: true };
   }

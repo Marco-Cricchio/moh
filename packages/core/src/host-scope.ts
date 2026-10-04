@@ -1,6 +1,6 @@
 /**
- * ADR-0064 + ADR-0065: the one check-scope module behind the host-tool
- * seam's `path:<glob>` scope. Every `ctx.host.*` file operation traverses
+ * ADR-0064 + ADR-0065: filesystem and host matching algorithms delegated
+ * to by the shared check-scope module. Every `ctx.host.*` file operation traverses
  * `checkPathScope` before the host performs it; refusals are typed
  * results, never exceptions. Pure module: containment decides, the
  * runtime (extensions.ts) performs and logs.
@@ -12,13 +12,12 @@
  *   manifest capability is invalid and fails loudly at load;
  * - `..` segments are rejected before resolution; symlinks are resolved
  *   and the resolved target is what the scope checks; case follows the
- *   real filesystem.
+ *   real filesystem, **per path component**, and a case-insensitive
+ *   match folds the glob's literal letters without ever rewriting its
+ *   classes or ranges.
  */
-import { readdirSync, realpathSync, lstatSync } from "node:fs";
-import { isAbsolute, relative, resolve, dirname } from "node:path";
-import { isCredentialScope, credentialScopeRef, credentialEffectSentence } from "./credential-scope";
-import { isToolScope, toolEffectSentence, isContributeToolScope, contributeToolName, contributeToolEffectSentence } from "./tool-scope";
-import { isEndpointScope, endpointScopeRef, endpointEffectSentence } from "./endpoint-scope";
+import { readdirSync, realpathSync, lstatSync, statSync } from "node:fs";
+import { isAbsolute, relative, resolve, dirname, basename, join } from "node:path";
 
 /** The scope prefixes the shipped host knows (ADR-0071: a prefix becomes
  * a known slot only when its phase ships — F1 `path:`, F2 `host:`). */
@@ -159,55 +158,6 @@ export function hostMatchesScope(scope: HostScopeValidity & { ok: true }, url: U
   return requestHost === scope.host;
 }
 
-
-/**
- * The core-owned effect-sentence renderer (ADR-0064): a scope becomes one
- * concrete sentence the consent question shows — never the naked string
- * alone. `null` for capabilities this renderer does not speak (the
- * existing slots render as before).
- */
-export function scopeEffectSentence(capability: string): string | null {
-  // ADR-0069: the credential scope's sentence lives in its own module;
-  // this single renderer stays the one consent reads.
-  if (isCredentialScope(capability)) {
-    return credentialEffectSentence(credentialScopeRef(capability));
-  }
-  if (isHostScope(capability)) {
-    if (capability === TOTAL_HOST_WILDCARD) {
-      return "may contact any host on the internet over https — total network access";
-    }
-    const check = validateHostScope(capability);
-    if (!check.ok) return null;
-    if (check.wildcard) {
-      const parent = check.host.slice(2);
-      const base = `may contact any subdomain of \`${parent}\` over https`;
-      return check.port !== undefined ? `${base} on port ${check.port}` : base;
-    }
-    const named = `\`${check.host}${check.port !== undefined ? `:${check.port}` : ""}\` over https`;
-    return `may contact ${named}`;
-  }
-  if (isEndpointScope(capability)) {
-    return endpointEffectSentence(endpointScopeRef(capability));
-  }
-  if (isContributeToolScope(capability)) {
-    return contributeToolEffectSentence(contributeToolName(capability));
-  }
-  if (isToolScope(capability)) {
-    return toolEffectSentence(capability);
-  }
-  if (!isPathScope(capability)) return null;
-  const check = validatePathScope(capability);
-  const glob = check.ok ? check.glob : pathScopeGlob(capability);
-  return `may read and modify files under \`${glob}\`, including create, rename, delete`;
-}
-
-/** Effect sentences for every scope in a grant, in order. */
-export function scopeEffectSentences(capabilities: readonly string[]): string[] {
-  return capabilities
-    .map(scopeEffectSentence)
-    .filter((s): s is string => s !== null);
-}
-
 export type PathScopeCheck =
   | { ok: true; resolved: string }
   | { ok: false; reason: "outside_scope" | "invalid_path" | "denied"; resolved?: string };
@@ -244,14 +194,17 @@ export function checkPathScope(
   // existing ancestor (creation inside an escaping symlinked directory is
   // still caught — the parent is the real target).
   const resolved = resolveReal(abs);
-  const rel = relative(realpathSync(projectRoot), resolved);
+  const root = realpathSync(projectRoot);
+  const rel = relative(root, resolved);
   if (rel === "" || rel.startsWith("..") || isAbsolute(rel)) {
     return { ok: false, reason: "outside_scope", resolved };
   }
-  // Case follows the filesystem (insensitive on APFS, sensitive on
-  // Linux): re-check with the true-cased path when the direct match
-  // fails, so a grant matches the path as the FS spells it.
-  if (!matchesAnyScope(rel, scopes) && !matchesAnyScope(trueCaseRel(realpathSync(projectRoot), rel), scopes)) {
+  // Observe the target filesystem, not the OS: macOS can host sensitive
+  // volumes and Linux can host insensitive ones. Missing tails inherit
+  // the nearest existing directory's behavior.
+  const components = rel.split("/").filter((s) => s !== "");
+  const insensitive = components.map((_, i) => caseInsensitiveAt(join(root, ...components.slice(0, i))));
+  if (!matchesPathScopes(rel, scopes, insensitive)) {
     return { ok: false, reason: "outside_scope", resolved };
   }
   if (isDenied(resolved)) {
@@ -260,16 +213,104 @@ export function checkPathScope(
   return { ok: true, resolved };
 }
 
-function matchesAnyScope(rel: string, scopes: readonly string[]): boolean {
+/**
+ * Whether one project-relative path matches any granted `path:<glob>`.
+ *
+ * `componentInsensitive[i]` is the case behavior of the directory that
+ * *contains* path component `i` (`components[i-1]`'s directory, the root
+ * for `i = 0`), as observed on the real filesystem. It is deliberately
+ * per component: deriving one answer from the leaf directory and
+ * applying it to the whole path let a sensitive ancestor (`SRC` on a
+ * sensitive volume) match a request for `src` on the strength of an
+ * insensitive mount deeper down the same path.
+ *
+ * Exported as the tests-only seam: `checkPathScope` computes the answers
+ * from the filesystem, a test can hand in the mixed-mount shapes a plain
+ * temp directory cannot produce.
+ */
+export function matchesPathScopes(rel: string, scopes: readonly string[], componentInsensitive: readonly boolean[]): boolean {
+  // Fold only when *every* component of the resolved path sits on an
+  // insensitive filesystem. A mixed path (a sensitive ancestor above an
+  // insensitive mount, or the reverse) keeps exact-case matching: the
+  // conservative answer is to require the spelling the scope wrote,
+  // never to widen the grant on a partial answer.
+  const fold = componentInsensitive.length > 0 && componentInsensitive.every(Boolean);
   return scopes.some((capability) => {
+    if (!isPathScope(capability)) return false;
     const check = validatePathScope(capability);
     if (!check.ok) return false;
-    try {
-      return check.glob === rel || new Bun.Glob(check.glob).match(rel);
-    } catch {
-      return false;
-    }
+    return globMatches(check.glob, rel, fold);
   });
+}
+
+/** Exactly-case glob match; a malformed pattern refuses rather than throws. */
+function globMatchesExactly(glob: string, rel: string): boolean {
+  try {
+    return new Bun.Glob(glob).match(rel);
+  } catch {
+    return false;
+  }
+}
+
+function globMatches(glob: string, rel: string, foldAllowed: boolean): boolean {
+  if (glob === rel) return true;
+  if (!foldAllowed) return globMatchesExactly(glob, rel);
+  const folded = foldGlobCase(glob);
+  if (folded === null || folded === glob) return globMatchesExactly(glob, rel);
+  // The folded match is the case-insensitive reading of the pattern: it
+  // widens literal letters to both cases and touches nothing else, so it
+  // is a superset of the exact match for a positive pattern and a subset
+  // for a negated one. A negated grant must not be widened by the exact
+  // reading alone — `path:!src/**` still excludes `SRC/a.ts` on an
+  // insensitive filesystem — so the folded answer is authoritative
+  // whenever it exists; the exact match remains for positive patterns
+  // only, as a belt on exotic patterns this fold may under-approximate.
+  if (globMatchesExactly(folded, rel)) return true;
+  return isNegatedPattern(glob) ? false : globMatchesExactly(glob, rel);
+}
+
+/** An odd leading `!` run negates the whole pattern (Bun.Glob dialect). */
+function isNegatedPattern(glob: string): boolean {
+  let bangs = 0;
+  while (glob[bangs] === "!") bangs++;
+  return bangs % 2 === 1;
+}
+
+/**
+ * Syntax-preserving case fold of one glob: every bare ASCII letter
+ * becomes its two-case class (`s` → `[sS]`), while character classes,
+ * ranges, negations, braces, wildcards and separators are copied
+ * verbatim. Lowercasing the whole pattern is what made `[!A-z]` into
+ * `[!a-z]` — a different set (`_.txt` flips from excluded to admitted),
+ * i.e. an over-grant. `null` when the pattern carries an escape (`\`),
+ * whose literal meaning two-case expansion cannot preserve: the caller
+ * then stays exact instead of guessing.
+ */
+export function foldGlobCase(pattern: string): string | null {
+  let out = "";
+  for (let i = 0; i < pattern.length; i++) {
+    const ch = pattern[i]!;
+    if (ch === "\\") return null;
+    if (ch === "[") {
+      let j = i + 1;
+      if (pattern[j] === "!" || pattern[j] === "^") j++;
+      // A `]` immediately after the opening bracket (or after `!`/`^`)
+      // is a literal member, not the class terminator.
+      if (pattern[j] === "]") j++;
+      const close = pattern.indexOf("]", j);
+      if (close === -1) {
+        out += ch;
+        continue;
+      }
+      out += pattern.slice(i, close + 1);
+      i = close;
+      continue;
+    }
+    out += (ch >= "A" && ch <= "Z") || (ch >= "a" && ch <= "z")
+      ? `[${ch.toLowerCase()}${ch.toUpperCase()}]`
+      : ch;
+  }
+  return out;
 }
 
 /** realpath when the target exists; otherwise the nearest existing ancestor with the tail appended. */
@@ -307,28 +348,54 @@ function joinParts(base: string, parts: string[]): string {
   return parts.length === 0 ? base : `${base}/${parts.join("/")}`;
 }
 
-/**
- * True-cased relative path: walks existing directory levels and re-spells
- * each segment as the filesystem lists it. Bounded to the existing
- * prefix; a missing tail keeps its requested spelling.
+/** Read-only case probe. Compare canonical paths, not merely existence:
+ * two distinct case-sensitive names (or hardlinks) must never imply an
+ * insensitive filesystem. No temporary files or platform assumptions.
+ * With no observable spelling difference, conservatively stay strict.
  */
-function trueCaseRel(resolvedAbs: string, rel: string): string {
-  const parts = rel.split("/");
-  const cased: string[] = [];
-  let current = dirname(resolvedAbs.split("/").slice(0, resolvedAbs.split("/").length - parts.length + 1).join("/"));
-  for (let i = 0; i < parts.length; i++) {
-    let entries: string[];
-    try {
-      entries = readdirSync(current);
-    } catch {
-      return rel;
-    }
-    const found = entries.find((e) => e.toLowerCase() === parts[i]!.toLowerCase());
-    if (found === undefined) return rel;
-    cased.push(found);
-    current = `${current}/${found}`;
+function caseInsensitiveAt(directory: string): boolean {
+  let current = directory;
+  while (!lstatSafe(current)) {
+    const parent = dirname(current);
+    if (parent === current) return false;
+    current = parent;
   }
-  return cased.join("/");
+  try {
+    current = realpathSync(current);
+    const device = statSync(current).dev;
+    for (;;) {
+      for (const entry of readdirSync(current)) {
+        if (lstatSync(join(current, entry)).isSymbolicLink()) continue;
+        const alternate = swapCase(entry);
+        if (alternate === entry) continue;
+        try {
+          if (lstatSync(join(current, alternate)).isSymbolicLink()) return false;
+          return realpathSync(join(current, alternate)) === realpathSync(join(current, entry));
+        } catch {
+          return false;
+        }
+      }
+      // An empty directory has no entry to probe. Its own spelling in
+      // the parent provides evidence on the same filesystem only.
+      const parent = dirname(current);
+      if (parent === current || statSync(parent).dev !== device) return false;
+      const alternate = swapCase(basename(current));
+      if (alternate !== basename(current)) {
+        try {
+          if (lstatSync(join(parent, alternate)).isSymbolicLink()) return false;
+          return realpathSync(join(parent, alternate)) === current;
+        }
+        catch { return false; }
+      }
+      current = parent;
+    }
+  } catch {
+    return false;
+  }
+}
+
+function swapCase(name: string): string {
+  return name.replace(/[a-zA-Z]/, (letter) => letter === letter.toLowerCase() ? letter.toUpperCase() : letter.toLowerCase());
 }
 
 /**
@@ -358,7 +425,6 @@ export function checkHostScope(
   if (url.protocol !== "https:" && url.protocol !== "http:") {
     return { ok: false, reason: "invalid_url" };
   }
-  const requestHost = url.host; // host:port as the URL states it
   const matched = scopes.some((capability) => {
     if (!isHostScope(capability)) return false;
     const check = validateHostScope(capability);

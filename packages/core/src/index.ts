@@ -39,7 +39,6 @@ import {
   verifyIntegrity,
   KNOWN_CAPABILITY_SLOTS,
   isKnownCapability,
-  scopeGrammarValidity,
   type RegistryIo,
   type ExtensionRef,
   type InstallOptions,
@@ -47,10 +46,8 @@ import {
   type InstalledExtension,
   type NpmPackument,
 } from "./extension-registry";
-import { scopeEffectSentence, scopeEffectSentences, isPathScope, isHostScope, validateHostScope, hostScopesOf, checkHostScope, MAX_FETCH_BYTES, HOST_SCOPE_REASONING_KEY, TOTAL_HOST_WILDCARD } from "./host-scope";
-import { fileCredentialStore, isCredentialScope, validateCredentialScope, credentialScopeRef, credentialScopesOf, keychainCredentialStore, defaultCredentialStore, SECRETS_FILE, type CredentialStore } from "./credential-scope";
-import { isToolScope, validateToolScope, toolScopeName, toolScopesOf, checkToolScope, toolEffectSentence, TOOL_SCOPE_PREFIX, TOOL_SCOPE_WILDCARD, isContributeToolScope, validateContributeToolScope, contributeToolName, contributeToolScopesOf, contributesTool, contributeToolEffectSentence, CONTRIBUTE_TOOL_SCOPE_PREFIX } from "./tool-scope";
-import { isEndpointScope, validateEndpointScope, endpointScopeRef, endpointScopesOf, checkEndpointScope, endpointEffectSentence, ENDPOINT_SCOPE_PREFIX } from "./endpoint-scope";
+import { scopeEffectSentence } from "./scope-effect";
+import { defaultCredentialStore, validateCredentialScope, type CredentialStore } from "./credential-scope";
 import { PromptComposer, type SkillIndexEntry } from "./prompt-composer";
 import type {
   AgentEvent,
@@ -863,52 +860,14 @@ export {
   verifyIntegrity,
   KNOWN_CAPABILITY_SLOTS,
   isKnownCapability,
-  scopeGrammarValidity,
   // ADR-0064/0065: the core-owned scope effect-sentence renderer the
   // clients' consent surfaces show instead of the naked scope string.
   scopeEffectSentence,
-  scopeEffectSentences,
-  isPathScope,
-  isHostScope,
-  validateHostScope,
-  hostScopesOf,
-  checkHostScope,
-  MAX_FETCH_BYTES,
-  HOST_SCOPE_REASONING_KEY,
-  TOTAL_HOST_WILDCARD,
   // ADR-0069 (#1161): the user-mint credential store the CLI's
   // `moh secret` surface and session assembly share.
   defaultCredentialStore,
-  fileCredentialStore,
-  keychainCredentialStore,
-  isCredentialScope,
   validateCredentialScope,
-  credentialScopeRef,
-  credentialScopesOf,
-  SECRETS_FILE,
   type CredentialStore,
-  isToolScope,
-  validateToolScope,
-  toolScopeName,
-  toolScopesOf,
-  checkToolScope,
-  toolEffectSentence,
-  TOOL_SCOPE_PREFIX,
-  TOOL_SCOPE_WILDCARD,
-  isContributeToolScope,
-  validateContributeToolScope,
-  contributeToolName,
-  contributeToolScopesOf,
-  contributesTool,
-  contributeToolEffectSentence,
-  CONTRIBUTE_TOOL_SCOPE_PREFIX,
-  isEndpointScope,
-  validateEndpointScope,
-  endpointScopeRef,
-  endpointScopesOf,
-  checkEndpointScope,
-  endpointEffectSentence,
-  ENDPOINT_SCOPE_PREFIX,
   type RegistryIo,
   type ExtensionRef,
   type InstallOptions,

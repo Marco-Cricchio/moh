@@ -1,6 +1,7 @@
 /**
  * ADR-0069: the `credential:<ref>` scope and the credential store — the
- * one check-scope module behind authenticated `ctx.host.fetch` requests.
+ * custody behind authenticated `ctx.host.fetch` requests. Authorization
+ * is owned by the shared check-scope module.
  * The host resolves the ref and injects the value at request time; there
  * is no read-the-value API on the seam, so the shape of the surface makes
  * the leak path not exist. Pure module: validation and the storage seam
@@ -17,7 +18,7 @@
  * - names are not secrets: refs appear in consent, manifest and log;
  *   values never do (ADR-0058's pass remains in force regardless).
  */
-import { mkdirSync, readFileSync, writeFileSync, statSync, existsSync, unlinkSync } from "node:fs";
+import { chmodSync, mkdirSync, readFileSync, writeFileSync, statSync, existsSync, unlinkSync } from "node:fs";
 import { dirname, join } from "node:path";
 
 export const CREDENTIAL_SCOPE_PREFIX = "credential:";
@@ -167,7 +168,7 @@ export function fileCredentialStore(options: { home: string }): CredentialStore 
       const mode = statSync(file).mode & 0o777;
       if (mode !== 0o600) {
         // An existing file kept its old mode: repair it on every write.
-        require("node:fs").chmodSync(file, 0o600);
+        chmodSync(file, 0o600);
       }
     } catch {
       // Best-effort mode repair; the initial write already asked for 0600.

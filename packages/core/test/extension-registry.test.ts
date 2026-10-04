@@ -16,6 +16,7 @@ import {
   parseExtensionRef,
   removeInstalledExtension,
   scopeGrammarValidity,
+  isKnownCapability,
   verifyIntegrity,
   type NpmPackument,
   type RegistryIo,
@@ -128,6 +129,15 @@ describe("verifyIntegrity", () => {
 });
 
 describe("scopeGrammarValidity (ADR-0071)", () => {
+  test("known prefixes share the shipped grammar vocabulary, even for malformed scopes", () => {
+    for (const prefix of ["path:", "host:", "credential:", "tool:", "contribute-tool:", "endpoint:"]) {
+      expect(isKnownCapability(prefix)).toBe(true);
+      expect(scopeGrammarValidity(prefix).ok).toBe(false);
+    }
+    expect(isKnownCapability("observe")).toBe(true);
+    expect(isKnownCapability("time-travel:tomorrow")).toBe(false);
+    expect(scopeGrammarValidity("time-travel:tomorrow").ok).toBe(true);
+  });
   test("a typo in any shipped prefix's grammar is refused with a clear message", () => {
     for (const typo of ["path:/abs", "host:", "credential:", "tool:", "contribute-tool:bad name", "endpoint:"]) {
       const result = scopeGrammarValidity(typo);
