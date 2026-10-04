@@ -13,7 +13,7 @@
  * on|off` in the CLI, never by a session command (ADR-0038 §1).
  */
 import type { AgentSession } from "@moh/core";
-import { JEV_USE_CASES, type JevUseCase, type JevUseCaseAction, type JevUseCaseSnapshot, type JevUseCaseStatus } from "@moh/jev-guard";
+import { JEV_OFFLINE_STATUS, JEV_USE_CASES, type JevUseCase, type JevUseCaseAction, type JevUseCaseSnapshot, type JevUseCaseStatus } from "@moh/jev-guard";
 
 /** The bundled extension every Jev surface talks to (ADR-0038). */
 export const JEV_EXTENSION_NAME = "jev-guard";
@@ -70,16 +70,22 @@ export function readJevState(read: ExtensionStateReader | undefined): JevUseCase
  * The seven use cases are independent, so one glyph cannot carry seven
  * states — the chip summarizes and `/jev` keeps the detail:
  *
- * - `active` — at least one use case judges this session;
- * - `off` — none does, and at least one is off or paused (a choice, not a
- *   defect);
+ * - `active` — at least one use case judges this session, and none was
+ *   switched off;
+ * - `partial` — some judge and at least one is off or paused (a user
+ *   choice, not a defect): `active` alone would hide the user's own
+ *   opt-outs, so the chip says the set is partial and `/jev` says which;
+ * - `off` — none judges, and at least one is off or paused;
  * - `inert` — none judges and none is off: every one of them is structurally
- *   unable to act here (no pool, no roster, no root).
+ *   unable to act here (no pool, no roster, no root);
+ * - `offline` — the client is in outage (`∅ jev offline` on the ADR-0032
+ *   status seam): nothing can judge right now, so the snapshot's state is
+ *   overridden — the chip never says `active` while the service is down.
  *
  * `null` = the bar makes no claim: the extension is not registered, has not
  * answered yet, or reports nothing at all.
  */
-export type JevStatusSummary = "active" | "off" | "inert";
+export type JevStatusSummary = "active" | "partial" | "off" | "inert" | "offline";
 
 /** The summary of one snapshot, in `JEV_USE_CASES` order (never a guess). */
 export function summarizeJevStatus(snapshot: JevUseCaseSnapshot | null): JevStatusSummary | null {
@@ -88,10 +94,30 @@ export function summarizeJevStatus(snapshot: JevUseCaseSnapshot | null): JevStat
     .map((usecase) => snapshot[usecase]?.status)
     .filter((status): status is JevUseCaseStatus => status !== undefined);
   if (statuses.length === 0) return null;
-  if (statuses.includes("on")) return "active";
+  if (statuses.includes("on")) {
+    // A user's own opt-out (off / a warm pause) makes the set partial —
+    // the difference between "judges" and "all of it judges".
+    return statuses.includes("off") || statuses.includes("paused") ? "partial" : "active";
+  }
   // `off` is the residue (it covers `paused` too): the only way past it is
   // that nothing is judging and nothing was switched off.
   return statuses.includes("inert") && !statuses.includes("off") && !statuses.includes("paused") ? "inert" : "off";
+}
+
+/** True when jev-guard's published status is the outage text (`∅ jev offline`). */
+export function jevIsOffline(extensionStatuses: readonly { extension: string; text: string }[]): boolean {
+  return extensionStatuses.some((status) => status.extension === JEV_EXTENSION_NAME && status.text === JEV_OFFLINE_STATUS);
+}
+
+/** The chip's final word: an outage overrides whatever the snapshot says —
+ * nothing can judge while the client is down, so `active`/`partial` would
+ * be a claim the bar cannot back. */
+export function resolveJevChip(
+  summary: JevStatusSummary | null,
+  extensionStatuses: readonly { extension: string; text: string }[],
+): JevStatusSummary | null {
+  if (summary === null) return null;
+  return jevIsOffline(extensionStatuses) ? "offline" : summary;
 }
 
 /** The one call a poller needs: read the extension's state and summarize it.
