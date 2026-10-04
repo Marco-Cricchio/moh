@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { existsSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { DevelopmentLaneService, resolveWorktreePath, type LaneGitRunner, type LaneGitResult } from "../src/index";
+import { DevelopmentLaneService, mainCheckoutFor, resolveWorktreePath, type LaneGitRunner, type LaneGitResult } from "../src/index";
 
 function project(): { cwd: string; home: string } {
   const cwd = mkdtempSync(join(tmpdir(), "moh-lane-svc-"));
@@ -50,11 +50,11 @@ describe("development lane service", () => {
     if (result.ok) {
       expect(result.value.baseRevision).toBe("b4se000");
       expect(result.value.relation).toBe("independent");
-      expect(result.value.worktreePath).toBe(resolveWorktreePath(cwd, "feature/alpha-1"));
+      expect(result.value.worktreePath).toBe(resolveWorktreePath(cwd, "feature/alpha-1", home));
     }
     const add = calls.find((args) => args[0] === "worktree");
     expect(add).toBeDefined();
-    expect(add).toEqual(["worktree", "add", "-b", "feature/alpha-1", resolveWorktreePath(cwd, "feature/alpha-1"), "b4se000"]);
+    expect(add).toEqual(["worktree", "add", "-b", "feature/alpha-1", resolveWorktreePath(cwd, "feature/alpha-1", home), "b4se000"]);
   });
 
   test("fails before git write when the registry would refuse the pair", async () => {
@@ -343,14 +343,17 @@ describe("ensureSessionLane (auto-lane, ADR-0060)", () => {
     const service = new DevelopmentLaneService({ cwd, home, git: runner });
     const { lane } = await service.ensureSessionLane({ sessionId: "r1", force: true });
     // Materialize the worktree the fake runner never created (its .git
-    // pointer file is what the reuse check keys on in the real flow).
+    // pointer file is what the reuse check keys on in the real flow). The
+    // pointer names the checkout's git dir, as `git worktree add` writes it.
     mkdirSync(lane!.worktreePath, { recursive: true });
-    writeFileSync(join(lane!.worktreePath, ".git"), "gitdir: /x\n");
+    writeFileSync(join(lane!.worktreePath, ".git"), `gitdir: ${join(cwd, ".git", "worktrees", "w1")}\n`);
     // A nested service pointed at the worktree sees the same registry (same
     // home/project) and must reuse the lane instead of nesting.
     const nested = new DevelopmentLaneService({ cwd: lane!.worktreePath, home, git: runner });
     const again = await nested.ensureSessionLane({ sessionId: "r2" });
     expect(again.lane!.id).toBe(lane!.id);
+    // mainCheckoutFor: the .git pointer file resolves back to the checkout.
+    expect(mainCheckoutFor(lane!.worktreePath)).toBe(cwd);
   });
 
   test("a detached HEAD stays laneless with a reason", async () => {

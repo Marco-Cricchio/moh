@@ -71,8 +71,12 @@ describe("moh lanes (ADR-0060)", () => {
     expect(started.out).toContain("base      develop @ ");
     const laneId = /lane (lane-\S+)/.exec(started.out)?.[1]!;
     expect(laneId).toMatch(/^lane-/);
-    // The worktree exists on disk, outside the project checkout.
-    expect(started.out).toContain(`.moh-lanes/${cwd.split("/").pop()}/feature-auth-1`);
+    // The worktree exists on disk, under the project's lane root in the
+    // user's moh home (ADR-0060 amendment 4) — never inside or beside the
+    // checkout.
+    expect(started.out).toContain(join(home, ".moh", "projects"));
+    expect(started.out).toContain("/lanes/feature-auth-1");
+    expect(existsSync(/isolated worktree: (\S+)\)/.exec(started.out)?.[1] ?? ""));
 
     const list = await run(cwd, home, ["list"]);
     expect(list.code).toBe(0);

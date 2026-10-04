@@ -134,6 +134,37 @@ deleted by lane operations (cleanup prunes rows, never the directory
 tree's root). A `delete` on a lane whose worktree is already missing
 removes only the branch and the row.
 
+## Amendment 4: worktrees live under `~/.moh/projects/<slug>/lanes/` (2026-10-04)
+
+Lane worktrees originally lived at `<checkout-parent>/.moh-lanes/<repo>/<branch>`:
+written **outside** the project, beside the checkout. Three problems: the
+write needed permissions outside the project's own tree (sandbox and
+convention friction); the location was a positional contract —
+`mainCheckoutFor` recognized a lane by walking up to a literal
+`.moh-lanes` directory name, so any layout change broke reentry; and the
+per-project namespace was the checkout's directory *name*, colliding for
+same-named checkouts.
+
+**Decision: the lane worktree root is `<home>/.moh/projects/<slug>/lanes/`**
+— beside the project's session store and lane registry, which already
+live there. Consequences, stated:
+
+- The slug is resolved with the same identity resolution the session
+  store uses (declared identity > git origin > legacy path hash), so a
+  worktree path maps back to exactly one project; same-named checkouts
+  can no longer collide.
+- `mainCheckoutFor` re-anchors on the worktree's `.git` **file** (the
+  `gitdir:` pointer `git worktree add` writes — ordinary checkouts have a
+  `.git` directory): the pointer's `<checkout>/.git/worktrees/<name>`
+  shape names the owning checkout. Position on disk is no longer the
+  contract; git's own pointer is.
+- `resolveWorktreePath` takes the home explicitly; clients already pass
+  one to the service, so nothing new is injected.
+- Existing lanes created by the previous layout keep their recorded
+  `worktreePath` and keep working (the registry row is the source of
+  truth); only *new* lanes land under the home root. A stale
+  `.moh-lanes` directory beside an old checkout is inert user data.
+
 ## Follow-up
 
 Implementation starts with the isolated lane lifecycle, then adds feature-group metadata and explicit relationships, followed by integration and resumable conflict state. A later decision may add a shared-runtime mode only if real workloads demonstrate that isolated worktrees are insufficient.

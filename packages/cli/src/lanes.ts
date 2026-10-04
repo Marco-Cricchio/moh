@@ -27,8 +27,9 @@ export const LANES_USAGE = `usage: moh lanes group <name> [--target <ref>] [--cw
 
 Parallel development lanes (feature groups + isolated worktrees): each
 lane owns one worktree and one ordinary git branch, so concurrent sessions
-never share uncommitted state. Metadata lives in
-~/.moh/projects/<slug>/development-lanes.json — never in the repository.
+never share uncommitted state. Metadata and worktrees live under
+~/.moh/projects/<slug>/ (development-lanes.json and lanes/<branch>) —
+never in the repository.
 
   group <name>              create (or return) a feature group; --target
                             is the integration branch (default: develop)
