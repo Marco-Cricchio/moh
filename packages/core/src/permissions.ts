@@ -222,6 +222,8 @@ export const DEFAULT_TOOL_PERMISSIONS: Record<string, PermissionDecision> = {
   tracker_list: "allow",
   // #663 (ADR-0028): read-only over projection metadata.
   mpm_query: "allow",
+  // #1194 (ADR-0072): read-only over content compiled into the binary.
+  moh_docs: "allow",
   // #775 (ADR-0029): browser read tier defaults live in BROWSER_READ_ACTIONS
   // (builtin `browser:<action>` allow rules); the act tier asks (no rule).
   tracker_claim: "ask",

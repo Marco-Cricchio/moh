@@ -7,6 +7,58 @@ matching section here at tag time.
 
 ## [Unreleased]
 
+## [0.58.0] - 2026-10-04
+
+### Added
+
+- **The `moh_docs` tool answers from the manual, not from memory**
+  (ADR-0072, #1194, PR #1195): a binary-only user's agent answered a
+  moh-capability question from trained memory and was confidently wrong —
+  the correct answer shipped inside the very binary it ran. One built-in
+  read-only tool, `moh_docs` (`index` / `read` / `search`), serves the
+  bundled user manual: no filesystem, no network, content compiled into the
+  binary so it can never drift from the installed version. No-match results
+  instruct the model to say the manual doesn't cover the question, never to
+  guess; citations use `Manual → <Title>`. The tool is permission
+  `allow` by construction (a user rule `deny: moh_docs` still removes it),
+  and the base prompt carries one sentence routing capability questions to
+  it.
+- **Base prompt v2** (ADR-0073, PR #1196): the shipped prompt went from
+  ~260 tokens / 7 rules to ~550 tokens in six sections — Core behavior /
+  Communicating / Code / Actions / Working / Security — every rule
+  distilled from the Claude Code and Codex prompt corpora and compressed to
+  moh's imperative style. New behavioral classes: outcome-first
+  communication (one sentence at turn start, then silent work, complete
+  final message), no scope creep with boundary-only validation and
+  why-only comments, local-reversible actions free while shared or
+  irreversible ones confirm, act when information suffices and recommend
+  instead of surveying, and no OWASP-class vulnerabilities (fixed on
+  sight). The ~290-token cost per model call is a constant, accepted
+  because every rule is harness-universal.
+
+### Changed
+
+- **The README is a third of its size** (PRs #1190, #1192): duplicated
+  sections merged, the vendor comparison and package tables dropped, and
+  the manual linked instead. Features since the last refresh are named —
+  development lanes, the extension platform, secret redaction, subagent
+  orchestration, `onModelError` retry — plus the SDK story, the theme
+  studio, handoff and local-only usage telemetry. The install one-liner
+  and `scripts/install.sh` fetch from `main`, the stable branch (the two
+  URL-fix commits had landed on main only); script behavior is unchanged
+  and downloads still come from the latest GitHub Release.
+
+### Internal
+
+- **The `research-997/` working directory left the tree** (PR #1191): the
+  #997 research notes are superseded by the landed ADR-0061–0071. Docs-only
+  removal; no code touched.
+- **The model catalog was regenerated** (release step): 4 prices moved —
+  `deepseek/deepseek-v4-pro-0813` 0.85 → 0.55 and `z-ai/glm-5.2` 0.38 →
+  0.05 down, `~z-ai/glm-latest` 0.05 → 0.08 up. No context windows or
+  reasoning flags moved; no issue and no context-window shrink.
+  `PRICING_SNAPSHOT.version` follows the manifest, which declares 0.58.0.
+
 ## [0.57.1] - 2026-10-04
 
 ### Added
@@ -1929,7 +1981,8 @@ matching section here at tag time.
   passed; a regression test pins the resolved path under
   `<home>/.moh/projects`.
 
-[Unreleased]: https://github.com/Marco-Cricchio/moh/compare/v0.57.1...develop
+[Unreleased]: https://github.com/Marco-Cricchio/moh/compare/v0.58.0...develop
+[0.58.0]: https://github.com/Marco-Cricchio/moh/compare/v0.57.1...v0.58.0
 [0.57.1]: https://github.com/Marco-Cricchio/moh/compare/v0.57.0...v0.57.1
 [0.57.0]: https://github.com/Marco-Cricchio/moh/compare/v0.56.0...v0.57.0
 [0.56.0]: https://github.com/Marco-Cricchio/moh/compare/v0.55.0...v0.56.0
