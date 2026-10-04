@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import {
+  DEEP_SCAN_DEPTH,
   REDACTED,
   REDACT_DEPTH,
   redactKeys,
@@ -30,14 +31,13 @@ describe("key-based redaction", () => {
     });
   });
 
-  test("stops at the nesting cap — deeper values pass through", () => {
+  test("covers nesting below the copy cap via the deep pass (audit-v3 RED-1)", () => {
     const wrap = (n: number): unknown => (n === 0 ? { secret: "s" } : { a: wrap(n - 1) });
-    // {secret} sits at depth REDACT_DEPTH → still masked.
     const innermost = (v: any): any => (v.secret !== undefined ? v : innermost(v.a));
+    // {secret} sits at depth REDACT_DEPTH → masked by the plain walk.
     expect(innermost(redactKeys(wrap(REDACT_DEPTH))).secret).toBe(REDACTED);
-    // One level deeper than the cap → passes through.
-    const tooDeep = wrap(REDACT_DEPTH + 1);
-    expect(JSON.stringify(redactKeys(tooDeep))).toContain('"secret":"s"');
+    // Deeper than the copy cap → the deep pass still masks.
+    expect(innermost(redactKeys(wrap(REDACT_DEPTH + 1))).secret).toBe(REDACTED);
   });
 
   test("handles cycles without hanging", () => {
@@ -93,6 +93,44 @@ describe("pattern-based redaction (free text)", () => {
   });
 });
 
+describe("audit-v3 RED-2: long env-var credential key forms", () => {
+  test("masks *_API_KEY / *_SECRET* / *_TOKEN / *_ACCESS_KEY structural keys", () => {
+    const input = {
+      ANTHROPIC_API_KEY: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      AWS_SECRET_ACCESS_KEY: "wJalrXUtnFEMIK7MDENGbPxRfiCYEXAMPLEKEY",
+      GITHUB_TOKEN: "ghp_0123456789abcdefghijklmnopqrstuvwxyzAB",
+      MY_SECRET_VALUE: "hunter2hunter2hunter2",
+      apiKeyId: "key_123",
+      tokens: 42,
+      tokenCount: 7,
+    };
+    expect(redactKeys(input)).toEqual({
+      ANTHROPIC_API_KEY: REDACTED,
+      AWS_SECRET_ACCESS_KEY: REDACTED,
+      GITHUB_TOKEN: REDACTED,
+      MY_SECRET_VALUE: REDACTED,
+      apiKeyId: "key_123",
+      tokens: 42,
+      tokenCount: 7,
+    });
+  });
+
+  test("masks compound env-var assignments in free text", () => {
+    expect(redactString("ANTHROPIC_API_KEY=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")).toBe("ANTHROPIC_API_KEY=[redacted]");
+    expect(redactString('AWS_SECRET_ACCESS_KEY="wJalrXUtnFEMIK7MDENGbPx"')).toBe('AWS_SECRET_ACCESS_KEY="[redacted]"');
+    expect(redactString("AWS_SECRET_ACCESS_KEY=wJalrXUtnFEMIK7MDENGbPxRfiCYEXAMPLEKEY")).toBe(
+      "AWS_SECRET_ACCESS_KEY=[redacted]",
+    );
+  });
+
+  test("prose and code around the new vocab still survive", () => {
+    expect(redactString("top secret meeting notes and the access keys drawer")).toBe(
+      "top secret meeting notes and the access keys drawer",
+    );
+    expect(redactString("const apiKeySchema = z.string();")).toBe("const apiKeySchema = z.string();");
+  });
+});
+
 describe("redactValue — the combined pass", () => {
   test("applies both layers in one walk", () => {
     const out = redactValue({
@@ -118,18 +156,55 @@ describe("redactValue — the combined pass", () => {
     expect(hit.misses[0].category).toBeTruthy();
   });
 
-  test("a depth cut is reported, never silent — the cap is a bound, not an exemption", () => {
-    const deep = (n: number): unknown => (n === 0 ? { apiKey: "sk-abcdefghijklmnopqrstuvwx" } : { a: deep(n - 1) });
-    const { value, depthCut } = redactValue(deep(REDACT_DEPTH + 2));
-    expect(depthCut).toBe(true);
-    expect(JSON.stringify(value)).toContain("sk-abcdefghijklmnopqrstuvwx"); // passed through…
-    expect(redactValue({ text: "shallow" }).depthCut).toBe(false);
+  test("audit-v3 RED-1: a secret below the old depth is masked, the depth-cut line stays quiet", () => {
+    const deep = (n: number, leaf: unknown): unknown => (n === 0 ? leaf : { a: deep(n - 1, leaf) });
+    const { value, depthCut } = redactValue(deep(REDACT_DEPTH + 2, { apiKey: "sk-abcdefghijklmnopqrstuvwx" }));
+    expect(depthCut).toBe(false);
+    expect(JSON.stringify(value)).not.toContain("sk-abcdefghijklmnopqrstuvwx");
+    // The scan found a secret only below the cap: everything shallow is
+    // rebuilt exactly as before, and the deep leaf is masked in place.
+    expect((value as any).a.apiKey).toBeUndefined();
   });
 
   test("does not mutate the input", () => {
     const input = { apiKey: "sk-abcdefghijklmnopqrstuvwx" };
     redactValue(input);
     expect(input.apiKey).toBe("sk-abcdefghijklmnopqrstuvwx");
+  });
+});
+
+describe("audit-v3 RED-1: secrets below the walk's copy depth", () => {
+  const deep = (n: number, leaf: unknown): unknown => (n === 0 ? leaf : { a: deep(n - 1, leaf) });
+  const unwrap = (v: any): any => (v.a === undefined ? v : unwrap(v.a));
+
+  test("a secret below REDACT_DEPTH is masked — the old pass-through is gone", () => {
+    const { value, depthCut, misses } = redactValue(deep(REDACT_DEPTH + 2, { apiKey: "sk-abcdefghijklmnopqrstuvwx" }));
+    expect(depthCut).toBe(false);
+    expect(misses).toEqual([]);
+    expect(JSON.stringify(value)).not.toContain("sk-abcdefghijklmnopqrstuvwx");
+    expect(unwrap(redactKeys(deep(REDACT_DEPTH + 2, { apiKey: "sk-abcdefghijklmnopqrstuvwx" }))).apiKey).toBe(REDACTED);
+  });
+
+  test("the pattern layer also reaches below the copy depth", () => {
+    const { value, depthCut } = redactValue(deep(REDACT_DEPTH + 3, { note: "Bearer abcdef1234567890abcdef" }));
+    expect(depthCut).toBe(false);
+    expect(JSON.stringify(value)).toContain("[redacted]");
+  });
+
+  test("a clean deep payload costs a scan, not a rebuild, and no miss line", () => {
+    const leaf = { note: "plain", list: [1, 2, 3] };
+    const payload = deep(REDACT_DEPTH + 10, leaf);
+    const { value, depthCut, misses } = redactValue(payload);
+    expect(depthCut).toBe(false);
+    expect(misses).toEqual([]);
+    expect(unwrap(value)).toBe(leaf); // scan found nothing: the deep subtree is untouched
+  });
+
+  test("beyond the deep-scan bound the depth-cut tripwire still fires", () => {
+    const far = deep(2 * REDACT_DEPTH + DEEP_SCAN_DEPTH + 2, { apiKey: "sk-abcdefghijklmnopqrstuvwx" });
+    const { value, depthCut } = redactValue(far);
+    expect(depthCut).toBe(true);
+    expect(JSON.stringify(value)).toContain("sk-abcdefghijklmnopqrstuvwx");
   });
 });
 
