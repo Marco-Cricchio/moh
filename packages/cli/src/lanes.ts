@@ -21,12 +21,15 @@ export const LANES_USAGE = `usage: moh lanes group <name> [--target <ref>] [--cw
        moh lanes resolve <lane-id> [--cwd <dir>]
        moh lanes status <lane-id> <active|paused|ready|conflicted|abandoned> [--cwd <dir>]
        moh lanes abandon <lane-id> [--cwd <dir>]
+       moh lanes remove <lane-id> [--force] [--cwd <dir>]
+       moh lanes delete <lane-id> [--keep-worktree] [--cwd <dir>]
        moh lanes cleanup [--min-age-days <n>] [--apply] [--cwd <dir>]
 
 Parallel development lanes (feature groups + isolated worktrees): each
 lane owns one worktree and one ordinary git branch, so concurrent sessions
-never share uncommitted state. Metadata lives in
-~/.moh/projects/<slug>/development-lanes.json — never in the repository.
+never share uncommitted state. Metadata and worktrees live under
+~/.moh/projects/<slug>/ (development-lanes.json and lanes/<branch>) —
+never in the repository.
 
   group <name>              create (or return) a feature group; --target
                             is the integration branch (default: develop)
@@ -46,6 +49,15 @@ never share uncommitted state. Metadata lives in
   abandon <lane-id>         remove the worktree, delete the branch, mark
                             the lane abandoned (release: the worktree path
                             can be reused by a new lane)
+  remove <lane-id> [--force] registry-only removal of one lane row (no git
+                            effects); refuses a lane whose worktree still
+                            exists or whose status is not landed/abandoned
+                            unless --force (abandon first for live git state)
+  delete <lane-id>          delete one lane outright: worktree (uncommitted
+                            changes discarded), branch (unlanded commits
+                            dropped) and registry row. --keep-worktree
+                            drops only the registry row, leaving git state
+                            on disk untouched
   cleanup [--apply]         stale-lane cleanup: lanes idle for at least
                             --min-age-days (default 7) whose worktree has
                             NO uncommitted changes are removed (worktree +
@@ -266,5 +278,73 @@ export async function lanesCommand({
   const result = await service.abandon(positional[0]!);
   if (!result.ok) return printError(err, "abandon", result.error);
   out.write(`abandoned: ${result.value.id} (branch ${result.value.branchRef} deleted, worktree removed)\n`);
+  return 0;
+}
+
+/** Registry-only removal of one lane row (no git effects). */
+export async function lanesRemoveCommand({
+  argv,
+  home,
+  err,
+}: {
+  argv: string[];
+  home?: string;
+  err: { write(s: string): void };
+}): Promise<number> {
+  const out = process.stdout;
+  let parsed;
+  try {
+    parsed = parseArgs(argv, { strings: ["cwd"], booleans: ["force"] });
+  } catch (e) {
+    if (e instanceof ArgError) {
+      err.write(`moh lanes remove: ${e.message}\n`);
+      return 2;
+    }
+    throw e;
+  }
+  const positional = parsed.positionals;
+  if (positional.length < 1) {
+    err.write("moh lanes remove: <lane-id> is required\n");
+    return 2;
+  }
+  const cwd = parsed.strings["cwd"] ? resolve(parsed.strings["cwd"]) : process.cwd();
+  const service = new DevelopmentLaneService({ cwd, home: home ?? homedir() });
+  const result = await service.remove(positional[0]!, { force: parsed.booleans["force"] });
+  if (!result.ok) return printError(err, "remove", result.error);
+  out.write(`removed: ${result.value.id} (registry row dropped; git state untouched)\n`);
+  return 0;
+}
+
+/** Deletes one lane outright: worktree, branch, registry row. */
+export async function lanesDeleteCommand({
+  argv,
+  home,
+  err,
+}: {
+  argv: string[];
+  home?: string;
+  err: { write(s: string): void };
+}): Promise<number> {
+  const out = process.stdout;
+  let parsed;
+  try {
+    parsed = parseArgs(argv, { strings: ["cwd"], booleans: ["keep-worktree"] });
+  } catch (e) {
+    if (e instanceof ArgError) {
+      err.write(`moh lanes delete: ${e.message}\n`);
+      return 2;
+    }
+    throw e;
+  }
+  const positional = parsed.positionals;
+  if (positional.length < 1) {
+    err.write("moh lanes delete: <lane-id> is required\n");
+    return 2;
+  }
+  const cwd = parsed.strings["cwd"] ? resolve(parsed.strings["cwd"]) : process.cwd();
+  const service = new DevelopmentLaneService({ cwd, home: home ?? homedir() });
+  const result = await service.deleteLane(positional[0]!, { deleteWorktree: !parsed.booleans["keep-worktree"] });
+  if (!result.ok) return printError(err, "delete", result.error);
+  out.write(`deleted: ${result.value.id}${parsed.booleans["keep-worktree"] ? " (registry row dropped; worktree kept on disk)\n" : " (worktree, branch and registry row removed)\n"}`);
   return 0;
 }

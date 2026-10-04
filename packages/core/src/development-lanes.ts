@@ -239,6 +239,20 @@ export class DevelopmentLaneStore {
     return { ...lane };
   }
 
+  /** Deletes a single lane's registry row. Registry-only: never touches
+   * the worktree or the branch — the service gates the destructive path.
+   * Returns the removed record; throws on an unknown id. */
+  removeLane(laneId: string): DevelopmentLane {
+    const state = readState(this.#file);
+    const index = state.lanes.findIndex((candidate) => candidate.id === laneId);
+    if (index === -1) throw new Error(`unknown lane: ${laneId}`);
+    const [removed] = state.lanes.splice(index, 1);
+    const group = state.featureGroups.find((candidate) => candidate.id === removed!.featureGroupId);
+    if (group) group.updatedAt = now();
+    writeState(this.#file, state);
+    return { ...removed! };
+  }
+
   /** Sets (or clears, with a blank value) a lane's user-facing label. */
   setLabel(laneId: string, label: string): DevelopmentLane {
     const state = readState(this.#file);

@@ -181,6 +181,7 @@ describe("ToolRunner", () => {
     const cases: Array<[string, Error, string | undefined]> = [
       ["timeout", new Error("bash: timed out after 30000ms: x"), "timeout"],
       ["not-found", new Error("file not found: src/x.ts"), "not-found"],
+      ["not-found-missing-path", new Error("no such path: src/x"), "not-found"],
       ["io", new Error("ENOTDIR: not a directory, open '/x'"), "io"],
       ["http-status", new Error("HTTP 404 for https://x.test/a"), "http-status"],
       // #1079: the two failure classes fetch now names — the ones that tell

@@ -9,11 +9,11 @@
  */
 import { describe, expect, test } from "bun:test";
 import { execFileSync } from "node:child_process";
-import { mkdtempSync } from "node:fs";
+import { existsSync, mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { main } from "../src/cli";
-import { DevelopmentLaneStore } from "@moh/core";
+import { DevelopmentLaneService, DevelopmentLaneStore } from "@moh/core";
 
 /** Runs the CLI in-process with HOME/cwd pinned and output captured. */
 async function run(cwd: string, home: string, argv: string[]): Promise<{ code: number; out: string; err: string }> {
@@ -71,8 +71,12 @@ describe("moh lanes (ADR-0060)", () => {
     expect(started.out).toContain("base      develop @ ");
     const laneId = /lane (lane-\S+)/.exec(started.out)?.[1]!;
     expect(laneId).toMatch(/^lane-/);
-    // The worktree exists on disk, outside the project checkout.
-    expect(started.out).toContain(`.moh-lanes/${cwd.split("/").pop()}/feature-auth-1`);
+    // The worktree exists on disk, under the project's lane root in the
+    // user's moh home (ADR-0060 amendment 4) — never inside or beside the
+    // checkout.
+    expect(started.out).toContain(join(home, ".moh", "projects"));
+    expect(started.out).toContain("/lanes/feature-auth-1");
+    expect(existsSync(/isolated worktree: (\S+)\)/.exec(started.out)?.[1] ?? ""));
 
     const list = await run(cwd, home, ["list"]);
     expect(list.code).toBe(0);
@@ -166,5 +170,81 @@ describe("moh lanes cleanup (ADR-0060)", () => {
     expect(applied.code).toBe(0);
     expect(applied.out).toContain("removed");
     expect(store.listLanes().find((l) => l.id === laneId)?.status).toBe("abandoned");
+  });
+});
+
+describe("moh lanes remove (single-lane removal)", () => {
+  test("removes an abandoned lane's registry row; refuses an active one without --force", async () => {
+    const { cwd, home } = newRepo();
+    const store = new DevelopmentLaneStore({ cwd, home });
+    const group = store.createFeatureGroup({ name: "rm", targetRef: "develop" });
+    const lane = store.createLane({
+      featureGroupId: group.id, sessionId: "s-rm", worktreePath: join(cwd, "gone-worktree"),
+      branchRef: "feature/rm-1", baseRef: "develop", baseRevision: "abc123", targetRef: "develop", relation: "independent",
+    });
+    // Active lane with a MISSING worktree: the store row is still refused
+    // until it is terminal — the registry row is not a substitute for
+    // abandon on live git state.
+    const refused = await run(cwd, home, ["remove", lane.id]);
+    expect(refused.code).toBe(2);
+    expect(refused.err).toContain("moh lanes remove");
+    store.setStatus(lane.id, "abandoned");
+    const ok = await run(cwd, home, ["remove", lane.id]);
+    expect(ok.code).toBe(0);
+    expect(ok.out).toContain("removed");
+    expect(store.listLanes()).toEqual([]);
+    const again = await run(cwd, home, ["remove", lane.id]);
+    expect(again.code).toBe(2);
+    expect(again.err).toContain("unknown lane");
+  });
+
+  test("--force drops the registry row of a live lane, git untouched", async () => {
+    const { cwd, home } = newRepo();
+    const store = new DevelopmentLaneStore({ cwd, home });
+    const group = store.createFeatureGroup({ name: "rmf", targetRef: "develop" });
+    const lane = store.createLane({
+      featureGroupId: group.id, sessionId: "s-rmf", worktreePath: join(cwd, "live-worktree"),
+      branchRef: "feature/rm-2", baseRef: "develop", baseRevision: "abc123", targetRef: "develop", relation: "independent",
+    });
+    execFileSync("mkdir", ["-p", join(cwd, "live-worktree", ".git")]);
+    const forced = await run(cwd, home, ["remove", lane.id, "--force"]);
+    expect(forced.code).toBe(0);
+    expect(store.listLanes()).toEqual([]);
+  });
+});
+
+describe("moh lanes delete (worktree + branch + registry row)", () => {
+  test("deletes a lane outright: the worktree directory is removed from disk", async () => {
+    const { cwd, home } = newRepo();
+    const store = new DevelopmentLaneStore({ cwd, home });
+    const service = new DevelopmentLaneService({ cwd, home });
+    const group = await service.ensureFeatureGroup("del", "develop");
+    const created = await service.createWorktreeLane({
+      featureGroupId: group.id, sessionId: "s-del", branchRef: "feature/del-3", baseRef: "develop",
+    });
+    expect(created.ok).toBe(true);
+    const lane = store.listLanes()[0]!;
+    expect(existsSync(lane.worktreePath)).toBe(true);
+    const result = await run(cwd, home, ["delete", lane.id]);
+    expect(result.code).toBe(0);
+    expect(result.out).toContain("deleted");
+    expect(store.listLanes()).toEqual([]);
+    expect(existsSync(lane.worktreePath)).toBe(false); // the directory is gone
+  });
+
+  test("--keep-worktree drops only the registry row, directory stays", async () => {
+    const { cwd, home } = newRepo();
+    const store = new DevelopmentLaneStore({ cwd, home });
+    const service = new DevelopmentLaneService({ cwd, home });
+    const group = await service.ensureFeatureGroup("del", "develop");
+    const created = await service.createWorktreeLane({
+      featureGroupId: group.id, sessionId: "s-del", branchRef: "feature/del-4", baseRef: "develop",
+    });
+    expect(created.ok).toBe(true);
+    const lane = store.listLanes()[0]!;
+    const result = await run(cwd, home, ["delete", lane.id, "--keep-worktree"]);
+    expect(result.code).toBe(0);
+    expect(store.listLanes()).toEqual([]);
+    expect(existsSync(lane.worktreePath)).toBe(true); // untouched on disk
   });
 });
