@@ -60,7 +60,10 @@ export const jevBundledSource = {
    * host-side, and no other host is reachable.
    */
   manifest: {
-    capabilities: [TYPESAFE_HOST_SCOPE, `credential:${TYPESAFE_CREDENTIAL_REF}`] as string[],
+    // T7 (#1165): `tool:git` joins the grant — the guardrail's snapshots and
+    // the lint gate's diffs read the repository through the seam's read-only
+    // `git` tool (whole-tool grant, reads enforced inside the tool).
+    capabilities: [TYPESAFE_HOST_SCOPE, `credential:${TYPESAFE_CREDENTIAL_REF}`, "tool:git"] as string[],
   },
 
   /**

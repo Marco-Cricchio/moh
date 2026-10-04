@@ -14,7 +14,7 @@
  * Fail-open: every degraded precondition produces silence, never a false
  * correction.
  */
-import { captureHead, inGitRepo, taskDiff } from "./diff";
+import { createGitReader, taskDiff } from "./diff";
 import { containsCodeChanges, correctionText, LINT_DIFF_MAX_BYTES, LINT_DIFF_TRUNCATION_MARKER } from "./lint";
 import type { LintJudge, LintState } from "./lint-judge";
 import { truncateToBytes } from "./routing";
@@ -49,6 +49,13 @@ export interface LintGateDeps {
   judge: Pick<LintJudge, "evaluate">;
   /** The project root (rubric discovery + git). */
   root: string;
+  /**
+   * #1165: the seam runner — one read-only git read through the host
+   * (`ctx.host.runTool("git", …)` under `tool:git`). `null` = the read
+   * did not answer (off-repo, refusal, no grant): the gate is inert
+   * (ratified fail-open), never a false correction.
+   */
+  gitRead: (args: readonly string[], cwd: string) => Promise<string | null>;
   /** The core-mediated correction-turn door (ADR-0037). */
   requestTurn: (text: string) => Promise<boolean>;
   /**
@@ -113,8 +120,9 @@ export function createLintGate(deps: LintGateDeps, state: LintTaskState = create
       const rubrics = discoverRubrics(deps.root);
       if (rubrics.length === 0) return 0;
       // Outside a repo, or an unreadable diff → inert for this turn.
-      if (!inGitRepo(deps.root)) return 0;
-      const head = captureHead(deps.root);
+      const git = createGitReader((args) => deps.gitRead(args, deps.root));
+      if (!(await git.inRepo())) return 0;
+      const head = await git.head();
       if (head === null) return 0;
       const rules = rubrics.map((r) => `# ${r.path}\n${r.text}`).join("\n\n");
       const rulesFiles = rubrics.map((r) => r.path);
@@ -123,7 +131,7 @@ export function createLintGate(deps: LintGateDeps, state: LintTaskState = create
       // Up to two evaluate→correct cycles (ratified hard stop). The diff
       // is recomputed each cycle, so cycle 2 judges the *corrected* tree.
       for (let cycle = 0; cycle < LINT_MAX_CYCLES; cycle++) {
-        const diff = taskDiff(deps.root, head, paths);
+        const diff = await taskDiff((args) => deps.gitRead(args, deps.root), deps.root, head, paths);
         // #851: a diff with no repository code is not judged with the
         // code questions — the gate stays silent, never a correction
         // round that cannot apply to prose.

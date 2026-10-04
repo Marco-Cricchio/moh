@@ -17,6 +17,10 @@ import {
 import { askBadge, createGuardrailJudge } from "../src/guardrail-judge";
 import type { JevClient, JevOutcome } from "../src/client";
 
+// #1165: fake seam runner — a fixed "branch:clean" snapshot off-repo-free.
+const fakeGitRead = () => Promise.resolve("");
+const snapGitRead = (snap: string) => () => Promise.resolve(snap);
+
 const signals = (over: Partial<GuardrailSignals> = {}): GuardrailSignals => ({
   destructive: 0.01,
   inScope: 0.99,
@@ -110,10 +114,13 @@ describe("session cache + key", () => {
     expect(cache.get("k")).toBeUndefined();
   });
 
-  test("gitSnapshot returns null off-repo and a branch:dirty string in one", () => {
-    expect(gitSnapshot("/nonexistent-repo-zz")).toBeNull();
-    const snap = gitSnapshot(process.cwd());
-    if (snap !== null) expect(snap).toMatch(/^[^:]+:(dirty|clean)$/);
+  test("gitSnapshot returns null off-repo and a branch:dirty string in one", async () => {
+    // #1165: the snapshot is async over the injected seam runner; a refused
+    // read (null) means off-repo, a branch plus status means the compact key.
+    expect(await gitSnapshot(() => Promise.resolve(null), "/nonexistent-repo-zz")).toBeNull();
+    const read = (args: readonly string[]) =>
+      args[0] === "status" ? Promise.resolve("M x\n") : Promise.resolve("main\n");
+    expect(await gitSnapshot(read, process.cwd())).toBe("main:dirty");
   });
 });
 
@@ -147,7 +154,7 @@ describe("guardrail judge", () => {
 
   test("deny becomes a veto with an actionable reason", async () => {
     const { client } = fakeClient([okOutcome({ destructive: { type: "noul", noul: 0.9 }, in_scope: { type: "noul", noul: 0.9 }, exfiltration: { type: "noul", noul: 0.01 }, risk_level: { type: "score", score: 1.8, legend: {}, probabilities: {}, confidence: 0.9 } })]);
-    const judge = createGuardrailJudge({ client, state: {} }, { cwd: () => process.cwd() });
+    const judge = createGuardrailJudge({ client, state: {}, gitRead: fakeGitRead }, { cwd: () => process.cwd() });
     const r = await judge.judge("c1", args);
     expect(r.verdict.verdict).toBe("deny");
     if (r.verdict.verdict === "deny") expect(r.verdict.reason).toContain("destructive");
@@ -155,7 +162,7 @@ describe("guardrail judge", () => {
 
   test("ask carries the ratified badge and is served from cache too", async () => {
     const { client, calls } = Object.assign(fakeClient([okOutcome({ destructive: { type: "noul", noul: 0.5 }, in_scope: { type: "noul", noul: 0.9 }, exfiltration: { type: "noul", noul: 0.05 }, risk_level: { type: "score", score: 0.6, legend: {}, probabilities: {}, confidence: 0.9 } })]), {});
-    const judge = createGuardrailJudge({ client, state: {} }, { cwd: () => process.cwd() });
+    const judge = createGuardrailJudge({ client, state: {}, gitRead: fakeGitRead }, { cwd: () => process.cwd() });
     const r1 = await judge.judge("c1", args);
     expect(r1.verdict.verdict).toBe("ask");
     expect(r1.cached).toBe(false);
@@ -167,7 +174,7 @@ describe("guardrail judge", () => {
 
   test("fail-open is a pass and is NOT cached — next call retries", async () => {
     const fake = fakeClient([{ ok: false, kind: "network" as const, message: "down" }, safe()]);
-    const judge = createGuardrailJudge({ client: fake.client, state: {} }, { cwd: () => process.cwd() });
+    const judge = createGuardrailJudge({ client: fake.client, state: {}, gitRead: fakeGitRead }, { cwd: () => process.cwd() });
     const r1 = await judge.judge("c1", args);
     expect(r1.verdict.verdict).toBe("pass");
     expect(r1.cached).toBe(false);
@@ -179,14 +186,14 @@ describe("guardrail judge", () => {
   test("cache invalidates when the git snapshot flips (lastGit change)", async () => {
     const fake = fakeClient([safe(), safe()]);
     const state: Record<string, unknown> = {};
-    const judge = createGuardrailJudge({ client: fake.client, state }, { cwd: () => process.cwd() });
+    const judge = createGuardrailJudge({ client: fake.client, state, gitRead: fakeGitRead }, { cwd: () => process.cwd() });
     await judge.judge("c1", args);
     const before = fake.calls;
     await judge.judge("c2", args);
     expect(fake.calls).toBe(before); // cache hit
     // Simulate a branch switch: the state's snapshot no longer matches.
     state.lastGit = "other-branch:dirty";
-    judge.invalidateOnGitChange();
+    await judge.invalidateOnGitChange();
     await judge.judge("c3", args);
     expect(fake.calls).toBeGreaterThan(before);
   });
@@ -194,11 +201,11 @@ describe("guardrail judge", () => {
   test("mode reaches the rule: yolo is lethal-only", async () => {
     let mode: "normal" | "yolo" = "yolo";
     const fake = fakeClient([okOutcome({ destructive: { type: "noul", noul: 0.6 }, in_scope: { type: "noul", noul: 0.9 }, exfiltration: { type: "noul", noul: 0.01 }, risk_level: { type: "score", score: 0.9, legend: {}, probabilities: {}, confidence: 0.9 } })]);
-    const judge = createGuardrailJudge({ client: fake.client, state: {} }, { mode: () => mode, cwd: () => process.cwd() });
+    const judge = createGuardrailJudge({ client: fake.client, state: {}, gitRead: fakeGitRead }, { mode: () => mode, cwd: () => process.cwd() });
     const r = await judge.judge("c1", args);
     expect(r.verdict.verdict).toBe("pass"); // middle-band risk alone never denies in yolo
     mode = "normal";
-    const judge2 = createGuardrailJudge({ client: fake.client, state: {} }, { mode: () => mode, cwd: () => process.cwd() });
+    const judge2 = createGuardrailJudge({ client: fake.client, state: {}, gitRead: fakeGitRead }, { mode: () => mode, cwd: () => process.cwd() });
     const r2 = await judge2.judge("c2", args);
     expect(r2.verdict.verdict).toBe("ask");
   });
@@ -213,13 +220,13 @@ describe("guardrail judge", () => {
     // Yolo, exfiltration high, in_scope high: pass, with a note.
     let mode: "normal" | "yolo" = "yolo";
     const fake = fakeClient([okOutcome({ destructive: { type: "noul", noul: 0.01 }, in_scope: { type: "noul", noul: 0.9 }, exfiltration: { type: "noul", noul: 0.92 }, risk_level: { type: "score", score: 0.2, legend: {}, probabilities: {}, confidence: 0.9 } })]);
-    const judge = createGuardrailJudge({ client: fake.client, state: {} }, { mode: () => mode, cwd: () => process.cwd() });
+    const judge = createGuardrailJudge({ client: fake.client, state: {}, gitRead: fakeGitRead }, { mode: () => mode, cwd: () => process.cwd() });
     const r = await judge.judge("c1", args);
     expect(r.verdict.verdict).toBe("pass");
     if (r.verdict.verdict === "pass") expect(r.verdict.note).toContain("in scope");
     // An ordinary pass carries no note.
     const fake2 = fakeClient([okOutcome({ destructive: { type: "noul", noul: 0.01 }, in_scope: { type: "noul", noul: 0.9 }, exfiltration: { type: "noul", noul: 0.01 }, risk_level: { type: "score", score: 0.1, legend: {}, probabilities: {}, confidence: 0.9 } })]);
-    const judge2 = createGuardrailJudge({ client: fake2.client, state: {} }, { mode: () => "yolo", cwd: () => process.cwd() });
+    const judge2 = createGuardrailJudge({ client: fake2.client, state: {}, gitRead: fakeGitRead }, { mode: () => "yolo", cwd: () => process.cwd() });
     const r2 = await judge2.judge("c2", args);
     expect(r2.verdict.verdict).toBe("pass");
     if (r2.verdict.verdict === "pass") expect(r2.verdict.note).toBeUndefined();
@@ -227,7 +234,7 @@ describe("guardrail judge", () => {
 
   test("non-bash guard: the judge itself only sees bash", async () => {
     const fake = fakeClient([safe()]);
-    const judge = createGuardrailJudge({ client: fake.client, state: {} }, { cwd: () => process.cwd() });
+    const judge = createGuardrailJudge({ client: fake.client, state: {}, gitRead: fakeGitRead }, { cwd: () => process.cwd() });
     const r = await judge.judge("c1", { path: "/x" });
     expect(r.verdict.verdict).toBe("pass"); // no command → pass, no call
     expect(fake.calls).toBe(0);
