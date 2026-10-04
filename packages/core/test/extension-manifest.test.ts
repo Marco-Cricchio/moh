@@ -37,6 +37,69 @@ describe("readExtensionManifest", () => {
     }
   });
 
+  // ADR-0070 (#1166): the manifest grammar gains a `dependencies` object —
+  // exact versions only, a range is a validation error naming the package.
+  describe("dependencies (ADR-0070)", () => {
+    test("exact dependencies are read onto the manifest and the authority consent signs", () => {
+      const dir = tempDir();
+      writeFileSync(
+        join(dir, "moh.extension.json"),
+        JSON.stringify({ name: "d", version: "1.0.0", entry: "index.mjs", capabilities: [], dependencies: { zod: "3.23.8", left: "1.3.0-beta.2" } }),
+      );
+      writeFileSync(join(dir, "index.mjs"), "export default {};");
+      const result = readExtensionManifest(join(dir, "index.mjs"));
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        expect(result.manifest.dependencies).toEqual({ zod: "3.23.8", left: "1.3.0-beta.2" });
+        expect(result.authority.dependencies).toEqual({ zod: "3.23.8", left: "1.3.0-beta.2" });
+      }
+    });
+
+    test("a range is a malformed manifest naming the package and the exactness rule", () => {
+      const dir = tempDir();
+      writeFileSync(
+        join(dir, "moh.extension.json"),
+        JSON.stringify({ name: "d", version: "1.0.0", entry: "index.mjs", capabilities: [], dependencies: { zod: "^3.23.8" } }),
+      );
+      const result = readExtensionManifest(join(dir, "index.mjs"));
+      expect(result).toMatchObject({ ok: false, reason: "malformed" });
+      if (!result.ok) {
+        expect(result.message).toContain("zod");
+        expect(result.message).toContain("^3.23.8");
+        expect(result.message).toContain("exact");
+      }
+    });
+
+    test("every range shape refuses: caret, tilde, wildcard, tag, partial", () => {
+      for (const spec of ["~2.0.0", "2.x", "*", "latest", "2.0"]) {
+        const dir = tempDir();
+        writeFileSync(
+          join(dir, "moh.extension.json"),
+          JSON.stringify({ name: "d", version: "1.0.0", entry: "index.mjs", dependencies: { pkg: spec } }),
+        );
+        const result = readExtensionManifest(join(dir, "index.mjs"));
+        expect(result.ok).toBe(false);
+        if (!result.ok) expect(result.message).toContain("pkg");
+      }
+    });
+
+    test("a wrong-shaped dependencies value is malformed; absent dependencies stay legal", () => {
+      const dir = tempDir();
+      writeFileSync(
+        join(dir, "moh.extension.json"),
+        JSON.stringify({ name: "d", version: "1.0.0", entry: "index.mjs", dependencies: ["zod@3"] }),
+      );
+      expect(readExtensionManifest(join(dir, "index.mjs")).ok).toBe(false);
+      writeFileSync(
+        join(dir, "moh.extension.json"),
+        JSON.stringify({ name: "d", version: "1.0.0", entry: "index.mjs" }),
+      );
+      const plain = readExtensionManifest(join(dir, "index.mjs"));
+      expect(plain.ok).toBe(true);
+      if (plain.ok) expect(plain.manifest.dependencies).toBeUndefined();
+    });
+  });
+
   test("a missing manifest is not an error object — the caller refuses without one", () => {
     const dir = tempDir();
     const result = readExtensionManifest(join(dir, "index.mjs"));
