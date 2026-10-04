@@ -220,6 +220,27 @@ export class DevelopmentLaneService {
     };
   }
 
+  /**
+   * Removes a single lane from the registry without touching git
+   * (registry-only): the door for pruning a lane whose worktree and
+   * branch are already gone. Refuses a lane with a live worktree or a
+   * non-terminal status unless `force` — abandon first for lanes that
+   * still own git state, the registry row is not a substitute for it.
+   */
+  async remove(laneId: string, options: { force?: boolean } = {}): Promise<LaneOperationResult<DevelopmentLane>> {
+    const lane = this.#store.listLanes().find((candidate) => candidate.id === laneId);
+    if (!lane) return fail("registry", `unknown lane: ${laneId}`);
+    if (!options.force) {
+      if (this.worktreeExists(lane)) {
+        return fail("worktree-exists", `lane worktree still present: ${lane.worktreePath} — abandon it first, or pass force`);
+      }
+      if (!["landed", "abandoned"].includes(lane.status)) {
+        return fail("registry", `lane is ${lane.status} — abandon it first, or pass force to drop the registry row`);
+      }
+    }
+    return { ok: true, value: this.#store.removeLane(laneId) };
+  }
+
   /** Removes the worktree, deletes the branch, and marks the lane abandoned. */
   async abandon(laneId: string): Promise<LaneOperationResult<DevelopmentLane>> {
     const lane = this.#store.listLanes().find((candidate) => candidate.id === laneId);

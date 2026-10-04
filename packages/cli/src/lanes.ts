@@ -21,6 +21,7 @@ export const LANES_USAGE = `usage: moh lanes group <name> [--target <ref>] [--cw
        moh lanes resolve <lane-id> [--cwd <dir>]
        moh lanes status <lane-id> <active|paused|ready|conflicted|abandoned> [--cwd <dir>]
        moh lanes abandon <lane-id> [--cwd <dir>]
+       moh lanes remove <lane-id> [--force] [--cwd <dir>]
        moh lanes cleanup [--min-age-days <n>] [--apply] [--cwd <dir>]
 
 Parallel development lanes (feature groups + isolated worktrees): each
@@ -266,5 +267,39 @@ export async function lanesCommand({
   const result = await service.abandon(positional[0]!);
   if (!result.ok) return printError(err, "abandon", result.error);
   out.write(`abandoned: ${result.value.id} (branch ${result.value.branchRef} deleted, worktree removed)\n`);
+  return 0;
+}
+
+/** Registry-only removal of one lane row (no git effects). */
+export async function lanesRemoveCommand({
+  argv,
+  home,
+  err,
+}: {
+  argv: string[];
+  home?: string;
+  err: { write(s: string): void };
+}): Promise<number> {
+  const out = process.stdout;
+  let parsed;
+  try {
+    parsed = parseArgs(argv, { strings: ["cwd"], booleans: ["force"] });
+  } catch (e) {
+    if (e instanceof ArgError) {
+      err.write(`moh lanes remove: ${e.message}\n`);
+      return 2;
+    }
+    throw e;
+  }
+  const positional = parsed.positionals;
+  if (positional.length < 1) {
+    err.write("moh lanes remove: <lane-id> is required\n");
+    return 2;
+  }
+  const cwd = parsed.strings["cwd"] ? resolve(parsed.strings["cwd"]) : process.cwd();
+  const service = new DevelopmentLaneService({ cwd, home: home ?? homedir() });
+  const result = await service.remove(positional[0]!, { force: parsed.booleans["force"] });
+  if (!result.ok) return printError(err, "remove", result.error);
+  out.write(`removed: ${result.value.id} (registry row dropped; git state untouched)\n`);
   return 0;
 }

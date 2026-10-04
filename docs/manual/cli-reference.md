@@ -28,6 +28,7 @@ commands:
   lanes    parallel development lanes (see: moh lanes --help)
   usage    usage reports: models, tools, routes (see: moh usage --help)
   jev      TypeSafe/Jev configuration and per-use-case flags (see: moh jev --help)
+  secret   user-owned extension secrets (see: moh secret --help)
   handoff  publish a session handoff (see: moh handoff --help)
   browser  browser tool status and setup (see: moh browser --help)
 
@@ -302,6 +303,7 @@ usage: moh lanes group <name> [--target <ref>] [--cwd <dir>]
        moh lanes resolve <lane-id> [--cwd <dir>]
        moh lanes status <lane-id> <active|paused|ready|conflicted|abandoned> [--cwd <dir>]
        moh lanes abandon <lane-id> [--cwd <dir>]
+       moh lanes remove <lane-id> [--force] [--cwd <dir>]
        moh lanes cleanup [--min-age-days <n>] [--apply] [--cwd <dir>]
 
 Parallel development lanes (feature groups + isolated worktrees): each

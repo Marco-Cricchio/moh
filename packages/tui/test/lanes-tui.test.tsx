@@ -83,6 +83,30 @@ describe("lanes modal (ADR-0060)", () => {
     expect(out).toContain("moh lanes integrate");
   });
 
+  test("windowed list: many lanes scroll inside the dialog with indicators", () => {
+    const { cwd, home, store } = registry();
+    const group = store.createFeatureGroup({ name: "many", targetRef: "develop" });
+    for (let i = 0; i < 12; i++) {
+      store.createLane({
+        featureGroupId: group.id,
+        sessionId: `session-${i}`,
+        worktreePath: join(cwd, `no-such-worktree-${i}`),
+        branchRef: `feature/many-${i}`,
+        baseRef: "develop",
+        baseRevision: "abc123def456",
+        targetRef: "develop",
+        relation: "independent",
+      });
+    }
+    const out = frame(<LanesModal cwd={cwd} home={home} onClose={() => {}} />);
+    // The dialog stays bounded: not every lane is on screen at once.
+    expect(out).toContain("↓ ");
+    expect(out).toContain("more");
+    // The first lane row is visible; the last one is below the window.
+    expect(out).toContain("feature/many-0");
+    expect(out).not.toContain("feature/many-29");
+  });
+
   test("/lanes is registered and needs the TUI shell", () => {
     const commands = activeCommands({ config: { workflow: { enabled: false } } as any });
     const lanes = commands.find((c) => c.name === "lanes");

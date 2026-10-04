@@ -168,3 +168,43 @@ describe("moh lanes cleanup (ADR-0060)", () => {
     expect(store.listLanes().find((l) => l.id === laneId)?.status).toBe("abandoned");
   });
 });
+
+describe("moh lanes remove (single-lane removal)", () => {
+  test("removes an abandoned lane's registry row; refuses an active one without --force", async () => {
+    const { cwd, home } = newRepo();
+    const store = new DevelopmentLaneStore({ cwd, home });
+    const group = store.createFeatureGroup({ name: "rm", targetRef: "develop" });
+    const lane = store.createLane({
+      featureGroupId: group.id, sessionId: "s-rm", worktreePath: join(cwd, "gone-worktree"),
+      branchRef: "feature/rm-1", baseRef: "develop", baseRevision: "abc123", targetRef: "develop", relation: "independent",
+    });
+    // Active lane with a MISSING worktree: the store row is still refused
+    // until it is terminal — the registry row is not a substitute for
+    // abandon on live git state.
+    const refused = await run(cwd, home, ["remove", lane.id]);
+    expect(refused.code).toBe(2);
+    expect(refused.err).toContain("moh lanes remove");
+    store.setStatus(lane.id, "abandoned");
+    const ok = await run(cwd, home, ["remove", lane.id]);
+    expect(ok.code).toBe(0);
+    expect(ok.out).toContain("removed");
+    expect(store.listLanes()).toEqual([]);
+    const again = await run(cwd, home, ["remove", lane.id]);
+    expect(again.code).toBe(2);
+    expect(again.err).toContain("unknown lane");
+  });
+
+  test("--force drops the registry row of a live lane, git untouched", async () => {
+    const { cwd, home } = newRepo();
+    const store = new DevelopmentLaneStore({ cwd, home });
+    const group = store.createFeatureGroup({ name: "rmf", targetRef: "develop" });
+    const lane = store.createLane({
+      featureGroupId: group.id, sessionId: "s-rmf", worktreePath: join(cwd, "live-worktree"),
+      branchRef: "feature/rm-2", baseRef: "develop", baseRevision: "abc123", targetRef: "develop", relation: "independent",
+    });
+    execFileSync("mkdir", ["-p", join(cwd, "live-worktree", ".git")]);
+    const forced = await run(cwd, home, ["remove", lane.id, "--force"]);
+    expect(forced.code).toBe(0);
+    expect(store.listLanes()).toEqual([]);
+  });
+});

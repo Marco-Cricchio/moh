@@ -478,3 +478,47 @@ describe("lazy lanes, labels and cleanup (ADR-0060)", () => {
     expect(store.listLanes().filter((l) => l.status === "active")).toHaveLength(0);
   });
 });
+
+describe("service.remove (registry-only single-lane removal)", () => {
+  function setup() {
+    const { cwd, home } = project();
+    const { runner, calls } = fakeGit((args) => {
+      if (args[0] === "rev-parse" && args[2]?.startsWith("refs/heads/")) return { code: 1, stdout: "", stderr: "" };
+      if (args[0] === "rev-parse") return { code: 0, stdout: "b4se000\n", stderr: "" };
+      return { code: 0, stdout: "", stderr: "" };
+    });
+    const service = new DevelopmentLaneService({ cwd, home, git: runner });
+    return { cwd, service, calls };
+  }
+
+  test("refuses a lane with a live worktree or a non-terminal status", async () => {
+    const { service, calls } = setup();
+    const group = await service.ensureFeatureGroup("alpha", "develop");
+    const result = await service.createWorktreeLane({
+      featureGroupId: group.id, sessionId: "s1", branchRef: "feature/alpha-9", baseRef: "develop",
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const refused = await service.remove(result.value.id);
+    expect(refused.ok).toBe(false);
+    if (!refused.ok) expect(["worktree-exists", "registry"]).toContain(refused.error.kind);
+    expect(service.listLanes()).toHaveLength(1);
+    expect(calls.some((args) => args[0] === "worktree" && args[1] === "remove")).toBe(false);
+  });
+
+  test("removes an abandoned lane's row with no git effects", async () => {
+    const { service, calls } = setup();
+    const group = await service.ensureFeatureGroup("alpha", "develop");
+    const result = await service.createWorktreeLane({
+      featureGroupId: group.id, sessionId: "s1", branchRef: "feature/alpha-10", baseRef: "develop",
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    await service.setStatus(result.value.id, "abandoned");
+    const gitCalls = calls.length;
+    const removed = await service.remove(result.value.id);
+    expect(removed.ok).toBe(true);
+    expect(service.listLanes()).toEqual([]);
+    expect(calls.length).toBe(gitCalls);
+  });
+});
