@@ -57,7 +57,10 @@ no gh, offline transfers, or removable media:
   pull <url>       explicit fallback for story 17: fetch the handoff
                    gist at <url> (bare gist id works too) when the
                    deterministic-tag discovery misses, validate it, and
-                   register it — the same author check as import applies
+                   register it — the same author check as import applies;
+                   when gh cannot say who is logged in, pull refuses
+                   instead of importing unverified (use import <file>
+                   for the manual file path)
 
 options:
   --notify-ticket  after a successful publish, comment only Wayfinder tickets

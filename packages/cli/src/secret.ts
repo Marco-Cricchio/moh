@@ -20,8 +20,12 @@ injects at request time. Extensions never see the value — only you can.
   list          the stored ref names (values are never displayed)
 
 Storage is the OS keychain when available, a 0600 file under ~/.moh
-otherwise. Grant an extension one with \`credential:<ref>\` in its manifest
-capabilities; two extensions granted the same ref share the secret.`;
+otherwise. On macOS the keychain write passes the secret to the
+security CLI as an argument — briefly visible to a local process
+polling the process table. Set MOH_SECRET_STORE=file to force the
+0600-file store instead. Grant an extension one with \`credential:<ref>\`
+in its manifest capabilities; two extensions granted the same ref share
+the secret.`;
 
 export async function secretCommand({
   argv,

@@ -134,6 +134,10 @@ commands:
 
 scopes: project (moh.json, asks consent on first use) vs user
 (~/.moh/config, trusted). Use --user to target the user config.
+
+Server URLs must be http(s) — anything else is refused at add time and
+at config load. Responses are capped at 10 MB per request: a server
+that streams more is failed, not buffered without bound.
 ```
 
 ## moh extension
@@ -225,7 +229,10 @@ no gh, offline transfers, or removable media:
   pull <url>       explicit fallback for story 17: fetch the handoff
                    gist at <url> (bare gist id works too) when the
                    deterministic-tag discovery misses, validate it, and
-                   register it — the same author check as import applies
+                   register it — the same author check as import applies;
+                   when gh cannot say who is logged in, pull refuses
+                   instead of importing unverified (use import <file>
+                   for the manual file path)
 
 options:
   --notify-ticket  after a successful publish, comment only Wayfinder tickets
@@ -436,4 +443,28 @@ options:
                    password
   --cwd <dir>      project root (default: process.cwd())
   --help           show this help
+```
+
+## moh secret
+
+```
+usage: moh secret set <ref>
+       moh secret rm <ref>
+       moh secret list
+
+User-owned extension secrets (ADR-0069): named credentials an extension
+addresses by ref (\`credential:deploy-key\` in its manifest) and the host
+injects at request time. Extensions never see the value — only you can.
+
+  set <ref>     create or replace a secret; the value is read from stdin
+  rm <ref>      delete a secret
+  list          the stored ref names (values are never displayed)
+
+Storage is the OS keychain when available, a 0600 file under ~/.moh
+otherwise. On macOS the keychain write passes the secret to the
+security CLI as an argument — briefly visible to a local process
+polling the process table. Set MOH_SECRET_STORE=file to force the
+0600-file store instead. Grant an extension one with \`credential:<ref>\`
+in its manifest capabilities; two extensions granted the same ref share
+the secret.
 ```
