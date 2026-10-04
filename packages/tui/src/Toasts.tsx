@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useRef, useState } from "react";
 import { Box, Text } from "ink";
 import { useTheme } from "./themes";
 import { ic } from "./icons";
+import { sanitizeForDisplay } from "./render-sanitize";
 
 /**
  * Transient one-line notices above the footer (style guide §3.6): toast,
@@ -72,7 +73,7 @@ export function Toasts({ toasts, wrap }: { toasts: Toast[]; wrap?: number }) {
     <Box flexDirection="column" alignItems={wrap ? "flex-start" : "center"} width={wrap}>
       {toasts.map((t) => (
         <Text key={t.id} wrap={wrap ? "wrap" : undefined} color={t.kind === "ok" ? theme.ok : t.kind === "warn" ? theme.warn : theme.dim}>
-          {` ${ic("·", "*")} ${t.text} `}
+          {` ${ic("·", "*")} ${sanitizeForDisplay(t.text)} `}
         </Text>
       ))}
     </Box>
