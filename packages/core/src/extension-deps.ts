@@ -22,11 +22,13 @@ import {
   mkdirSync,
   readdirSync,
   readFileSync,
+  readlinkSync,
   rmSync,
   renameSync,
+  symlinkSync,
   writeFileSync,
 } from "node:fs";
-import { join, resolve } from "node:path";
+import { join, relative, resolve } from "node:path";
 import type { RegistryIo } from "./extension-registry";
 
 /** The moh-owned root directory name under the moh home. */
@@ -34,6 +36,11 @@ export const EXTENSION_DEPS_DIR = "extension-deps";
 
 /** moh's own lockfile, one per extension directory. */
 export const DEPS_LOCK_FILE = "lock.json";
+
+/** The shared tarball cache under the root. No GC: entries are written
+ * only after digest verification and read only when their digest matches
+ * the lockfile (ADR-0070), so stale entries are inert, never trusted. */
+export const DEPS_CACHE_DIR = ".cache";
 
 /** The npm registry metadata endpoint installer reads (override in tests). */
 export const NPM_REGISTRY_BASE = "https://registry.npmjs.org";
@@ -72,9 +79,14 @@ export type ExactnessCheck = { ok: true } | { ok: false; package: string; spec: 
  * wildcards, partial versions, and `latest`/tags — a plain
  * `major.minor.patch` (optionally with a prerelease suffix) is exact.
  */
+/** The one spec shape a manifest may declare (ADR-0070). */
+export function isExactVersion(spec: string): boolean {
+  return /^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$/.test(spec.trim());
+}
+
 export function checkExactVersions(dependencies: Record<string, string>): ExactnessCheck {
   for (const [name, spec] of Object.entries(dependencies)) {
-    if (typeof spec !== "string" || !/^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$/.test(spec.trim())) {
+    if (typeof spec !== "string" || !isExactVersion(spec)) {
       return { ok: false, package: name, spec: String(spec) };
     }
   }
@@ -97,6 +109,48 @@ export interface DepsPackument {
 /** Per-extension dependency directory under the moh-owned root. */
 export function extensionDepsDir(mohHome: string, extensionName: string): string {
   return join(mohHome, EXTENSION_DEPS_DIR, extensionName);
+}
+
+/**
+ * The offline cache seam (ADR-0070): entries go in only after digest
+ * verification and come out only when their digest matches what the
+ * lockfile pins — a mismatching entry is invisible, never trusted.
+ */
+export interface DepsCache {
+  get(key: string, integrity: string): Uint8Array | undefined;
+  set(key: string, bytes: Uint8Array): void;
+}
+
+function cacheFileName(key: string): string {
+  return `${key.replace(/[^A-Za-z0-9._@/-]/g, "_")}.tgz`;
+}
+
+/** The moh-owned tarball cache under `extension-deps/.cache/`. No GC:
+ * a stale entry is simply never matched again, because a read re-verifies
+ * the bytes against the integrity the caller asks for. */
+export function depsTarballCache(mohHome: string): DepsCache {
+  const dir = join(mohHome, EXTENSION_DEPS_DIR, DEPS_CACHE_DIR);
+  return {
+    get(key, integrity) {
+      const file = join(dir, cacheFileName(key));
+      if (!existsSync(file)) return undefined;
+      try {
+        const bytes = readFileSync(file);
+        return verifySri(bytes, integrity).ok ? bytes : undefined;
+      } catch {
+        return undefined;
+      }
+    },
+    set(key, bytes) {
+      // An unwritable cache degrades to network installs, never an error.
+      try {
+        mkdirSync(dir, { recursive: true });
+        writeFileSync(join(dir, cacheFileName(key)), bytes);
+      } catch {
+        /* cache is an optimization, not an authority */
+      }
+    },
+  };
 }
 
 /**
@@ -129,8 +183,8 @@ export interface InstallDepsOptions {
   /** The extension's dependency directory (`extensionDepsDir`). */
   depsDir: string;
   io: DepsIo;
-  /** Optional offline cache: name@version -> tarball bytes. */
-  cache?: Map<string, Uint8Array>;
+  /** Optional offline cache (the moh-owned one is `depsTarballCache`). */
+  cache?: DepsCache;
 }
 
 export type InstallDepsResult =
@@ -160,18 +214,34 @@ export async function installExtensionDeps(options: InstallDepsOptions): Promise
     if (!verdict.ok) return { ok: false, reason: verdict.reason };
   }
 
+  // The existing lockfile drives re-resolution: a version it pins (and
+  // the registry still serves) is reused, so a re-install is the same
+  // tree it consented to — a moved `latest` never changes the bytes. An
+  // unpinned transitive range resolves against its own packument
+  // `latest`; the digest it lands under is pinned in the new lockfile.
+  const existingLock = readDepsLockfile(depsDir);
+
   // Resolve the full transitive closure first — nothing lands until the
   // whole tree resolves, every digest is known, and no package scripts.
   const resolved = new Map<string, DepNode>();
+  const bytes = new Map<string, Uint8Array>();
   const queue = Object.entries(dependencies).map(([name, spec]) => ({ name, spec }));
   const seen = new Set<string>();
+  let offline = true;
   while (queue.length > 0) {
     const { name, spec } = queue.shift()!;
     const meta = await fetchPackument(io, name);
     if (!meta.ok) return { ok: false, package: name, reason: meta.reason };
-    // A direct spec must be exact (checked above); a transitive range
-    // resolves against the dependency's own packument `latest`.
-    const version = exactVersion(spec) ? spec : meta.packument["dist-tags"]?.latest;
+    // A direct spec must be exact (checked above); the lockfile's pin
+    // wins over re-resolution; otherwise a range resolves to `latest`.
+    const pinned = Object.keys(existingLock?.packages ?? {}).find((k) => k === `${name}@${spec}` || (k.startsWith(`${name}@`) && !isExactVersion(spec)));
+    const pinnedVersion = pinned?.slice(name.length + 1);
+    if (pinnedVersion && !meta.packument.versions?.[pinnedVersion]) {
+      // The lockfile pins a version the registry no longer serves: the
+      // tree consent approved is unreproducible — refuse, never substitute.
+      return { ok: false, package: name, reason: `the lockfile pins ${pinned} and the registry no longer serves it — refusing to substitute a different version (the npm ci contract)` };
+    }
+    const version = isExactVersion(spec) ? spec : (pinnedVersion ?? meta.packument["dist-tags"]?.latest);
     if (!version) return { ok: false, package: name, reason: `cannot resolve "${spec}" for ${name}: no version on the registry` };
     const key = `${name}@${version}`;
     if (seen.has(key)) continue;
@@ -183,54 +253,33 @@ export async function installExtensionDeps(options: InstallDepsOptions): Promise
     }
     // ADR-0070: a dependency with install lifecycle scripts does not
     // install — loud refusal naming the package. The author bundles.
-    const scripts = await readTarballScripts(io, options.cache, row.dist.tarball, key);
+    const peeked = await fetchVerified(io, options.cache, key, row.dist.tarball, row.dist.integrity, name);
+    if (!peeked.ok) return peeked;
+    offline = offline && peeked.fromCache;
+    const scripts = await readTarballScriptsFromBytes(io, peeked.bytes);
     if (scripts.ok && scripts.hasLifecycle) {
       return { ok: false, package: name, reason: `dependency ${name}@${version} declares install lifecycle scripts (${scripts.names!.join(", ")}) and moh never runs them — the author must bundle the artifact (ADR-0070)` };
     }
     resolved.set(key, { name, version, integrity: row.dist.integrity, tarballUrl: row.dist.tarball, dependencies: row.dependencies ?? {} });
+    bytes.set(key, peeked.bytes);
     for (const [depName, depSpec] of Object.entries(row.dependencies ?? {})) {
       queue.push({ name: depName, spec: depSpec });
     }
   }
 
-  // Fetch + verify every tarball. The lockfile's digest (first install)
-  // or the existing lockfile's digest (re-verify) decides.
-  const existingLock = readDepsLockfile(depsDir);
+  // Digest agreement: the registry's digest and an existing lockfile's
+  // digest for the same name@version must agree; drift is a loud error,
+  // never silently re-pinned (the npm ci contract).
   const lock: DepsLockfile = {
     lockfileVersion: 1,
     dependencies: { ...dependencies },
     packages: {},
   };
-  let offline = true;
   for (const [key, node] of resolved) {
-    const expected = existingLock?.packages[key]?.integrity ?? node.integrity;
-    // ADR-0046 style honesty: the registry's digest and an existing
-    // lockfile's digest for the same name@version must agree; drift is
-    // a loud error, never silently re-pinned.
     if (existingLock?.packages[key] && existingLock.packages[key].integrity !== node.integrity) {
       return { ok: false, package: node.name, reason: `integrity drift for ${key}: lockfile says ${existingLock.packages[key].integrity}, registry says ${node.integrity} — refusing (the npm ci contract)` };
     }
-    const cached = options.cache?.get(key);
-    if (cached) {
-      const check = verifySri(cached, expected);
-      if (!check.ok) {
-        // A cache entry whose digest differs from the lockfile is not
-        // trusted: fall through to the network rather than refuse — the
-        // cache is an optimization, not an authority.
-        if (options.cache) options.cache.delete(key);
-      } else {
-        lock.packages[key] = { integrity: expected, resolved: node.tarballUrl };
-        continue;
-      }
-    }
-    offline = false;
-    const tgz = await io.fetchBytes(node.tarballUrl);
-    if (!tgz.ok) return { ok: false, package: node.name, reason: `tarball download failed for ${key}: ${tgz.message}` };
-    const check = verifySri(tgz.body, expected);
-    if (!check.ok) {
-      return { ok: false, package: node.name, reason: `checksum mismatch for ${key}: expected ${check.expected}, got ${check.actual}` };
-    }
-    lock.packages[key] = { integrity: expected, resolved: node.tarballUrl };
+    lock.packages[key] = { integrity: node.integrity, resolved: node.tarballUrl };
   }
 
   // Layout: one directory per extension; the lockfile is written last so
@@ -239,18 +288,13 @@ export async function installExtensionDeps(options: InstallDepsOptions): Promise
   rmSync(staging, { recursive: true, force: true });
   mkdirSync(staging, { recursive: true });
   try {
-    for (const [key] of resolved) {
+    for (const key of resolved.keys()) {
       const node = resolved.get(key)!;
-      const cached = options.cache?.get(key);
-      let bytes: Uint8Array | undefined = cached && verifySri(cached, lock.packages[key].integrity).ok ? cached : undefined;
-      if (!bytes) {
-        const tgz = await io.fetchBytes(node.tarballUrl);
-        if (!tgz.ok) return { ok: false, package: node.name, reason: `tarball download failed for ${key}: ${tgz.message}` };
-        bytes = tgz.body;
-      }
+      const tgzBytes = bytes.get(key)!;
+      options.cache?.set(key, tgzBytes); // written only after verification
       const pkgDir = join(staging, "node_modules", node.name);
       mkdirSync(pkgDir, { recursive: true });
-      await io.extractTgz(bytes, pkgDir);
+      await io.extractTgz(tgzBytes, pkgDir);
       // npm tarballs wrap in "package/"; flatten it so the package root
       // is the dependency directory itself.
       const nested = join(pkgDir, "package");
@@ -276,10 +320,6 @@ export async function installExtensionDeps(options: InstallDepsOptions): Promise
     return { ok: false, reason: `layout failed: ${err instanceof Error ? err.message : String(err)}` };
   }
   return { ok: true, installed: resolved.size, offline };
-}
-
-function exactVersion(spec: string): boolean {
-  return /^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$/.test(spec.trim());
 }
 
 function renameOrMerge(from: string, to: string): void {
@@ -310,6 +350,60 @@ function copyDir(from: string, to: string): void {
   }
 }
 
+/** One fetched-and-verified tarball, from the cache when the digest
+ * matches, from the network otherwise (and then cached). */
+async function fetchVerified(
+  io: DepsIo,
+  cache: DepsCache | undefined,
+  key: string,
+  tarballUrl: string,
+  integrity: string,
+  packageName: string,
+): Promise<{ ok: true; bytes: Uint8Array; fromCache: boolean } | { ok: false; reason: string; package?: string }> {
+  const cached = cache?.get(key, integrity);
+  // The cache re-verifies even when the implementation forgets to: the
+  // cache is an optimization, never an authority (ADR-0070).
+  if (cached && verifySri(cached, integrity).ok) return { ok: true, bytes: cached, fromCache: true };
+  const tgz = await io.fetchBytes(tarballUrl);
+  if (!tgz.ok) return { ok: false, package: packageName, reason: `tarball download failed for ${key}: ${tgz.message}` };
+  const check = verifySri(tgz.body, integrity);
+  if (!check.ok) {
+    return { ok: false, package: packageName, reason: `checksum mismatch for ${key}: expected ${check.expected}, got ${check.actual}` };
+  }
+  return { ok: true, bytes: tgz.body, fromCache: false };
+}
+
+/** The package name half of a lockfile key (`name@version`). */
+function lockKeyPackage(key: string): string {
+  return key.slice(0, key.lastIndexOf("@"));
+}
+
+/**
+ * ADR-0070 resolvability: the extension's own directory gets a
+ * `node_modules` symlink into its deps tree, so its bare imports resolve
+ * through the standard walk — and only through its own tree. An existing
+ * correct link is left alone; a wrong one is replaced.
+ */
+export function linkDepsTree(depsDir: string, extensionDir: string): { ok: true } | { ok: false; message: string } {
+  const target = join(depsDir, "node_modules");
+  const link = join(extensionDir, "node_modules");
+  try {
+    if (existsSync(link)) {
+      try {
+        if (readlinkSync(link) === target) return { ok: true };
+      } catch {
+        /* a real node_modules dir, not a link — replace below only if broken */
+      }
+    }
+    mkdirSync(depsDir, { recursive: true });
+    rmSync(link, { recursive: true, force: true });
+    symlinkSync(target, link, "dir");
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, message: `cannot link the dependency tree into ${extensionDir}: ${err instanceof Error ? err.message : String(err)}` };
+  }
+}
+
 function verifySri(bytes: Uint8Array, integrity: string): { ok: true } | { ok: false; expected: string; actual: string } {
   const [scheme, b64] = integrity.split("-", 2);
   if (scheme !== "sha512" && scheme !== "sha1") {
@@ -331,28 +425,18 @@ async function fetchPackument(io: DepsIo, name: string): Promise<{ ok: true; pac
 }
 
 /**
- * Downloads (or takes from cache) the tarball once, peeks its
- * `package.json` after extraction into a throwaway directory, and
- * reports whether the package declares install lifecycle scripts.
- * Extraction here never executes anything — it lays down bytes.
+ * Peeks an extracted-at-install tarball's `package.json` in a throwaway
+ * directory and reports whether the package declares install lifecycle
+ * scripts. Extraction never executes anything — it lays down bytes.
  */
-async function readTarballScripts(
+async function readTarballScriptsFromBytes(
   io: DepsIo,
-  cache: Map<string, Uint8Array> | undefined,
-  tarballUrl: string,
-  key: string,
+  tarball: Uint8Array,
 ): Promise<{ ok: true; hasLifecycle: boolean; names?: string[] } | { ok: false; reason: string }> {
-  let bytes = cache?.get(key);
-  if (!bytes) {
-    const tgz = await io.fetchBytes(tarballUrl);
-    if (!tgz.ok) return { ok: false, reason: `tarball download failed for ${key}: ${tgz.message}` };
-    bytes = tgz.body;
-    cache?.set(key, bytes);
-  }
   const peek = `${depsPeekRoot()}/moh-deps-peek-${process.pid}-${Math.random().toString(36).slice(2)}`;
   try {
     mkdirSync(peek, { recursive: true });
-    await io.extractTgz(bytes, peek);
+    await io.extractTgz(tarball, peek);
     const nested = join(peek, "package");
     const root = existsSync(nested) ? nested : peek;
     const pkgFile = join(root, "package.json");
@@ -362,7 +446,7 @@ async function readTarballScripts(
     const names = ["preinstall", "install", "postinstall"].filter((s) => typeof scripts[s] === "string" && scripts[s].length > 0);
     return { ok: true, hasLifecycle: names.length > 0, names: names.length ? names : undefined };
   } catch (err) {
-    return { ok: false, reason: `could not inspect ${key} for lifecycle scripts: ${err instanceof Error ? err.message : String(err)}` };
+    return { ok: false, reason: `could not inspect tarball for lifecycle scripts: ${err instanceof Error ? err.message : String(err)}` };
   } finally {
     rmSync(peek, { recursive: true, force: true });
   }
@@ -380,12 +464,11 @@ export function verifyDepsTree(depsDir: string): { ok: true } | { ok: false; rea
   if (!lock) return { ok: false, reason: `no ${DEPS_LOCK_FILE} in ${depsDir} — the tree is not a verified install` };
   const modulesDir = join(depsDir, "node_modules");
   if (!existsSync(modulesDir)) return { ok: false, reason: `no node_modules under ${depsDir} — the tree is missing` };
-  for (const key of Object.keys(lock.packages)) {
-    const name = key.slice(0, key.lastIndexOf("@") > 0 ? key.lastIndexOf("@") : undefined) ?? key;
-    const pkgDir = join(modulesDir, name);
+  for (const [key] of Object.entries(lock.packages)) {
+    const pkgDir = join(modulesDir, lockKeyPackage(key));
     if (!existsSync(pkgDir)) return { ok: false, reason: `drift: ${key} is in the lockfile but missing from the tree` };
   }
-  const lockedNames = new Set(Object.keys(lock.packages).map((key) => key.slice(0, key.lastIndexOf("@"))));
+  const lockedNames = new Set(Object.keys(lock.packages).map(lockKeyPackage));
   for (const entry of readdirSync(modulesDir, { withFileTypes: true })) {
     if (!entry.isDirectory()) continue;
     // A scoped root (@scope) is a directory of packages, not a package.

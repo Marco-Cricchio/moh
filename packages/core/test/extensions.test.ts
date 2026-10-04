@@ -6,7 +6,8 @@
  * dependency authorization.
  */
 import { afterEach, describe, expect, test } from "bun:test";
-import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, mkdirSync, readFileSync, readlinkSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
 import { createSession, ExtensionRuntime, MockProvider, PromptComposer } from "../src/index";
@@ -551,6 +552,26 @@ describe("extension-deps installation (ADR-0070)", () => {
     });
     expect(await rt2.registerFile(file)).toBe(true);
     expect(asks).toHaveLength(1);
+  });
+
+  test("the extension's own directory gets a node_modules link into its tree — bare imports resolve", async () => {
+    const dir = tempDir();
+    const file = writeDepExt(join(dir, "ext.mjs"), "resolver", { zod: "3.23.8" });
+    const io = fakeDepsIo({ zod: "3.23.8" });
+    const rt = new ExtensionRuntime({
+      mohHome: dir,
+      consent: () => true,
+      authorizeDependencies: () => true,
+      depsIo: io,
+    });
+    expect(await rt.registerFile(file)).toBe(true);
+    // The standard resolution walk through the extension's own directory
+    // lands inside its (and only its) dependency tree.
+    const link = join(dir, "node_modules");
+    expect(readlinkSync(link)).toBe(join(extensionDepsDir(dir, "resolver"), "node_modules"));
+    const resolved = realpathSync(createRequire(join(dir, "no-op.js")).resolve("zod/package.json", { paths: [dir] }));
+    // macOS tmpdir symlinks (/var -> /private/var): compare real paths.
+    expect(resolved.startsWith(realpathSync(extensionDepsDir(dir, "resolver")))).toBe(true);
   });
 
   test("changed deps re-ask showing the new deps; refusal keeps the old tree", async () => {

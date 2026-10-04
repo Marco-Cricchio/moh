@@ -9,6 +9,24 @@ matching section here at tag time.
 
 ### Added
 
+- **Extension dependencies installer** (ADR-0070, #1166): an extension
+  manifest may declare `"dependencies": { "zod": "3.23.8" }` — exact
+  versions only; a range is a manifest validation error naming the
+  package. moh installs the tree (direct and transitive) into
+  `~/.moh/extension-deps/<extension>/` with its own `lock.json` carrying
+  per-package SRI digests, re-verified at every install — drift is a
+  loud error and refuses the load (`deps_install_failed`). No lifecycle
+  script ever runs: a dependency declaring `install`/`postinstall`
+  refuses with the package named (authors bundle). Install = download +
+  digest verification + layout: the extension's own directory gets a
+  `node_modules` link into its tree, so its imports resolve through
+  nothing but its own dependencies. A deps change re-asks the consent,
+  showing the deps by name and version; a refusal keeps the previously
+  approved tree. Offline re-installs come from the moh-owned tarball
+  cache only when its digest matches the lockfile. `moh extension
+  remove` deletes the dependency directory; there is no shared store
+  and no GC.
+
 - **Extensions rail, panels and overlays** (ADR-0062, #1132, apiVersion
   1.12): an extension with the `contribute-panels` grant registers one
   rail panel — arbitrary Ink rendering with a declared max-height, at

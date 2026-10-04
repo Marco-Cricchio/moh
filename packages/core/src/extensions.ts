@@ -62,7 +62,7 @@ import type { ExtensionSpawnSpec } from "@moh/extension";
 import type { SubagentHost } from "./subagents";
 import { ExtensionSpawnRefusedError } from "./extension-scope";
 import { capabilityDiff, capabilitiesSubset, readExtensionManifest, type ManifestAuthority } from "./extension-manifest";
-import { extensionDepsDir, installExtensionDeps } from "./extension-deps";
+import { depsTarballCache, extensionDepsDir, installExtensionDeps, linkDepsTree } from "./extension-deps";
 import { realRegistryIo, type RegistryIo } from "./extension-registry";
 import { checkHostScope, checkPathScope, hostScopesOf, isHostScope, isPathScope, MAX_FETCH_BYTES, MAX_REDIRECTS, HOST_SCOPE_REASONING_KEY, TOTAL_HOST_WILDCARD, validateHostScope, validatePathScope, pathScopesOf } from "./host-scope";
 import { credentialScopesOf, credentialScopeRef, isCredentialScope, validateCredentialScope, type CredentialStore } from "./credential-scope";
@@ -1892,10 +1892,20 @@ bindPathDeny(isDenied: (resolvedAbsPath: string) => boolean): void {
     }
     // ADR-0070: install (or re-verify) the declared tree before setup —
     // an extension whose dependencies are missing or drifted never runs.
+    // Resolvability is part of the install: the extension's own directory
+    // gets a `node_modules` symlink into its deps tree, so its bare
+    // imports resolve through the standard walk — and only through its
+    // own tree (per-extension isolation, ADR-0070).
     if (!bundled && manifestDeps && Object.keys(manifestDeps).length > 0) {
       const install = await this.#installDeps(name, manifestDeps);
       if (!install.ok) {
         return { ok: false, name, reason: "deps_install_failed", message: install.message };
+      }
+      if (file) {
+        const link = linkDepsTree(extensionDepsDir(this.#mohHome, name), dirname(file));
+        if (!link.ok) {
+          return { ok: false, name, reason: "deps_install_failed", message: link.message };
+        }
       }
     }
     const instance: RuntimeExtension = {
@@ -2501,6 +2511,9 @@ bindPathDeny(isDenied: (resolvedAbsPath: string) => boolean): void {
    * `extension-deps` root, before the extension's setup ever runs. A
    * failure — a scripted dependency, a checksum mismatch, lockfile
    * drift — refuses the load with the reason carried to the user.
+   * The moh-owned tarball cache (`extension-deps/.cache/`) is consulted
+   * before the network and populated after verification, so a re-install
+   * works offline exactly as long as its digests match (AC5).
    */
   async #installDeps(name: string, dependencies: Record<string, string>): Promise<{ ok: true } | { ok: false; message: string }> {
     try {
@@ -2508,6 +2521,7 @@ bindPathDeny(isDenied: (resolvedAbsPath: string) => boolean): void {
         dependencies,
         depsDir: extensionDepsDir(this.#mohHome, name),
         io: this.#options.depsIo ?? realRegistryIo(),
+        cache: depsTarballCache(this.#mohHome),
       });
       if (result.ok) return { ok: true };
       return { ok: false, message: `dependency install failed for ${name}: ${result.reason}` };

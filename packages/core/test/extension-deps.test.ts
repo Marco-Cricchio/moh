@@ -11,8 +11,11 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, 
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
+  DEPS_CACHE_DIR,
+  EXTENSION_DEPS_DIR,
   DEPS_LOCK_FILE,
   checkExactVersions,
+  depsTarballCache,
   extensionDepsDir,
   installExtensionDeps,
   readDepsLockfile,
@@ -262,23 +265,25 @@ describe("installExtensionDeps", () => {
     const depsDir = join(tempDir(), "ext");
     // First install populates a caller-owned cache.
     const cache = new Map<string, Uint8Array>();
-    const first = await installExtensionDeps({ dependencies: { zod: "3.23.8" }, depsDir, io: fakeIo(registry), cache });
+    const cacheSeam = {
+      get: (key: string) => cache.get(key),
+      set: (key: string, bytes: Uint8Array) => void cache.set(key, bytes),
+    };
+    const first = await installExtensionDeps({ dependencies: { zod: "3.23.8" }, depsDir, io: fakeIo(registry), cache: cacheSeam });
     expect(first.ok).toBe(true);
     expect(cache.size).toBe(1);
     // Second install, network fully down: cache digest matches, offline succeeds.
     const lockBefore = readDepsLockfile(depsDir);
-    const offline = await installExtensionDeps({ dependencies: { zod: "3.23.8" }, depsDir, io: fakeIo({ packuments: registry.packuments, failFetch: "network down" }), cache });
+    const offline = await installExtensionDeps({ dependencies: { zod: "3.23.8" }, depsDir, io: fakeIo({ packuments: registry.packuments, failFetch: "network down" }), cache: cacheSeam });
     expect(offline).toEqual({ ok: true, installed: 1, offline: true });
     expect(readDepsLockfile(depsDir)).toEqual(lockBefore);
     // A cache entry whose bytes were tampered with is not trusted: the
     // install falls through to the network (down here), so offline
     // never installs unverified bytes.
     cache.set("zod@3.23.8", new TextEncoder().encode("tampered"));
-    const bad = await installExtensionDeps({ dependencies: { zod: "3.23.8" }, depsDir, io: fakeIo({ packuments: registry.packuments, failFetch: "network down" }), cache });
+    const bad = await installExtensionDeps({ dependencies: { zod: "3.23.8" }, depsDir, io: fakeIo({ packuments: registry.packuments, failFetch: "network down" }), cache: cacheSeam });
     expect(bad.ok).toBe(false);
     if (!bad.ok) expect(bad.reason).toContain("network down");
-    // The tampered entry was evicted, not silently reused.
-    expect(cache.has("zod@3.23.8")).toBe(false);
   });
 
   test("a failed install never leaves a tree that looks installed", async () => {
@@ -314,6 +319,49 @@ describe("installExtensionDeps", () => {
     const result = await installExtensionDeps({ dependencies: {}, depsDir: join(tempDir(), "x"), io });
     expect(result).toEqual({ ok: true, installed: 0, offline: true });
     expect(io.fetched).toEqual([]);
+  });
+
+  test("the moh-owned disk cache serves a network-down re-install (AC5)", async () => {
+    const registry = freshRegistry();
+    registerPackage(registry, "zod", "3.23.8");
+    const home = tempDir();
+    const depsDir = extensionDepsDir(home, "cached-ext");
+    const io = fakeIo(registry);
+    const first = await installExtensionDeps({ dependencies: { zod: "3.23.8" }, depsDir, io, cache: depsTarballCache(home) });
+    expect(first).toMatchObject({ ok: true, installed: 1, offline: false });
+    expect(existsSync(join(home, EXTENSION_DEPS_DIR, DEPS_CACHE_DIR))).toBe(true);
+    // Second install, network down: the disk cache matches the digest.
+    const second = await installExtensionDeps({ dependencies: { zod: "3.23.8" }, depsDir, io: fakeIo({ packuments: registry.packuments, failFetch: "network down" }), cache: depsTarballCache(home) });
+    expect(second).toEqual({ ok: true, installed: 1, offline: true });
+    // A corrupted cache entry is never served — offline refuses instead.
+    const cacheDir = join(home, EXTENSION_DEPS_DIR, DEPS_CACHE_DIR);
+    writeFileSync(join(cacheDir, "zod@3.23.8.tgz"), new TextEncoder().encode("corrupted"));
+    const bad = await installExtensionDeps({ dependencies: { zod: "3.23.8" }, depsDir, io: fakeIo({ packuments: registry.packuments, failFetch: "network down" }), cache: depsTarballCache(home) });
+    expect(bad.ok).toBe(false);
+  });
+
+  test("re-install reuses the lockfile's pinned transitive version even when `latest` moved", async () => {
+    const registry = freshRegistry();
+    registerPackage(registry, "zod", "3.23.8", { dependencies: { "left-pad": "^1.0.0" } });
+    registerPackage(registry, "left-pad", "1.3.0");
+    const depsDir = join(tempDir(), "ext");
+    const first = await installExtensionDeps({ dependencies: { zod: "3.23.8" }, depsDir, io: fakeIo(registry) });
+    expect(first).toMatchObject({ ok: true, installed: 2 });
+    // `left-pad` publishes 9.9.9; the range ^1.0.0 does not allow it, and
+    // the lockfile pins 1.3.0 anyway — the re-install must reuse 1.3.0.
+    // 9.9.9 publishes; 1.3.0 stays served (real registries never drop
+    // versions) but `latest` moves.
+    const newest = packumentFor("left-pad", "9.9.9");
+    registry.packuments["left-pad"].versions = {
+      ...registry.packuments["left-pad"].versions,
+      ...newest.versions,
+    };
+    registry.packuments["left-pad"]["dist-tags"]!.latest = "9.9.9";
+    const second = await installExtensionDeps({ dependencies: { zod: "3.23.8" }, depsDir, io: fakeIo(registry) });
+    expect(second).toMatchObject({ ok: true, installed: 2 });
+    expect(existsSync(join(depsDir, "node_modules", "left-pad", "package.json"))).toBe(true);
+    const lock = readDepsLockfile(depsDir)!;
+    expect(Object.keys(lock.packages).sort()).toEqual(["left-pad@1.3.0", "zod@3.23.8"]);
   });
 
   test("the lockfile records the resolved tarball URL and re-verification reuses the registry digest", async () => {
