@@ -7,6 +7,54 @@ matching section here at tag time.
 
 ## [Unreleased]
 
+## [0.57.1] - 2026-10-04
+
+### Added
+
+- **The lanes modal scrolls and lanes can be removed** (PR #1185): the
+  `/lanes` dialog no longer grows past the viewport — every lane renders
+  as exactly one visual line (hard-truncated detail), the list scrolls
+  inside a cursor-following window with `↑/↓ N more` indicators, and the
+  footer names the focused lane's removal door. A verified registry gap
+  closed with it: `moh lanes remove <lane-id> [--force]` deletes exactly
+  one row, refusing a lane whose worktree still exists or whose status is
+  not landed/abandoned — abandon stays the door for live git state. The
+  TUI stays read-only per ADR-0060 and points at the CLI door; the CLI
+  manual page is updated in the same change.
+
+### Fixed
+
+- **Keychain credential accounts are scoped to the assembly home**
+  (#1178, PR #1184): the keychain is user-global while `home` is an
+  assembly-level parameter, and accounts were keyed by the bare ref name —
+  so a temporary home (a test, a lane) resolved the ambient user's real
+  `typesafe` secret and activated Jev. The account now carries a digest of
+  the assembly home (`sha256(home)[:16]:ref`): two homes on one machine can
+  never read each other's secrets, and activation is always evaluated
+  against the assembly's own home. Legacy bare-ref items are honored only
+  from the ambient real home — the existing credential keeps working with
+  no action.
+- **`read` and `grep` name a bad path instead of surfacing raw errno**
+  (#1186, PR #1186): reading a directory answered `EISDIR`, a missing path
+  `ENOENT` — opaque to a model that must correct course. Both tools now
+  name the miss (`path is a directory, not a file: X (open a file inside
+  it, or grep it)` / `no such path: X`), and the tool runner classifies the
+  wording as `errorKind: "not-found"` so telemetry separates wrong-path
+  misses from real I/O errors.
+- **The Jev chip never claims what the bar cannot back** (PR #1187, the
+  #1182 follow-up): the bottom bar could render `jev offline ◈ jev active`
+  at once. The outage now overrides the switches (`∅ jev offline` wins),
+  and a healthy service with user opt-outs reads `◈ jev partial` — the
+  user's own opt-outs are never hidden; `/jev` keeps the detail.
+
+### Changed
+
+- **The model catalog was regenerated** (release step): 2 prices moved
+  (`deepseek/deepseek-v4-pro-0813` 0.33 → 0.85 input going up,
+  `~moonshotai/kimi-latest` 0.6705 → 0.6518 down). No context windows or
+  reasoning flags moved; no issue and no context-window shrink.
+  `PRICING_SNAPSHOT.version` follows the manifest, which declares 0.57.1.
+
 ## [0.57.0] - 2026-10-04
 
 ### Added
@@ -1881,7 +1929,8 @@ matching section here at tag time.
   passed; a regression test pins the resolved path under
   `<home>/.moh/projects`.
 
-[Unreleased]: https://github.com/Marco-Cricchio/moh/compare/v0.57.0...develop
+[Unreleased]: https://github.com/Marco-Cricchio/moh/compare/v0.57.1...develop
+[0.57.1]: https://github.com/Marco-Cricchio/moh/compare/v0.57.0...v0.57.1
 [0.57.0]: https://github.com/Marco-Cricchio/moh/compare/v0.56.0...v0.57.0
 [0.56.0]: https://github.com/Marco-Cricchio/moh/compare/v0.55.0...v0.56.0
 [0.55.0]: https://github.com/Marco-Cricchio/moh/compare/v0.54.0...v0.55.0
