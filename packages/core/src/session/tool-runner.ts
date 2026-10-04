@@ -172,7 +172,7 @@ function classifyToolError(tool: string, output: string): ToolErrorKind | undefi
   if (/^HTTP \d{3} for \S+ · rate-limited|^fetch: rate-limited/.test(output)) return "rate-limited";
   if (/^HTTP \d{3} for \S+ · transient|^fetch: transient/.test(output)) return "transient";
   if (/^HTTP \d{3} /.test(output)) return "http-status";
-  if (/file not found:|URL must have a valid scheme|only http\/https URLs are supported/.test(output)) return "not-found";
+  if (/file not found:|no such path:|URL must have a valid scheme|only http\/https URLs are supported/.test(output)) return "not-found";
   if (/^exit code \d+/.test(output)) return "command-exit";
   if (/^[A-Z]+(\/[A-Z0-9]+)*: /.test(output)) return "io"; // node errno style: ENOTDIR, ENOENT/EACCES…
   return undefined;

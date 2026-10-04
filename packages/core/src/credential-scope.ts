@@ -19,6 +19,8 @@
  *   values never do (ADR-0058's pass remains in force regardless).
  */
 import { chmodSync, mkdirSync, readFileSync, writeFileSync, statSync, existsSync, unlinkSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 
 export const CREDENTIAL_SCOPE_PREFIX = "credential:";
@@ -84,44 +86,91 @@ export interface CredentialStore {
 export const SECRETS_FILE = "secrets.json";
 
 /**
- * The OS-keychain store (ADR-0069, macOS Keychain via `security`): one
- * generic-password item per ref, service `moh-secret`. Returns undefined
- * where no keychain CLI exists — the caller falls back to the file store.
- * `security` failing on a get resolves as unknown (a loud fetch refusal),
- * never as an empty string. The names-only ledger lives beside the
- * fallback store under the given home, so `list()` stays truthful.
+ * The keychain account for one (home, ref) pair (#1178): the keychain is
+ * user-global while `home` is an assembly-level parameter, so the account
+ * carries a digest of the home — two homes on one machine can never read
+ * each other's secrets, and a temporary home (a test, a lane) cannot see
+ * the ambient user's credential.
  */
-export function keychainCredentialStore(ledgerHome: string): CredentialStore | undefined {
-  if (process.platform !== "darwin") return undefined;
+/** Length of the home digest carried in a keychain account (#1178). */
+const KEYCHAIN_DIGEST_CHARS = 16;
+/** `security`'s exit code for "item not found" — a fine delete, a miss on get. */
+const SECURITY_NOT_FOUND = 44;
+
+export function keychainAccount(home: string, ref: string): string {
+  const digest = createHash("sha256").update(home).digest("hex").slice(0, KEYCHAIN_DIGEST_CHARS);
+  return `${digest}:${ref}`;
+}
+
+type SecurityResult = { ok: boolean; out: string; err: string; exit: number | null };
+type SecurityRunner = (args: string[]) => SecurityResult;
+
+const defaultSecurityRunner: SecurityRunner = (args) => {
+  const proc = Bun.spawnSync(["security", ...args], { stdout: "pipe", stderr: "pipe", stdin: "ignore" });
+  return { ok: proc.exitCode === 0, out: proc.stdout.toString().trim(), err: proc.stderr.toString().trim(), exit: proc.exitCode };
+};
+
+/**
+ * The OS-keychain store (ADR-0069, macOS Keychain via `security`): one
+ * generic-password item per (home, ref), service `moh-secret`, account
+ * home-digested (#1178). Returns undefined where no keychain CLI exists —
+ * the caller falls back to the file store. `security` failing on a get
+ * resolves as unknown (a loud fetch refusal), never as an empty string.
+ * The names-only ledger lives beside the fallback store under the given
+ * home, so `list()` stays truthful.
+ *
+ * Items written before #1178 used the bare ref as the account. They are
+ * visible only from the ambient real user home (`home === homedir()`) —
+ * a legacy fallback on `get` and cleanup on `delete` — never from a
+ * temporary home, which is the isolation this scoping exists for.
+ */
+export function keychainCredentialStore(home: string, run: SecurityRunner = defaultSecurityRunner): CredentialStore | undefined {
+  // No keychain where the platform provides none — but only for the real
+  // `security` runner: an injected runner (tests) runs on any platform.
+  if (run === defaultSecurityRunner && process.platform !== "darwin") return undefined;
   const service = "moh-secret";
+  const isAmbientHome = home === homedir();
+  const account = (ref: string): string => keychainAccount(home, ref);
   // Names-only ledger under the given home: the keychain has no
   // list-by-service, so a set/delete records the ref name (never the
   // value) beside the keychain item — `list()` stays truthful.
-  const names = fileCredentialStore({ home: ledgerHome });
-  const run = (args: string[]): { ok: boolean; out: string; err: string; exit: number | null } => {
-    const proc = Bun.spawnSync(["security", ...args], { stdout: "pipe", stderr: "pipe", stdin: "ignore" });
-    return { ok: proc.exitCode === 0, out: proc.stdout.toString().trim(), err: proc.stderr.toString().trim(), exit: proc.exitCode };
-  };
+  const names = fileCredentialStore({ home: home });
   return {
     get: (ref) => {
-      const r = run(["find-generic-password", "-s", service, "-a", ref, "-w"]);
-      return r.ok && r.out !== "" ? r.out : undefined;
+      const r = run(["find-generic-password", "-s", service, "-a", account(ref), "-w"]);
+      if (r.ok && r.out !== "") return r.out;
+      // Legacy (#1178) fallback: a pre-scoping item stored under the bare
+      // ref is honored only from the ambient real user home — a temporary
+      // home must never see another home's secret.
+      if (isAmbientHome) {
+        const legacy = run(["find-generic-password", "-s", service, "-a", ref, "-w"]);
+        if (legacy.ok && legacy.out !== "") return legacy.out;
+      }
+      return undefined;
     },
     set: (ref, value) => {
       // `-U` updates an existing item; one call covers create and replace.
       // A failed write throws — the caller (CLI, TUI) shows it; a silent
       // "stored" while nothing landed would be the one unforgivable lie
       // on a credential surface.
-      const r = run(["add-generic-password", "-s", service, "-a", ref, "-w", value, "-U"]);
+      const r = run(["add-generic-password", "-s", service, "-a", account(ref), "-w", value, "-U"]);
       if (!r.ok) throw new Error(`keychain write failed (security exit ${r.exit}): ${r.err}`);
       names.set(ref, "");
     },
     delete: (ref) => {
-      const r = run(["delete-generic-password", "-s", service, "-a", ref]);
-      // "not found" (exit 44) is a fine delete; any other failure is one.
-      if (!r.ok && r.exit !== 44) throw new Error(`keychain delete failed (security exit ${r.exit}): ${r.err}`);
+      // "not found" (SECURITY_NOT_FOUND) is a fine delete; any other failure is one.
+      const remove = (acc: string): boolean => {
+        const r = run(["delete-generic-password", "-s", service, "-a", acc]);
+        if (!r.ok && r.exit !== SECURITY_NOT_FOUND) throw new Error(`keychain delete failed (security exit ${r.exit}): ${r.err}`);
+        return r.ok;
+      };
+      let removed = remove(account(ref));
+      if (isAmbientHome) {
+        // Legacy cleanup: a pre-scoping bare-account item, ambient home only.
+        removed = remove(ref) || removed;
+      }
       names.delete(ref);
-      return r.ok;
+      return removed;
     },
     list: () => names.list(),
   };

@@ -72,7 +72,7 @@ import { fetchLiveCatalogs, liveListings, reportNeedsNotice, summarizeLiveCatalo
 import { QuotaModal } from "./QuotaModal";
 import { MpmModal } from "./MpmModal";
 import { JevModal } from "./JevModal";
-import { JEV_EXTENSION_NAME, readJevSummary, setJevUseCase, type JevStatusSummary } from "./jev-control";
+import { JEV_EXTENSION_NAME, readJevSummary, resolveJevChip, setJevUseCase, type JevStatusSummary } from "./jev-control";
 import { SessionRenameModal } from "./SessionRenameModal";
 import { SessionModal } from "./SessionModal";
 import { ExtensionsModal } from "./ExtensionsModal";
@@ -259,7 +259,8 @@ function AppShell({
   );
   const [modelLabel, setModelLabel] = useState(() => providerLabel(provider, cwd, home));
   // The cwd the open session actually runs in. Auto-lane (ADR-0060) assembles
-  // the session in a worktree under `.moh-lanes/...` - the filesystem chrome
+  // the session in a worktree under the project's lane root in the moh
+  // home (`~/.moh/projects/<slug>/lanes/...`) — the filesystem chrome
   // (branch, cwd tail, 12549 12549paths) must read from there, not from the launch
   // directory, or row2 shows a branch that is never the lane's.
   const [sessionCwd, setSessionCwd] = useState(cwd);
@@ -743,7 +744,10 @@ function AppShell({
     const read = () => {
       try {
         const next = readJevSummary((extension, name) => session.extensionState(extension, name));
-        if (alive) setJevStatus((prev) => (prev === next ? prev : next));
+        // An outage overrides the snapshot: nothing can judge while the
+        // client is down, so the chip says `offline`, never `active`.
+        const resolved = resolveJevChip(next, session.extensionStatuses());
+        if (alive) setJevStatus((prev) => (prev === resolved ? prev : resolved));
       } catch {
         if (alive) setJevStatus(null);
       }

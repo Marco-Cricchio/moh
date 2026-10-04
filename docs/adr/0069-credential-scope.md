@@ -22,3 +22,7 @@ Under the host-tool seam (ADR-0064), the credential scope decides how extensions
 ## Consequences
 
 All five scope arcs of the host-performs phase are now resolved (0065–0068, custody here). #1152 (phases and migration) is unblocked and sequences the implementation.
+
+## Amendment (#1178): keychain accounts are home-scoped
+
+The keychain is user-global while `home` is an assembly-level parameter. The first implementation keyed items by service `moh-secret` and account = the bare ref, so a temporary home — a test, a lane — resolved the ambient user's secret and an extension whose activation switch is "a stored credential exists" (Jev) activated where no key exists, with a real credential reachable from a sandboxed home. The account now carries a digest of the home (`sha256(home)[:16]:ref`, `keychainAccount`): two homes on one machine can never read each other's secrets, and activation is always evaluated against the assembly's own home. Items written before this amendment (bare-ref accounts) are honored only from the ambient real user home — a legacy fallback on `get`, cleanup on `delete` — never from a temporary home.

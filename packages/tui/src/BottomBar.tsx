@@ -155,14 +155,20 @@ export function MpmStatusChip({ status, wide, theme }: { status: "ready" | "upda
  * the chip summarizes (does it judge, is it switched off, can it act at
  * all) and `/jev` keeps the detail. Compact terminals keep the glyph; no
  * chip at all when the client has no snapshot to read — the bar never makes
- * a claim it cannot back. The outage text (`∅ jev offline`) is a different
- * thing on a different seam (ADR-0032's status), and stays there. */
+ * a claim it cannot back. `offline` (an outage, resolved by `resolveJevChip`)
+ * and `partial` (some use cases switched off by the user) say what `active`
+ * alone would hide. The outage text (`∅ jev offline`) is a different thing
+ * on a different seam (ADR-0032's status), and stays there. */
 export function JevStatusChip({ status, labelled, theme }: { status: JevStatusSummary; labelled: boolean; theme: PaintableTheme }) {
   const spec = status === "active"
     ? { word: "active", color: theme.ok }
-    : status === "off"
-      ? { word: "off", color: theme.dim }
-      : { word: "inert", color: theme.warn };
+    : status === "partial"
+      ? { word: "partial", color: theme.accent }
+      : status === "offline"
+        ? { word: "offline", color: theme.dim }
+        : status === "off"
+          ? { word: "off", color: theme.dim }
+          : { word: "inert", color: theme.warn };
   return <Text color={spec.color}>{labelled ? `◈ jev ${spec.word}` : "◈"}</Text>;
 }
 
@@ -303,7 +309,7 @@ function StatusRow(props: StatusProps) {
     (props.memoryFresh ? (cls === "wide" ? "◍ memory".length : "◍".length) + 1 : 0) +
     (props.mpmStatus != null ? ("✓".length + (cls === "wide" ? 1 : 0)) + 1 : 0) +
     (props.extensionStatuses ?? []).reduce((sum, status) => sum + extensionStatusText(status, cls === "wide", statusCap).length + 1, 0) +
-    (props.jevStatus != null ? (cls === "compact" ? "◈".length : `◈ jev ${{ active: "active", off: "off", inert: "inert" }[props.jevStatus]}`.length) + 1 : 0) +
+    (props.jevStatus != null ? (cls === "compact" ? "◈".length : `◈ jev ${{ active: "active", partial: "partial", off: "off", inert: "inert", offline: "offline" }[props.jevStatus]}`.length) + 1 : 0) +
     (props.compactionFailed ? (cls === "wide" ? "⚠ compaction failed — retrying".length : "⚠".length) + 1 : 0) +
     (props.growthWarning != null ? (cls === "wide" ? `⚡ file grew externally ×${props.growthWarning} — ^g keep my branch · /fork`.length : "⚡ keep my branch".length) + 1 : 0) +
     (props.browserSetup ? (cls === "wide" ? "⚠ browser tool unavailable — ^b install".length : "⚠ browser".length) + 1 : 0);

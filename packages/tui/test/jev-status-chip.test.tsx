@@ -2,13 +2,13 @@
  * #876: the Jev chip on the bottom bar's first row.
  *
  * The seven use cases are independent, so the chip is a *summary* — at least
- * one judging / none judging / structurally unable to act — and the detail
- * stays in `/jev`. What these tests pin: the three states and their copy, the
+ * one judging (fully or partially) / none judging / structurally unable to
+ * act / in outage — and the detail stays in `/jev`. What these tests pin: the
  * compact glyph form, the absence of any claim when there is no snapshot, the
  * chip's place at the end of the left cluster, and the wiring that feeds it
  * (the client's own 2s poll of the extension's `state`, never `setStatus`).
  */
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test, beforeAll, beforeEach, afterAll } from "bun:test";
 import React from "react";
 import { render } from "ink-testing-library";
 import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
@@ -18,7 +18,7 @@ import { MockProvider, userConfigFile } from "@moh/core";
 import { JEV_USE_CASES, type JevUseCase, type JevUseCaseSnapshot, type JevUseCaseState } from "@moh/jev-guard";
 import { BottomBar } from "../src/BottomBar";
 import { App } from "../src/App";
-import { readJevSummary, summarizeJevStatus } from "../src/jev-control";
+import { readJevSummary, resolveJevChip, summarizeJevStatus } from "../src/jev-control";
 import { ThemeProvider, THEMES } from "../src/themes";
 import { stripAnsi, waitForCondition } from "./helpers";
 
@@ -41,10 +41,13 @@ describe("summarizeJevStatus (#876)", () => {
     expect(summarizeJevStatus({} as JevUseCaseSnapshot)).toBeNull();
   });
 
-  test("at least one use case judging = active", () => {
-    expect(summarizeJevStatus(snapshot({ guardrail: { status: "on", config: true } }))).toBe("active");
-    // One on is enough, whatever the others are doing.
+  test("at least one use case judging and none switched off = active", () => {
     expect(summarizeJevStatus({ ...allIn("inert"), routing: { status: "on", config: true } })).toBe("active");
+  });
+
+  test("some judging, at least one off or paused = partial (the user's own opt-out must not hide)", () => {
+    expect(summarizeJevStatus(snapshot({ guardrail: { status: "on", config: true } }))).toBe("partial");
+    expect(summarizeJevStatus({ ...allIn("inert"), guardrail: { status: "on", config: true }, routing: { status: "paused", config: true } })).toBe("partial");
   });
 
   test("none judging, at least one off or paused = off", () => {
@@ -60,7 +63,7 @@ describe("summarizeJevStatus (#876)", () => {
   test("readJevSummary reads the extension's own snapshot, never throws", () => {
     const read = (_extension: string, key: string) =>
       key === "jevState" ? () => snapshot({ guardrail: { status: "on", config: true } }) : undefined;
-    expect(readJevSummary(read)).toBe("active");
+    expect(readJevSummary(read)).toBe("partial");
     // Not registered, a throwing getter, a non-object: all = no claim.
     expect(readJevSummary(undefined)).toBeNull();
     expect(readJevSummary(() => { throw new Error("gone"); })).toBeNull();
@@ -82,12 +85,14 @@ describe("the Jev chip in row 1 (#876)", () => {
 
   test("one word per state, in wide and regular terminals", () => {
     expect(row1(barFrame({ jevStatus: "active" }))).toContain("◈ jev active");
+    expect(row1(barFrame({ jevStatus: "partial" }))).toContain("◈ jev partial");
     expect(row1(barFrame({ jevStatus: "off" }))).toContain("◈ jev off");
     expect(row1(barFrame({ jevStatus: "inert" }))).toContain("◈ jev inert");
+    expect(row1(barFrame({ jevStatus: "offline" }))).toContain("◈ jev offline");
   });
 
   test("compact keeps the glyph and drops the word", () => {
-    for (const status of ["active", "off", "inert"] as const) {
+    for (const status of ["active", "partial", "off", "inert", "offline"] as const) {
       const frame = barFrame({ width: 60, jevStatus: status });
       const line = frame.split("\n").find((l) => l.includes("◈"))!;
       expect(line).toContain("◈");
@@ -115,15 +120,41 @@ describe("the Jev chip in row 1 (#876)", () => {
     expect(line.indexOf("∅ jev offline")).toBeLessThan(line.indexOf("◈ jev inert"));
   });
 
+  test("an outage overrides the snapshot: the chip never says active while down", () => {
+    expect(resolveJevChip("active", [{ extension: "jev-guard", text: "∅ jev offline" }])).toBe("offline");
+    expect(resolveJevChip("partial", [{ extension: "jev-guard", text: "∅ jev offline" }])).toBe("offline");
+    expect(resolveJevChip("off", [{ extension: "jev-guard", text: "∅ jev offline" }])).toBe("offline");
+    // Another extension's status, or a jev-guard note that is not the outage,
+    // never overrides.
+    expect(resolveJevChip("active", [{ extension: "other-ext", text: "∅ jev offline" }])).toBe("active");
+    expect(resolveJevChip("active", [{ extension: "jev-guard", text: "jev-guard: some turn note" }])).toBe("active");
+    // No snapshot: still no claim, outage or not.
+    expect(resolveJevChip(null, [{ extension: "jev-guard", text: "∅ jev offline" }])).toBeNull();
+  });
+
   test("the outage text and the chip coexist: two seams, one reading", () => {
-    const frame = barFrame({ extensionStatuses: [{ extension: "jev-guard", text: "∅ jev offline" }], jevStatus: "active" });
+    // The bar renders both; the chip's word is resolved upstream (App passes
+    // `offline`, the outage chip keeps its own seam).
+    const frame = barFrame({ extensionStatuses: [{ extension: "jev-guard", text: "∅ jev offline" }], jevStatus: "offline" });
     const line = row1(frame);
     expect(line).toContain("∅ jev offline");
-    expect(line).toContain("◈ jev active");
+    expect(line).toContain("◈ jev offline");
   });
 });
 
 describe("the Jev chip on a real session (#876)", () => {
+  // The real keychain on a dev machine can hold a `typesafe` credential that
+  // a tmp `home` cannot isolate — pin the bounded file store for the whole
+  // describe (the documented test switch), so "not configured" stays honest.
+  const prevSecretStore = process.env.MOH_SECRET_STORE;
+  beforeEach(() => {
+    process.env.MOH_SECRET_STORE = "file";
+  });
+  afterAll(() => {
+    if (prevSecretStore === undefined) delete process.env.MOH_SECRET_STORE;
+    else process.env.MOH_SECRET_STORE = prevSecretStore;
+  });
+
   const home = (config?: Record<string, unknown>) => {
     const dir = mkdtempSync(join(tmpdir(), "moh-876-jev-"));
     mkdirSync(join(dir, ".moh"), { recursive: true });
@@ -141,7 +172,7 @@ describe("the Jev chip on a real session (#876)", () => {
     const frameText = () => stripAnsi(i.lastFrame() ?? "");
     try {
       await waitForCondition(() => frameText().includes("◈ jev"), () => "the Jev chip never rendered", { timeoutMs: 5_000 });
-      expect(frameText()).toMatch(/◈ jev (active|off|inert)/);
+      expect(frameText()).toMatch(/◈ jev (active|partial|off|inert|offline)/);
     } finally {
       i.unmount();
     }

@@ -141,11 +141,15 @@ thing.
   when the session is closed, reloaded or resumed: the config decides again.
 
 While a session runs, the footer carries one `◈ jev` chip summarizing
-them: `active` when at least one use case judges this session, `off` when
-none does and at least one was switched off, `inert` when none judges and
-none is off — the extension is registered and configured, but nothing it
-needs (a model pool, a skill roster, a project root) is there, so it cannot
-act. The per-use-case detail is `/jev`; below 70 columns the chip is its
+them: `active` when every configured use case that can judge does,
+`partial` when some judge and at least one was switched off — the chip
+never hides your own opt-outs — `off` when none judges and at least one
+was switched off, `inert` when none judges and none is off — the extension
+is registered and configured, but nothing it needs (a model pool, a skill
+roster, a project root) is there, so it cannot act. During an outage the
+chip says `offline` — nothing can judge while the client is down, whatever
+the switches say — and the `∅ jev offline` chip beside it keeps its own
+place. The per-use-case detail is `/jev`; below 70 columns the chip is its
 glyph alone, and it is absent entirely when Jev is not registered.
 
 The seven use cases are `guardrail`, `routing`, `classification`,

@@ -1,17 +1,17 @@
 {
   "schemaVersion": 1,
-  "version": "0.57.0",
-  "generatedAt": "2026-10-04T09:44:07.757Z",
+  "version": "0.57.1",
+  "generatedAt": "2026-10-04T13:40:11.443Z",
   "sources": [
     {
       "name": "models.dev",
       "url": "https://models.dev/api.json",
-      "fetchedAt": "2026-10-04T09:44:07.370Z"
+      "fetchedAt": "2026-10-04T13:40:11.092Z"
     },
     {
       "name": "openrouter",
       "url": "https://openrouter.ai/api/v1/models",
-      "fetchedAt": "2026-10-04T09:44:07.616Z"
+      "fetchedAt": "2026-10-04T13:40:11.304Z"
     }
   ],
   "files": {
@@ -196,7 +196,7 @@
       }
     },
     "openrouter": {
-      "sha256": "ccfdff2c66dfc54149180cdee573bcfac158480cccd2237dc812b13b2f8d8ec2",
+      "sha256": "acf55922590577e0e1f185e6bbc2f721fa9b83a79910fe13e7f121110e989564",
       "rows": 361,
       "verdicts": {
         "exact": 337,
