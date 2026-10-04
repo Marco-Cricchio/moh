@@ -23,12 +23,12 @@ import {
   readdirSync,
   readFileSync,
   readlinkSync,
+  realpathSync,
   rmSync,
   renameSync,
   symlinkSync,
   writeFileSync,
 } from "node:fs";
-import { createRequire } from "node:module";
 import { dirname, join, relative, resolve } from "node:path";
 import type { RegistryIo } from "./extension-registry";
 
@@ -379,72 +379,22 @@ function lockKeyPackage(key: string): string {
   return key.slice(0, key.lastIndexOf("@"));
 }
 
-/**
- * ADR-0070 resolvability: the extension's own directory gets a
- * `node_modules` that resolves exactly its declared tree — links into
- * the verified tree when the platform's resolver follows them (macOS
- * Bun does), a real copy when it does not (Linux Bun does not traverse
- * symlinked entries in `node_modules`). The probe decides: resolve the
- * first declared package the way an extension import would, and only a
- * passing layout is kept.
- */
-export function linkDepsTree(depsDir: string, extensionDir: string, firstPackage?: string): { ok: true } | { ok: false; message: string } {
-  const source = join(depsDir, "node_modules");
+/** Link the verified tree before importing the extension. Never resolve a
+ * package before layout: Bun can cache the missing node_modules directory. */
+export function linkDepsTree(depsDir: string, extensionDir: string): { ok: true } | { ok: false; message: string } {
+  const target = resolve(depsDir, "node_modules");
   const link = join(extensionDir, "node_modules");
   try {
-    mkdirSync(source, { recursive: true });
-    const packages = topLevelPackages(source);
-    if (packages.length === 0) return { ok: true };
-    // Fast path: an already-correct layout resolves, keep it.
-    if (resolvesFrom(extensionDir, packages, firstPackage)) return { ok: true };
-    rmSync(link, { recursive: true, force: true });
-    mkdirSync(link, { recursive: true });
-    for (const name of packages) {
-      const dest = join(link, ...name.split("/"));
-      mkdirSync(dirname(dest), { recursive: true });
-      symlinkSync(join(source, name), dest, "dir");
+    try {
+      if (readlinkSync(link) === target) return { ok: true };
+      return { ok: false, message: `refusing to replace an unrelated dependency link: ${link}` };
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err;
     }
-    // Bun on Linux does not traverse symlinked `node_modules` entries:
-    // probe, and fall back to a real copy of the verified tree.
-    if (!resolvesFrom(extensionDir, packages, firstPackage)) {
-      rmSync(link, { recursive: true, force: true });
-      copyDir(source, link);
-    }
+    symlinkSync(target, link, "dir");
     return { ok: true };
   } catch (err) {
-    return { ok: false, message: `cannot link the dependency tree into ${extensionDir}: ${err instanceof Error ? err.message : String(err)}` };
-  }
-}
-
-/** Top-level package names under one node_modules (scoped included). */
-function topLevelPackages(modulesDir: string): string[] {
-  const names: string[] = [];
-  for (const entry of readdirSync(modulesDir, { withFileTypes: true })) {
-    if (!entry.isDirectory() || entry.name.startsWith(".")) continue;
-    if (entry.name.startsWith("@")) {
-      for (const leaf of readdirSync(join(modulesDir, entry.name), { withFileTypes: true })) {
-        if (leaf.isDirectory()) names.push(`${entry.name}/${leaf.name}`);
-      }
-    } else {
-      names.push(entry.name);
-    }
-  }
-  return names.sort();
-}
-
-/** Can the first declared package be resolved from a file in `dir`? */
-function resolvesFrom(dir: string, packages: readonly string[], firstPackage: string | undefined): boolean {
-  const target = firstPackage ?? packages[0];
-  if (!target) return false;
-  const probe = join(dir, "moh-deps-probe.js");
-  try {
-    writeFileSync(probe, "");
-    createRequire(probe).resolve(`${target}/package.json`);
-    return true;
-  } catch {
-    return false;
-  } finally {
-    rmSync(probe, { force: true });
+    return { ok: false, message: `cannot link dependency tree: ${String(err)}` };
   }
 }
 

@@ -1614,6 +1614,8 @@ bindPathDeny(isDenied: (resolvedAbsPath: string) => boolean): void {
       this.#emitFailed(basename(abs), gate.reason, gate.message);
       return false;
     }
+    const prepared = await this.#prepareFileDeps(abs);
+    if (!prepared) return false;
     let def: unknown;
     try {
       def = await importDefinition(abs);
@@ -1699,6 +1701,7 @@ bindPathDeny(isDenied: (resolvedAbsPath: string) => boolean): void {
         return;
       }
     }
+    if (!await this.#prepareFileDeps(file)) return;
     let def: unknown;
     try {
       def = await importDefinition(file);
@@ -1889,24 +1892,6 @@ bindPathDeny(isDenied: (resolvedAbsPath: string) => boolean): void {
       }
       store.dependencies[identity] = [...deps];
       this.#writeStore(store);
-    }
-    // ADR-0070: install (or re-verify) the declared tree before setup —
-    // an extension whose dependencies are missing or drifted never runs.
-    // Resolvability is part of the install: the extension's own directory
-    // gets a `node_modules` symlink into its deps tree, so its bare
-    // imports resolve through the standard walk — and only through its
-    // own tree (per-extension isolation, ADR-0070).
-    if (!bundled && manifestDeps && Object.keys(manifestDeps).length > 0) {
-      const install = await this.#installDeps(name, manifestDeps);
-      if (!install.ok) {
-        return { ok: false, name, reason: "deps_install_failed", message: install.message };
-      }
-      if (file) {
-        const link = linkDepsTree(extensionDepsDir(this.#mohHome, name), dirname(file), Object.keys(manifestDeps)[0]);
-        if (!link.ok) {
-          return { ok: false, name, reason: "deps_install_failed", message: link.message };
-        }
-      }
     }
     const instance: RuntimeExtension = {
       def: d as ExtensionDefinition,
@@ -2515,6 +2500,32 @@ bindPathDeny(isDenied: (resolvedAbsPath: string) => boolean): void {
    * before the network and populated after verification, so a re-install
    * works offline exactly as long as its digests match (AC5).
    */
+  async #prepareFileDeps(file: string): Promise<boolean> {
+    const manifest = readExtensionManifest(file);
+    if (!manifest.ok) return false;
+    const deps = manifest.manifest.dependencies;
+    if (!deps || Object.keys(deps).length === 0) return true;
+    const name = manifest.manifest.name;
+    const identity = contentIdentity(file)!;
+    const requested = Object.entries(deps).map(([pkg, version]) => `${pkg}@${version}`).sort();
+    const store = this.#readStore();
+    if (!sameDeps(requested, store.dependencies[identity] ?? [])) {
+      if (!await this.#options.authorizeDependencies?.(name, requested)) {
+        this.#emitFailed(name, "deps_unauthorized", `user declined dependencies: ${requested.join(", ")}`);
+        return false;
+      }
+    }
+    const installed = await this.#installDeps(name, deps);
+    const linked = installed.ok ? linkDepsTree(extensionDepsDir(this.#mohHome, name), dirname(file)) : installed;
+    if (!linked.ok) {
+      this.#emitFailed(name, "deps_install_failed", linked.message);
+      return false;
+    }
+    store.dependencies[identity] = requested;
+    this.#writeStore(store);
+    return true;
+  }
+
   async #installDeps(name: string, dependencies: Record<string, string>): Promise<{ ok: true } | { ok: false; message: string }> {
     try {
       const result = await installExtensionDeps({

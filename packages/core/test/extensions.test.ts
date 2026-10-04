@@ -583,6 +583,19 @@ describe("extension-deps installation (ADR-0070)", () => {
     }
   });
 
+  test("dependencies resolve during the extension's first top-level import", async () => {
+    const dir = tempDir();
+    dirs.push(dir);
+    const file = writeDepExt(join(dir, "ext.mjs"), "first-import", { "t8-fixture-only": "1.0.0" },
+      `import pkg from "t8-fixture-only/package.json";
+       export default { name: "first-import", version: "1.0.0", apiVersion: "1.0",
+         setup() { if (pkg.version !== "1.0.0") throw new Error("wrong dependency"); } };`);
+    const runtime = new ExtensionRuntime({ mohHome: dir, consent: () => true,
+      authorizeDependencies: () => true, depsIo: fakeDepsIo({ "t8-fixture-only": "1.0.0" }) });
+    expect(await runtime.registerFile(file)).toBe(true);
+    expect(runtime.consumeLoadEvents().some((e) => e.type === "extension_failed")).toBe(false);
+  });
+
   test("changed deps re-ask showing the new deps; refusal keeps the old tree", async () => {
     const dir = tempDir();
     const file = writeDepExt(join(dir, "ext.mjs"), "dep-change", { zod: "3.23.8" });
