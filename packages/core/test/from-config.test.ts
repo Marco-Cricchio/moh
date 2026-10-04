@@ -389,12 +389,14 @@ describe("sessionFromConfig — lane worktree config fallback", () => {
   test("projectRootFor: worktree without moh.json resolves to the main checkout", () => {
     const { cwd, home, cleanup } = tempProject();
     try {
-      // mainCheckoutFor recognizes the checkout root by the `.git` anchor
-      // beside the lane worktree — a bare directory stands in for a repo.
+      // mainCheckoutFor recognizes a lane worktree by its `.git` *file* (the
+      // `gitdir:` pointer git writes into worktrees) and reads the main
+      // checkout from the pointer's `<checkout>/.git/worktrees/<name>` shape.
       mkdirSync(join(cwd, ".git"), { recursive: true });
       writeFileSync(join(cwd, "moh.json"), JSON.stringify({ provider: "mock" }));
-      const worktree = join(cwd, "..", ".moh-lanes", "project", "lane-a");
+      const worktree = join(home, ".moh", "projects", "p-slug", "lanes", "lane-a");
       mkdirSync(worktree, { recursive: true });
+      writeFileSync(join(worktree, ".git"), `gitdir: ${join(cwd, ".git", "worktrees", "lane-a")}\n`);
       expect(projectRootFor(worktree)).toBe(cwd);
       expect(projectRootFor(cwd)).toBe(cwd);
       // A worktree with its own moh.json keeps it.
@@ -419,8 +421,9 @@ describe("sessionFromConfig — lane worktree config fallback", () => {
         join(cwd, "moh.json"),
         JSON.stringify({ provider: "mock", maxIterations: 9, mpm: { enabled: false } }),
       );
-      const worktree = join(cwd, "..", ".moh-lanes", "project", "lane-b");
+      const worktree = join(home, ".moh", "projects", "p-slug", "lanes", "lane-b");
       mkdirSync(worktree, { recursive: true });
+      writeFileSync(join(worktree, ".git"), `gitdir: ${join(cwd, ".git", "worktrees", "lane-b")}\n`);
       const result = sessionFromConfig({
         cwd: worktree,
         home,

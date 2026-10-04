@@ -1,5 +1,7 @@
-import { existsSync, mkdirSync, symlinkSync } from "node:fs";
-import { basename, dirname, isAbsolute, join, resolve } from "node:path";
+import { existsSync, mkdirSync, readFileSync, statSync, symlinkSync } from "node:fs";
+import { dirname, isAbsolute, join, resolve, sep } from "node:path";
+import { homedir } from "node:os";
+import { projectSessionsDir } from "./session-store";
 import { DevelopmentLaneStore, type DevelopmentLane, type LaneRelation, type LaneStatus } from "./development-lanes";
 
 
@@ -74,6 +76,8 @@ function fail(kind: LaneOperationError["kind"], message: string): { ok: false; e
 export class DevelopmentLaneService {
   readonly #store: DevelopmentLaneStore;
   readonly #cwd: string;
+  /** Injectable home (tests); owns the lane worktree root too. */
+  readonly #home: string;
   /** Where the session actually runs (a lane worktree or the checkout). */
   readonly #sessionCwd: string;
   readonly #git: LaneGitRunner;
@@ -85,6 +89,7 @@ export class DevelopmentLaneService {
     // (worktree add, merge, branch -D) belongs to the main checkout,
     // never to a lane's own checkout.
     this.#cwd = mainCheckoutFor(options.cwd) ?? options.cwd;
+    this.#home = options.home ?? homedir();
     this.#sessionCwd = options.cwd;
     this.#store = new DevelopmentLaneStore({ cwd: this.#cwd, home: options.home });
     this.#git = options.git ?? defaultLaneGitRunner;
@@ -126,7 +131,7 @@ export class DevelopmentLaneService {
     // A relation/pair the registry would refuse (duplicate session, active
     // worktree, missing parent) must fail before any Git write happens.
     const relation: LaneRelation = input.parentLaneId ? "depends-on" : "independent";
-    const worktreePath = resolveWorktreePath(this.#cwd, input.branchRef);
+    const worktreePath = resolveWorktreePath(this.#cwd, input.branchRef, this.#home);
     const probe = this.#store.probeLane({
       featureGroupId: input.featureGroupId,
       sessionId: input.sessionId,
@@ -218,6 +223,53 @@ export class DevelopmentLaneService {
         currentBaseRevision: freshness.value.currentRevision,
       },
     };
+  }
+
+  /**
+   * Deletes one lane outright (ADR-0060 amendment 3): worktree, branch,
+   * registry row — the destructive counterpart of `abandon` that leaves
+   * nothing behind, not even the registry row. `deleteWorktree` (default
+   * true) removes the directory from disk with the committed-work caveat
+   * (`git worktree remove --force` discards uncommitted changes and the
+   * branch delete drops unlanded commits); `false` degenerates to the
+   * registry-only form. Never fails on an already-missing worktree.
+   */
+  async deleteLane(laneId: string, options: { deleteWorktree?: boolean } = {}): Promise<LaneOperationResult<DevelopmentLane>> {
+    const lane = this.#store.listLanes().find((candidate) => candidate.id === laneId);
+    if (!lane) return fail("registry", `unknown lane: ${laneId}`);
+    if (options.deleteWorktree === false) return this.remove(laneId, { force: true });
+    if (this.worktreeExists(lane)) {
+      const remove = await this.#git(["worktree", "remove", "--force", lane.worktreePath], { cwd: this.#cwd });
+      if (remove.code !== 0 && this.worktreeExists(lane)) {
+        return fail("git", remove.stderr.trim());
+      }
+    }
+    const branch = await this.#git(["branch", "-D", lane.branchRef], { cwd: this.#cwd });
+    if (branch.code !== 0) {
+      return fail("git", branch.stderr.trim());
+    }
+    return { ok: true, value: this.#store.removeLane(laneId) };
+  }
+
+  /**
+   * Removes a single lane from the registry without touching git
+   * (registry-only): the door for pruning a lane whose worktree and
+   * branch are already gone. Refuses a lane with a live worktree or a
+   * non-terminal status unless `force` — abandon first for lanes that
+   * still own git state, the registry row is not a substitute for it.
+   */
+  async remove(laneId: string, options: { force?: boolean } = {}): Promise<LaneOperationResult<DevelopmentLane>> {
+    const lane = this.#store.listLanes().find((candidate) => candidate.id === laneId);
+    if (!lane) return fail("registry", `unknown lane: ${laneId}`);
+    if (!options.force) {
+      if (this.worktreeExists(lane)) {
+        return fail("worktree-exists", `lane worktree still present: ${lane.worktreePath} — abandon it first, or pass force`);
+      }
+      if (!["landed", "abandoned"].includes(lane.status)) {
+        return fail("registry", `lane is ${lane.status} — abandon it first, or pass force to drop the registry row`);
+      }
+    }
+    return { ok: true, value: this.#store.removeLane(laneId) };
   }
 
   /** Removes the worktree, deletes the branch, and marks the lane abandoned. */
@@ -492,39 +544,62 @@ export interface LaneConflict {
   laneRevision: string;
 }
 
-/** Worktree directory for a lane: namespaced per project (the checkout's
- * own directory name) so two repositories checked out side by side can
- * never claim the same worktree path. */
-export function laneWorktreeDirName(branchRef: string, projectName: string): string {
-  const safe = branchRef.replace(/[^a-zA-Z0-9._-]+/g, "-").replace(/^-+|-+$/g, "");
-  const safeProject = projectName.replace(/[^a-zA-Z0-9._-]+/g, "-").replace(/^-+|-+$/g, "") || "project";
-  return `.moh-lanes/${safeProject}/${safe || "lane"}`;
+/** Lane worktree root for a project: `<home>/.moh/projects/<slug>/lanes/`
+ * (ADR-0060 amendment 4). Worktrees live under the user's moh home, next
+ * to the project's session store and lane registry — never inside or
+ * beside the checkout, which needed write access outside the project and
+ * made `.moh-lanes` a positional contract on disk. The slug is resolved
+ * with the same identity resolution the session store uses (declared
+ * identity > git origin > legacy path hash), so a worktree path always
+ * maps back to exactly one project. */
+export function laneWorktreeRootFor(cwd: string, home = homedir()): string {
+  return join(projectSessionsDir(cwd, home), "lanes");
 }
 
-/** A path inside a lane worktree maps to the main checkout that owns it:
- * lane worktrees live under `<checkout-parent>/.moh-lanes/<repo>/<branch>`,
- * so the checkout root is `<anchor-parent>/<repo>` where `.moh-lanes` is the
- * anchor. Null when the cwd is not inside a lane worktree. */
+/** Worktree directory for a lane, relative to the project's lane root:
+ * the sanitized branch names one directory per branch, per project. */
+export function laneWorktreeDirName(branchRef: string): string {
+  const safe = branchRef.replace(/[^a-zA-Z0-9._-]+/g, "-").replace(/^-+|-+$/g, "");
+  return safe || "lane";
+}
+
+/** A path inside a lane worktree maps to the main checkout that owns it.
+ * The anchor is the worktree's `.git` file (git writes a `gitdir:` pointer
+ * into worktrees, never into ordinary checkouts): walking up from the cwd,
+ * the first directory whose `.git` is a *file* is a lane worktree, and the
+ * pointer names the main checkout's git dir. Null when the cwd is not
+ * inside a lane worktree (plain checkouts have a `.git` directory, the
+ * filesystem root ends the walk). */
 export function mainCheckoutFor(cwd: string): string | null {
   let current = resolve(cwd);
-  let repoName: string | null = null;
-  for (let i = 0; i < 8; i++) {
+  for (;;) {
+    const anchor = join(current, ".git");
+    try {
+      if (existsSync(anchor) && !statSync(anchor).isDirectory()) {
+        const pointer = readFileSync(anchor, "utf8").trim();
+        const match = /^gitdir:\s*(.+)$/.exec(pointer);
+        // The main checkout is the parent of the pointed-to git dir's
+        // worktrees entry (`<checkout>/.git/worktrees/<name>`); a pointer
+        // outside that shape teaches nothing.
+        const worktrees = match ? match[1]!.split(sep) : null;
+        const wi = worktrees ? worktrees.lastIndexOf("worktrees") : -1;
+        if (worktrees && wi > 0) return worktrees.slice(0, wi - 1).join(sep) || sep;
+        return null;
+      }
+    } catch {
+      // Unreadable anchor: keep walking.
+    }
     const parent = dirname(current);
     if (parent === current) return null;
-    if (basename(current) === ".moh-lanes") {
-      return repoName ? join(dirname(current), repoName) : null;
-    }
-    repoName = basename(current);
     current = parent;
   }
-  return null;
 }
 
-/** Resolves a lane worktree path to an absolute path under the project's parent. */
-export function resolveWorktreePath(cwd: string, branchRef: string): string {
+/** Resolves a lane worktree path to an absolute path under the project's
+ * lane root in the user's moh home. */
+export function resolveWorktreePath(cwd: string, branchRef: string, home = homedir()): string {
   if (!isAbsolute(cwd)) throw new Error("cwd must be absolute");
-  const root = dirname(cwd);
-  return resolve(root, laneWorktreeDirName(branchRef, basename(cwd)));
+  return resolve(laneWorktreeRootFor(cwd, home), laneWorktreeDirName(branchRef));
 }
 
 export interface CleanupCandidate {

@@ -112,3 +112,23 @@ describe("development lane store", () => {
     expect(second.status).toBe("active");
   });
 });
+
+describe("removeLane (single-lane registry removal)", () => {
+  test("deletes exactly one lane row and leaves the rest intact", () => {
+    const { cwd, home } = project();
+    const store = new DevelopmentLaneStore({ cwd, home });
+    const group = store.createFeatureGroup({ name: "g", targetRef: "develop" });
+    const a = store.createLane({
+      featureGroupId: group.id, sessionId: "s-a", worktreePath: "/tmp/a",
+      branchRef: "feature/a", baseRef: "develop", baseRevision: "abc", targetRef: "develop", relation: "independent",
+    });
+    const b = store.createLane({
+      featureGroupId: group.id, sessionId: "s-b", worktreePath: "/tmp/b",
+      branchRef: "feature/b", baseRef: "develop", baseRevision: "abc", targetRef: "develop", relation: "independent",
+    });
+    const removed = store.removeLane(a.id);
+    expect(removed.id).toBe(a.id);
+    expect(store.listLanes().map((l) => l.id)).toEqual([b.id]);
+    expect(() => store.removeLane(a.id)).toThrow(`unknown lane: ${a.id}`);
+  });
+});

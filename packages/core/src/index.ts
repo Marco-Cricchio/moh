@@ -180,6 +180,7 @@ export {
   DevelopmentLaneService,
   defaultLaneGitRunner,
   laneWorktreeDirName,
+  laneWorktreeRootFor,
   mainCheckoutFor,
   resolveWorktreePath,
   type CleanupCandidate,
