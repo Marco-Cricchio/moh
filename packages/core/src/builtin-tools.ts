@@ -478,8 +478,10 @@ const readTool = (ledger: Map<string, ServedRead>): Tool<z.infer<typeof readSche
   inputSchema: readSchema,
   async execute(args, ctx) {
     const abs = inAnyRoot(args.path, [ctx.cwd, ...(ctx.skillDirs ?? [])], ctx.filesystemScope);
+    const st = statSyncSafe(abs);
+    if (st?.isDirectory()) throw new Error(`path is a directory, not a file: ${args.path} (open a file inside it, or grep it)`);
+    if (st === null || !st.isFile()) throw new Error(`no such path: ${args.path}`);
     const file = Bun.file(abs);
-    if (!(await file.exists())) throw new Error(`file not found: ${args.path}`);
     const text = await file.text();
     const lines = text.split("\n");
     const from = args.offset ?? 1;
@@ -650,6 +652,13 @@ const grep: Tool<z.infer<typeof grepSchema>> = {
         if (out.length >= 500) break;
       }
       return truncate(out.join("\n"));
+    }
+    // #1186: a `path` that exists neither as file nor directory used to
+    // surface as a raw ENOENT from the glob scan — the model learned the
+    // path was wrong only from an errno line. Name the miss instead.
+    const st = statSyncSafe(target);
+    if (st === null) {
+      throw new Error(`no such path: ${args.path ?? target}`);
     }
     const out: string[] = [];
     const globber = new Bun.Glob("**/*");
