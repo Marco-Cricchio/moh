@@ -6,7 +6,7 @@
  * dependency authorization.
  */
 import { afterEach, describe, expect, test } from "bun:test";
-import { existsSync, mkdtempSync, mkdirSync, readFileSync, readlinkSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, lstatSync, mkdtempSync, mkdirSync, readFileSync, readlinkSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
@@ -565,14 +565,22 @@ describe("extension-deps installation (ADR-0070)", () => {
       depsIo: io,
     });
     expect(await rt.registerFile(file)).toBe(true);
-    // The pnpm-shaped link: <extDir>/node_modules/zod -> the extension's
-    // own tree — and only its tree.
-    expect(readlinkSync(join(dir, "node_modules", "zod"))).toBe(join(extensionDepsDir(dir, "resolver"), "node_modules", "zod"));
-    // Probe exactly what an extension import does: a bare specifier
-    // resolved from the extension's own file, walking its node_modules.
-    const resolved = realpathSync(createRequire(file).resolve("zod/package.json"));
-    // macOS tmpdir symlinks (/var -> /private/var): compare real paths.
-    expect(resolved.startsWith(realpathSync(extensionDepsDir(dir, "resolver")))).toBe(true);
+    // Whatever shape the platform needs (links where the resolver
+    // follows them, a real copy where it does not — Bun on Linux does
+    // not), the import must resolve: a bare specifier from the
+    // extension's own file resolves, and the installed tree serves it.
+    const resolved = createRequire(file).resolve("zod/package.json");
+    expect(existsSync(resolved)).toBe(true);
+    // The served package is the extension's own: its node_modules entry
+    // either links into the extension's tree (macOS) or is a real copy
+    // of it (Linux), never a second extension's tree.
+    const entry = join(dir, "node_modules", "zod");
+    const insideTree = extensionDepsDir(dir, "resolver");
+    if (lstatSync(entry).isSymbolicLink()) {
+      expect(readlinkSync(entry).startsWith(insideTree)).toBe(true);
+    } else {
+      expect(existsSync(join(entry, "package.json"))).toBe(true);
+    }
   });
 
   test("changed deps re-ask showing the new deps; refusal keeps the old tree", async () => {

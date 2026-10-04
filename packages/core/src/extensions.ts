@@ -1902,7 +1902,7 @@ bindPathDeny(isDenied: (resolvedAbsPath: string) => boolean): void {
         return { ok: false, name, reason: "deps_install_failed", message: install.message };
       }
       if (file) {
-        const link = linkDepsTree(extensionDepsDir(this.#mohHome, name), dirname(file));
+        const link = linkDepsTree(extensionDepsDir(this.#mohHome, name), dirname(file), Object.keys(manifestDeps)[0]);
         if (!link.ok) {
           return { ok: false, name, reason: "deps_install_failed", message: link.message };
         }
