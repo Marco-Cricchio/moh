@@ -7,7 +7,96 @@ matching section here at tag time.
 
 ## [Unreleased]
 
+## [0.57.0] - 2026-10-04
+
 ### Added
+
+- **The extension platform** (ADR-0061, PRs #1125, #1135, #1138, #1130): an
+  extension ships as a directory with an `moh.extension.json` manifest —
+  name, apiVersion, capabilities, contribution declarations — read once as
+  the single authority; what the manifest does not declare does not exist
+  for the extension. The enable consent names the declared capabilities
+  (widening re-asks); `moh extension add|list|remove` is the
+  immutable-source registry (no in-place upgrades: remove + re-add with
+  explicit consent); an extension may contribute slash commands
+  (`contribute-commands`, lowercase-only, reserved names guarded) and the
+  headless command door waits for pending registrations before the first
+  turn.
+- **The host-tool seam and its scope family** (ADR-0064–0069, PRs #1168,
+  #1169, #1170, #1173, #1179): `ctx.host.*` appears on the setup context
+  only when the consent covers a declared scope — enforcement by absence.
+  Five scopes: `path:<glob>` (one grant, whole read/write family,
+  real-filesystem containment with symlinks resolved and per-component
+  case handling), `host:<domain>` (exact https host, in-scope redirects,
+  buffered responses), `credential:<name>` (keychain custody, ref-only
+  access, host-side injection — the secret never crosses the seam),
+  `tool:<name|*>` (invocation plus `contribute-tool`), and
+  `endpoint:<ref>` (configured-endpoint calls through the Route). Refusals
+  are typed results with one `host_refused` event, never exceptions; every
+  performed operation records one `host_op` with the resolved path. One
+  `checkScope` module authorizes every method; shipped scope grammars are
+  enforced at install/scan time (ADR-0071, #1177) — a typo is a manifest
+  error.
+- **The spawn-subagent capability** (ADR-0053/0055, PR #1144, apiVersion
+  1.13): `ctx.spawnSubagent` exists only when the slot is granted; the
+  envelope is intersected at every spawn (10 children per extension per
+  session, iteration ceiling, loud unknown-tool refusals), no grandchildren
+  ever, and `ctx.subagentActivity` reads only children the extension
+  spawned. The absolute prohibitions are enforced in core code: an
+  extension can never mutate permission mode or rules, never write the
+  consent store, never trigger reloads, never forge a chrome event —
+  a hook runs marked, and privileged seams refuse with a typed error.
+- **The extension rail, panels and overlays** (ADR-0062, #1132, PR #1140)
+  and the **`/extensions` screen** (#1131, PR #1139): described in the
+  0.56.0 section below, they ship for the first time in this release — the
+  rail (closed by default, user-toggled, 4 panel slots, permission gate on
+  every callback) and the read-only extension-state screen (versions,
+  capabilities, commands, owned prompt sections, failures and refusals,
+  derivable from the event log alone).
+- **Notes modal: a real cursor, word wrap and inject-to-composer**
+  (#1180, PR #1181): the editor was append-only with truncated long lines.
+  It now tracks a cursor (line + grapheme-safe column, sharing the
+  composer's helpers) with arrows/home/end, split and join at the cursor;
+  rows word-wrap at the dialog border with correct scrolling; and `i` on a
+  note hands its text to the composer prefill seam and closes the modal.
+  Read failures degrade to a writable empty list with a visible hint.
+
+### Fixed
+
+- **Lanes resolve project config and git chrome to the real roots**
+  (#1174, PR #1174): a lane worktree has no `moh.json` (gitignored), so
+  every lane assembled the empty config — default provider, no mpm, the
+  50-turn cap — and the TUI chrome showed the launch branch, never the
+  lane's. `projectRootFor` now resolves a config-less worktree to its
+  owning checkout (a worktree with its own config keeps it; `mpm.root`
+  stays the worktree where the agent edits), and the chrome follows the
+  real session cwd.
+- **Six review findings from the spawn-capability review** (#1143, PR
+  #1155): the semaphore transfers its permit to the head waiter so
+  `#active` can no longer overshoot `maxConcurrency`; a bare `*` tool rule
+  or override fails closed instead of granting everything; interleaved
+  command invocations each keep their own overlay guard; the per-turn
+  `extension_event` budget resets at turn dispatch; and a hook throwing
+  after its timeout lands as one bounded `hook_late_error` record.
+
+### Changed
+
+- **Jev migrates onto the platform seams** (ADR-0071 phases F2/T7, PRs
+  #1171, #1175): the TypeSafe key moves to the keychain-backed credential
+  store with a one-time plaintext migration (activation is unchanged across
+  the move; `moh jev status` reports a lingering plaintext key as legacy),
+  and the network life crosses `ctx.host.fetch` with the bearer injected
+  host-side — the key value never crosses the seam. Git reads move to a
+  read-only `tool:git` builtin through the same checkpoint. `refused` is a
+  deterministic failure kind, never retried.
+- **The model catalog was regenerated** (release step): 24 prices moved in
+  both directions — `deepseek/deepseek-v4-flash` 0.042 → 0.022 and
+  `deepseek/deepseek-v4-pro-0813` 0.66 → 0.33 down, `z-ai/glm-5.3`
+  0.22 → 1.4 and `moonshotai/kimi-k2.6` 0.43 → 0.95 up. No context windows
+  or reasoning flags moved; no issue and no context-window shrink.
+  `PRICING_SNAPSHOT.version` follows the manifest, which declares 0.57.0.
+
+## [0.56.0] - 2026-10-01
 
 - **Extension dependencies installer** (ADR-0070, #1166): an extension
   manifest may declare `"dependencies": { "zod": "3.23.8" }` — exact
@@ -27,8 +116,8 @@ matching section here at tag time.
   remove` deletes the dependency directory; there is no shared store
   and no GC.
 
-- **Extensions rail, panels and overlays** (ADR-0062, #1132, apiVersion
-  1.12): an extension with the `contribute-panels` grant registers one
+- **Extensions rail, panels and overlays** (ADR-0062, #1132, PR #1140,
+  apiVersion 1.12): an extension with the `contribute-panels` grant registers one
   rail panel — arbitrary Ink rendering with a declared max-height, at
   most 4 visible across all extensions, a fifth refused visibly at load
   (`panel slot exhausted (4/4)`), no automatic eviction: collapse and
@@ -42,7 +131,7 @@ matching section here at tag time.
   overlays are visible absence in `/extensions` (their names fold from
   `extension_loaded`), never a simulated rendering.
 
-- **`/extensions` screen** (#1131): the TUI command opens a read-only
+- **`/extensions` screen** (#1131, PR #1139): the TUI command opens a read-only
   extension-state snapshot — per enabled extension its version, source
   path (or "bundled"), declared capabilities, registered commands and the
   prompt sections it currently owns (ADR-0054); then the last failure
@@ -53,7 +142,7 @@ matching section here at tag time.
   the runtime-only facts).
 
 - **Prompt section replacement via `beforeModelCall`** (ADR-0054, #1129,
-  apiVersion 1.11): an extension with a per-section capability grant
+  PRs #1124, #1136, apiVersion 1.11): an extension with a per-section capability grant
   (`replace-prompt-section:<name>`) may replace one of the six data prompt
   sections (`environment`, `tools`, `skills`, `memory`, `session_state`,
   `mpm`) from the hook's return value; `null` hides. The core writes a
@@ -64,7 +153,7 @@ matching section here at tag time.
   `dispatchBeforeModelCall`, so a subagent child composes the parent's
   replacements with its own chrome.
 - **Subagent spawn attribution and the orchestration stop** (ADR-0055,
-  #1127): every `subagent_spawn` event now records who asked — the model,
+  #1127, PRs #1133, #1134): every `subagent_spawn` event now records who asked — the model,
   or a named orchestration extension — and the limits actually applied to
   the child (tool allow-list, effective permission mode, iteration cap),
   so an orchestration's children are derivable from the log across
@@ -1792,7 +1881,8 @@ matching section here at tag time.
   passed; a regression test pins the resolved path under
   `<home>/.moh/projects`.
 
-[Unreleased]: https://github.com/Marco-Cricchio/moh/compare/v0.56.0...develop
+[Unreleased]: https://github.com/Marco-Cricchio/moh/compare/v0.57.0...develop
+[0.57.0]: https://github.com/Marco-Cricchio/moh/compare/v0.56.0...v0.57.0
 [0.56.0]: https://github.com/Marco-Cricchio/moh/compare/v0.55.0...v0.56.0
 [0.55.0]: https://github.com/Marco-Cricchio/moh/compare/v0.54.0...v0.55.0
 [0.54.0]: https://github.com/Marco-Cricchio/moh/compare/v0.53.2...v0.54.0
