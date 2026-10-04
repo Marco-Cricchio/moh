@@ -19,8 +19,11 @@ import {
   isCredentialScope,
   validateCredentialScope,
   fileCredentialStore,
+  keychainAccount,
+  keychainCredentialStore,
   type CredentialStore,
 } from "../src/credential-scope";
+import { homedir } from "node:os";
 import type { AgentEvent } from "../src/types";
 
 const roots: string[] = [];
@@ -236,5 +239,76 @@ describe("credential scope: fetch end to end", () => {
     expect(res.ok).toBe(true);
     if (res.ok) expect(new TextDecoder().decode(res.bytes)).toBe("done");
     expect(seen.auth).toBe("Bearer s3cret");
+  });
+});
+
+describe("#1178 keychain accounts are home-scoped", () => {
+  type SecCall = { args: string[]; out: string; ok: boolean; exit: number | null };
+  /** A fake `security` runner: a scripted map of account -> value. */
+  function fakeSecurity(items: Record<string, string>) {
+    const calls: SecCall[] = [];
+    const run = (args: string[]): { ok: boolean; out: string; err: string; exit: number | null } => {
+      calls.push({ args, out: "", ok: false, exit: 44 });
+      if (args[0] === "find-generic-password") {
+        const acc = args[args.indexOf("-a") + 1];
+        const v = items[acc];
+        if (v !== undefined) return { ok: true, out: v, err: "", exit: 0 };
+        return { ok: false, out: "", err: "not found", exit: 44 };
+      }
+      if (args[0] === "add-generic-password") {
+        const acc = args[args.indexOf("-a") + 1];
+        items[acc] = args[args.indexOf("-w") + 1];
+        return { ok: true, out: "", err: "", exit: 0 };
+      }
+      if (args[0] === "delete-generic-password") {
+        const acc = args[args.indexOf("-a") + 1];
+        const had = acc in items;
+        delete items[acc];
+        return { ok: had, out: "", err: had ? "" : "not found", exit: had ? 0 : 44 };
+      }
+      return { ok: false, out: "", err: "unsupported", exit: 1 };
+    };
+    return { run, calls, items };
+  }
+
+  test("two homes on one machine: a secret in one is invisible to the other", () => {
+    const homeA = "/tmp/moh-home-a";
+    const homeB = "/tmp/moh-home-b";
+    // The keychain is shared (user-global); only the account differs.
+    const shared: Record<string, string> = { [`${keychainAccount(homeA, "typesafe")}`]: "real-secret" };
+    const storeA = keychainCredentialStore(homeA, fakeSecurity(shared).run);
+    const storeB = keychainCredentialStore(homeB, fakeSecurity(shared).run);
+    expect(storeA).toBeDefined();
+    expect(storeB).toBeDefined();
+    expect(storeA!.get("typesafe")).toBe("real-secret");
+    expect(storeB!.get("typesafe")).toBeUndefined();
+    // And B writing cannot collide with A's item.
+    storeB!.set("typesafe", "b-secret");
+    expect(storeA!.get("typesafe")).toBe("real-secret");
+    expect(storeB!.get("typesafe")).toBe("b-secret");
+  });
+
+  test("a legacy bare-account item is honored only from the ambient home", () => {
+    const shared: Record<string, string> = { typesafe: "pre-1178-secret" };
+    const store = keychainCredentialStore(homedir(), fakeSecurity(shared).run);
+    expect(store!.get("typesafe")).toBe("pre-1178-secret");
+    const tempShared: Record<string, string> = { typesafe: "pre-1178-secret" };
+    const tempStore = keychainCredentialStore("/tmp/moh-temp-home", fakeSecurity(tempShared).run);
+    expect(tempStore!.get("typesafe")).toBeUndefined();
+  });
+
+  test("delete from the ambient home cleans the legacy bare-account item too", () => {
+    const shared: Record<string, string> = { [keychainAccount(homedir(), "typesafe")]: "v", typesafe: "legacy" };
+    const store = keychainCredentialStore(homedir(), fakeSecurity(shared).run);
+    expect(store!.delete("typesafe")).toBe(true);
+    expect(shared).toEqual({});
+  });
+
+  test("set/delete under a temporary home never touch the bare legacy account", () => {
+    const shared: Record<string, string> = { typesafe: "legacy" };
+    const store = keychainCredentialStore("/tmp/moh-temp-home", fakeSecurity(shared).run);
+    store!.set("typesafe", "v");
+    store!.delete("typesafe");
+    expect(shared).toEqual({ typesafe: "legacy" });
   });
 });
