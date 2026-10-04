@@ -89,7 +89,7 @@ No requirements — the binary is self-contained (macOS arm64/x64,
 Linux x64/arm64):
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/Marco-Cricchio/moh/develop/scripts/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/Marco-Cricchio/moh/main/scripts/install.sh | sh
 ```
 
 or `brew install Marco-Cricchio/moh/moh`. On Windows there is no native
