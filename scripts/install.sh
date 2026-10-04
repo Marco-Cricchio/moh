@@ -1,5 +1,5 @@
 #!/bin/sh
-# moh install script — curl -fsSL https://raw.githubusercontent.com/Marco-Cricchio/moh/develop/scripts/install.sh | sh
+# moh install script — curl -fsSL https://raw.githubusercontent.com/Marco-Cricchio/moh/main/scripts/install.sh | sh
 #
 # Spec: docs/spec/cli-binary-distribution.md · ADR-0013 · Issue #269.
 #
