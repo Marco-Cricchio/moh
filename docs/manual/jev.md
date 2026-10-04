@@ -51,11 +51,18 @@ setting up: `moh jev routing on`, `moh jev classification off` and so on —
 `moh jev --help` lists the names, and every one of them writes
 `~/.moh/config` exactly like the panel.
 
-The key lives in `~/.moh/config` (the `typesafe` block, key `apiKey`) —
-the user configuration, never moh.json: a cloned project must not be able
-to activate an account on your behalf. The per-call timeout
-(`typesafe.timeoutMs`, default 2500 ms) is configuration only — there is no
-timeout field in the panel. The Config reference page lists the block.
+The key lives in the credential store (the OS keychain on macOS, a
+0600-file fallback elsewhere) under the ref `typesafe` — entered from the
+TUI Settings panel and validated with one real call before it is saved,
+never moh.json: a cloned project must not be able to activate an account
+on your behalf. A legacy plaintext `typesafe.apiKey` in `~/.moh/config`
+(pre-#1162) is migrated into the store once at startup and removed from
+the file — unless the store already holds a *different* credential, in
+which case the plaintext stays untouched (`moh jev status` reports it as
+legacy) until you reconcile it from Settings: a migration never deletes a
+key it did not save. The per-call timeout (`typesafe.timeoutMs`, default
+2500 ms) is configuration only — there is no timeout field in the panel.
+The Config reference page lists the block.
 
 ## What leaves your machine
 

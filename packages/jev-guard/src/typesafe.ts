@@ -191,9 +191,14 @@ export function maskApiKey(key: string): string {
 /**
  * #1162: the one-time key migration — moves a legacy plaintext
  * `typesafe.apiKey` from the user config into the credential store and
- * deletes it from the file. Idempotent: an existing stored credential
- * wins and the plaintext is removed either way; no stored value and no
- * plaintext is a no-op. Called by the client at assembly (the client owns
+ * deletes it from the file. Idempotent: no stored value and no plaintext
+ * is a no-op, and a plaintext equal to the stored credential (both
+ * trimmed) is converged — removed. A plaintext that *diverges* from the
+ * stored credential stays in the file (#1206): a migration never deletes
+ * a secret it did not save, and the divergence stays visible (`moh jev
+ * status` reports it as legacy) until the user reconciles it from the
+ * Settings entry (re-save or Remove). The stored credential keeps
+ * winning at runtime. Called by the client at assembly (the client owns
  * the config surface of what it ships) and by the Settings entry's mount,
  * so a pre-#1162 config converges on the store without user action.
  */
@@ -211,9 +216,12 @@ export function migrateTypesafeKey(
   } catch {
     return;
   }
-  const stored = store.get(TYPESAFE_CREDENTIAL_REF) !== undefined;
-  if (!stored && legacy) store.set(TYPESAFE_CREDENTIAL_REF, legacy);
-  if (legacy) removeTypesafeApiKey(file, io);
+  if (legacy === undefined) return;
+  const stored = store.get(TYPESAFE_CREDENTIAL_REF);
+  if (stored === undefined) store.set(TYPESAFE_CREDENTIAL_REF, legacy);
+  // Converged (same secret in two homes) or a true migration: the file
+  // gives the value up. A diverging plaintext is not ours to delete.
+  if (stored === undefined || stored === legacy) removeTypesafeApiKey(file, io);
 }
 
 /**
