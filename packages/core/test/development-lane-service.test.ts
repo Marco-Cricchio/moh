@@ -241,6 +241,110 @@ describe("development lane service", () => {
     expect(retry.ok && retry.value.status).toBe("landed");
   });
 
+  test("integrate merges the worktree's live branch and syncs the registry", async () => {
+    const { cwd, home } = project();
+    const branches = new Set<string>(["fix/semantic"]);
+    const { runner, calls } = fakeGit((args) => {
+      if (args[0] === "branch" && args[1] === "--show-current") return { code: 0, stdout: "fix/semantic\n", stderr: "" };
+      if (args[0] === "worktree") {
+        branches.add(args[3]!);
+        const path = args[4]!;
+        mkdirSync(path, { recursive: true });
+        writeFileSync(join(path, ".git"), "gitdir: fake\n");
+        return { code: 0, stdout: "", stderr: "" };
+      }
+      if (args[0] === "rev-parse" && args[2]!.startsWith("refs/heads/")) {
+        return branches.has(args[2]!.slice("refs/heads/".length)) ? { code: 0, stdout: "h\n", stderr: "" } : { code: 1, stdout: "", stderr: "" };
+      }
+      if (args[0] === "rev-parse") return { code: 0, stdout: "t0\n", stderr: "" };
+      return { code: 0, stdout: "", stderr: "" };
+    });
+    const service = new DevelopmentLaneService({ cwd, home, git: runner });
+    const group = await service.ensureFeatureGroup("mu", "develop");
+    const created = await service.createWorktreeLane({
+      featureGroupId: group.id, sessionId: "s1", branchRef: "moh/auto-s1", baseRef: "develop",
+    });
+    expect(created.ok).toBe(true);
+    const result = await service.integrate(created.ok ? created.value.id : "");
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.value.outcome).toBe("landed");
+    const merge = calls.find((args) => args[0] === "merge");
+    expect(merge).toEqual(["merge", "--no-ff", "--no-edit", "fix/semantic"]);
+    const lane = service.listLanes(group.id)[0]!;
+    expect(lane.branchRef).toBe("fix/semantic");
+    expect(lane.status).toBe("landed");
+  });
+
+  test("resolve merges the worktree's live branch after a semantic rename", async () => {
+    const { cwd, home } = project();
+    const branches = new Set<string>(["fix/renamed"]);
+    let mergeAttempts = 0;
+    const { runner, calls } = fakeGit((args) => {
+      if (args[0] === "branch" && args[1] === "--show-current") return { code: 0, stdout: "fix/renamed\n", stderr: "" };
+      if (args[0] === "worktree") {
+        branches.add(args[3]!);
+        const path = args[4]!;
+        mkdirSync(path, { recursive: true });
+        writeFileSync(join(path, ".git"), "gitdir: fake\n");
+        return { code: 0, stdout: "", stderr: "" };
+      }
+      if (args[0] === "rev-parse" && args[2]!.startsWith("refs/heads/")) {
+        return branches.has(args[2]!.slice("refs/heads/".length)) ? { code: 0, stdout: "lane777\n", stderr: "" } : { code: 1, stdout: "", stderr: "" };
+      }
+      if (args[0] === "rev-parse") return { code: 0, stdout: "targ111\n", stderr: "" };
+      if (args[0] === "merge" && args[1] !== "--abort") {
+        mergeAttempts += 1;
+        return mergeAttempts === 1 ? { code: 1, stdout: "", stderr: "CONFLICT (content): Merge conflict in file.txt" } : { code: 0, stdout: "", stderr: "" };
+      }
+      return { code: 0, stdout: "", stderr: "" };
+    });
+    const service = new DevelopmentLaneService({ cwd, home, git: runner });
+    const group = await service.ensureFeatureGroup("nu", "develop");
+    const created = await service.createWorktreeLane({
+      featureGroupId: group.id, sessionId: "s1", branchRef: "moh/auto-s1", baseRef: "develop",
+    });
+    expect(created.ok).toBe(true);
+    const conflicted = await service.integrate(created.ok ? created.value.id : "");
+    expect(conflicted.ok && conflicted.value.outcome === "conflicted").toBe(true);
+    const retry = await service.resolve(created.ok ? created.value.id : "");
+    expect(retry.ok && retry.value.status).toBe("landed");
+    const merges = calls.filter((args) => args[0] === "merge" && args[1] !== "--abort");
+    expect(merges.every((args) => args[3] === "fix/renamed")).toBe(true);
+    expect(service.listLanes(group.id)[0]!.branchRef).toBe("fix/renamed");
+  });
+
+  test("integrate falls back to the registry branchRef when the live branch is unknown", async () => {
+    const { cwd, home } = project();
+    const branches = new Set<string>();
+    const { runner, calls } = fakeGit((args) => {
+      if (args[0] === "branch" && args[1] === "--show-current") return { code: 0, stdout: "ghost/branch\n", stderr: "" };
+      if (args[0] === "worktree") {
+        branches.add(args[3]!);
+        const path = args[4]!;
+        mkdirSync(path, { recursive: true });
+        writeFileSync(join(path, ".git"), "gitdir: fake\n");
+        return { code: 0, stdout: "", stderr: "" };
+      }
+      if (args[0] === "rev-parse" && args[2]!.startsWith("refs/heads/")) {
+        return branches.has(args[2]!.slice("refs/heads/".length)) ? { code: 0, stdout: "h\n", stderr: "" } : { code: 1, stdout: "", stderr: "" };
+      }
+      if (args[0] === "rev-parse") return { code: 0, stdout: "t0\n", stderr: "" };
+      return { code: 0, stdout: "", stderr: "" };
+    });
+    const service = new DevelopmentLaneService({ cwd, home, git: runner });
+    const group = await service.ensureFeatureGroup("xi", "develop");
+    const created = await service.createWorktreeLane({
+      featureGroupId: group.id, sessionId: "s1", branchRef: "moh/auto-s1", baseRef: "develop",
+    });
+    expect(created.ok).toBe(true);
+    const result = await service.integrate(created.ok ? created.value.id : "");
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.value.outcome).toBe("landed");
+    const merge = calls.find((args) => args[0] === "merge");
+    expect(merge).toEqual(["merge", "--no-ff", "--no-edit", "moh/auto-s1"]);
+    expect(service.listLanes(group.id)[0]!.branchRef).toBe("moh/auto-s1");
+  });
+
   test("resolve refuses a lane that is not conflicted", async () => {
     const { cwd, home } = project();
     const { runner } = fakeGit((args) => {
