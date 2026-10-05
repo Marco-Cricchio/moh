@@ -5,7 +5,7 @@ import { join } from "node:path";
 import React from "react";
 import { render } from "ink-testing-library";
 import { readGitBranch } from "../src/git-branch";
-import { BottomBar, middleElide } from "../src/BottomBar";
+import { BottomBar, laneBranchDisplay, laneLabelShown, middleElide, shortenHome } from "../src/BottomBar";
 import { ThemeProvider, THEMES } from "../src/themes";
 import { stripAnsi } from "./helpers";
 
@@ -83,6 +83,76 @@ describe("BottomBar branch segment", () => {
       const frame = renderBar({ width, mode: "dev", branch: "develop", tokens: { contextIn: 0, totalOut: 0, calls: 0 } });
       for (const line of frame.split("\n").filter(Boolean)) expect(line.length).toBeLessThanOrEqual(width - 1);
     }
+  });
+});
+
+describe("ADR-0060 lane chrome on row 2", () => {
+  const base = { width: 140, pending: false, spinner: "⠸", model: "mock", turns: 0, tokens: { contextIn: 0, totalOut: 0, calls: 0 }, level: "default" as const, focusedChip: null };
+
+  const renderBar = (props: Record<string, unknown>) => {
+    const ink = render(<ThemeProvider value={THEMES["tokyo-night"]}><BottomBar {...base} {...(props as any)} /></ThemeProvider>);
+    const frame = stripAnsi(ink.lastFrame() ?? "");
+    ink.unmount();
+    return frame;
+  };
+
+  test("auto-branch + label: the opaque id elides, the label speaks", () => {
+    const frame = renderBar({
+      mode: "dev",
+      cwd: "/Users/mc/Documents/AI_Projects/nome-folder",
+      inLane: true,
+      branch: "moh/auto-muutea2o-j95d9n",
+      laneLabel: "fix parser crash",
+    });
+    expect(frame).toContain("▣ /Users/mc/Documents/AI_Projects/nome-folder · lane");
+    expect(frame).toContain("⎇ moh/auto ");
+    expect(frame).not.toContain("muutea2o");
+    expect(frame).toContain("⬥ fix parser crash");
+    const row = frame.split("\n").find((line) => line.includes("▣"))!;
+    expect(row.indexOf("⎇")).toBeLessThan(row.indexOf("⬥"));
+    expect(row.indexOf("⬥")).toBeLessThan(row.indexOf("◉"));
+  });
+
+  test("no label yet: the full auto-branch shows, no label segment", () => {
+    const frame = renderBar({ mode: "dev", cwd: "/x", inLane: true, branch: "moh/auto-muutea2o-j95d9n", laneLabel: null });
+    expect(frame).toContain("⎇ moh/auto-muutea2o-j95d9n");
+    expect(frame).not.toContain("⬥");
+    expect(frame).toContain("· lane");
+  });
+
+  test("a semantic branch silences the label: the branch already says it", () => {
+    const frame = renderBar({ mode: "dev", cwd: "/x", inLane: true, branch: "fix/parser-crash", laneLabel: "fix parser crash" });
+    expect(frame).toContain("⎇ fix/parser-crash");
+    expect(frame).not.toContain("⬥");
+  });
+
+  test("the label drops before the branch in the compact ladder", () => {
+    const wide = renderBar({
+      width: 140, mode: "dev", cwd: "/very/long/project/path/segments/here", inLane: true,
+      branch: "moh/auto-muutea2o-j95d9n", laneLabel: "fix parser crash",
+    });
+    expect(wide).toContain("⬥ fix parser crash");
+    const tight = renderBar({
+      width: 52, mode: "dev", cwd: "/very/long/project/path/segments/here", inLane: true,
+      branch: "moh/auto-muutea2o-j95d9n", laneLabel: "fix parser crash",
+    });
+    for (const line of tight.split("\n").filter(Boolean)) expect(line.length).toBeLessThanOrEqual(51);
+    expect(tight).toContain("⎇ moh/auto");
+    expect(tight).not.toContain("muutea2o");
+  });
+
+  test("helper semantics: shortenHome, label visibility, branch display", () => {
+    const home = "/Users/mc";
+    expect(shortenHome("/Users/mc/Documents/proj", home)).toBe("~/Documents/proj");
+    expect(shortenHome("/Users/mc", home)).toBe("~");
+    expect(shortenHome("/opt/proj", home)).toBe("/opt/proj");
+    expect(shortenHome("/Users/mc2/proj", home)).toBe("/Users/mc2/proj");
+    expect(laneLabelShown("moh/auto-x", "fix it")).toBe(true);
+    expect(laneLabelShown("moh/auto-x", null)).toBe(false);
+    expect(laneLabelShown("fix/parser-crash", "fix it")).toBe(false);
+    expect(laneBranchDisplay("moh/auto-muutea2o-j95d9n", "fix it")).toBe("moh/auto");
+    expect(laneBranchDisplay("moh/auto-x", null)).toBe("moh/auto-x");
+    expect(laneBranchDisplay("fix/parser-crash", "fix it")).toBe("fix/parser-crash");
   });
 });
 

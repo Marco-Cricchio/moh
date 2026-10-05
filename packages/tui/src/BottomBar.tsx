@@ -1,4 +1,5 @@
 import React from "react";
+import { sep } from "node:path";
 import { selectionStyle } from "./color";
 import { Box, Text } from "ink";
 import { useTheme, type PaintableTheme } from "./themes";
@@ -121,6 +122,15 @@ interface StatusProps {
   permissionMode?: SessionMode;
   /** Current git branch, when the cwd is a repository (both modes). */
   branch?: string | null;
+  /** ADR-0060 lane chrome: the session runs inside a lane worktree. The
+   * cwd segment carries the `· lane` marker (isolation is visible even
+   * before any work is named) and the auto-branch elides to `moh/auto`
+   * while a label names the work. */
+  inLane?: boolean;
+  /** ADR-0060: what the lane is working on, from the registry label.
+   * Shown next to the auto-branch and dropped the moment the branch is
+   * no longer `moh/auto-*` (a named branch already says it). */
+  laneLabel?: string | null;
   /** Session working directory: shown in both modes, middle-elided when it
    * exceeds the class-aware budget so the start and — above all — the end
    * (the project dir) stay visible. */
@@ -244,7 +254,7 @@ function ScannerText({ text, theme }: { text: string; theme: PaintableTheme }) {
  * wording now that the tail no longer competes for the row. The text is the
  * first thing to go when the width class is tight; the glyph stays, and
  * `◌ ◐ ⚠` stay unambiguous against the glyphs already in use
- * (`▣ ⎇ ◉ ○ ◍ ✓ ∅ ↻ ⚠`). */
+ * (`▣ ⎇ ⬥ ◉ ○ ◍ ✓ ∅ ↻ ⚠`). */
 function permissionModeLead(mode: SessionMode, cls: WidthClass): { text: string; color: "dim" | "warn" | "err" } {
   if (mode === "yolo") {
     return { text: cls === "wide" ? "⚠ YOLO — unrestricted tools" : cls === "regular" ? "⚠ YOLO" : "⚠", color: "err" };
@@ -264,10 +274,37 @@ export function middleElide(value: string, max: number): string {
   return `${value.slice(0, head)}…${value.slice(value.length - tail)}`;
 }
 
+/** Shortens the user home prefix to `~` for the status bar (`/Users/me/x`
+ * → `~/x`); no-op elsewhere. Display-only: never a filesystem path again. */
+export function shortenHome(value: string, home: string): string {
+  if (!home) return value;
+  if (value === home) return "~";
+  const prefix = home.endsWith(sep) ? home : `${home}${sep}`;
+  return value.startsWith(prefix) ? `~${sep}${value.slice(prefix.length)}` : value;
+}
+
+/** The auto-lane branch prefix: a branch still named by the session id has
+ * no meaning for a human — the label segment carries the meaning instead. */
+const AUTO_LANE_BRANCH_RE = /^moh\/auto-/;
+
+/** True when the `⬥` label segment applies: only next to an auto-lane
+ * branch. A semantic branch (`fix/…`) already says what the work is — the
+ * label would be a duplicate and goes quiet (row2 stays honest: every
+ * segment names something that exists). */
+export function laneLabelShown(branch: string | null | undefined, laneLabel: string | null | undefined): laneLabel is string {
+  return Boolean(branch && AUTO_LANE_BRANCH_RE.test(branch) && laneLabel);
+}
+
+/** The branch segment text: an auto-lane branch with a label in force
+ * elides the opaque session-id tail to `moh/auto` — the space goes to the
+ * label. Anything else renders exactly as read from `.git/HEAD`. */
+export function laneBranchDisplay(branch: string, laneLabel: string | null | undefined): string {
+  return laneLabelShown(branch, laneLabel) ? "moh/auto" : branch;
+}
+
 /** #1012: tail-anchored elision for the compact cwd — the head goes first,
  * the project directory stays (`…/moh`). The anchor snaps forward to the
- * next path separator so the fragment starts on a boundary, never mid-word. */
-export function tailElidePath(value: string, max: number): string {
+ * next path separator so the fragment starts on a boundary, never mid-word. */export function tailElidePath(value: string, max: number): string {
   if (value.length <= max) return value;
   let start = value.length - (max - 1);
   const slash = value.indexOf("/", Math.max(1, start));
@@ -384,29 +421,46 @@ function StatusRow(props: StatusProps) {
   // stays) before dropping entirely. The mode glyph survives every tier.
   const tailBudget = Math.max(1, props.width - 4 - (modeLead ? modeLead.text.length + 1 : 0));
   const projectionChip = props.mode === "dev" ? "◉ dev" : "○ vibe";
-  const branchSegment = props.branch ? `⎇ ${props.branch}` : "";
-  const cwdSegment = props.cwd ? `▣ ${props.cwd}` : "";
+  // ADR-0060 lane chrome: while the branch is still the auto-lane name and
+  // a label names the work, the opaque session-id tail elides to `moh/auto`
+  // and the label renders next to it; the label goes quiet the moment the
+  // branch is no longer `moh/auto-*` (a named branch already says it).
+  const labelSegment = laneLabelShown(props.branch, props.laneLabel) ? `⬥ ${props.laneLabel}` : "";
+  const branchSegment = props.branch ? `⎇ ${laneBranchDisplay(props.branch, props.laneLabel)}` : "";
+  const laneMarker = props.inLane ? " · lane" : "";
+  const cwdSegment = props.cwd ? `▣ ${props.cwd}${laneMarker}` : "";
   const joinedWidth = (parts: string[]) => parts.reduce((sum, text) => sum + text.length + 1, -1);
   let row2: string[];
   if (!compact) {
     // Regular/wide: the cwd middle-elides to the class-aware budget, as before.
-    const cwdBudget = Math.min(cls === "wide" ? 44 : 30, Math.max(4, tailBudget - (branchSegment ? branchSegment.length + projectionChip.length + 2 : projectionChip.length + 1) - 2));
+    const others = (branchSegment ? branchSegment.length + 1 : 0) + (labelSegment ? labelSegment.length + 1 : 0) + projectionChip.length + (laneMarker ? laneMarker.length + 1 : 0);
+    const cwdBudget = Math.min(cls === "wide" ? 44 : 30, Math.max(4, tailBudget - others - 2));
     row2 = fitStatusSegments([
-      { text: props.cwd ? `▣ ${middleElide(props.cwd, cwdBudget)}` : "" },
+      { text: props.cwd ? `▣ ${middleElide(props.cwd, cwdBudget)}${laneMarker}` : "" },
       ...(branchSegment ? [{ text: branchSegment }] : []),
+      ...(labelSegment ? [{ text: labelSegment, optional: true }] : []),
       { text: projectionChip },
     ].filter((item) => item.text), tailBudget);
   } else {
-    // Tier ladder, widest → narrowest: cwd + branch, cwd (tail-anchored) +
-    // branch, cwd (tail-anchored) + no branch, branch only, projection chip
-    // only. The first tier that fits the physical row wins; nothing ever
-    // truncates mid-word and the mode lead always keeps its glyph.
-    const tailElided = props.cwd ? `▣ ${tailElidePath(props.cwd, Math.max(4, Math.min(24, props.cwd.length)))}` : "";
+    // Tier ladder, widest → narrowest: cwd + branch (+ label), cwd
+    // (tail-anchored) + branch (+ label), tail-anchored cwd (+ label),
+    // branch (+ label), label alone. The first tier that fits the physical
+    // row wins; nothing ever truncates mid-word and the mode lead always
+    // keeps its glyph. With a label in force each tier is first attempted
+    // with it appended — the label is the first thing to drop at every
+    // size, the branch keeps its whole-word drop, the cwd its tail anchor.
+    const tailElided = props.cwd ? `▣ ${tailElidePath(props.cwd, Math.max(4, Math.min(24, props.cwd.length)))}${laneMarker}` : "";
+    const withLabel = (parts: string[]) => (labelSegment ? [...parts, labelSegment] : parts);
     const ladder = [
+      withLabel([cwdSegment, branchSegment]),
       [cwdSegment, branchSegment],
+      withLabel([tailElided, branchSegment]),
       [tailElided, branchSegment],
+      withLabel([tailElided]),
       [tailElided],
+      withLabel([branchSegment]),
       [branchSegment],
+      ...(labelSegment ? [[labelSegment]] : []),
       [],
     ].filter((parts) => parts.every((text) => text !== ""));
     const lead = modeLead ? modeLead.text.length + 1 : 0;
@@ -421,6 +475,7 @@ function StatusRow(props: StatusProps) {
   const row2Color = (text: string): string | undefined => {
     if (text.startsWith("▣")) return theme.dim;
     if (text.startsWith("⎇")) return theme.ok;
+    if (text.startsWith("⬥")) return theme.dim;
     if (text === "◉ dev") return theme.accent;
     return theme.dim;
   };
