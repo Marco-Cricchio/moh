@@ -134,6 +134,20 @@ export interface ChatProps {
   updateMessage?: string;
   /** Git branch label override (tests); default: read from the session cwd. */
   branch?: string | null;
+  /** ADR-0060: the display cwd for the bar — the main checkout when the
+   * session runs inside a lane worktree (the launch directory the user
+   * knows), already home-shortened. Absent: the session cwd renders. */
+  displayCwd?: string;
+  /** ADR-0060: the session runs in a lane worktree — the cwd segment
+   * carries the `· lane` marker. */
+  inLane?: boolean;
+  /** ADR-0060: what the lane is working on (registry label). Renders next
+   * to the auto-branch; caller updates it after a first-send labeling. */
+  laneLabel?: string | null;
+  /** ADR-0060: fired once on the first submitted prompt — the seam that
+   * names a lane opened without a prompt (App writes the registry label).
+   * At most once per session instance; never on subsequent sends. */
+  onFirstSend?: (text: string) => void;
   /** #876: the permission mode to show in the bar — the tail chip for all
    * three values plus the ⚠ YOLO banner. Override for tests; the default is
    * the session's own live mode (the launch flag seeds it, shift+tab moves
@@ -225,6 +239,10 @@ export function Chat({
   onToggleSubagentPanel,
   reveal,
   branch,
+  displayCwd,
+  inLane = false,
+  laneLabel = null,
+  onFirstSend,
   permissionMode = session.sessionMode,
   rootOnWindowsMount = session.rootOnWindowsMount,
   commands = BASE_COMMANDS.map((command) => ({ name: `/${command.name}`, description: command.description, custom: false })),
@@ -319,6 +337,10 @@ export function Chat({
   // running tools' partial output — volatile only, never persisted.
   const toolTails = useToolProgress(session, state.pending);
   const gitBranch = useGitBranch(cwd);
+  // ADR-0060: one labeling seam per session instance — the first submit
+  // carries the work's name (App writes it into the lane registry when the
+  // lane opened without a prompt). Reset on a session swap.
+  const firstSendDoneRef = useRef(false);
   const viewport = useViewport();
   const cols = width ?? viewport.columns;
   // The composer hint — one expression for both policies: the compact width
@@ -367,6 +389,7 @@ export function Chat({
   const segmentsRef = useRef<Segment[]>([{ base: 0, mode, show: showReasoning }]);
   if (sessionRef.current !== session) {
     sessionRef.current = session;
+    firstSendDoneRef.current = false;
     segmentsRef.current = [{ base: 0, mode, show: showReasoning }];
     // #329: head chains belong to the previous session's event log; their
     // `${index}-reasoning` keys would collide with the new projection.
@@ -1175,6 +1198,10 @@ export function Chat({
         prefill={prefill}
         onSubmit={(text) => {
           if (onCommand?.(text)) return;
+          if (!firstSendDoneRef.current) {
+            firstSendDoneRef.current = true;
+            onFirstSend?.(text);
+          }
           onBranchFromDismiss?.();
           void session.send(text);
         }}
@@ -1222,7 +1249,9 @@ export function Chat({
         notice={notice}
         updateMessage={updateMessage}
         branch={branch ?? gitBranch}
-        cwd={cwd}
+        cwd={displayCwd ?? cwd}
+        inLane={inLane}
+        laneLabel={laneLabel}
         permissionMode={permissionMode}
         rootOnWindowsMount={rootOnWindowsMount}
         focusedChip={focusedChip}

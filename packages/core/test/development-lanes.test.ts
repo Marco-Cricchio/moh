@@ -111,6 +111,20 @@ describe("development lane store", () => {
     });
     expect(second.status).toBe("active");
   });
+
+  test("setLabel collapses whitespace: a multi-line prompt renders as one label", () => {
+    const { cwd, home } = project();
+    const store = new DevelopmentLaneStore({ cwd, home });
+    const group = store.createFeatureGroup({ name: "parser", targetRef: "develop" });
+    const lane = store.createLane({
+      featureGroupId: group.id, sessionId: "session-a", worktreePath: "/tmp/parser", branchRef: "moh/auto-a",
+      baseRef: "develop", baseRevision: "abc", targetRef: "develop", relation: "independent",
+    });
+    const labeled = store.setLabel(lane.id, "  fix the\n\n  parser   crash\tplease  ");
+    expect(labeled.label).toBe("fix the parser crash please");
+    const cleared = store.setLabel(lane.id, "   ");
+    expect(cleared.label).toBeUndefined();
+  });
 });
 
 describe("removeLane (single-lane registry removal)", () => {

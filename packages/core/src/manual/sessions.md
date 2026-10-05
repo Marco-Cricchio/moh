@@ -22,6 +22,13 @@ sessions still paints immediately. The list carries no usage or model
 line: token rollups and the active model live in `moh usage` and the
 status bar of a session, where they belong.
 
+The session's status bar row 2 says where you are. In a lane session
+(see `moh lanes`), the path shown is the real project directory with a
+`· lane` marker, the auto branch elides to `moh/auto`, and the lane's
+task label (`⬥ …`, named after the first prompt when the session opened
+without one) sits beside it — a semantic branch (`fix/…`) replaces both
+as soon as the agent creates one.
+
 ## Resume
 
 Reopening a past session **appends to the same file**: history, memory

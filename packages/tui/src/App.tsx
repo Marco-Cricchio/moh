@@ -21,9 +21,12 @@ import {
   resolveTrackerSync,
   readUserProviderConfig,
   DevelopmentLaneService,
+  DevelopmentLaneStore,
+  mainCheckoutFor,
   readUserConfigFile,
   type AgentSession,
   type AssemblyError,
+  type DevelopmentLane,
   type ExtensionStatus,
   type HandoffOffer,
   type Provider,
@@ -40,7 +43,7 @@ import { listUserThemes, resolveThemeRef, themeLabelFor } from "./user-themes";
 import { setIcons } from "./icons";
 import { Home, updateNoticeText } from "./Home";
 import { Text } from "ink";
-import { visibleChips, type ChipAction } from "./BottomBar";
+import { visibleChips, shortenHome, type ChipAction } from "./BottomBar";
 import { useSubagentCount } from "./subagent-panel";
 import { Chat, type Mode } from "./Chat";
 import { handoffPublishWork, retryPendingHandoffPublish, discoverHandoffForHome, makeSession, providerLabel, transportActiveFor } from "./factory";
@@ -264,6 +267,50 @@ function AppShell({
   // (branch, cwd tail, 12549 12549paths) must read from there, not from the launch
   // directory, or row2 shows a branch that is never the lane's.
   const [sessionCwd, setSessionCwd] = useState(cwd);
+  // ADR-0060 row2 lane chrome: resolve the active lane owning the session
+  // cwd (fresh provisioning and resumed lane worktrees both land here) so
+  // the bar shows the real project path, the `· lane` marker and the
+  // registry label. Best-effort display facts — any failure renders a
+  // plain laneless bar, never blocks the session.
+  const laneHome = home ?? homedir();
+  const [lane, setLane] = useState<DevelopmentLane | null>(null);
+  useEffect(() => {
+    try {
+      const store = new DevelopmentLaneStore({ cwd, home: laneHome });
+      setLane(
+        store
+          .listLanes()
+          .find((candidate) =>
+            candidate.status === "active" &&
+            (candidate.worktreePath === sessionCwd || sessionCwd.startsWith(`${candidate.worktreePath}/`)),
+          ) ?? null,
+      );
+    } catch {
+      setLane(null);
+    }
+  }, [sessionCwd, cwd, laneHome]);
+  const [laneLabel, setLaneLabel] = useState<string | null>(null);
+  useEffect(() => {
+    setLaneLabel(lane?.label ?? null);
+  }, [lane]);
+  const displayCwd = useMemo(() => {
+    if (!lane) return undefined;
+    return shortenHome(mainCheckoutFor(sessionCwd) ?? lane.worktreePath ?? sessionCwd, laneHome);
+  }, [lane, sessionCwd, laneHome]);
+  // A lane opened without a prompt gets its name from the first submitted
+  // prompt — one registry write, the same label `moh lanes list` renders.
+  const handleFirstSend = useCallback(
+    (text: string) => {
+      if (!lane || laneLabel) return;
+      try {
+        const store = new DevelopmentLaneStore({ cwd: mainCheckoutFor(sessionCwd) ?? lane.worktreePath, home: laneHome });
+        setLaneLabel(store.setLabel(lane.id, text).label ?? null);
+      } catch {
+        // Labeling is best-effort chrome; the lane works unnamed.
+      }
+    },
+    [lane, laneLabel, sessionCwd, laneHome],
+  );
   // startInChat assembles eagerly (tests, bare resume); a broken config is a
   // visible error now — no silent demo fallback (ADR-0005).
   const [initialSession] = useState(() =>
@@ -1494,6 +1541,10 @@ function AppShell({
       growthWarning={growth?.count ?? null}
       browserSetup={browserSetup}
       onKeepMyBranch={keepMyBranch}
+      displayCwd={displayCwd}
+      inLane={lane !== null}
+      laneLabel={laneLabel}
+      onFirstSend={handleFirstSend}
       branchFrom={branchFrom}
       onBranchFromDismiss={() => setBranchFrom(null)}
       notice={toasts.at(-1)?.text}

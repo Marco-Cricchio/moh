@@ -253,12 +253,15 @@ export class DevelopmentLaneStore {
     return { ...removed! };
   }
 
-  /** Sets (or clears, with a blank value) a lane's user-facing label. */
+  /** Sets (or clears, with a blank value) a lane's user-facing label.
+   * Whitespace collapses to single spaces: the label renders in single-line
+   * chrome (status bar, `moh lanes list`, `/lanes`) and a task may be a
+   * multi-line prompt. */
   setLabel(laneId: string, label: string): DevelopmentLane {
     const state = readState(this.#file);
     const lane = state.lanes.find((candidate) => candidate.id === laneId);
     if (!lane) throw new Error(`unknown lane: ${laneId}`);
-    const clean = label.trim();
+    const clean = label.replace(/\s+/g, " ").trim();
     if (clean) lane.label = clean.slice(0, 120);
     else delete lane.label;
     lane.updatedAt = now();
