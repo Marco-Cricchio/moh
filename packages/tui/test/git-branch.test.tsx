@@ -141,6 +141,21 @@ describe("ADR-0060 lane chrome on row 2", () => {
     expect(tight).not.toContain("muutea2o");
   });
 
+  test("a transient update notice suspends the label; the short branch stays (#328 interplay)", () => {
+    const frame = renderBar({
+      mode: "dev",
+      cwd: "/Users/mc/Documents/AI_Projects/nome-folder",
+      inLane: true,
+      branch: "moh/auto-muutea2o-j95d9n",
+      laneLabel: "fix parser crash",
+      updateMessage: "moh update available — run moh update",
+    });
+    expect(frame).not.toContain("⬥ fix parser crash");
+    expect(frame).toContain("moh update available — run moh update");
+    expect(frame).toContain("⎇ moh/auto ");
+    expect(frame).not.toContain("muutea2o");
+  });
+
   test("helper semantics: shortenHome, label visibility, branch display", () => {
     const home = "/Users/mc";
     expect(shortenHome("/Users/mc/Documents/proj", home)).toBe("~/Documents/proj");

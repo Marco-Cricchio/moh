@@ -425,7 +425,12 @@ function StatusRow(props: StatusProps) {
   // a label names the work, the opaque session-id tail elides to `moh/auto`
   // and the label renders next to it; the label goes quiet the moment the
   // branch is no longer `moh/auto-*` (a named branch already says it).
-  const labelSegment = laneLabelShown(props.branch, props.laneLabel) ? `⬥ ${props.laneLabel}` : "";
+  // #328 interplay: a transient update notice shares this row and elides
+  // to whatever budget the tail leaves — so while one is active the label
+  // yields (it is ambient; the notice is actionable) but the branch keeps
+  // its short form, or suppressing the label would grow the tail back.
+  const laneLabelled = laneLabelShown(props.branch, props.laneLabel);
+  const labelSegment = laneLabelled && !props.updateMessage ? `⬥ ${props.laneLabel}` : "";
   const branchSegment = props.branch ? `⎇ ${laneBranchDisplay(props.branch, props.laneLabel)}` : "";
   const laneMarker = props.inLane ? " · lane" : "";
   const cwdSegment = props.cwd ? `▣ ${props.cwd}${laneMarker}` : "";
