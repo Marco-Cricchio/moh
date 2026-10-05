@@ -470,6 +470,26 @@ export class DevelopmentLaneService {
 
 
   /**
+   * The branch the lane's worktree actually has checked out. Agents create
+   * semantic branches inside a lane at commit time, so the registry
+   * `branchRef` (the auto-provisioned name) can sit empty at the base
+   * revision while the real work lives elsewhere — git is the source for
+   * what is checked out; the registry is updated as provenance. Falls back
+   * to the registry ref when the worktree is missing, detached, unreadable,
+   * or points at a branch the main checkout does not know.
+   */
+  async #liveLaneBranch(lane: DevelopmentLane): Promise<string> {
+    if (!this.worktreeExists(lane)) return lane.branchRef;
+    const current = await this.#git(["branch", "--show-current"], { cwd: lane.worktreePath });
+    const branch = current.stdout.trim();
+    if (current.code !== 0 || !branch || branch === lane.branchRef) return lane.branchRef;
+    const verify = await this.#git(["rev-parse", "--verify", `refs/heads/${branch}`], { cwd: this.#cwd });
+    if (verify.code !== 0) return lane.branchRef;
+    this.#store.setBranchRef(lane.id, branch);
+    return branch;
+  }
+
+  /**
    * Explicit integration: merge the lane's branch into the target ref in
    * the MAIN checkout (invariant 8: serialized against one worktree, never
    * a child's). On conflict the merge is aborted in the target and the lane
@@ -483,22 +503,23 @@ export class DevelopmentLaneService {
     if (["landed", "abandoned"].includes(lane.status)) {
       return fail("registry", `lane is already ${lane.status}: ${laneId}`);
     }
-    const branch = await this.#git(["rev-parse", "--verify", `refs/heads/${lane.branchRef}`], { cwd: this.#cwd });
+    const branchRef = await this.#liveLaneBranch(lane);
+    const branch = await this.#git(["rev-parse", "--verify", `refs/heads/${branchRef}`], { cwd: this.#cwd });
     if (branch.code !== 0) {
-      return fail("unknown-ref", `lane branch is missing: ${lane.branchRef}`);
+      return fail("unknown-ref", `lane branch is missing: ${branchRef}`);
     }
     const target = await this.#git(["rev-parse", "--verify", `${lane.targetRef}^{commit}`], { cwd: this.#cwd });
     if (target.code !== 0) {
       return fail("unknown-ref", `cannot resolve target ref "${lane.targetRef}": ${target.stderr.trim()}`);
     }
-    const merge = await this.#git(["merge", "--no-ff", "--no-edit", lane.branchRef], { cwd: this.#cwd });
+    const merge = await this.#git(["merge", "--no-ff", "--no-edit", branchRef], { cwd: this.#cwd });
     if (merge.code === 0) {
       return { ok: true, value: { outcome: "landed" as const, lane: this.#store.setStatus(laneId, "landed") } };
     }
     // Conflict: undo the in-progress merge in the main checkout — the
     // conflict belongs to the LANE as resumable state, not to the target.
     await this.#git(["merge", "--abort"], { cwd: this.#cwd });
-    const laneHead = await this.#git(["rev-parse", "--verify", `refs/heads/${lane.branchRef}`], { cwd: this.#cwd });
+    const laneHead = await this.#git(["rev-parse", "--verify", `refs/heads/${branchRef}`], { cwd: this.#cwd });
     this.#store.setStatus(laneId, "conflicted");
     return {
       ok: true,
@@ -526,7 +547,8 @@ export class DevelopmentLaneService {
     if (lane.status !== "conflicted") {
       return fail("registry", `lane is not conflicted: ${laneId} (${lane.status})`);
     }
-    const retry = await this.#git(["merge", "--no-ff", "--no-edit", lane.branchRef], { cwd: this.#cwd });
+    const branchRef = await this.#liveLaneBranch(lane);
+    const retry = await this.#git(["merge", "--no-ff", "--no-edit", branchRef], { cwd: this.#cwd });
     if (retry.code !== 0) {
       await this.#git(["merge", "--abort"], { cwd: this.#cwd });
       return fail("conflict", retry.stderr.trim());
