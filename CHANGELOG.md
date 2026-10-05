@@ -7,6 +7,32 @@ matching section here at tag time.
 
 ## [Unreleased]
 
+## [0.58.2] - 2026-10-05
+
+### Fixed
+
+- **Lane `integrate`/`resolve` merge the worktree's live HEAD, not the
+  stale registry ref** (#1210, PR #1214): both commands merged the
+  auto-provisioned `moh/auto-<id>` branch even after the agent had created
+  a semantic branch in the worktree at commit time — the auto branch sits
+  at the base revision with zero commits, so the merge reported `landed`
+  while the real work stayed orphaned: a silent no-op landing. The live
+  branch is now resolved from the worktree, the registry's `branchRef`
+  syncs to it (provenance), and the merge uses it; the registry ref
+  remains the fallback when the worktree is missing, detached or points at
+  an unknown branch, and still fails loudly when genuinely gone. The
+  registry stays the source for status and labels; git stays the source
+  for what is checked out.
+
+### Changed
+
+- **The model catalog was regenerated** (release step): 5 prices moved —
+  `moonshotai/kimi-k3` 0.99 → 1.39 and `~moonshotai/kimi-latest` 0.66 →
+  0.77 up, `z-ai/glm-5.2` 0.019 → 0.032, `z-ai/glm-5.3` 0.05 → 0.07,
+  `deepseek/deepseek-v3.1-terminus` 0.27 → 0.30 slightly up. No context
+  windows or reasoning flags moved; no issue and no context-window shrink.
+  `PRICING_SNAPSHOT.version` follows the manifest, which declares 0.58.2.
+
 ## [0.58.1] - 2026-10-05
 
 ### Added
@@ -2065,7 +2091,8 @@ matching section here at tag time.
   passed; a regression test pins the resolved path under
   `<home>/.moh/projects`.
 
-[Unreleased]: https://github.com/Marco-Cricchio/moh/compare/v0.58.1...develop
+[Unreleased]: https://github.com/Marco-Cricchio/moh/compare/v0.58.2...develop
+[0.58.2]: https://github.com/Marco-Cricchio/moh/compare/v0.58.1...v0.58.2
 [0.58.1]: https://github.com/Marco-Cricchio/moh/compare/v0.58.0...v0.58.1
 [0.58.0]: https://github.com/Marco-Cricchio/moh/compare/v0.57.1...v0.58.0
 [0.57.1]: https://github.com/Marco-Cricchio/moh/compare/v0.57.0...v0.57.1
