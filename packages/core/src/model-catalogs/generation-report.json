@@ -1,17 +1,17 @@
 {
   "schemaVersion": 1,
-  "version": "0.58.0",
-  "generatedAt": "2026-10-04T17:20:08.698Z",
+  "version": "0.58.1",
+  "generatedAt": "2026-10-05T17:31:49.830Z",
   "sources": [
     {
       "name": "models.dev",
       "url": "https://models.dev/api.json",
-      "fetchedAt": "2026-10-04T17:20:08.258Z"
+      "fetchedAt": "2026-10-05T17:31:49.240Z"
     },
     {
       "name": "openrouter",
       "url": "https://openrouter.ai/api/v1/models",
-      "fetchedAt": "2026-10-04T17:20:08.568Z"
+      "fetchedAt": "2026-10-05T17:31:49.563Z"
     }
   ],
   "totals": {
@@ -921,58 +921,230 @@
     "pricing": [
       {
         "provider": "openrouter",
-        "id": "deepseek/deepseek-v4-pro-0813",
+        "id": "deepseek/deepseek-chat-v3-0324",
         "from": {
-          "input": 0.85,
-          "output": 5,
-          "cacheRead": 0.7
+          "input": 0.25,
+          "output": 1
         },
         "to": {
+          "input": 0.29,
+          "output": 1.14,
+          "cacheRead": 0.11
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "deepseek/deepseek-v4-flash",
+        "from": {
+          "input": 0.0224,
+          "output": 1.28,
+          "cacheRead": 0.0224
+        },
+        "to": {
+          "input": 0.03,
+          "output": 1.28,
+          "cacheRead": 0.03
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "deepseek/deepseek-v4-pro-0813",
+        "from": {
           "input": 0.55,
           "output": 4.2,
           "cacheRead": 0.45
+        },
+        "to": {
+          "input": 0.4,
+          "output": 5,
+          "cacheRead": 0.36
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "google/gemma-4-26b-a4b-it",
+        "from": {
+          "input": 0.0675,
+          "output": 0.225,
+          "cacheRead": 0.0375
+        },
+        "to": {
+          "input": 0.09,
+          "output": 0.3,
+          "cacheRead": 0.05
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "moonshotai/kimi-k3",
+        "from": {
+          "input": 0.72,
+          "output": 13,
+          "cacheRead": 0.7
+        },
+        "to": {
+          "input": 0.99,
+          "output": 14,
+          "cacheRead": 0.33
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "nvidia/nemotron-3.5-lightning",
+        "from": {
+          "input": 0.0595,
+          "output": 0.17,
+          "cacheRead": 0.02975
+        },
+        "to": {
+          "input": 0.06,
+          "output": 0.16,
+          "cacheRead": 0.03
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "openai/gpt-5.6-sol-pro",
+        "from": {
+          "input": 4,
+          "output": 20,
+          "cacheRead": 0.4,
+          "cacheWrite": 5,
+          "tiers": [
+            {
+              "inputTokensAbove": 272000,
+              "input": 8,
+              "output": 30,
+              "cacheRead": 0.8,
+              "cacheWrite": 10
+            }
+          ]
+        },
+        "to": {
+          "input": 2,
+          "output": 10,
+          "cacheRead": 0.2,
+          "cacheWrite": 2.5,
+          "tiers": [
+            {
+              "inputTokensAbove": 272000,
+              "input": 4,
+              "output": 15,
+              "cacheRead": 0.4,
+              "cacheWrite": 5
+            }
+          ]
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "qwen/qwen3.6-27b",
+        "from": {
+          "input": 0.32,
+          "output": 3.2
+        },
+        "to": {
+          "input": 0.32,
+          "output": 3.25,
+          "cacheRead": 0.03
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "tencent/hy3",
+        "from": {
+          "input": 0.132,
+          "output": 0.528,
+          "cacheRead": 0.033
+        },
+        "to": {
+          "input": 0.0825,
+          "output": 0.33,
+          "cacheRead": 0.020625
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "tencent/hy4-preview",
+        "from": {
+          "input": 0.834,
+          "output": 2.501,
+          "cacheRead": 0.042
+        },
+        "to": {
+          "input": 0.7506,
+          "output": 2.2509,
+          "cacheRead": 0.0378
         }
       },
       {
         "provider": "openrouter",
         "id": "z-ai/glm-5.2",
         "from": {
-          "input": 0.38,
-          "output": 3.49,
-          "cacheRead": 0.26
-        },
-        "to": {
           "input": 0.0504,
           "output": 8,
           "cacheRead": 0.0504
+        },
+        "to": {
+          "input": 0.0192,
+          "output": 16,
+          "cacheRead": 0.0192
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "z-ai/glm-5.3",
+        "from": {
+          "input": 1.4,
+          "output": 4.4,
+          "cacheRead": 0.14
+        },
+        "to": {
+          "input": 0.05,
+          "output": 7,
+          "cacheRead": 0.045
         }
       },
       {
         "provider": "openrouter",
         "id": "~moonshotai/kimi-latest",
         "from": {
-          "input": 0.6518,
+          "input": 0.629,
           "output": 13,
           "cacheRead": 0.45
         },
         "to": {
-          "input": 0.629,
+          "input": 0.66,
           "output": 13,
           "cacheRead": 0.45
         }
       },
       {
         "provider": "openrouter",
-        "id": "~z-ai/glm-latest",
+        "id": "~z-ai/glm-flash-latest",
         "from": {
-          "input": 0.05,
-          "output": 5,
-          "cacheRead": 0.04
+          "input": 0.0352,
+          "output": 0.5,
+          "cacheRead": 0.0352
         },
         "to": {
+          "input": 0.0352,
+          "output": 0.5,
+          "cacheRead": 0.0232
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "~z-ai/glm-latest",
+        "from": {
           "input": 0.08,
           "output": 5,
           "cacheRead": 0.07
+        },
+        "to": {
+          "input": 0.03,
+          "output": 12,
+          "cacheRead": 0.03
         }
       }
     ],

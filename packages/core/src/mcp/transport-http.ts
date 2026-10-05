@@ -1,5 +1,12 @@
 import { McpError } from "./errors";
+import { isHttpMcpUrl } from "./types";
 import { JsonRpcConnection, type ServerHandlers } from "./json-rpc";
+
+/** audit-v3 MCP-1: a response — JSON body or the SSE stream read so far —
+ * is capped. A hostile server cannot balloon the session's memory through
+ * one transport. Generous next to real tool payloads (host-scope caps a
+ * fetch body at 1 MB); far below an unbounded read. */
+export const MCP_MAX_RESPONSE_BYTES = 10 * 1024 * 1024;
 
 export class HttpConnection extends JsonRpcConnection {
   readonly #url: string;
@@ -13,6 +20,11 @@ export class HttpConnection extends JsonRpcConnection {
     } & ServerHandlers,
   ) {
     super(opts);
+    // Defense in depth under the config-schema refine: a declaration that
+    // bypassed config resolution fails the server at start, loudly.
+    if (!isHttpMcpUrl(opts.url)) {
+      throw new McpError("start_failed", `MCP http server url must be an http(s) URL, got: ${opts.url}`);
+    }
     this.#url = opts.url;
     this.#headers = opts.headers ?? {};
   }
@@ -42,7 +54,7 @@ export class HttpConnection extends JsonRpcConnection {
       await this.#drainSse(res);
       return;
     }
-    const body = await res.text();
+    const body = await this.#readCapped(res);
     if (body.trim()) this.handleMessage(JSON.parse(body));
   }
 
@@ -50,9 +62,15 @@ export class HttpConnection extends JsonRpcConnection {
     const reader = res.body!.getReader();
     const decoder = new TextDecoder();
     let buf = "";
+    let total = 0;
     for (;;) {
       const { done, value } = await reader.read();
       if (done) break;
+      total += value.byteLength;
+      if (total > MCP_MAX_RESPONSE_BYTES) {
+        await reader.cancel().catch(() => undefined);
+        throw new McpError("protocol", `MCP response exceeded the ${Math.round(MCP_MAX_RESPONSE_BYTES / (1024 * 1024))} MB cap`);
+      }
       buf += decoder.decode(value, { stream: true });
       let sep: number;
       while ((sep = buf.indexOf("\n\n")) >= 0) {
@@ -71,6 +89,26 @@ export class HttpConnection extends JsonRpcConnection {
         }
       }
     }
+  }
+
+  /** The JSON path of `send`, read incrementally so the byte cap applies. */
+  async #readCapped(res: Response): Promise<string> {
+    const reader = res.body?.getReader();
+    if (!reader) return "";
+    const decoder = new TextDecoder();
+    let out = "";
+    let total = 0;
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      total += value.byteLength;
+      if (total > MCP_MAX_RESPONSE_BYTES) {
+        await reader.cancel().catch(() => undefined);
+        throw new McpError("protocol", `MCP response exceeded the ${Math.round(MCP_MAX_RESPONSE_BYTES / (1024 * 1024))} MB cap`);
+      }
+      out += decoder.decode(value, { stream: true });
+    }
+    return out;
   }
 
   /** Server-initiated requests over streamable HTTP are answered via POST. */

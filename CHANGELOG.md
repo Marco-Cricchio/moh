@@ -7,6 +7,90 @@ matching section here at tag time.
 
 ## [Unreleased]
 
+## [0.58.1] - 2026-10-05
+
+### Added
+
+- **Row 2 speaks the lane from the first prompt** (PR #1211): a lane
+  session's status row now shows the real project path (the main checkout,
+  `~`-shortened, with a persistent `· lane` marker) instead of the worktree
+  path, elides the opaque session-id branch tail to `moh/auto` while it is
+  the auto-lane name, and renders the lane's task label in that space. A
+  lane opened without a prompt is labeled by the first submitted prompt
+  (one best-effort registry write through a new `onFirstSend` seam); once
+  the agent creates a semantic branch, the label quiets and the branch
+  name renders whole. Laneless sessions are byte-identical. `setLabel`
+  collapses whitespace, so a multi-line prompt becomes one clean label.
+
+### Fixed
+
+- **A rejected Jev key is its own fact, not an outage** (#1207, PR
+  #1209): every failure kind published the outage text, so a stale
+  keychain credential (401 for a day, network fine) read `∅ jev offline`
+  and the debugging went to the wrong seam. The client's status is now a
+  three-state fact — healthy, outage (`∅ jev offline`), rejected key
+  (`∅ jev key rejected`) — texts replace each other as the fact changes,
+  and a host-seam refusal stays silent as #1162 requires. The chip learns
+  `auth` and folds either failure into the summary, so `active` can no
+  longer sit beside a rejection.
+- **The Jev key migration never deletes a diverging plaintext key**
+  (#1206, PR #1208): when the credential store already held a `typesafe`
+  ref, the migration removed the legacy `typesafe.apiKey` from the config
+  even when the two values differed — a working plaintext key plus a stale
+  keychain item lost the only working copy, unrecoverable except by
+  re-entry. A diverging key now stays in the file: the stored credential
+  wins at runtime, `moh jev status` reports the lingering plaintext as
+  legacy, and Settings is the user's reconciliation gesture. A migration
+  never deletes a secret it did not save.
+- **Declared-window teaching is gated on the refusal kind, with a
+  plausibility bound** (#1199, PR #1203): any failure carrying a
+  recognizable formula taught a window, and a hostile or broken upstream
+  body could persist a bogus window that survives resume and feeds
+  compaction, the fit guard and the fallback chain. Teaching now requires
+  a real context refusal; a shipped-formula match at 400/422 is itself
+  refusal evidence, read on the untruncated text (verbose bodies no longer
+  lose the number to the 300-character cap); and a declared window smaller
+  than the session's measured tokens plus reserve is refused as
+  implausible, with one trace line. ADR-0049 amended.
+- **The sanitize boundary closes outside the transcript** (#1200, PR
+  #1204): render paths added since the v1/v2 fixes passed model-, tracker-,
+  provider- or process-derived strings to Ink raw. The bundled Ink build
+  strips cursor-movement CSI but deliberately preserves SGR and OSC
+  sequences whole — so window-title hijack and arbitrary recoloring did
+  reach the terminal. Frontier tracker strings, the SkillChooser header
+  and command row, every toast text, and the TreePanel session label are
+  now sanitized at the render boundary; the regression tests were
+  committed red before the fix.
+
+### Changed
+
+- **Secret redaction covers long env-var key names and deep payloads**
+  (audit-v3 RED-2, RED-1, PR #1205): structural keys matching `*_API_KEY`,
+  `*_ACCESS_KEY`, `*_TOKEN` or any name containing `secret` —
+  `ANTHROPIC_API_KEY`, `AWS_SECRET_ACCESS_KEY` — are now masked wherever
+  they appear, and the free-text assignment matcher accepts compound
+  env-var names. Structure nested below the redaction walk's copy depth
+  is scanned by a read-only deep pass (reach 6 + 100 levels) and masked
+  when it holds a secret; the content-free `depth-cut` line in
+  `secret-redaction-misses.log` now fires only past that reach.
+
+### Fixed
+
+- **Non-http(s) MCP server URLs are refused at config resolution**
+  (audit-v3 MCP-1): the `mcpServers` schema accepts only `http(s)` URLs
+  (`moh mcp add` rejects them at the door, a project `moh.json` fails to
+  load), and the streamable-HTTP transport caps a response at 10 MB —
+  JSON body and SSE stream alike — instead of buffering without bound.
+- **`moh handoff pull` refuses when gh cannot say who is logged in**
+  (audit-v3 CLI-1): a failed username lookup used to proceed without the
+  per-persona author check; it now errors with the typed reason and
+  points at `moh handoff import <file>`.
+- **Documented the macOS keychain argv residual** (audit-v3 HOST-1):
+  `moh secret --help` and the manual state that the keychain write hands
+  the secret to the `security` CLI as an argument (briefly visible to a
+  local `ps` poll) and steer high-paranoia hosts to
+  `MOH_SECRET_STORE=file`.
+
 ## [0.58.0] - 2026-10-04
 
 ### Added
@@ -1981,7 +2065,8 @@ matching section here at tag time.
   passed; a regression test pins the resolved path under
   `<home>/.moh/projects`.
 
-[Unreleased]: https://github.com/Marco-Cricchio/moh/compare/v0.58.0...develop
+[Unreleased]: https://github.com/Marco-Cricchio/moh/compare/v0.58.1...develop
+[0.58.1]: https://github.com/Marco-Cricchio/moh/compare/v0.58.0...v0.58.1
 [0.58.0]: https://github.com/Marco-Cricchio/moh/compare/v0.57.1...v0.58.0
 [0.57.1]: https://github.com/Marco-Cricchio/moh/compare/v0.57.0...v0.57.1
 [0.57.0]: https://github.com/Marco-Cricchio/moh/compare/v0.56.0...v0.57.0

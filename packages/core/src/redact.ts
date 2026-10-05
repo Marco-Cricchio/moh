@@ -3,11 +3,12 @@
  *
  * Two complementary layers, one heuristic, every redacted seam:
  *
- * 1. **Key-based** — keys whose normalized form is exactly a secret-shaped
- *    name (`apiKey`, `token`, `authorization`, …) have their value replaced,
- *    wherever they appear in the event structure. Extends the ADR-0032
- *    extension-event heuristic; exact match on purpose, so `tokens` and
- *    `tokenCount` survive.
+ * 1. **Key-based** — keys whose normalized form is secret-shaped (the
+ *    ADR-0032 exact set, extended by the audit-v3 RED-2 suffix rule for
+ *    long env-var forms: `*_API_KEY`, `*_ACCESS_KEY`, `*_TOKEN`, any name
+ *    containing `secret`) have their value replaced, wherever they appear
+ *    in the event structure. Suffixes only, so `tokens` and `tokenCount`
+ *    survive.
  *
  * 2. **Pattern-based** — high-confidence secret *shapes* in free text
  *    (sk-style keys, Bearer headers, AWS/GitHub/Slack/Google tokens,
@@ -32,8 +33,15 @@ import { dirname, join } from "node:path";
 /** The fixed placeholder every masked value becomes (ADR-0058). */
 export const REDACTED = "[redacted]";
 
-/** Nesting depth the key-based walk covers (deeper values pass through). */
+/** Nesting depth the copy-and-scan walk covers in one pass. Below it the
+ * deep pass still scans (and masks when needed) down to DEEP_SCAN_DEPTH;
+ * deeper still, a depth-cut miss line is the tripwire. */
 export const REDACT_DEPTH = 6;
+
+/** How far below REDACT_DEPTH the deep pass scans (audit-v3 RED-1): the
+ * scan is read-only, so the bound is stack safety, not coverage — the
+ * combined 6+100 reach dwarfs any real event payload. */
+export const DEEP_SCAN_DEPTH = 100;
 
 /** The ADR-0032 secret-shaped key set: EXACT normalized match only. */
 const REDACTED_KEYS = new Set([
@@ -56,6 +64,23 @@ function normalizeKey(key: string): string {
   return key.toLowerCase().replace(/[_-]/g, "");
 }
 
+/**
+ * audit-v3 RED-2: the exact set above misses common long env-var forms.
+ * A normalized name is secret-shaped when it ends in `apikey`,
+ * `accesskey` or `token`, or contains `secret` (`*_API_KEY`,
+ * `*_ACCESS_KEY`, `*_TOKEN`, `*_SECRET*`). Suffixes only — `tokens`,
+ * `tokenCount` and `apiKeyId` keep surviving.
+ */
+function isSecretKey(normalized: string): boolean {
+  return (
+    REDACTED_KEYS.has(normalized) ||
+    /api_?key$/.test(normalized) ||
+    /access_?key$/.test(normalized) ||
+    /token$/.test(normalized) ||
+    normalized.includes("secret")
+  );
+}
+
 /** Returns a structurally-redacted copy (ADR-0032 layer). Cycles safe. */
 export function redactKeys(value: unknown, depth = 0): unknown {
   return walkValue(value, depth, (v) => v);
@@ -65,20 +90,83 @@ export function redactKeys(value: unknown, depth = 0): unknown {
  * The one structural walk both layers share: visits every node up to
  * REDACT_DEPTH, masking secret-shaped keys, and hands each string to
  * `onString` (identity for the keys-only layer, the pattern pass for the
- * combined one). Cycles safe; never mutates.
+ * combined one). A node deeper than REDACT_DEPTH goes to `deepPass`
+ * (audit-v3 RED-1) instead of passing through. Cycles safe; never mutates.
  */
-function walkValue(value: unknown, depth: number, onString: (s: string) => string): unknown {
-  if (depth > REDACT_DEPTH) return value;
+function walkValue(value: unknown, depth: number, onString: (s: string) => string, cut?: { depthCut: boolean }): unknown {
+  if (depth > REDACT_DEPTH) return deepPass(value, onString, cut);
   if (typeof value === "string") return onString(value);
-  if (Array.isArray(value)) return value.map((v) => walkValue(v, depth + 1, onString));
+  if (Array.isArray(value)) return value.map((v) => walkValue(v, depth + 1, onString, cut));
   if (value !== null && typeof value === "object") {
     const out: Record<string, unknown> = {};
     for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
-      out[k] = REDACTED_KEYS.has(normalizeKey(k)) ? REDACTED : walkValue(v, depth + 1, onString);
+      out[k] = isSecretKey(normalizeKey(k)) ? REDACTED : walkValue(v, depth + 1, onString, cut);
     }
     return out;
   }
   return value;
+}
+
+/**
+ * audit-v3 RED-1: what sits below REDACT_DEPTH. A read-only scan — no
+ * copies — answers "does anything here need masking?"; only then is the
+ * subtree rebuilt with the same masking rules, down to DEEP_SCAN_DEPTH.
+ * A clean deep payload costs a scan, not a copy, and raises no miss
+ * line; past the bound `cut.depthCut` is raised so the dedup report
+ * keeps its tripwire. Cycle-safe (shared subgraphs are scanned once and
+ * only their first occurrence rebuilt — real event payloads are trees).
+ */
+function deepPass(value: unknown, onString: (s: string) => string, cut?: { depthCut: boolean }): unknown {
+  // One cycle guard per phase: the scan marks every node it visited, so
+  // the mask walk must carry its own set or it would skip everything.
+  const scanSeen = new Set<object>();
+  const maskSeen = new Set<object>();
+  let overflow = false;
+  const scan = (v: unknown, d: number): boolean => {
+    if (d > DEEP_SCAN_DEPTH) {
+      overflow = true;
+      return false;
+    }
+    if (typeof v === "string") return onString(v) !== v;
+    if (Array.isArray(v)) {
+      if (scanSeen.has(v)) return false;
+      scanSeen.add(v);
+      return v.some((x) => scan(x, d + 1));
+    }
+    if (v !== null && typeof v === "object") {
+      if (scanSeen.has(v)) return false;
+      scanSeen.add(v);
+      for (const [k, x] of Object.entries(v as Record<string, unknown>)) {
+        if (isSecretKey(normalizeKey(k))) return true;
+        if (scan(x, d + 1)) return true;
+      }
+    }
+    return false;
+  };
+  if (!scan(value, 0)) {
+    if (overflow && cut) cut.depthCut = true;
+    return value;
+  }
+  const mask = (v: unknown, d: number): unknown => {
+    if (d > DEEP_SCAN_DEPTH) return v; // scan already raised the cut
+    if (typeof v === "string") return onString(v);
+    if (Array.isArray(v)) {
+      if (maskSeen.has(v)) return v;
+      maskSeen.add(v);
+      return v.map((x) => mask(x, d + 1));
+    }
+    if (v !== null && typeof v === "object") {
+      if (maskSeen.has(v)) return v;
+      maskSeen.add(v);
+      const out: Record<string, unknown> = {};
+      for (const [k, x] of Object.entries(v as Record<string, unknown>)) {
+        out[k] = isSecretKey(normalizeKey(k)) ? REDACTED : mask(x, d + 1);
+      }
+      return out;
+    }
+    return v;
+  };
+  return mask(value, 0);
 }
 
 // ---------------------------------------------------------------------------
@@ -87,9 +175,11 @@ function walkValue(value: unknown, depth: number, onString: (s: string) => strin
 
 /** Key vocabulary of the credential-assignment pattern (shared with the
  * lookalike detector). Bare `token` included; `tokens`/`tokenCount`
- * survive via `\b`. */
+ * survive via `\b`. A word prefix is allowed in front of the vocab
+ * (audit-v3 RED-2), so compound env-var names — `ANTHROPIC_API_KEY`,
+ * `AWS_SECRET_ACCESS_KEY` — match; the trailing `\b` keeps `tokens` out. */
 const CREDENTIAL_KEYS =
-  "api[_-]?key|secret[_-]?key|auth[_-]?token|token|password|passwd|api[_-]?token|access[_-]?token";
+  "api[_-]?key|secret[_-]?key|auth[_-]?token|token|password|passwd|api[_-]?token|access[_-]?token|access[_-]?key";
 
 interface SecretPattern {
   category: string;
@@ -119,11 +209,12 @@ const SECRET_PATTERNS: SecretPattern[] = [
   // Google API key.
   { category: "google-key", re: /\bAIza[0-9A-Za-z_-]{35}\b/g, replace: () => REDACTED },
   // Query params and key=value assignments: api_key=…, token: '…',
-  // PASSWORD="…", etc. Only when the value looks opaque (long enough).
+  // PASSWORD="…", ANTHROPIC_API_KEY=…, etc. Only when the value looks
+  // opaque (long enough).
   {
     category: "credential-assignment",
     re: new RegExp(
-      `\\b(?:${CREDENTIAL_KEYS})\\b(\\s*[:=]\\s*|\\s+)(["']?)[A-Za-z0-9._~+/=-]{12,}\\2`,
+      `\\b[A-Za-z0-9_-]*?(?:${CREDENTIAL_KEYS})\\b(\\s*[:=]\\s*|\\s+)(["']?)[A-Za-z0-9._~+/=-]{12,}\\2`,
       "gi",
     ),
     replace: (m) =>
@@ -216,37 +307,25 @@ export interface RedactionResult {
  */
 export function redactValue(value: unknown, depth = 0): RedactionResult {
   const misses: RedactionMiss[] = [];
-  let depthCut = false;
-  const value2 = walkTracked(value, depth, (s) => {
-    const redacted = redactString(s);
-    if (redacted === s) {
-      // Deliberate asymmetry ("precision over recall"): the lookalike
-      // detector runs only on strings the pattern layer left untouched —
-      // a string with one masked secret plus one unmasked lookalike
-      // reports nothing, because the dominant shape was caught.
-      for (const m of detectSecretLookalikes(s)) misses.push(m);
-      return s;
-    }
-    return redacted;
-  });
-  return { value: value2, misses, depthCut };
-
-  function walkTracked(v: unknown, d: number, onString: (s: string) => string): unknown {
-    if (d > REDACT_DEPTH) {
-      depthCut = true;
-      return v;
-    }
-    if (typeof v === "string") return onString(v);
-    if (Array.isArray(v)) return v.map((x) => walkTracked(x, d + 1, onString));
-    if (v !== null && typeof v === "object") {
-      const out: Record<string, unknown> = {};
-      for (const [k, x] of Object.entries(v as Record<string, unknown>)) {
-        out[k] = REDACTED_KEYS.has(normalizeKey(k)) ? REDACTED : walkTracked(x, d + 1, onString);
+  const cut = { depthCut: false };
+  const value2 = walkValue(
+    value,
+    depth,
+    (s) => {
+      const redacted = redactString(s);
+      if (redacted === s) {
+        // Deliberate asymmetry ("precision over recall"): the lookalike
+        // detector runs only on strings the pattern layer left untouched —
+        // a string with one masked secret plus one unmasked lookalike
+        // reports nothing, because the dominant shape was caught.
+        for (const m of detectSecretLookalikes(s)) misses.push(m);
+        return s;
       }
-      return out;
-    }
-    return v;
-  }
+      return redacted;
+    },
+    cut,
+  );
+  return { value: value2, misses, depthCut: cut.depthCut };
 }
 
 // ---------------------------------------------------------------------------

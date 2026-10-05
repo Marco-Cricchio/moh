@@ -186,6 +186,11 @@ export interface JevClient {
 /** The status text an outage publishes (ratified copy). */
 export const JEV_OFFLINE_STATUS = "∅ jev offline";
 
+/** The status text a rejected key publishes (#1207, ratified copy): the
+ * call reached the service and the service refused it — a user-actionable
+ * fact, distinct from an outage. */
+export const JEV_AUTH_STATUS = "∅ jev key rejected";
+
 /**
  * #1162: the transport seam — one JSON POST whose outcome is either a
  * status with the fully buffered body or a typed transport failure. A
@@ -320,13 +325,18 @@ export function createJevClient(options: JevClientOptions): JevClient {
   const transport = options.transport;
   const now = options.now ?? (() => Date.now());
   const sleep = options.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
-  /** Connectivity status as the client last published it. */
-  let offline = false;
+  /**
+   * Connectivity status as the client last published it. Three states:
+   * `null` (healthy), the outage text, the auth text (#1207). The two
+   * failure texts never flow through one boolean — an auth transition
+   * must be able to replace the outage text and vice versa.
+   */
+  let status: string | null = null;
 
-  const setOffline = (value: boolean): void => {
-    if (offline === value) return;
-    offline = value;
-    options.onStatus?.(value ? JEV_OFFLINE_STATUS : null);
+  const publish = (next: string | null): void => {
+    if (status === next) return;
+    status = next;
+    options.onStatus?.(next);
   };
 
   /**
@@ -400,11 +410,16 @@ export function createJevClient(options: JevClientOptions): JevClient {
       const outcome = "outcome" in result ? result.outcome : failure("unknown", "no response");
       if (!outcome.ok) {
         // One status per transition, no per-call spam; the caller decides
-        // how (or whether) to show it.
-        setOffline(true);
+        // how (or whether) to show it. Two kinds are not connectivity
+        // facts: a host-seam refusal stays silent (#1162), and an auth
+        // failure is the service's verdict on the key, not an outage —
+        // it gets its own text (#1207). Both are just as sticky as the
+        // outage until a call proves otherwise.
+        if (outcome.kind === "refused") return outcome;
+        publish(outcome.kind === "auth" ? JEV_AUTH_STATUS : JEV_OFFLINE_STATUS);
         return outcome;
       }
-      setOffline(false);
+      publish(null);
       try {
         const payload = input.record(outcome.answers, {
           model: outcome.model,

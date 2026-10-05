@@ -80,6 +80,25 @@ describe("TreePanel (#581)", () => {
     }
   });
 
+  test("an escape-bearing error renders inert in the error row (audit-v3 TUI-1)", () => {
+    const i = mount({ view: { error: "\u001B[31m\u001B]0;pwned\u0007not a git repo" } });
+    const raw = i.lastFrame() ?? "";
+    expect(raw).not.toContain("\u001B");
+    expect(raw).not.toContain("\u0007");
+    expect(stripAnsi(raw)).toContain("not a git repo");
+    i.unmount();
+  });
+
+  test("an escape-bearing label renders inert in the title border (audit-v3 TUI-1)", async () => {
+    const file = await buildBranchedSession();
+    const i = mount({ view: viewOf(file), label: "fix\u001B[31m\u001B]0;pwned\u0007 the auth" });
+    const raw = i.lastFrame() ?? "";
+    expect(raw).not.toContain("\u001B");
+    expect(raw).not.toContain("\u0007");
+    expect(stripAnsi(raw)).toContain("Session tree — fix the auth");
+    i.unmount();
+  });
+
   test("filter cycle helper: all → active+bookmarked → abandoned only → all", () => {
     expect(cycleTreeFilter("all")).toBe("active+bookmarked");
     expect(cycleTreeFilter("active+bookmarked")).toBe("abandoned only");

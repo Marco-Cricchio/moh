@@ -19,13 +19,37 @@ export const mcpServerEntrySchema = z.discriminatedUnion("type", [
      * ignored: project trust lives in the user config `mcpTrust` section. */
     trusted: z.boolean().optional(),
   }),
-  z.object({
-    type: z.literal("http"),
-    url: z.string().min(1),
-    headers: z.record(z.string(), z.string()).optional(),
-    trusted: z.boolean().optional(),
-  }),
+  z
+    .object({
+      type: z.literal("http"),
+      url: z.string().min(1),
+      headers: z.record(z.string(), z.string()).optional(),
+      /** Legacy pre-#352 field. Tolerated on parse (old configs load), but
+       * ignored: project trust lives in the user config `mcpTrust` section. */
+      trusted: z.boolean().optional(),
+    })
+    .refine((entry) => isHttpMcpUrl(entry.url), {
+      message: "MCP http server url must be an http(s) URL (audit-v3 MCP-1)",
+      path: ["url"],
+    }),
 ]);
+
+/**
+ * audit-v3 MCP-1: a config-supplied MCP URL must be http(s). The
+ * streamable-HTTP transport POSTs to it with the configured headers, so
+ * anything else — `file:`, `data:`, a bare host string — is refused at
+ * config resolution, loudly (a project `moh.json` fails to load; the
+ * `mcp add` door rejects it; a declaration that bypasses the schema
+ * fails the server at start).
+ */
+export function isHttpMcpUrl(url: string): boolean {
+  try {
+    const parsed = new URL(url);
+    return parsed.protocol === "http:" || parsed.protocol === "https:";
+  } catch {
+    return false;
+  }
+}
 
 export type McpServerEntry = z.infer<typeof mcpServerEntrySchema>;
 

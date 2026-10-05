@@ -163,12 +163,22 @@ describe("the typesafe config block (#784, #826)", () => {
     expect(readTypesafeConfig(file)).toEqual({});
     expect(JSON.parse(require("node:fs").readFileSync(file, "utf8"))).toMatchObject({ provider: "mock", theme: "nord" });
 
-    // Idempotent: a second run is a no-op, and a stored credential wins
-    // over any late plaintext (which is removed either way).
-    writeFileSync(file, JSON.stringify({ typesafe: { apiKey: "sk-other" } }));
+    // Idempotent: a second run is a no-op. A plaintext equal to the stored
+    // credential is converged (removed); a *diverging* plaintext stays —
+    // #1206: the migration never deletes a secret it did not save, so a
+    // different key survives in config until the user reconciles it from
+    // Settings (re-save or Remove). The stored credential still wins at
+    // runtime.
+    writeFileSync(file, JSON.stringify({ provider: "mock", typesafe: { apiKey: "sk-legacy" }, theme: "nord" }));
     migrateTypesafeKey(store, file);
     expect(store.get(TYPESAFE_CREDENTIAL_REF)).toBe("sk-legacy");
     expect(readTypesafeConfig(file)).toEqual({});
+
+    writeFileSync(file, JSON.stringify({ provider: "mock", typesafe: { apiKey: "sk-other" }, theme: "nord" }));
+    migrateTypesafeKey(store, file);
+    expect(store.get(TYPESAFE_CREDENTIAL_REF)).toBe("sk-legacy");
+    expect(readTypesafeConfig(file)).toEqual({ apiKey: "sk-other" });
+    expect(JSON.parse(require("node:fs").readFileSync(file, "utf8"))).toMatchObject({ provider: "mock", theme: "nord" });
   });
 });
 

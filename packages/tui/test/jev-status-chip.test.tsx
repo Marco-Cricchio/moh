@@ -89,10 +89,11 @@ describe("the Jev chip in row 1 (#876)", () => {
     expect(row1(barFrame({ jevStatus: "off" }))).toContain("◈ jev off");
     expect(row1(barFrame({ jevStatus: "inert" }))).toContain("◈ jev inert");
     expect(row1(barFrame({ jevStatus: "offline" }))).toContain("◈ jev offline");
+    expect(row1(barFrame({ jevStatus: "auth" }))).toContain("◈ jev auth");
   });
 
   test("compact keeps the glyph and drops the word", () => {
-    for (const status of ["active", "partial", "off", "inert", "offline"] as const) {
+    for (const status of ["active", "partial", "off", "inert", "offline", "auth"] as const) {
       const frame = barFrame({ width: 60, jevStatus: status });
       const line = frame.split("\n").find((l) => l.includes("◈"))!;
       expect(line).toContain("◈");
@@ -124,8 +125,12 @@ describe("the Jev chip in row 1 (#876)", () => {
     expect(resolveJevChip("active", [{ extension: "jev-guard", text: "∅ jev offline" }])).toBe("offline");
     expect(resolveJevChip("partial", [{ extension: "jev-guard", text: "∅ jev offline" }])).toBe("offline");
     expect(resolveJevChip("off", [{ extension: "jev-guard", text: "∅ jev offline" }])).toBe("offline");
-    // Another extension's status, or a jev-guard note that is not the outage,
-    // never overrides.
+    // #1207: a rejected key is the other client failure, and overrides too —
+    // `active` next to `∅ jev key rejected` would be the same lie.
+    expect(resolveJevChip("active", [{ extension: "jev-guard", text: "∅ jev key rejected" }])).toBe("auth");
+    expect(resolveJevChip("partial", [{ extension: "jev-guard", text: "∅ jev key rejected" }])).toBe("auth");
+    // Another extension's status, or a jev-guard note that is not a failure
+    // text, never overrides.
     expect(resolveJevChip("active", [{ extension: "other-ext", text: "∅ jev offline" }])).toBe("active");
     expect(resolveJevChip("active", [{ extension: "jev-guard", text: "jev-guard: some turn note" }])).toBe("active");
     // No snapshot: still no claim, outage or not.

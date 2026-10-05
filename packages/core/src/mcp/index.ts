@@ -22,6 +22,7 @@ export {
   PROTOCOL_VERSION,
   mcpServerEntrySchema,
   mcpToolName,
+  isHttpMcpUrl,
   loadUserMcpServers,
   declaredUserMcpServers,
   MCP_TRUST_SECTION,
