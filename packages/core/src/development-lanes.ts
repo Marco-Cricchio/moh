@@ -253,6 +253,17 @@ export class DevelopmentLaneStore {
     return { ...removed! };
   }
 
+  setBranchRef(laneId: string, branchRef: string): DevelopmentLane {
+    assertNonEmpty(branchRef, "branchRef");
+    const state = readState(this.#file);
+    const lane = state.lanes.find((candidate) => candidate.id === laneId);
+    if (!lane) throw new Error(`unknown lane: ${laneId}`);
+    lane.branchRef = branchRef.trim();
+    lane.updatedAt = now();
+    writeState(this.#file, state);
+    return { ...lane };
+  }
+
   /** Sets (or clears, with a blank value) a lane's user-facing label.
    * Whitespace collapses to single spaces: the label renders in single-line
    * chrome (status bar, `moh lanes list`, `/lanes`) and a task may be a
