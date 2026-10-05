@@ -14,6 +14,7 @@ import {
   transportFromFetch,
   validateJevKey,
   type JevJudgeInput,
+  type JevTransport,
 } from "../src/client";
 
 const transportOf = (impl: unknown) => transportFromFetch(impl as Parameters<typeof transportFromFetch>[0]);
