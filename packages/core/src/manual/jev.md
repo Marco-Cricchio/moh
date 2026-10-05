@@ -88,6 +88,11 @@ Nothing else about moh changes:
   in the TUI footer (`moh run` writes one line to stderr instead, and the
   exit code is never affected). The chip is announced once per outage and
   cleared as soon as Jev answers again.
+- **Key present, service rejects it** — same fail-open, different fact
+  (#1207): the call reached TypeSafe and the service refused the key. The
+  footer says `∅ jev key rejected` and the summary chip says `auth` — the
+  fix is re-entering the key (Settings → *Jev (TypeSafe)* → API key), not
+  waiting the network out.
 - **No substitute** — a judgment moh cannot obtain is never replaced by a
   model call. The use case that needed it simply does not apply to that
   turn.
@@ -155,8 +160,10 @@ was switched off, `inert` when none judges and none is off — the extension
 is registered and configured, but nothing it needs (a model pool, a skill
 roster, a project root) is there, so it cannot act. During an outage the
 chip says `offline` — nothing can judge while the client is down, whatever
-the switches say — and the `∅ jev offline` chip beside it keeps its own
-place. The per-use-case detail is `/jev`; below 70 columns the chip is its
+the switches say — and when the service rejects the key it says `auth`
+(#1207): both are the client's own failure texts on the ADR-0032 seam
+(`∅ jev offline`, `∅ jev key rejected`), and either overrides the snapshot.
+The per-use-case detail is `/jev`; below 70 columns the chip is its
 glyph alone, and it is absent entirely when Jev is not registered.
 
 The seven use cases are `guardrail`, `routing`, `classification`,
@@ -297,7 +304,8 @@ In **yolo** mode only the lethal checks run (destructive, exfiltration):
 they can still deny, but Jev never prompts — yolo means zero prompts.
 In headless (`moh run`) an "ask" degrades to a denial, like every other
 prompt. When Jev is unreachable the guardrail fails open (the call
-proceeds) and the `∅ jev offline` chip appears as described above.
+proceeds) and the failure chip appears as described above — `∅ jev
+offline` for an outage, `∅ jev key rejected` for a refused key (#1207).
 
 Identical commands are judged once per session: verdicts are cached
 against the command plus the current git branch and dirty/clean state,
