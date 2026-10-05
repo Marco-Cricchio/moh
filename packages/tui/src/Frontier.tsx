@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { Text, useInput } from "ink";
 import { projectFrontier, type TrackerBackend, type TrackerIssue } from "@moh/core";
 import { useTheme } from "./themes";
+import { sanitizeForDisplay } from "./render-sanitize";
 import { Dialog, Dim } from "./ui";
 import { useViewport, windowing } from "./viewport";
 
@@ -18,7 +19,7 @@ export interface FrontierProps {
   /**
    * Permission seam for the claim action (#36): the panel claims only
    * when it resolves true. The App routes it through the same
-n   * PermissionGate modal used for `tracker_claim` tool calls.
+   * PermissionGate modal used for `tracker_claim` tool calls.
    */
   requestClaim?: (issue: TrackerIssue) => Promise<boolean> | boolean;
   /** Called only after the backend has confirmed the mutation. */
@@ -116,7 +117,7 @@ export function Frontier({ backend, onToast, onClose, requestClaim, onClaimed }:
     <Dialog title=" frontier " color={theme.accent}>
       {load.kind === "loading" && <Dim>loading tracker…</Dim>}
       {load.kind === "error" && (
-        <Text color={theme.warn}>{`⚠ tracker unavailable: ${load.message}`}</Text>
+        <Text color={theme.warn}>{`⚠ tracker unavailable: ${sanitizeForDisplay(load.message)}`}</Text>
       )}
       {load.kind === "ready" && rows.length === 0 && <Dim>no open issues — the frontier is clear</Dim>}
       {win.above > 0 && <Dim>{` ↑ ${win.above} more`}</Dim>}
@@ -125,11 +126,11 @@ export function Frontier({ backend, onToast, onClose, requestClaim, onClaimed }:
           const index = win.start + i;
           return (
           <Text key={issue.id} inverse={index === cursor} wrap="truncate-end">
-            <Text color={index === cursor ? theme.accent : undefined}>{` ${issue.id.padStart(4)} `}</Text>
+            <Text color={index === cursor ? theme.accent : undefined}>{` ${sanitizeForDisplay(issue.id.padStart(4))} `}</Text>
             {group ? <Dim>{`[${group}] `}</Dim> : null}
             {issue.assignees.length > 0 ? <Text color={theme.warn}>◉ </Text> : <Text color={theme.ok}>○ </Text>}
-            {issue.title}
-            {issue.blockedBy.length > 0 ? <Dim>{` (blocked by ${issue.blockedBy.map((b) => `#${b}`).join(",")})`}</Dim> : null}
+            {sanitizeForDisplay(issue.title)}
+            {issue.blockedBy.length > 0 ? <Dim>{` (blocked by ${sanitizeForDisplay(issue.blockedBy.map((b) => `#${b}`).join(","))})`}</Dim> : null}
           </Text>
           );
         })}

@@ -75,7 +75,8 @@ The Jev chip (#876) sits in row 1's left cluster right after the memory, MPM and
 - `◈ jev partial` — some judge and at least one is off or paused (the user's own opt-out: `active` alone would hide it);
 - `◈ jev off` — none judges, and at least one is off or paused: a choice, not a defect;
 - `◈ jev inert` — none judges and none is off, every one structurally unable to act here (no pool, no roster, no project root);
-- `◈ jev offline` — the client is in outage: nothing can judge, so this overrides whatever the switches say (`active` during a downtime would be a claim the bar cannot back).
+- `◈ jev offline` — the client is in outage: nothing can judge, so this overrides whatever the switches say (`active` during a downtime would be a claim the bar cannot back);
+- `◈ jev auth` — the service rejected the key (`∅ jev key rejected`, #1207): the calls leave and come back refused, a user-actionable fact, and it overrides the snapshot exactly like an outage does. Color `warn`.
 
 Below 70 columns the chip keeps its glyph alone (`◈`). There is no chip at all when the extension is not registered, or has not answered yet — the bar makes no claim it cannot read. It is read from the extension's own snapshot on the same cheap 2s poll as the MPM and extension-status chips; the outage text (`∅ jev offline`) keeps the ADR-0032 status seam to itself, one writer per seam.
 

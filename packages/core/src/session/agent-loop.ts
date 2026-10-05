@@ -27,7 +27,6 @@ import { resolveTurnConfirm, type BeforeTurnDispatch, type ExtensionRuntime } fr
 import { assembleMentions, renderMentionAttachment, type MentionAttachment } from "../mentions";
 import { EMPTY_REASONING_PARTS, foldReasoningParts, type ReasoningParts } from "../reasoning-parts";
 import { servingModelOf, selectedModelOf } from "../model-pair";
-import { declaredWindowOf } from "../declared-window";
 import { normalizeProviderError } from "../provider-errors";
 import { PRICING_SNAPSHOT } from "../pricing";
 import { newUlid } from "./ulid";
@@ -661,7 +660,10 @@ export class AgentLoop {
           // the provider declared is learned here too.
           const refusing = this.#refusingRef();
           this.#flushFailedModelCall(normalizeProviderError(err));
-          if (refusalKind(err) === "context_length" || declaredWindowOf(err) !== undefined) {
+          // ADR-0049 (door one, #1199): the gate is the kind alone — only a
+          // real refusal teaches, never a failure that merely carries a
+          // recognizable number.
+          if (refusalKind(err) === "context_length") {
             this.#onContextRefusal?.(refusing, err);
           }
           this.#append({ type: "error", reason: "max_iterations", message: `iteration cap of ${this.#maxIterations} reached` });
@@ -782,8 +784,9 @@ export class AgentLoop {
           // or silence falls through to the historical path, byte-identical.
           if ((await this.#consultModelRetry(refusing, err)) !== null) {
             // ADR-0049 (door one, #986): a real refusal still teaches the
-            // window it declared, before the call is retried elsewhere.
-            if (refusalKind(err) === "context_length" || declaredWindowOf(err) !== undefined) this.#onContextRefusal?.(refusing, err);
+            // window it declared, before the call is retried elsewhere
+            // (#1199: the kind is the gate, never the carried number).
+            if (refusalKind(err) === "context_length") this.#onContextRefusal?.(refusing, err);
             provider = this.#provider();
             continue;
           }
@@ -792,12 +795,13 @@ export class AgentLoop {
           this.#append({ type: "error", reason, message });
           // ADR-0049 (door one, #986): only a real refusal teaches — the
           // provider just said what its window is by rejecting a larger
-          // request. A failure teaches when it classified as `context_length`
-          // (the session then learns or traces) or when its own wording
-          // carries a window formula moh reads (the refusal proves itself,
-          // and the refusal still keeps the kind it had: the taxonomy is
-          // untouched). Everything else is exactly as it was.
-          if (reason === "context_length" || declaredWindowOf(err) !== undefined) this.#onContextRefusal?.(refusing, err);
+          // request. #1199: the gate is the `context_length` kind alone; a
+          // hostile or broken body that names a window inside a
+          // `network`/`overloaded`/`auth` failure teaches nothing. The
+          // shipped recognition formulas classify as `context_length`
+          // (classifyStatus), so real refusals in those wordings still
+          // reach the session and are learned or traced there.
+          if (reason === "context_length") this.#onContextRefusal?.(refusing, err);
           return { status: "error", reason, message };
         }
       }

@@ -202,4 +202,31 @@ describe("Frontier panel", () => {
     expect(stripAnsi(i.lastFrame() ?? "")).toContain("tracker unavailable");
     i.unmount();
   });
+
+  test("an escape-bearing tracker title renders inert (audit-v3 TUI-1)", async () => {
+    const i = mount(backendOf([issue("13", { title: "ok\u001B[2J\u001B]0;pwned\u0007EVIL" })]));
+    await sleep(50);
+    const raw = i.lastFrame() ?? "";
+    expect(raw).not.toContain("\u001B");
+    expect(raw).not.toContain("\u0007");
+    expect(stripAnsi(raw)).toContain("okEVIL");
+    i.unmount();
+  });
+
+  test("an escape-bearing tracker error renders inert (audit-v3 TUI-1)", async () => {
+    const i = mount({
+      kind: "gh",
+      list: async () => {
+        throw new Error("\u001B[31mauth exploded\u001B[0m");
+      },
+      claim: async () => {},
+      unclaim: async () => {},
+    });
+    await sleep(50);
+    const raw = i.lastFrame() ?? "";
+    expect(raw).not.toContain("\u001B");
+    expect(stripAnsi(raw)).toContain("tracker unavailable");
+    expect(stripAnsi(raw)).toContain("auth exploded");
+    i.unmount();
+  });
 });

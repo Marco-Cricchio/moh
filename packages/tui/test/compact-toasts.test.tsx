@@ -122,4 +122,21 @@ describe("toasts (issue #33)", () => {
     expect(stripAnsi(i.lastFrame() ?? "")).not.toContain("memory updated");
     i.unmount();
   });
+
+  test("an escape-bearing toast text renders inert (audit-v3 TUI-1)", async () => {
+    function Harness() {
+      const { toasts, push } = useToasts();
+      React.useEffect(() => {
+        push("switch failed: \u001B[31m\u009B2Kboom\u001B[0m");
+      }, [push]);
+      return <Toasts toasts={toasts} />;
+    }
+    const i = render(<Harness />);
+    await sleep(30);
+    const raw = i.lastFrame() ?? "";
+    expect(raw).not.toContain("\u001B");
+    expect(raw).not.toContain("\u009B");
+    expect(stripAnsi(raw)).toContain("switch failed:");
+    i.unmount();
+  });
 });

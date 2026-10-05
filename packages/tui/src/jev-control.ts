@@ -13,7 +13,7 @@
  * on|off` in the CLI, never by a session command (ADR-0038 §1).
  */
 import type { AgentSession } from "@moh/core";
-import { JEV_OFFLINE_STATUS, JEV_USE_CASES, type JevUseCase, type JevUseCaseAction, type JevUseCaseSnapshot, type JevUseCaseStatus } from "@moh/jev-guard";
+import { JEV_AUTH_STATUS, JEV_OFFLINE_STATUS, JEV_USE_CASES, type JevUseCase, type JevUseCaseAction, type JevUseCaseSnapshot, type JevUseCaseStatus } from "@moh/jev-guard";
 
 /** The bundled extension every Jev surface talks to (ADR-0038). */
 export const JEV_EXTENSION_NAME = "jev-guard";
@@ -81,11 +81,14 @@ export function readJevState(read: ExtensionStateReader | undefined): JevUseCase
  * - `offline` — the client is in outage (`∅ jev offline` on the ADR-0032
  *   status seam): nothing can judge right now, so the snapshot's state is
  *   overridden — the chip never says `active` while the service is down.
+ * - `auth` — the service rejected the key (`∅ jev key rejected`, #1207):
+ *   the calls leave, the verdict comes back — a user-actionable fact, and
+ *   just as much an override of the snapshot as an outage is.
  *
  * `null` = the bar makes no claim: the extension is not registered, has not
  * answered yet, or reports nothing at all.
  */
-export type JevStatusSummary = "active" | "partial" | "off" | "inert" | "offline";
+export type JevStatusSummary = "active" | "partial" | "off" | "inert" | "offline" | "auth";
 
 /** The summary of one snapshot, in `JEV_USE_CASES` order (never a guess). */
 export function summarizeJevStatus(snapshot: JevUseCaseSnapshot | null): JevStatusSummary | null {
@@ -104,20 +107,28 @@ export function summarizeJevStatus(snapshot: JevUseCaseSnapshot | null): JevStat
   return statuses.includes("inert") && !statuses.includes("off") && !statuses.includes("paused") ? "inert" : "off";
 }
 
-/** True when jev-guard's published status is the outage text (`∅ jev offline`). */
-export function jevIsOffline(extensionStatuses: readonly { extension: string; text: string }[]): boolean {
-  return extensionStatuses.some((status) => status.extension === JEV_EXTENSION_NAME && status.text === JEV_OFFLINE_STATUS);
+/** True when jev-guard's published status is one of the client's failure
+ * texts — the outage (`∅ jev offline`) or a rejected key
+ * (`∅ jev key rejected`, #1207). Any other text is a turn note or another
+ * seam's words: never an override. */
+export function jevFailedStatus(extensionStatuses: readonly { extension: string; text: string }[]): JevStatusSummary | null {
+  for (const status of extensionStatuses) {
+    if (status.extension !== JEV_EXTENSION_NAME) continue;
+    if (status.text === JEV_OFFLINE_STATUS) return "offline";
+    if (status.text === JEV_AUTH_STATUS) return "auth";
+  }
+  return null;
 }
 
-/** The chip's final word: an outage overrides whatever the snapshot says —
- * nothing can judge while the client is down, so `active`/`partial` would
- * be a claim the bar cannot back. */
+/** The chip's final word: a client failure (outage or a rejected key)
+ * overrides whatever the snapshot says — nothing can judge, so
+ * `active`/`partial` would be a claim the bar cannot back. */
 export function resolveJevChip(
   summary: JevStatusSummary | null,
   extensionStatuses: readonly { extension: string; text: string }[],
 ): JevStatusSummary | null {
   if (summary === null) return null;
-  return jevIsOffline(extensionStatuses) ? "offline" : summary;
+  return jevFailedStatus(extensionStatuses) ?? summary;
 }
 
 /** The one call a poller needs: read the extension's state and summarize it.

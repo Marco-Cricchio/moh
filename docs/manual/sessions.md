@@ -22,6 +22,13 @@ sessions still paints immediately. The list carries no usage or model
 line: token rollups and the active model live in `moh usage` and the
 status bar of a session, where they belong.
 
+The session's status bar row 2 says where you are. In a lane session
+(see `moh lanes`), the path shown is the real project directory with a
+`· lane` marker, the auto branch elides to `moh/auto`, and the lane's
+task label (`⬥ …`, named after the first prompt when the session opened
+without one) sits beside it — a semantic branch (`fix/…`) replaces both
+as soon as the agent creates one.
+
 ## Resume
 
 Reopening a past session **appends to the same file**: history, memory
@@ -181,11 +188,12 @@ banner vanishes on refresh.
 No secret is ever written to a session log in cleartext. Before an event
 reaches disk, the writer runs an unconditional redaction pass over it
 (ADR-0058): secret-shaped keys (`apiKey`, `token`, `password`,
-`authorization`, …) are masked wherever they appear, and high-confidence
-secret shapes in free text — provider keys (`sk-…`, `ghp_…`, `xoxb-…`,
-`AKIA…`, Google keys), `Bearer` headers, `api_key=`/`token=` assignments,
-credentials embedded in URLs, PEM private-key blocks — become the fixed
-placeholder `[redacted]`.
+`authorization`, long env-var forms like `ANTHROPIC_API_KEY` or
+`AWS_SECRET_ACCESS_KEY`) are masked wherever they appear, and
+high-confidence secret shapes in free text — provider keys (`sk-…`,
+`ghp_…`, `xoxb-…`, `AKIA…`, Google keys), `Bearer` headers,
+`api_key=`/`token=` assignments, credentials embedded in URLs, PEM
+private-key blocks — become the fixed placeholder `[redacted]`.
 
 There is **no opt-out**: no config key, flag or consent can disable the
 pass — it is an invariant of the log writer, like append-only. The pass

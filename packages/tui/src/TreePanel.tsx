@@ -250,7 +250,7 @@ export function TreePanel({
   // the visible right-wall misalignment.
   const title = `╭─ `;
   const titleText = `Session tree`;
-  const subtitle = ` — ${label} · ${branchCount} ${branchCount === 1 ? "branch" : "branches"} · ${turns} ${turns === 1 ? "turn" : "turns"} `;
+  const subtitle = ` — ${sanitizeLine(label)} · ${branchCount} ${branchCount === 1 ? "branch" : "branches"} · ${turns} ${turns === 1 ? "turn" : "turns"} `;
   const titlePad = Math.max(2, contentW - 2 - titleText.length - subtitle.length);
   const topBorder =
     title +

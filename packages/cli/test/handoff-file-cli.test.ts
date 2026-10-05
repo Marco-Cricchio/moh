@@ -152,6 +152,19 @@ describe("moh handoff pull <url> (#451, story 17)", () => {
     expect(io.read().stderr).toContain("fetch failed");
   });
 
+  test("a failed username lookup refuses loudly — no silent author-check skip (audit-v3 CLI-1)", async () => {
+    const { cwd, home } = setup(); const io = streams();
+    const handoff = { ...fixtureHandoff("session-unverified"), author: "someone-else" };
+    const result = await handoffCommand({
+      argv: ["pull", "abc123"], cwd, home, ...io,
+      transport: pullTransport(handoff),
+      gh: async () => ({ exitCode: 1, stdout: "", stderr: "gh: not logged in" }),
+    });
+    expect(result).toBe(1);
+    expect(io.read().stderr).toContain("cannot verify the logged-in gh user");
+    expect(() => readFileSync(importedHandoffFile(cwd, home))).toThrow();
+  });
+
   test("requires exactly one url argument", async () => {
     const { cwd, home } = setup(); const io = streams();
     expect(await handoffCommand({ argv: ["pull"], cwd, home, ...io })).toBe(2);
