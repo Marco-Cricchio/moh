@@ -109,7 +109,7 @@ export const EXTENSION_MAX_SESSIONS = 10;
 export interface SubagentOptions {
   /** Presets from moh.json `agents`, merged over the built-ins (user wins). */
   presets?: Record<string, SubagentSpec>;
-  /** Max concurrently running children. Default 3; extra spawns queue. */
+  /** Max concurrently running children. Default 5; extra spawns queue. */
   maxConcurrency?: number;
   /** Provider used when a spec declares neither `provider` nor `model`. */
   provider?: Provider | string;
@@ -208,7 +208,7 @@ export interface SubagentHostOptions {
 }
 
 /** #1143: counting semaphore with permit transfer — caps parallel children
- * (default 3). Exported for tests. */
+ * (default 5). Exported for tests. */
 export class Semaphore {
   #active = 0;
   readonly #waiting: { resolve: () => void; aborted: boolean; handedOff: boolean }[] = [];

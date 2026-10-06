@@ -417,8 +417,10 @@ describe("subagents (#13)", () => {
     expect(lifecycle.filter((l) => l.startsWith("subagent_spawn:"))).toHaveLength(6);
     const resultCount = lifecycle.filter((l) => l.startsWith("subagent_result:")).length;
     expect(resultCount).toBe(6);
-    // The 6th spawn must have queued: at least one child finished before
-    // the 6th child could start (a slot freed).
+    // At least one child finished before the 6th could start (a slot
+    // freed): the default cap queues beyond it. The exact cap value is
+    // pinned by the DEFAULT_SUBAGENT_CONCURRENCY assertion above; spawn
+    // event ordering is asynchronous, so it cannot be pinned here.
     const fSpawnIndex = lifecycle.indexOf("subagent_spawn:f");
     const resultsBeforeF = lifecycle
       .slice(0, fSpawnIndex)
