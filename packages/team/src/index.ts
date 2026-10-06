@@ -127,15 +127,19 @@ export default createTeamExtension;
  * extension ships out of the box with the binary — always active, gated by
  * the enable consent, which names the envelope. No config block: the
  * enable question is the switch.
+ *
+ * Literals, not `teamManifestAuthority()`: inside the compiled binary
+ * `import.meta.dir` is the bundler's virtual root and there is no physical
+ * manifest to read — jev-guard declares its scopes the same way. The
+ * anti-drift test pins these literals to the physical manifest.
  */
 export const teamBundledSource = {
   name: TEAM_NAME,
   manifest: {
-    hash: teamManifestAuthority().hash,
-    path: teamManifestAuthority().path,
-    capabilities: teamManifestAuthority().capabilities,
+    capabilities: ["spawn-subagent", "contribute-tool:team"] as string[],
     // ADR-0066: the NOT-do list rides the enable question.
-    reasoning: teamManifestAuthority().reasoning,
+    reasoning:
+      "The team extension coordinates child sessions as one team: up to 10 concurrent children, per-role path scopes, one stop for everything it started. It does not add peer messaging between members — steering flows through the team lead — and its children never spawn grandchildren.",
   },
   // ADR-0074: the enable consent names the envelope — the user grants it,
   // the stored answer remembers it. Shipping in the binary does not grant it.
