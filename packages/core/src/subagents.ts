@@ -81,7 +81,7 @@ export const BUILTIN_AGENT_PRESETS: Record<string, SubagentSpec> = {
   },
 };
 
-export const DEFAULT_SUBAGENT_CONCURRENCY = 3;
+export const DEFAULT_SUBAGENT_CONCURRENCY = 5;
 
 /** ADR-0055 (#1127): who asked for a spawn. */
 export type SubagentSpawnRequester = { kind: "model" } | { kind: "extension"; extension: string };

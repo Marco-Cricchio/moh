@@ -353,7 +353,7 @@ describe("subagents (#13)", () => {
       "subagent_spawn:c",
       "subagent_result:c",
     ]);
-    expect(DEFAULT_SUBAGENT_CONCURRENCY).toBe(3);
+    expect(DEFAULT_SUBAGENT_CONCURRENCY).toBe(5);
   });
 
   test("default concurrency cap allows parallel children (spawns interleave)", async () => {
@@ -380,11 +380,50 @@ describe("subagents (#13)", () => {
     await parent.send("go");
 
     // Both children start (spawn events) before either finishes: the
-    // default cap of 3 does not serialize two parallel spawns.
+    // default cap of 5 does not serialize two parallel spawns.
     const secondSpawnIndex = tapped.findIndex((e, i) => e.type === "subagent_spawn" && i > tapped.findIndex((x) => x.type === "subagent_spawn"));
     const firstResultIndex = tapped.findIndex((e) => e.type === "subagent_result");
     expect(secondSpawnIndex).toBeGreaterThan(-1);
     expect(secondSpawnIndex).toBeLessThan(firstResultIndex);
+  });
+
+  test("default cap of 5 queues the 6th spawn until a slot frees", async () => {
+    const home = tmpHome();
+    const names = ["a", "b", "c", "d", "e", "f"];
+    const parent = createSession({
+      provider: MockProvider.scripted([
+        {
+          deltas: [],
+          finish: "tool_calls",
+          toolCalls: names.map((name) => ({ name: "spawn", args: { name, task: "1" } })),
+        },
+        { deltas: ["ok"], finish: "stop" },
+      ]),
+      tools: builtinTools(),
+      permissions: { overrides: { tools: { spawn: "allow" } } },
+      subagents: { home: home,
+        // Slow child: with the default cap the first 5 spawns run before
+        // any result lands; the 6th child waits for a slot.
+        provider: MockProvider.scripted([{ deltas: ["x"], finish: "stop", deltaDelayMs: 40 }]),
+      },
+    });
+    const tapped = tap(parent);
+    await parent.send("go");
+
+    const lifecycle = tapped
+      .filter((e) => e.type === "subagent_spawn" || e.type === "subagent_result")
+      .map((e) => `${(e as any).type}:${(e as any).name}`);
+    expect(lifecycle).toHaveLength(12);
+    expect(lifecycle.filter((l) => l.startsWith("subagent_spawn:"))).toHaveLength(6);
+    const resultCount = lifecycle.filter((l) => l.startsWith("subagent_result:")).length;
+    expect(resultCount).toBe(6);
+    // The 6th spawn must have queued: at least one child finished before
+    // the 6th child could start (a slot freed).
+    const fSpawnIndex = lifecycle.indexOf("subagent_spawn:f");
+    const resultsBeforeF = lifecycle
+      .slice(0, fSpawnIndex)
+      .filter((l) => l.startsWith("subagent_result:")).length;
+    expect(resultsBeforeF).toBeGreaterThanOrEqual(1);
   });
 
   test("child per-turn loop cap wraps up (#190): partial result reaches the parent", async () => {
