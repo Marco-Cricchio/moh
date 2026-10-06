@@ -12,10 +12,13 @@ import React from "react";
 import { Text } from "ink";
 import { render } from "ink-testing-library";
 import { ExtensionOverlayView, ExtensionsRail } from "../src/ExtensionsRail";
+import { RAIL_MIN_ROWS } from "../src/rail-layout";
 import { ThemeProvider, THEMES, DEFAULT_THEME } from "../src/themes";
 import { stripAnsi } from "./helpers";
 
 type Panel = Parameters<typeof ExtensionsRail>[0]["panels"][number];
+
+const ROWS = 24; // comfortably above the rail's tiny-terminal floor
 
 function panel(overrides: Partial<Panel> = {}): Panel {
   return {
@@ -38,29 +41,55 @@ function mount(node: React.ReactElement) {
 
 describe("ExtensionsRail (#1132)", () => {
   test("with no panels the rail contributes nothing at all", () => {
-    const i = mount(<ExtensionsRail panels={[]} collapsed={new Set()} columns={120} />);
+    const i = mount(<ExtensionsRail panels={[]} collapsed={new Set()} columns={120} rows={ROWS} />);
     expect(i.frame().trim()).toBe("");
     i.unmount();
   });
 
   test("every panel collapsed renders nothing — the zone disappears", () => {
-    const i = mount(<ExtensionsRail panels={[panel()]} collapsed={new Set(["status"])} columns={120} />);
+    const i = mount(<ExtensionsRail panels={[panel()]} collapsed={new Set(["status"])} columns={120} rows={ROWS} />);
     expect(i.frame().trim()).toBe("");
     i.unmount();
   });
 
-  test("wide: the panel name, its extension, the declared max-height and its own rendering are shown", () => {
-    const i = mount(<ExtensionsRail panels={[panel({ maxHeight: 6 })]} collapsed={new Set()} columns={120} />);
+  test("wide: the client-drawn header shows identity and the real allocation", async () => {
+    const i = mount(<ExtensionsRail panels={[panel({ maxHeight: 6 })]} collapsed={new Set()} columns={120} rows={ROWS} />);
+    await new Promise((r) => setTimeout(r, 30)); // the demand measurement settles
     const frame = i.frame();
     expect(frame).toContain("status");
     expect(frame).toContain("ops");
-    expect(frame).toContain("max 6");
-    // The extension's own Ink output is drawn untouched in the zone.
+    // The allocation is real: a 1-row body in a bordered box of 24 available rows.
+    expect(frame).toContain("·1r (8%)");
+    // The declaration is not shown — allocation, not declaration (#1218).
+    expect(frame).not.toContain("max 6");
+    // The extension's own Ink output is drawn untouched in the panel.
     expect(frame).toContain("all green");
     i.unmount();
   });
 
-  test("an extension whose render throws yields one visible failure line, not a crash", () => {
+  test("wide: a declared maxHeight that cuts the demand is marked as clamped", async () => {
+    const lines = (n: number) =>
+      React.createElement(
+        React.Fragment,
+        null,
+        Array.from({ length: n }, (_, i) => React.createElement(Text, { key: i }, `row ${i}`)),
+      );
+    const i = mount(
+      <ExtensionsRail
+        panels={[panel({ name: "logs", maxHeight: 4, render: () => lines(30) })]}
+        collapsed={new Set()}
+        columns={120}
+        rows={ROWS}
+      />,
+    );
+    await new Promise((r) => setTimeout(r, 30)); // the demand measurement settles
+    const frame = i.frame();
+    expect(frame).toContain("·max 4 → 4");
+    expect(frame).toContain("max 4");
+    i.unmount();
+  });
+
+  test("an extension whose render throws yields one visible failure line, not a crash", async () => {
     const i = mount(
       <ExtensionsRail
         panels={[
@@ -69,8 +98,10 @@ describe("ExtensionsRail (#1132)", () => {
         ]}
         collapsed={new Set()}
         columns={120}
+        rows={ROWS}
       />,
     );
+    await new Promise((r) => setTimeout(r, 30)); // the throw + demand settle into the stable frame
     const frame = i.frame();
     expect(frame).toContain("panel failed to render");
     expect(frame).toContain("fine"); // its neighbour still renders
@@ -78,7 +109,7 @@ describe("ExtensionsRail (#1132)", () => {
   });
 
   test("narrow: the rail collapses to a footer strip naming the panels", () => {
-    const i = mount(<ExtensionsRail panels={[panel()]} collapsed={new Set()} columns={60} />);
+    const i = mount(<ExtensionsRail panels={[panel()]} collapsed={new Set()} columns={60} rows={ROWS} />);
     const frame = i.frame().trim();
     // One line, naming the panel — never the declared column zone.
     expect(frame.split("\n")).toHaveLength(1);
@@ -88,7 +119,7 @@ describe("ExtensionsRail (#1132)", () => {
 
   test("a collapsed panel is absent from the narrow strip too", () => {
     const i = mount(
-      <ExtensionsRail panels={[panel(), panel({ name: "other" })]} collapsed={new Set(["other"])} columns={60} />,
+      <ExtensionsRail panels={[panel(), panel({ name: "other" })]} collapsed={new Set(["other"])} columns={60} rows={ROWS} />,
     );
     const frame = i.frame();
     expect(frame).toContain("status");

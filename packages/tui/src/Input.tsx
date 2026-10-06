@@ -175,6 +175,9 @@ export function MultilineInput({
   disabled,
   onAskCommands,
   focused = true,
+  /** #1218: the rail's focus mode holds the keys — the composer dims
+   * instead of looking active, but keeps rendering its draft. */
+  dimmed = false,
   composerHandle,
   submitSignal = 0,
   prefill,
@@ -185,7 +188,7 @@ export function MultilineInput({
   onRowsChange,
   maxRows,
   onSubmit,
-}: InputProps) {
+}: InputProps & { dimmed?: boolean }) {
   const theme = useTheme();
   const viewport = useViewport();
   const [lines, setLines] = useState<string[]>([""]);
@@ -660,11 +663,11 @@ export function MultilineInput({
         })}
         {isEmptyDraft(lines) && (
           <Text>
-            <Text color={focused && !disabled ? theme.accent : theme.dim} bold>› </Text>
-            {focused && !disabled && cursorVisible
+            <Text color={focused && !disabled && !dimmed ? theme.accent : theme.dim} bold>› </Text>
+            {focused && !disabled && !dimmed && cursorVisible
               ? <Text inverse color={theme.dim}>{placeholder?.[0] ?? " "}</Text>
               : null}
-            {placeholder ? <Text color={theme.dim}>{focused && !disabled && cursorVisible ? placeholder.slice(1) : placeholder}</Text> : null}
+            {placeholder ? <Text color={theme.dim}>{focused && !disabled && !dimmed && cursorVisible ? placeholder.slice(1) : placeholder}</Text> : null}
           </Text>
         )}
       </Box>
