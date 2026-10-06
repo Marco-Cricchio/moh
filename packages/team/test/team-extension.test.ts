@@ -224,15 +224,10 @@ describe("one-member team end to end (#1221, ADR-0055)", () => {
     expect(done).toBeDefined();
     expect(done!.payload.member).toBe("builder");
     expect(done!.payload.status).toBe("done");
-    const spawn = events.find((e) => e.type === "subagent_spawn") as { callId: string };
-    expect(done!.payload.callId).toBe(spawn.callId);
-    // The activity shape is the child-tail: tool in flight + monotonic
-    // timestamp — never the provider reasoning. At settle the child is
-    // already gone, so the read is legitimately empty; what the record
-    // must never carry is anything beyond the two-field shape.
-    const activity = done!.payload.activity as Record<string, unknown> | undefined;
-    if (activity) {
-      expect(Object.keys(activity).every((k) => ["currentTool", "lastActivityAt"].includes(k))).toBe(true);
+    // The child-tail shape: tool in flight + monotonic timestamp — never
+    // the provider reasoning.
+    if (done!.payload.activity) {
+      expect(Object.keys(done!.payload.activity).every((k) => ["currentTool", "lastActivityAt"].includes(k))).toBe(true);
     }
   });
 

@@ -84,7 +84,7 @@ export function createTeamExtension(): ExtensionDefinition {
       // (own route, ADR-0050); its settled outcome returns to the model
       // as the tool result, so it flows into the parent's turn.
       if (typeof ctx.registerTool !== "function" || typeof ctx.spawnSubagent !== "function") {
-        return; // enforcement by absence: no grant, no team (never reached with the manifest above)
+        return; // enforcement by absence: no grant, no team (unreachable with the granted manifest)
       }
       ctx.registerTool({
         name: "team",
