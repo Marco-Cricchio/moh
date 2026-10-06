@@ -1,7 +1,7 @@
 import { execFileSync } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
 import { anyOpenSessionInDir } from "./session-store";
-import { existsSync, linkSync, mkdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
+import { existsSync, linkSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, unlinkSync, writeFileSync } from "node:fs";
 import { basename, join, resolve as pathResolve } from "node:path";
 
 /** The pre-#398 path-derived location, retained only to find old data. */
@@ -278,6 +278,13 @@ function resolveProjectIdentityUncached(cwd: string, home: string, legacySlug: s
       // or memory write cannot race with the mode-tightening rules: only
       // newly created directories get 0o700, existing ones are untouched.
       mkdirSync(dir, { recursive: true, mode: 0o700 });
+    } else {
+      // #1217: the remote directory was materialized by another opener; if
+      // it is an empty shell, the uuid contents still migrate in, and when
+      // both sides hold data the uuid directory is recorded (never merged
+      // silently) so clients can surface both paths.
+      migrateStrandedUuidData(projects, remoteSlug, uuidId);
+      recordStrandedUuidData(projects, remoteSlug, uuidId);
     }
     return { slug: remoteSlug, legacySlug, declared: true };
   }
@@ -302,4 +309,116 @@ function resolveProjectIdentityUncached(cwd: string, home: string, legacySlug: s
     }
   }
   return { slug, legacySlug, declared: true };
+}
+
+/** The name of the durable stranded-data record inside a project directory (#1217). */
+export const STRANDED_DATA_FILE = "stranded-data.json";
+
+export interface StrandedDataRecord {
+  /** The directory still holding the stranded data (absolute path). */
+  source: string;
+  /** The remote-slug directory the project now resolves to. */
+  destination: string;
+  /** ISO timestamp of when the stranded state was first recorded. */
+  recordedAt: string;
+}
+
+/**
+ * Whether a project directory holds real data (#1217): anything beyond the
+ * durable migration note counts — session logs, memory, session notes,
+ * handoff, project map.
+ */
+function holdsProjectData(dir: string): boolean {
+  try {
+    return readdirSync(dir).some((name) => name !== "migration.log");
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * #1217: the remote-slug directory was materialized empty by a second moh
+ * process before the #592 one-shot rename could fire. Its contents migrate
+ * once anyway: the durable note is written first, then every top-level
+ * entry moves into the remote directory (a same-named survivor keeps the
+ * remote copy and the uuid copy is preserved under a `.migrated-<uuidslug>`
+ * sibling name, recorded in the note). Never throws to the caller: a racing
+ * opener that loses finds the winner's directory and moves on.
+ */
+function migrateStrandedUuidData(projects: string, remoteSlug: string, uuidId: string | null): void {
+  if (!uuidId) return;
+  const dir = join(projects, remoteSlug);
+  const uuidDir = join(projects, identitySlug(uuidId));
+  if (uuidDir === dir || !existsSync(uuidDir) || !holdsProjectData(uuidDir)) return;
+  if (existsSync(dir) && holdsProjectData(dir)) {
+    recordStrandedUuidData(projects, remoteSlug, uuidId);
+    return;
+  }
+  const uuidSlug = identitySlug(uuidId);
+  writeFileSync(join(uuidDir, "migration.log"), `Migrated project directory ${uuidSlug} to ${remoteSlug} (remote directory was materialized empty; contents moved).\n`, { flag: "a", mode: 0o600 });
+  mkdirSync(dir, { recursive: true, mode: 0o700 });
+  for (const name of readdirSync(uuidDir)) {
+    const from = join(uuidDir, name);
+    let to = join(dir, name);
+    try {
+      if (existsSync(to)) {
+        to = join(dir, `.${name}.migrated-${uuidSlug}`);
+        writeFileSync(join(dir, "migration.log"), `Collision on "${name}": remote copy kept, uuid copy preserved as ${basename(to)}.\n`, { flag: "a", mode: 0o600 });
+      }
+      renameSync(from, to);
+    } catch {
+      // A racing opener or an unmovable entry: leave it stranded visibly
+      // rather than half-report a move that did not happen.
+      writeFileSync(join(dir, "migration.log"), `Could not move "${name}" from ${uuidDir}; it remains there.\n`, { flag: "a", mode: 0o600 });
+    }
+  }
+  try {
+    if (!holdsProjectData(uuidDir)) rmSync(uuidDir, { recursive: true });
+  } catch {
+    // The emptied shell stays; the note in the remote directory explains it.
+  }
+}
+
+/**
+ * #1217: both directories hold data. Nothing is merged or overwritten (the
+ * remote-slug directory stays authoritative), but the stranded uuid data is
+ * recorded once so clients surface both paths instead of leaving the old
+ * session silently invisible. Idempotent: the first record wins.
+ */
+function recordStrandedUuidData(projects: string, remoteSlug: string, uuidId: string | null): void {
+  if (!uuidId) return;
+  const dir = join(projects, remoteSlug);
+  const uuidDir = join(projects, identitySlug(uuidId));
+  if (uuidDir === dir || !existsSync(uuidDir) || !holdsProjectData(uuidDir)) return;
+  const recordFile = join(dir, STRANDED_DATA_FILE);
+  if (existsSync(recordFile)) return;
+  const record: StrandedDataRecord = {
+    source: uuidDir,
+    destination: dir,
+    recordedAt: new Date().toISOString(),
+  };
+  try {
+    mkdirSync(dir, { recursive: true, mode: 0o700 });
+    writeFileSync(recordFile, `${JSON.stringify(record, null, 2)}\n`, { mode: 0o600 });
+    writeFileSync(join(uuidDir, "migration.log"), `Stranded data recorded: ${uuidDir} holds older data; ${remoteSlug} is the project's live directory.\n`, { flag: "a", mode: 0o600 });
+  } catch {
+    // A record that cannot be written must never break identity resolution.
+  }
+}
+
+/**
+ * Reads the stranded-data record for a resolved project directory (#1217),
+ * or null. Clients (the home list) surface it so the user can move or
+ * delete the stranded directory.
+ */
+export function readStrandedDataRecord(dir: string): StrandedDataRecord | null {
+  try {
+    const parsed = JSON.parse(readFileSync(join(dir, STRANDED_DATA_FILE), "utf8")) as StrandedDataRecord;
+    if (typeof parsed === "object" && parsed !== null && typeof parsed.source === "string" && typeof parsed.destination === "string" && existsSync(parsed.source)) {
+      return parsed;
+    }
+    return null;
+  } catch {
+    return null;
+  }
 }
