@@ -392,6 +392,18 @@ def main() -> None:
         os.makedirs(os.path.join(home, ".moh"), exist_ok=True)
         with open(os.path.join(home, ".moh", "config"), "w") as f:
             json.dump(spec["config"], f)
+    # ADR-0074: pre-grant the team extension's enable consent in every PTY
+    # home, so the team question cannot consume the scripts' keystrokes —
+    # the same isolation the factory-level tests get from grantTeamExtension.
+    # The descriptor declares its manifest as literals, so the store record
+    # is keyed by the descriptor's derived identity ("team", empty hash).
+    os.makedirs(os.path.join(home, ".moh"), exist_ok=True)
+    with open(os.path.join(home, ".moh", "extensions.json"), "w") as f:
+        json.dump({
+            "consents": {"memory:team": True},
+            "dependencies": {},
+            "manifests": {"team": {"hash": "", "capabilities": ["spawn-subagent", "contribute-tool:team"]}},
+        }, f)
     # Optional fixture files written into the child's cwd (mentions need
     # real files under the session root to attach).
     if isinstance(spec.get("files"), dict):
