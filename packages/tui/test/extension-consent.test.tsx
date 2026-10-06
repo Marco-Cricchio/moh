@@ -16,7 +16,7 @@ import { MockProvider } from "@moh/core";
 import { PermissionModal } from "../src/PermissionModal";
 import { PermissionGate, describePermissionRequest } from "../src/permission-gate";
 import { makeSession } from "../src/factory";
-import { stripAnsi, unwrap, waitForCondition, waitForFrame } from "./helpers";
+import { grantTeamExtension, stripAnsi, unwrap, waitForCondition, waitForFrame } from "./helpers";
 
 const frameOf = (i: { lastFrame: () => string | undefined }) => stripAnsi(i.lastFrame() ?? "");
 
@@ -30,6 +30,7 @@ function homeWithExtension(name: string, body: string): string {
     join(home, ".moh", "extensions", "moh.extension.json"),
     JSON.stringify({ name, version: "0.3.0", entry: `${name}.mjs`, capabilities: [] }),
   );
+  grantTeamExtension(home);
   return home;
 }
 
@@ -134,10 +135,12 @@ describe("extension enable consent (#834)", () => {
 
       i.stdin.write("y");
       await waitForCondition(
-        () => session.history().some((e) => e.type === "extension_loaded"),
+        () => session.history().some((e) => e.type === "extension_loaded" && (e as { name?: string }).name === "guard"),
         () => "the extension to load after the consent",
       );
-      expect(session.history().find((e) => e.type === "extension_loaded")).toMatchObject({
+      expect(
+        session.history().find((e) => e.type === "extension_loaded" && (e as { name?: string }).name === "guard"),
+      ).toMatchObject({
         name: "guard",
         version: "0.3.0",
       });
@@ -172,7 +175,14 @@ describe("extension enable consent (#834)", () => {
       );
       const failure = session.history().find((e) => e.type === "extension_failed") as { reason: string };
       expect(failure.reason).toBe("consent");
-      expect(session.history().some((e) => e.type === "extension_loaded")).toBe(false);
+      // The pre-granted team extension is the only thing allowed to have
+      // loaded; the declined file extension must not be among them.
+      expect(
+        session
+          .history()
+          .filter((e) => e.type === "extension_loaded")
+          .every((e) => (e as { name?: string }).name === "team"),
+      ).toBe(true);
     } finally {
       i.unmount();
       await session.dispose();

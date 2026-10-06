@@ -1,4 +1,27 @@
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+import { teamManifestAuthority } from "@moh/team";
+
+/**
+ * Pre-grants the team extension's enable consent (ADR-0074) in a test
+ * home: tests that exercise an unrelated consent flow must not see the
+ * team question riding their modal queue. Same store the core maintains.
+ */
+export function grantTeamExtension(home: string): void {
+  const mohHome = join(home, ".moh");
+  mkdirSync(mohHome, { recursive: true });
+  const authority = teamManifestAuthority();
+  const file = join(mohHome, "extensions.json");
+  const store = existsSync(file)
+    ? JSON.parse(readFileSync(file, "utf8"))
+    : { consents: {}, dependencies: {}, manifests: {} };
+  store.consents["memory:team"] = true;
+  store.manifests[authority.path] = { hash: authority.hash, capabilities: [...authority.capabilities] };
+  writeFileSync(file, JSON.stringify(store));
+}
+
 export async function waitForCondition(
+
   condition: () => boolean,
   describe: () => string,
   { timeoutMs = 2_000, intervalMs = 10 }: { timeoutMs?: number; intervalMs?: number } = {},

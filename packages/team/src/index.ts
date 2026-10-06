@@ -131,8 +131,15 @@ export default createTeamExtension;
 export const teamBundledSource = {
   name: TEAM_NAME,
   manifest: {
-    capabilities: ["spawn-subagent", "contribute-tool:team"] as string[],
+    hash: teamManifestAuthority().hash,
+    path: teamManifestAuthority().path,
+    capabilities: teamManifestAuthority().capabilities,
+    // ADR-0066: the NOT-do list rides the enable question.
+    reasoning: teamManifestAuthority().reasoning,
   },
+  // ADR-0074: the enable consent names the envelope — the user grants it,
+  // the stored answer remembers it. Shipping in the binary does not grant it.
+  consentRequired: true,
   activate(): unknown {
     return createTeamExtension();
   },

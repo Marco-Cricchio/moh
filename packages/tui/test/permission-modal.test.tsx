@@ -10,7 +10,7 @@ import { Chat } from "../src/Chat";
 import { PermissionModal } from "../src/PermissionModal";
 import { PermissionGate } from "../src/permission-gate";
 import { makeSession } from "../src/factory";
-import { stripAnsi, unwrap } from "./helpers";
+import { grantTeamExtension, stripAnsi, unwrap } from "./helpers";
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
@@ -49,6 +49,7 @@ describe("permission modal (issue #33)", () => {
   test("blocks, shows full command detail, y allows the call", async () => {
     const cwd = mkdtempSync(join(tmpdir(), "moh-perm-"));
     const home = mkdtempSync(join(tmpdir(), "moh-perm-h-"));
+    grantTeamExtension(home);
     const store = SessionStore.create(cwd, home);
     const gate = new PermissionGate();
     const calls: string[] = [];
@@ -122,6 +123,7 @@ describe("permission modal (issue #33)", () => {
   test("“a” (always) writes a runtime rule, restorable on replay", async () => {
     const cwd = mkdtempSync(join(tmpdir(), "moh-perm-"));
     const home = mkdtempSync(join(tmpdir(), "moh-perm-h-"));
+    grantTeamExtension(home);
     const store = SessionStore.create(cwd, home);
     const gate = new PermissionGate();
     const calls: string[] = [];
@@ -176,6 +178,7 @@ describe("permission modal (issue #33)", () => {
   test("n (deny) produces a structured denial the model sees", async () => {
     const cwd = mkdtempSync(join(tmpdir(), "moh-perm-"));
     const home = mkdtempSync(join(tmpdir(), "moh-perm-h-"));
+    grantTeamExtension(home);
     const gate = new PermissionGate();
     const calls: string[] = [];
     const { session, store } = unwrap(makeSession({
