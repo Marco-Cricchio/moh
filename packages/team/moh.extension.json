@@ -1,0 +1,11 @@
+{
+  "name": "team",
+  "version": "0.1.0",
+  "entry": [
+    "src/index.ts"
+  ],
+  "capabilities": [
+    "spawn-subagent"
+  ],
+  "reasoning": "The team extension coordinates child sessions as one team: up to 10 concurrent children, per-role path scopes, one stop for everything it started. It does not add peer messaging between members — steering flows through the team lead — and its children never spawn grandchildren."
+}

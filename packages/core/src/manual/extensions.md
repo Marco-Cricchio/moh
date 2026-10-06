@@ -32,8 +32,12 @@ disagree about a tool call, the first one wins.
 An extension is arbitrary code running inside the moh process, so moh never
 enables one silently. A file that has not been allowed yet raises a prompt
 that names the file, a SHA-256 of its exact bytes, the capabilities its
-`moh.extension.json` manifest declares, and says plainly that there is no
-sandbox. Answer `y` to enable it, `n` to leave it alone.
+`moh.extension.json` manifest declares — each rendered as the concrete
+effect a yes grants (a `spawn-subagent` grant, for instance, reads as
+"may create up to 10 concurrent child sessions and steer or stop them") —
+the manifest's own `reasoning` statement when it declares one, and says
+plainly that there is no sandbox. Answer `y` to enable it, `n` to leave it
+alone.
 
 The question comes **before the file is loaded**, because loading a module
 runs it: a file you decline — or that nobody could ask you about — never
