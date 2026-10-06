@@ -17,9 +17,28 @@
  * the boundary #826 asked for.
  */
 import { readFileSync } from "node:fs";
+import { homedir } from "node:os";
+import { join } from "node:path";
 import { jevBundledSource } from "@moh/jev-guard";
 import { teamBundledSource } from "@moh/team";
 import { defaultCredentialStore, userConfigFile, type MountedBundledExtension } from "@moh/core";
+
+/**
+ * Whether the team extension's enable consent is already granted, read
+ * straight from the store the core maintains (`<mohHome>/extensions.json`,
+ * identity `memory:team`). A missing or malformed file reads as "not
+ * granted" — a broken store must never fail an assembly.
+ */
+function teamConsentGranted(home?: string): boolean {
+  try {
+    const store = JSON.parse(readFileSync(join(home ?? homedir(), ".moh", "extensions.json"), "utf8")) as {
+      consents?: Record<string, unknown>;
+    };
+    return store.consents?.["memory:team"] === true;
+  } catch {
+    return false;
+  }
+}
 
 /** Every first-party bundled extension, in registration order (hook
  * precedence is registration order, so this list is a contract).
@@ -30,7 +49,7 @@ import { defaultCredentialStore, userConfigFile, type MountedBundledExtension } 
  * user's config file. `home` is the resolved user home; a missing or
  * malformed config reads as "inactive" — a broken optional block must never
  * fail an assembly. */
-export function bundledExtensionSources(home?: string): readonly MountedBundledExtension[] {
+export function bundledExtensionSources(home?: string, options: { consentSeamAvailable?: boolean } = {}): readonly MountedBundledExtension[] {
   const file = userConfigFile(home);
   const read = (f: string): string => readFileSync(f, "utf8");
   // #1162: the same credential store the assembly will host. The one-time
@@ -48,11 +67,14 @@ export function bundledExtensionSources(home?: string): readonly MountedBundledE
     // optional block must never fail a session.
     active = false;
   }
-  // ADR-0074: the team extension ships out of the box with the binary —
-  // always active; the enable consent (which names the envelope) is the
-  // switch, not a config block.
+  // ADR-0074: the team extension ships out of the box with the binary, but
+  // it is mounted only where it can actually be enabled — a consent seam to
+  // ask through, or a grant a previous yes already stored. A headless
+  // client with neither would fail the load loudly in every session for
+  // nothing, so the descriptor stays home with its own note instead.
+  const teamMountable = options.consentSeamAvailable === true || teamConsentGranted(home);
   return [
     { source: jevBundledSource, active },
-    { source: teamBundledSource, active: true },
+    { source: teamBundledSource, active: teamMountable },
   ];
 }

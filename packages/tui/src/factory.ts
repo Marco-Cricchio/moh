@@ -104,7 +104,7 @@ export function makeSession(options: OpenSessionOptions): MakeSessionResult {
     ],
     // #826: the first-party bundled extensions this client ships. The core
     // hosts them without importing them; a bare library user gets none.
-    bundledExtensions: bundledExtensionSources(options.home),
+    bundledExtensions: bundledExtensionSources(options.home, { consentSeamAvailable: Boolean(options.onPermissionRequest) }),
     consent: {
       // Project MCP servers ask consent on first use; the TUI reuses the
       // same permission modal seam used for tool calls.
