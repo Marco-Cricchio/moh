@@ -7,6 +7,7 @@
     ".": "./src/index.ts"
   },
   "dependencies": {
-    "@moh/extension": "workspace:*"
+    "@moh/extension": "workspace:*",
+    "zod": "^4.4.3"
   }
 }

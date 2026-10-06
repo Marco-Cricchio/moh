@@ -18,6 +18,7 @@
  */
 import { readFileSync } from "node:fs";
 import { jevBundledSource } from "@moh/jev-guard";
+import { teamBundledSource } from "@moh/team";
 import { defaultCredentialStore, userConfigFile, type MountedBundledExtension } from "@moh/core";
 
 /** Every first-party bundled extension, in registration order (hook
@@ -47,5 +48,11 @@ export function bundledExtensionSources(home?: string): readonly MountedBundledE
     // optional block must never fail a session.
     active = false;
   }
-  return [{ source: jevBundledSource, active }];
+  // ADR-0074: the team extension ships out of the box with the binary —
+  // always active; the enable consent (which names the envelope) is the
+  // switch, not a config block.
+  return [
+    { source: jevBundledSource, active },
+    { source: teamBundledSource, active: true },
+  ];
 }
