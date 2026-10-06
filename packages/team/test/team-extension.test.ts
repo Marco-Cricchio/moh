@@ -15,7 +15,8 @@ import {
   type ExtensionConsentRequest,
   type Tool,
 } from "@moh/core";
-import { createTeamExtension, TEAM_ENVELOPE, TEAM_NAME, TEAM_VERSION, teamManifestAuthority } from "../src/index";
+import { readFileSync, writeFileSync } from "node:fs";
+import { createTeamExtension, TEAM_NAME, TEAM_VERSION, teamManifestAuthority } from "../src/index";
 
 function tempDir(): string {
   return mkdtempSync(join(tmpdir(), "moh-team-"));
@@ -44,7 +45,7 @@ function tap(session: { events: AsyncIterable<AgentEvent> }): AgentEvent[] {
 
 describe("team extension manifest (#1220, ADR-0074)", () => {
   test("the physical manifest declares exactly the spawn-subagent grant and its reasoning", () => {
-    const raw = JSON.parse(require("node:fs").readFileSync(teamManifestAuthority().path, "utf8"));
+    const raw = JSON.parse(readFileSync(teamManifestAuthority().path, "utf8"));
     expect(raw.name).toBe(TEAM_NAME);
     expect(raw.version).toBe(TEAM_VERSION);
     expect(raw.entry).toEqual(["src/index.ts"]);
@@ -96,10 +97,28 @@ describe("enable consent (#1220, ADR-0053/0055 style)", () => {
     expect(instance!.grantedCapabilities).toEqual(["spawn-subagent"]);
   });
 
-  test("the envelope statement is the ticket's own words", () => {
-    expect(TEAM_ENVELOPE).toContain("up to 10 concurrent child sessions");
-    expect(TEAM_ENVELOPE).toContain("path scopes");
-    expect(TEAM_ENVELOPE).toContain("stop");
+  test("the enable is remembered; removing the stored consent removes the capability", async () => {
+    const home = tempDir();
+    const rt1 = new ExtensionRuntime({ mohHome: home, consent: () => true });
+    expect(await rt1.register(createTeamExtension(), { manifest: teamManifestAuthority() })).toBe(true);
+    await rt1.ready();
+    expect(rt1.instances).toHaveLength(1);
+
+    // The remembered answer: same home, nobody to ask — still enabled.
+    const rt2 = new ExtensionRuntime({ mohHome: home });
+    expect(await rt2.register(createTeamExtension(), { manifest: teamManifestAuthority() })).toBe(true);
+    await rt2.ready();
+
+    // Disable: the stored consent is gone, so the next load is refused and
+    // the spawn capability is gone with it (headless = nobody to re-ask).
+    const storeFile = join(home, "extensions.json");
+    const store = JSON.parse(readFileSync(storeFile, "utf8")) as { consents: Record<string, true> };
+    store.consents = {};
+    writeFileSync(storeFile, JSON.stringify(store));
+    const rt3 = new ExtensionRuntime({ mohHome: home });
+    expect(await rt3.register(createTeamExtension(), { manifest: teamManifestAuthority() })).toBe(false);
+    await rt3.ready();
+    expect(rt3.instances).toHaveLength(0);
   });
 
   test("a declined consent leaves nothing loaded — the disabled extension contributes nothing", async () => {
@@ -160,6 +179,11 @@ describe("spawn through the ADR-0055 API (#1220)", () => {
       | Extract<AgentEvent, { type: "subagent_spawn" }>
       | undefined;
     expect(spawned?.requester).toEqual({ kind: "extension", extension: TEAM_NAME });
+
+    // /extensions (#1131): the live surface names the extension with its
+    // grant list — the modal and the headless notify fallback read this.
+    const live = session.extensionLiveInfo().find((i) => i.name === TEAM_NAME);
+    expect(live?.capabilities).toEqual(["spawn-subagent"]);
     await session.dispose();
   });
 });

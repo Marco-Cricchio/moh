@@ -29,9 +29,6 @@ export const TEAM_NAME = "team";
 /** The definition's version, reported by the `extension_loaded` event. */
 export const TEAM_VERSION = "0.1.0";
 
-/** ADR-0074: the envelope the enable consent grants, one statement. */
-export const TEAM_ENVELOPE = "create up to 10 concurrent child sessions, grant per-role path scopes, steer and stop them";
-
 /**
  * The manifest authority the consent signs (ADR-0061): derived from the
  * package's own `moh.extension.json` — the physical file is what a registry
@@ -58,14 +55,11 @@ export function teamManifestAuthority(): {
   };
 }
 
-/** Options for the definition factory; later slices add wiring seams. */
-export interface TeamExtensionOptions {}
-
 /**
  * Builds the team extension's definition. A factory, not a ready-made
  * definition: later slices pass the seams only a session assembly owns.
  */
-export function createTeamExtension(_options: TeamExtensionOptions = {}): ExtensionDefinition {
+export function createTeamExtension(): ExtensionDefinition {
   return defineExtension({
     name: TEAM_NAME,
     version: TEAM_VERSION,

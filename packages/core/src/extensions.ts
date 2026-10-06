@@ -200,9 +200,10 @@ export interface ExtensionConsentRequest {
    * means no new powers. */
   addedCapabilities?: readonly string[];
   /**
-   * ADR-0066: the manifest's `reasoning` — the author's justification for
-   * a total network wildcard (`host:*`), which the consent question
-   * displays. Present only when the manifest declares one.
+   * ADR-0066: the manifest's `reasoning` — the author's justification the
+   * consent question displays (required for a total network wildcard
+   * (`host:*`), shown for any manifest that declares one). Present only
+   * when the manifest declares one.
    */
   reasoning?: string;
   /**
