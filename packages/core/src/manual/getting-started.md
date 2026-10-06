@@ -55,11 +55,14 @@ SSH and HTTPS clones of the same remote therefore use the same moh data
 on a machine. Projects without a usable `origin` keep a local UUID in
 `.moh/project.json` to identify their data.
 
-After upgrading, a project that already has UUID-identified data and now
-has an `origin` moves that data once to the remote-derived directory. If
-that destination already contains data, moh keeps the remote-derived
-version and leaves the old UUID directory untouched; it never merges two
-project directories. This migration does not upload anything.
+When a project that already has UUID-identified data gains an `origin`, that
+data moves once to the remote-derived directory — even if a second moh
+process had already created the remote-derived directory as an empty shell
+(e.g. the origin was added while a session was open). If that destination
+already contains data of its own, moh keeps the remote-derived version,
+leaves the old UUID directory untouched, and the home list shows a warning
+line naming both directories so the older data stays visible; it never
+merges two project directories.
 
 This identity migration does not upload anything. Optional features such as
 an explicitly configured handoff can publish the data they describe.

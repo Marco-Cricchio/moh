@@ -542,6 +542,10 @@ import {
   prepareProjectIdentity,
   prepareProjectIdentityNow,
   isProjectIdentityPrepared,
+  // #1217: stranded-data record — clients surface old uuid-directory data
+  // that cannot be migrated automatically (both directories hold data).
+  readStrandedDataRecord,
+  type StrandedDataRecord,
 } from "./project-identity";
 import { readUserConfigFile, updateUserConfigFile, userConfigFile, type UserConfigData, type UserConfigIo } from "./user-config";
 // #826: the bundled-extension seam. The core knows how to host first-party
@@ -902,6 +906,10 @@ export {
   prepareProjectIdentity,
   prepareProjectIdentityNow,
   isProjectIdentityPrepared,
+  // #1217: stranded-data record — clients surface old uuid-directory data
+  // that cannot be migrated automatically (both directories hold data).
+  readStrandedDataRecord,
+  type StrandedDataRecord,
   splitCommandSegments,
   formatRule,
   parseRule,
