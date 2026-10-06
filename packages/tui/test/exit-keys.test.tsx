@@ -6,9 +6,13 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { App } from "../src/App";
 import { MockProvider } from "@moh/core";
-import { COMPOSER_READY, stripAnsi, waitForFrame } from "./helpers";
+import { COMPOSER_READY, grantTeamExtension, stripAnsi, waitForFrame } from "./helpers";
 
-const tempHome = () => mkdtempSync(join(tmpdir(), "moh-tui-exit-"));
+const tempHome = () => {
+  const h = mkdtempSync(join(tmpdir(), "moh-tui-exit-"));
+  grantTeamExtension(h);
+  return h;
+};
 
 const frame = (i: { lastFrame(): string | undefined }) => () => stripAnsi(i.lastFrame() ?? "");
 
