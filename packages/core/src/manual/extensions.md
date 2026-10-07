@@ -172,6 +172,35 @@ event carries the granted
 capabilities — the startup announcement of what each enabled extension
 holds.
 
+## Bundled extensions
+
+Two extensions ship inside the binary — no install, no `moh.json` entry;
+the mount is decided by the client and the switch is, in both cases,
+something you are asked before anything runs.
+
+- **Jev (TypeSafe)** — inactive until you arm it: a `typesafe` block in
+  your config plus a stored credential turn it on (`moh jev status`
+  reports the state; the Jev page has the full picture). Not configured,
+  it contributes nothing and logs its one-line inactive note.
+- **Team** — always mounted where it can be enabled. The first session
+  that can ask shows the enable consent, which names the envelope: up to
+  10 concurrent child sessions with per-member write scopes, steering,
+  one team-scoped stop, and one panel in the extensions rail. After that
+  yes (stored like any extension consent), the model can delegate work to
+  a team: pass a task and it spawns a builder member; ask for something
+  bigger and it composes a roster — scoped builders, read-only reviewers,
+  an optional shared task bag — and drives it, all visible in the rail
+  panel (`ctrl+p` to focus it; `n`/`p` move between members, `enter`
+  opens a member's detail where typing composes a steering message,
+  `x` in the roster stops everything the team spawned — lanes and
+  worktrees survive). Members also appear in the ordinary subagent chips.
+  A headless run with no prior grant mounts nothing: it neither asks nor
+  fails — the team is simply absent from that session.
+
+Both appear in `/extensions` as `bundled`, with their declared
+capabilities; declining the team's consent is remembered and no session
+asks again until its bytes or manifest change.
+
 ## There is no sandbox
 
 An extension runs with the same privileges as moh itself. It can read your
