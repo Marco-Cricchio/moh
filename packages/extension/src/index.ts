@@ -124,6 +124,12 @@
  * extension spawned becomes its next turn; a callId the extension did
  * not spawn resolves to `null`, so members can never address each other.
  * Contributed tools are excluded from every child's toolset by the host.
+ *
+ * 1.17 (#1225, ADR-0062 as amended): the optional `onKey` on
+ * `ExtensionPanel` — the focused rail panel may answer the keys the
+ * client does not consume itself. Ownership stays with the client: the
+ * extension never receives keys outside focus mode and can never take
+ * the rail's `esc`/`tab`/scroll keys away.
  */
 
 /**
@@ -131,7 +137,7 @@
  * Minor bumps are additive (new optional hooks/fields); major bumps are
  * breaking and refuse to load older/newer extensions.
  */
-export const MOH_EXTENSION_API_VERSION = "1.16";
+export const MOH_EXTENSION_API_VERSION = "1.17";
 
 /** One spawn an orchestration extension requests (ADR-0055, apiVersion 1.13).
  * `preset` resolves against the host's subagent presets (built-ins and
@@ -533,7 +539,9 @@ export interface ExtensionCommand {
 /**
  * One panel in the extensions rail (ADR-0062, apiVersion 1.12). The
  * render returns arbitrary Ink elements — the client renders them inside
- * the rail zone untouched, never wrapping native components.
+ * the rail zone untouched, never wrapping native components. Since
+ * apiVersion 1.17 a panel may also answer focused keys through the
+ * optional `onKey` (see it for the ownership rule).
  */
 export interface ExtensionPanel {
   /** The panel name, letters/digits/hyphens; shown in `/extensions`. */
@@ -547,6 +555,36 @@ export interface ExtensionPanel {
    * every frame. Callbacks inside the returned elements reach the session
    * only through the existing gated seams — never a second path. */
   render(): unknown;
+  /** Optional key seam (apiVersion 1.17, ADR-0062 as amended by #1225):
+   * when the rail holds focus, the client forwards the keys it does not
+   * consume itself — `esc`/`tab` always stay the client's, `j`/`k` and
+   * the arrows keep scrolling the panel's window. Returning `true` marks
+   * the key consumed and asks the client for one re-render so the next
+   * `render()` draws the new state; `false`/`undefined` means ignored.
+   * The extension never receives keys outside focus mode, and a key it
+   * consumes never reaches any other consumer — the client keeps
+   * ownership of the rail, the extension only answers within it. */
+  onKey?(input: string, key: PanelKeyEvent): boolean;
+}
+
+/** The key shape `ExtensionPanel.onKey` receives (apiVersion 1.17):
+ * structural, core-independent — no Ink types cross the contract. */
+export interface PanelKeyEvent {
+  /** The printable input, as the client read it (may be empty). */
+  readonly input: string;
+  readonly name?: string;
+  readonly return?: boolean;
+  readonly escape?: boolean;
+  readonly tab?: boolean;
+  readonly backspace?: boolean;
+  readonly delete?: boolean;
+  readonly upArrow?: boolean;
+  readonly downArrow?: boolean;
+  readonly leftArrow?: boolean;
+  readonly rightArrow?: boolean;
+  readonly ctrl?: boolean;
+  readonly meta?: boolean;
+  readonly shift?: boolean;
 }
 
 /** One full-screen overlay (ADR-0062, apiVersion 1.12): opened by the
