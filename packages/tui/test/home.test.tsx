@@ -1,11 +1,13 @@
 import { describe, expect, test } from "bun:test";
 import React from "react";
 import { render } from "ink-testing-library";
-import { mkdtempSync } from "node:fs";
+import { mkdtempSync, mkdirSync, writeFileSync, existsSync, readFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { SessionStore, createSession, MockProvider, listSessionSummaries, setSessionPinned } from "@moh/core";
+import { SessionStore, createSession, MockProvider, listSessionSummaries, setSessionPinned, projectSlug } from "@moh/core";
 import { Home } from "../src/Home";
+import { StrandedModal } from "../src/StrandedModal";
 
 import { homeBannerFits } from "../src/viewport";
 import { stripAnsi, waitForCondition, waitForFrame } from "./helpers";
@@ -634,6 +636,76 @@ describe("home chrome — no usage/model row (#718 removed)", () => {
     // was the only place a model name appeared on Home.
     expect(frame()).not.toContain("last 7 days");
     expect(frame()).not.toContain("tok · top");
+    i.unmount();
+  });
+});
+
+// #1243: the stranded-data warning is a cursor-selectable row whose enter
+// opens the resolution overlay (move logs / delete / keep).
+function strandedFixture(): { cwd: string; home: string; live: string; source: string } {
+  const home = mkdtempSync(join(tmpdir(), "moh-tui-stranded-"));
+  const cwd = process.cwd();
+  const live = join(home, ".moh", "projects", projectSlug(cwd, home));
+  const source = join(home, ".moh", "projects", "project-0123456789abcdef");
+  mkdirSync(live, { recursive: true });
+  mkdirSync(source, { recursive: true });
+  writeFileSync(join(source, "20260101T000000000Z-deadbeef.jsonl"), "old");
+  writeFileSync(join(live, "stranded-data.json"), `${JSON.stringify({ source, destination: live, recordedAt: new Date().toISOString() })}\n`);
+  return { cwd, home, live, source };
+}
+
+describe("stranded-data warning row (#1243)", () => {
+  test("the warning row is selectable and enter opens the overlay", async () => {
+    const { cwd, home } = strandedFixture();
+    let opened = 0;
+    const i = render(<Home intro={false} cwd={cwd} home={home} mode="vibe" onOpen={() => {}} onOpenStranded={() => { opened++; }} />);
+    const frame = () => stripAnsi(i.lastFrame() ?? "");
+    await untilFrame(frame, (f) => f.includes("older data kept"));
+    i.stdin.write(DOWN); // row 1 = the stranded row (no handoff, no sessions)
+    await untilFrame(frame, (f) => f.includes("› ⚠ older data kept"));
+    i.stdin.write("\r");
+    await untilFrame(() => String(opened), (n) => n === "1");
+    i.unmount();
+  });
+
+  test("k acknowledges and the row is gone after a remount", async () => {
+    const { cwd, home, live } = strandedFixture();
+    const i = render(<StrandedModal cwd={cwd} home={home} onClose={() => {}} />);
+    await sleep(60);
+    i.stdin.write("k");
+    await sleep(60);
+    i.unmount();
+    const record = JSON.parse(readFileSync(join(live, "stranded-data.json"), "utf8")) as { acknowledgedAt?: string };
+    expect(typeof record.acknowledgedAt).toBe("string");
+    const j = render(<Home intro={false} cwd={cwd} home={home} mode="vibe" onOpen={() => {}} />);
+    const frame = () => stripAnsi(j.lastFrame() ?? "");
+    await sleep(120);
+    expect(frame()).not.toContain("older data kept");
+    j.unmount();
+  });
+
+  test("d + y removes the directory, trashes the logs and the row", async () => {
+    const { cwd, home, live, source } = strandedFixture();
+    const i = render(<StrandedModal cwd={cwd} home={home} onClose={() => {}} />);
+    await sleep(60);
+    i.stdin.write("d");
+    await sleep(30);
+    i.stdin.write("y");
+    await sleep(120);
+    i.unmount();
+    expect(existsSync(source)).toBe(false);
+    expect(existsSync(join(live, "stranded-data.json"))).toBe(false);
+    const trash = join(home, ".moh", "trash");
+    expect(execFileSync("find", [trash, "-name", "*deadbeef*"]).toString()).toContain("deadbeef");
+  });
+
+  test("no record, no warning row (layout unchanged)", async () => {
+    const home = mkdtempSync(join(tmpdir(), "moh-tui-nostranded-"));
+    const i = render(<Home intro={false} cwd={process.cwd()} home={home} mode="vibe" onOpen={() => {}} />);
+    const frame = () => stripAnsi(i.lastFrame() ?? "");
+    await sleep(120);
+    expect(frame()).not.toContain("older data kept");
+    expect(frame()).toContain("New session");
     i.unmount();
   });
 });
