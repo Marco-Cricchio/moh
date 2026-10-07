@@ -13,11 +13,19 @@ import { describe, expect, test } from "bun:test";
 import React from "react";
 import { Text } from "ink";
 import { render } from "ink-testing-library";
+import { mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { ExtensionRuntime, MockProvider, createSession } from "@moh/core";
+import { createTeamExtension, teamManifestAuthority } from "@moh/team";
+import { App } from "../src/App";
 import { ExtensionOverlayView, ExtensionsRail } from "../src/ExtensionsRail";
 import type { PanelKeyEvent } from "@moh/extension";
 import { RAIL_MIN_ROWS } from "../src/rail-layout";
 import { ThemeProvider, THEMES, DEFAULT_THEME } from "../src/themes";
-import { stripAnsi } from "./helpers";
+import { grantTeamExtension, stripAnsi, waitForCondition } from "./helpers";
+
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 type Panel = Parameters<typeof ExtensionsRail>[0]["panels"][number];
 
@@ -330,4 +338,67 @@ describe("ExtensionOverlayView (#1132)", () => {
     i.unmount();
     expect(closed).toBe(1);
   });
+});
+
+describe("rail auto-open on the first panels (owner directive, pre-main)", () => {
+  const tempHome = () => { const h = mkdtempSync(join(tmpdir(), "moh-rail-auto-")); grantTeamExtension(h); return h; };
+  const tempDir = () => mkdtempSync(join(tmpdir(), "moh-rail-auto-cwd-"));
+
+  /** A real session with the bundled team mounted and pre-consented; the
+   * lead's scripted turn composes a team through the team tool, so the
+   * panel appears with no user action at all. */
+  async function composedTeamSession() {
+    const rt = new ExtensionRuntime({ mohHome: tempHome(), consent: () => true });
+    expect(await rt.register(createTeamExtension(), { manifest: teamManifestAuthority() })).toBe(true);
+    await rt.ready();
+    const session = createSession({
+      provider: MockProvider.scripted([
+        {
+          deltas: ["composing the team"],
+          finish: "tool_calls",
+          toolCalls: [{ name: "team", args: { compose: [{ role: "builder", name: "builder-1", task: "write one line" }] } }],
+        },
+        { deltas: ["the team is on it"], finish: "stop" },
+      ]),
+      extensions: rt,
+      permissions: { unrestrictedTools: true },
+      subagents: {
+        home: tempDir(),
+        provider: MockProvider.scripted([{ deltas: ["child answer"], finish: "stop", usage: { inputTokens: 1, outputTokens: 1 } }]),
+      },
+    });
+    return session;
+  }
+
+  test("a composed team opens the rail with no keystroke — and an un-composed team does not", async () => {
+    const session = await composedTeamSession();
+    const i = render(
+      <ThemeProvider value={THEMES[DEFAULT_THEME]}>
+        <App intro={false} cwd={tempDir()} home={tempHome()} provider={MockProvider.demo()} startInChat skipOnboarding session={session} />
+      </ThemeProvider>,
+    );
+    const frame = () => stripAnsi(i.lastFrame() ?? "");
+    try {
+      // Before any send: the panel is mounted but the team does not exist
+      // yet — the rail stays closed (an empty roster must not flash open
+      // on every session that merely loads the extension).
+      await sleep(150);
+      expect(frame()).not.toContain("team: ");
+      void session.send("work with the team");
+      // No `/extensions`, no `r`, no Ctrl+P: the composition alone opens
+      // the rail — "team: 1 member" exists only in the panel's roster
+      // head, never in the chat transcript.
+      await waitForCondition(
+        () => frame().includes("team: 1 member"),
+        () => "the team panel to be visible with no user toggle",
+        { timeoutMs: 8000 },
+      );
+      i.unmount();
+      await session.dispose();
+    } catch (error) {
+      i.unmount();
+      await session.dispose();
+      throw error;
+    }
+  }, 20000);
 });

@@ -126,8 +126,9 @@ runs headless: `moh run "/deploy-status --env prod"` prints one
 same text the TUI shows, never a second behavior.
 
 An extension whose grant covers `contribute-panels` contributes one panel
-to the extensions rail (#1132, ADR-0062): a zone the user opens and
-closes, collapsing to the footer on narrow terminals. At most 4 panels
+to the extensions rail (#1132, ADR-0062): a zone that opens by itself
+when a team is composed and is otherwise opened and closed by the user
+(from `/extensions`, `r`), collapsing to the footer on narrow terminals. At most 4 panels
 are visible across all extensions — a fifth extension asking for a panel
 is refused visibly at load (`panel slot exhausted (4/4) — disable a panel
 in /extensions`), and there is no automatic eviction: collapsing and
