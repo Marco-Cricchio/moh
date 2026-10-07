@@ -248,7 +248,7 @@ function RailColumn({
             height={a.height + 2}
             overflow="hidden"
             borderStyle="round"
-            borderColor={isFocused ? theme.dim : i === 0 ? theme.accent : theme.border}
+            borderColor={isFocused ? theme.accent : panels.length > 1 && focused ? theme.border : i === 0 ? theme.accent : theme.border}
             marginBottom={i === panels.length - 1 ? 0 : 1}
           >
             <PanelHeader
@@ -385,7 +385,29 @@ function MeasuredPanel({
  * must be a child render, or a throw would climb out of the boundary's
  * reach (the boundary only catches its subtree). */
 function PanelBody({ panel }: { panel: { render(): unknown } }) {
-  return <>{asNode(panel.render())}</>;
+  const rendered = panel.render();
+  // Prototype style (team-view-rail): a string panel's selected row — the
+  // team roster's `>` line — draws with the theme's selection background,
+  // accent bold name. The client paints only what its theme owns; the
+  // extension's text stays verbatim.
+  if (typeof rendered === "string" && rendered.includes("\n>")) {
+    const theme = useTheme();
+    const rows = rendered.split("\n").map((line, i) => {
+      if (!line.startsWith(">")) return <Text key={i} wrap="truncate">{line}</Text>;
+      const nameMatch = line.match(/^>\S+ (\S+)/);
+      const glyphEnd = nameMatch ? line.indexOf(nameMatch[1]!) : 1;
+      return (
+        <Text key={i} wrap="truncate" backgroundColor={theme.selection}>
+          {" "}
+          <Text color={theme.ok}>{line.slice(1, glyphEnd)}</Text>
+          <Text color={theme.accent} bold>{line.slice(glyphEnd, glyphEnd + nameMatch![1]!.length)}</Text>
+          {line.slice(glyphEnd + nameMatch![1]!.length)}
+        </Text>
+      );
+    });
+    return <Box flexDirection="column">{rows}</Box>;
+  }
+  return <>{asNode(rendered)}</>;
 }
 
 function asNode(rendered: unknown): React.ReactNode {
@@ -394,6 +416,7 @@ function asNode(rendered: unknown): React.ReactNode {
   // extension's own bug: shown as text, never executed.
   if (rendered === null || rendered === undefined || rendered === false || rendered === true) return null;
   if (typeof rendered === "string" || typeof rendered === "number") return <Text>{String(rendered)}</Text>;
+  if (typeof rendered === "string") return <Text>{rendered}</Text>;
   return rendered as React.ReactNode;
 }
 

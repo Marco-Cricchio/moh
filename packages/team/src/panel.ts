@@ -89,7 +89,8 @@ export function settleMember(
   member.error = observation.error;
 }
 
-const GLYPH: Record<PanelMemberStatus, string> = { working: "●", done: "✓", error: "✗", cancelled: "◌", idle: "·" };
+/** Prototype style (team-view-rail): ◐ working, ✓ done, ✗ error, ◌ cancelled, · idle. */
+const GLYPH: Record<PanelMemberStatus, string> = { working: "◐", done: "✓", error: "✗", cancelled: "◌", idle: "·" };
 
 /** The rail body is 36 columns wide (38 minus the border pair); the
  * extension truncates its own text to stay inside. */
