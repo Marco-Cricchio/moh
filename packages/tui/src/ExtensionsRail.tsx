@@ -1,6 +1,7 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useReducer, useRef, useState } from "react";
 import { Box, Text, useInput, measureElement, type DOMElement } from "ink";
 import { useTheme } from "./themes";
+import type { PanelKeyEvent } from "@moh/extension";
 import {
   RAIL_MIN_ROWS,
   RAIL_WIDTH,
@@ -34,8 +35,36 @@ import {
 /** Narrow-terminal threshold: at or below it, the rail is a footer line. */
 const NARROW_COLUMNS = 80;
 
+/** Maps Ink's key object onto the contract's structural shape
+ * (apiVersion 1.17): no Ink types cross the extension boundary. */
+function panelKeyEvent(input: string, key: { name?: string; return?: boolean; escape?: boolean; tab?: boolean; backspace?: boolean; delete?: boolean; upArrow?: boolean; downArrow?: boolean; leftArrow?: boolean; rightArrow?: boolean; ctrl?: boolean; meta?: boolean; shift?: boolean }): PanelKeyEvent {
+  return {
+    input,
+    ...(key.name !== undefined ? { name: key.name } : {}),
+    ...(key.return ? { return: true } : {}),
+    ...(key.escape ? { escape: true } : {}),
+    ...(key.tab ? { tab: true } : {}),
+    ...(key.backspace ? { backspace: true } : {}),
+    ...(key.delete ? { delete: true } : {}),
+    ...(key.upArrow ? { upArrow: true } : {}),
+    ...(key.downArrow ? { downArrow: true } : {}),
+    ...(key.leftArrow ? { leftArrow: true } : {}),
+    ...(key.rightArrow ? { rightArrow: true } : {}),
+    ...(key.ctrl ? { ctrl: true } : {}),
+    ...(key.meta ? { meta: true } : {}),
+    ...(key.shift ? { shift: true } : {}),
+  };
+}
+
 export interface ExtensionsRailProps {
-  panels: { extension: string; name: string; description: string; maxHeight?: number; render(): unknown }[];
+  panels: {
+    extension: string;
+    name: string;
+    description: string;
+    maxHeight?: number;
+    render(): unknown;
+    onKey?(input: string, key: PanelKeyEvent): boolean;
+  }[];
   /** Panels the user collapsed from /extensions, by name. */
   collapsed: ReadonlySet<string>;
   columns: number;
@@ -114,7 +143,19 @@ function RailColumn({
   // Focus-mode state: which panel holds the keys, its scroll offset.
   const [selected, setSelected] = useState(0);
   const [offsets, setOffsets] = useState<ReadonlyMap<string, number>>(new Map());
+  // apiVersion 1.17 (#1225): a consumed key must reach the panel's next
+  // render — the panel's own state changed, nothing else did.
+  const [keyEpoch, bumpForKey] = useReducer((n: number) => n + 1, 0);
   const selectedName = panels[Math.min(selected, panels.length - 1)]?.name ?? "";
+
+  // Computed before the key handler so scrolling clips at the real
+  // allocation; on a fresh mount the demands are still 0 and the window
+  // is empty until the first measurement lands (same frame, effectively).
+  const allocations = allocatePanels(
+    rows,
+    panels.map((p) => Math.max(0, demands.get(p.name) ?? 0)),
+    panels.map((p) => p.maxHeight),
+  );
 
   const measure = (name: string, natural: number) =>
     setDemands((prev) => (prev.get(name) === natural ? prev : new Map(prev).set(name, natural)));
@@ -132,17 +173,18 @@ function RailColumn({
       const panel = panels.find((p) => p.name === selectedName);
       if (!panel) return;
       const natural = demands.get(panel.name) ?? 1;
-      const body = Math.max(1, Math.min(natural, panel.maxHeight ?? Infinity));
-      if (input === "j" || key.downArrow) scroll(panel.name, body, natural, 1);
-      if (input === "k" || key.upArrow) scroll(panel.name, body, natural, -1);
+      // The scroll window clips at the rows the panel actually got (#1218
+      // allocation), not at its declared or natural height — otherwise a
+      // share-capped panel could never scroll at all.
+      const body = Math.max(1, allocations[panels.indexOf(panel)]!.body);
+      if (input === "j" || key.downArrow) return scroll(panel.name, body, natural, 1);
+      if (input === "k" || key.upArrow) return scroll(panel.name, body, natural, -1);
+      // The keys the client does not consume go to the panel (#1225): the
+      // client keeps the rail — esc/tab/j/k/scroll — the extension only
+      // answers inside it. A consumed key costs one re-render.
+      if (panel.onKey && panel.onKey(input, panelKeyEvent(input, key))) bumpForKey();
     },
     { isActive: focused },
-  );
-
-  const allocations = allocatePanels(
-    rows,
-    panels.map((p) => Math.max(0, demands.get(p.name) ?? 0)),
-    panels.map((p) => p.maxHeight),
   );
 
   const clamps = new Map<string, { max: number; shown: number }>();
