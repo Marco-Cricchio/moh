@@ -60,7 +60,7 @@ describe("team panel render + keys (#1225)", () => {
     settleMember(state, "builder-2", "done", { outputChars: 10 });
     const frame = String(panel.render());
     expect(frame).toContain("team: 2 members");
-    expect(frame).toContain("● builder-1");
+    expect(frame).toContain("◐ builder-1");
     expect(frame).toContain("✓ builder-2");
     expect(frame).toContain("lane feat/y");
   });
@@ -82,11 +82,11 @@ describe("team panel render + keys (#1225)", () => {
     expect(panel.onKey!("\r", { input: "\r", return: true })).toBe(true); // sends the draft
     expect(panel.onKey!("\r", { input: "\r", return: true })).toBe(true); // empty enter closes
     const roster = String(panel.render());
-    expect(roster).toContain(">● builder-1");
+    expect(roster).toContain(">◐ builder-1");
     expect(panel.onKey!("n", { input: "n" })).toBe(true);
-    expect(String(panel.render())).toContain(">● reviewer-1");
+    expect(String(panel.render())).toContain(">◐ reviewer-1");
     expect(panel.onKey!("p", { input: "p" })).toBe(true);
-    expect(String(panel.render())).toContain(">● builder-1");
+    expect(String(panel.render())).toContain(">◐ builder-1");
   });
 
   test("p clamps at the top, n clamps at the bottom; unknown keys are ignored", () => {
@@ -99,7 +99,7 @@ describe("team panel render + keys (#1225)", () => {
     expect(panel.onKey!("\x1b", { input: "", escape: true })).toBe(false); // the client's exit
     expect(panel.onKey!("\t", { input: "", tab: true })).toBe(false);
     const first = String(panel.render());
-    expect(first).toContain(">● builder-1");
+    expect(first).toContain(">◐ builder-1");
   });
 
   test("the bag summary rides the header; the panel draws inside the rail body", () => {
