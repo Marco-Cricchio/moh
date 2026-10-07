@@ -77,7 +77,7 @@ export interface BundledExtensionSource {
    * another package's file). When present, the same subset rule applies at
    * registration: code capabilities not declared here refuse the load.
    */
-  readonly manifest?: { hash?: string; path?: string; capabilities: readonly string[] };
+  readonly manifest?: { hash?: string; path?: string; capabilities: readonly string[]; reasoning?: string };
   /** Builds the definition to register. Called only when `active` is true. */
   activate(context: BundledActivationContext): unknown;
   /**
@@ -102,6 +102,15 @@ export interface BundledExtensionSource {
    * source with nothing useful to say on that path).
    */
   inactiveNote?(): string;
+  /**
+   * Register through the **consented in-memory door** instead of the
+   * bundled skip: the enable question fires (naming the manifest's
+   * capabilities and reasoning) the first time the user is asked, and the
+   * stored answer remembers it. For first-party code whose trust is not
+   * the host's shipping decision alone — an envelope the user must grant
+   * (ADR-0055). Without it, a bundled registration skips consent.
+   */
+  consentRequired?: boolean;
   /**
    * Optional wiring step for capabilities an extension contributes to the
    * core (ADR-0031 §4 spirit: an extension may offer to do part of the
@@ -183,9 +192,9 @@ export function resolveBundledExtensions(options: {
       continue;
     }
     anyActive = true;
-    const { manifest, ...rest } = descriptor;
+    const { manifest, consentRequired, ...rest } = descriptor;
     void options.runtime.register(descriptor.activate(options.context), {
-      bundled: true,
+      bundled: !consentRequired,
       ...rest,
       // A bundled source without a hash derives its store key from the name
       // (in-memory identities have no path); only the capabilities are
@@ -196,6 +205,7 @@ export function resolveBundledExtensions(options: {
               hash: manifest.hash ?? "",
               path: manifest.path ?? manifest.hash ?? descriptor.name,
               capabilities: manifest.capabilities,
+              ...(manifest.reasoning !== undefined ? { reasoning: manifest.reasoning } : {}),
             },
           }
         : {}),

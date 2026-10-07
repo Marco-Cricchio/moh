@@ -75,7 +75,7 @@ export async function compactCommand({
   const assembled = sessionFromConfig({
     cwd,
     // #826: the bundled first-party extensions this client ships.
-    bundledExtensions: bundledExtensionSources(home),
+    bundledExtensions: bundledExtensionSources(home, { consentSeamAvailable: false }),
     ...(home ? { home } : {}),
     overrides: { store, resumeConsume: false },
   });

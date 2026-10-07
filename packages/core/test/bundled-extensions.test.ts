@@ -125,6 +125,51 @@ describe("resolveBundledExtensions (#826)", () => {
     expect(runtime.instances.map((i) => i.def.name)).toEqual([SYNTHETIC]);
   });
 
+  test("consentRequired registers through the consented door, not the bundled skip (ADR-0074)", async () => {
+    const home = tmpDir();
+    const asked: { name?: string; capabilities?: readonly string[] }[] = [];
+    const runtime = new ExtensionRuntime({
+      mohHome: home,
+      consent: (request) => {
+        asked.push(request);
+        return true;
+      },
+    });
+    const source = syntheticSource();
+    resolveBundledExtensions({
+      descriptors: [mounted({ ...source, consentRequired: true }, true)],
+      runtime,
+      context: { mohHome: home, cwd: home, configFile: userConfigFile(home), endpoints: [], modelPool: () => Promise.resolve({ models: [], warnings: [] }), skillRoster: () => Promise.resolve([]) },
+    });
+    await runtime.ready();
+    // The enable question fired even though the host shipped the bytes:
+    // an envelope the user must grant is not the shipping decision.
+    expect(asked).toHaveLength(1);
+    expect(asked[0]!.name).toBe(SYNTHETIC);
+    expect(runtime.instances.map((i) => i.def.name)).toEqual([SYNTHETIC]);
+
+    // The stored answer remembers it: a second runtime on the same home
+    // loads silently.
+    const again = new ExtensionRuntime({ mohHome: home });
+    resolveBundledExtensions({
+      descriptors: [mounted({ ...syntheticSource(), consentRequired: true }, true)],
+      runtime: again,
+      context: { mohHome: home, cwd: home, configFile: userConfigFile(home), endpoints: [], modelPool: () => Promise.resolve({ models: [], warnings: [] }), skillRoster: () => Promise.resolve([]) },
+    });
+    await again.ready();
+    expect(again.instances.map((i) => i.def.name)).toEqual([SYNTHETIC]);
+
+    // And without anyone to ask (headless), it fails closed.
+    const nobody = new ExtensionRuntime({ mohHome: tmpDir() });
+    resolveBundledExtensions({
+      descriptors: [mounted({ ...syntheticSource(), consentRequired: true }, true)],
+      runtime: nobody,
+      context: { mohHome: home, cwd: home, configFile: userConfigFile(home), endpoints: [], modelPool: () => Promise.resolve({ models: [], warnings: [] }), skillRoster: () => Promise.resolve([]) },
+    });
+    await nobody.ready();
+    expect(nobody.instances).toHaveLength(0);
+  });
+
   test("a wiring step fills a core slot with the extension's own reader", async () => {
     const home = tmpDir();
     const runtime = new ExtensionRuntime({ mohHome: home });

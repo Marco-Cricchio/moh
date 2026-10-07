@@ -49,7 +49,7 @@ describe("team extension manifest (#1220, ADR-0074)", () => {
     expect(raw.name).toBe(TEAM_NAME);
     expect(raw.version).toBe(TEAM_VERSION);
     expect(raw.entry).toEqual(["src/index.ts"]);
-    expect(raw.capabilities).toEqual(["spawn-subagent"]);
+    expect(raw.capabilities).toEqual(["spawn-subagent", "contribute-tool:team"]);
     // The enable question's NOT-do list lives in the manifest reasoning.
     expect(raw.reasoning).toContain("peer messaging");
     expect(raw.reasoning).toContain("spawn grandchildren");
@@ -57,7 +57,7 @@ describe("team extension manifest (#1220, ADR-0074)", () => {
 
   test("the manifest authority hashes the bytes on disk with the declared capabilities", () => {
     const authority = teamManifestAuthority();
-    expect(authority.capabilities).toEqual(["spawn-subagent"]);
+    expect(authority.capabilities).toEqual(["spawn-subagent", "contribute-tool:team"]);
     expect(authority.hash).toMatch(/^[0-9a-f]{64}$/);
     expect(authority.reasoning).toContain("up to 10 concurrent children");
   });
@@ -87,14 +87,14 @@ describe("enable consent (#1220, ADR-0053/0055 style)", () => {
 
     expect(asked).toHaveLength(1);
     expect(asked[0]!.name).toBe(TEAM_NAME);
-    expect(asked[0]!.capabilities).toEqual(["spawn-subagent"]);
+    expect(asked[0]!.capabilities).toEqual(["spawn-subagent", "contribute-tool:team"]);
     expect(asked[0]!.reasoning).toContain("peer messaging");
     expect(typeof ctx!.spawnSubagent).toBe("function");
     expect(typeof ctx!.subagentActivity).toBe("function");
 
     const instance = rt.instances.find((i) => i.def.name === TEAM_NAME);
     expect(instance).toBeDefined();
-    expect(instance!.grantedCapabilities).toEqual(["spawn-subagent"]);
+    expect(instance!.grantedCapabilities).toEqual(["spawn-subagent", "contribute-tool:team"]);
   });
 
   test("the enable is remembered; removing the stored consent removes the capability", async () => {
@@ -149,6 +149,137 @@ describe("enable consent (#1220, ADR-0053/0055 style)", () => {
   });
 });
 
+describe("one-member team end to end (#1221, ADR-0055)", () => {
+  function teamSession(
+    rt: ExtensionRuntime,
+    posture: { mode: "yolo" | "normal"; answer?: "yes" | "no" } = { mode: "yolo" },
+  ) {
+    return createSession({
+      provider: MockProvider.scripted([
+        {
+          deltas: ["handing it to the team"],
+          finish: "tool_calls",
+          toolCalls: [{ name: "team", args: { task: "fix the flaky width test" } }],
+        },
+        { deltas: ["the team reports: "], finish: "stop" },
+      ]),
+      extensions: rt,
+      subagents: {
+        home: tempDir(),
+        provider: MockProvider.scripted([
+          { deltas: ["child answer"], finish: "stop", usage: { inputTokens: 3, outputTokens: 1 } },
+        ]),
+      },
+      // ADR-0074: native spawn defaults "ask" — yolo/auto-accept lifts it,
+      // normal mode asks (the consent posture the enable does not remove).
+      ...(posture.mode === "yolo"
+        ? { permissions: { unrestrictedTools: true } }
+        : { onPermissionRequest: () => posture.answer ?? "yes" }),
+    });
+  }
+
+  async function runTeamSession(
+    posture: { enabled?: boolean; mode?: "yolo" | "normal"; answer?: "yes" | "no" } = {},
+  ) {
+    const { enabled = true, mode = "yolo", answer } = posture;
+    const rt = runtime(() => enabled);
+    if (enabled) await rt.register(createTeamExtension(), { manifest: teamManifestAuthority() });
+    const session = teamSession(rt, { mode, answer });
+    const events = tap(session);
+    const turn = await session.send("work on the flaky width test with the team");
+    await session.dispose();
+    return { events, turn };
+  }
+
+  test("an English ask drives the model through the team tool and one builder child, end to end", async () => {
+    const { events, turn } = await runTeamSession();
+
+    const contributed = events.find((e) => e.type === "tool_contributed") as { tool?: string } | undefined;
+    expect(contributed?.tool).toBe("team");
+
+    // One spawned child, working on the task.
+    const spawn = events.find((e) => e.type === "subagent_spawn") as Extract<AgentEvent, { type: "subagent_spawn" }> | undefined;
+    expect(spawn?.name).toBe("builder");
+    expect(spawn?.requester).toEqual({ kind: "extension", extension: TEAM_NAME });
+    // The envelope limits ride the record: applied tool list (none named),
+    // effective permission mode, resolved iteration cap.
+    expect(spawn?.limits.mode).toBeDefined();
+    expect(spawn?.limits.maxIterations).toBeGreaterThan(0);
+
+    const result = events.find((e) => e.type === "subagent_result") as Extract<AgentEvent, { type: "subagent_result" }> | undefined;
+    expect(result?.status).toBe("done");
+
+    // The child's outcome flowed back into the parent's turn.
+    expect(turn.status).toBe("done");
+    const toolResult = events.find((e) => e.type === "tool_result") as { output?: string } | undefined;
+    expect(toolResult?.output).toContain("child answer");
+  });
+
+  test("the extension reads the child's activity (child-tail shape, no provider reasoning) and records the outcome", async () => {
+    const { events } = await runTeamSession();
+
+    const done = events.find((e) => e.type === "extension_event" && (e as { name?: string }).name === "team_member_done") as
+      | { payload: { callId: string; member: string; status: string; activity?: { currentTool: string | null; lastActivityAt: number | null } } }
+      | undefined;
+    expect(done).toBeDefined();
+    expect(done!.payload.member).toBe("builder");
+    expect(done!.payload.status).toBe("done");
+    // The child-tail shape: tool in flight + monotonic timestamp — never
+    // the provider reasoning.
+    if (done!.payload.activity) {
+      expect(Object.keys(done!.payload.activity).every((k) => ["currentTool", "lastActivityAt"].includes(k))).toBe(true);
+    }
+  });
+
+  test("normal mode: the team call asks first (the ADR-0055 consent posture) and a yes drives the same loop", async () => {
+    const { events, turn } = await runTeamSession({ mode: "normal", answer: "yes" });
+
+    const asked = events.find((e) => e.type === "permission_requested") as { tool?: string } | undefined;
+    expect(asked?.tool).toBe("team");
+    expect(events.find((e) => e.type === "permission_granted")).toBeDefined();
+    expect(events.find((e) => e.type === "subagent_spawn")).toBeDefined();
+    expect(turn.status).toBe("done");
+  });
+
+  test("normal mode: a no denies the team call and nothing spawns", async () => {
+    const { events } = await runTeamSession({ mode: "normal", answer: "no" });
+
+    expect(events.find((e) => e.type === "permission_requested")).toBeDefined();
+    expect(events.find((e) => e.type === "permission_denied")).toBeDefined();
+    expect(events.find((e) => e.type === "subagent_spawn")).toBeUndefined();
+  });
+
+  test("a declined consent contributes no team tool — the ask falls through to a normal turn", async () => {
+    const { events, turn } = await runTeamSession({ enabled: false });
+    expect(events.find((e) => e.type === "tool_contributed")).toBeUndefined();
+    expect(events.find((e) => e.type === "subagent_spawn")).toBeUndefined();
+    expect(turn.status).toBe("done");
+  });
+
+  test("a malformed team call is refused without spawning", async () => {
+    const rt = runtime();
+    await rt.register(createTeamExtension(), { manifest: teamManifestAuthority() });
+    const session = createSession({
+      provider: MockProvider.scripted([
+        {
+          deltas: ["calling the team"],
+          finish: "tool_calls",
+          toolCalls: [{ name: "team", args: { other: true } }],
+        },
+        { deltas: ["ok"], finish: "stop" },
+      ]),
+      extensions: rt,
+      subagents: { home: tempDir(), provider: MockProvider.scripted([{ deltas: ["should not run"], finish: "stop" }]) },
+    });
+    const events = tap(session);
+    await session.send("do it with the team");
+    await session.dispose();
+    expect(events.find((e) => e.type === "subagent_spawn")).toBeUndefined();
+    const toolResult = events.find((e) => e.type === "tool_result") as { output?: string } | undefined;
+    expect(toolResult?.output).toContain("invalid arguments");
+  });
+});
+
 describe("spawn through the ADR-0055 API (#1220)", () => {
   test("an enabled team extension spawns a trivial child end-to-end", async () => {
     const rt = runtime();
@@ -183,7 +314,7 @@ describe("spawn through the ADR-0055 API (#1220)", () => {
     // /extensions (#1131): the live surface names the extension with its
     // grant list — the modal and the headless notify fallback read this.
     const live = session.extensionLiveInfo().find((i) => i.name === TEAM_NAME);
-    expect(live?.capabilities).toEqual(["spawn-subagent"]);
+    expect(live?.capabilities).toEqual(["spawn-subagent", "contribute-tool:team"]);
     await session.dispose();
   });
 });

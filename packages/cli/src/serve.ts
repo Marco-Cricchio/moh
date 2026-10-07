@@ -288,7 +288,7 @@ export async function serveCommand(options: ServeOptions): Promise<number> {
       assembled = sessionFromConfig({
         cwd,
         // #826: the bundled first-party extensions this client ships.
-        bundledExtensions: bundledExtensionSources(options.home),
+        bundledExtensions: bundledExtensionSources(options.home, { consentSeamAvailable: false }),
         ...(options.home ? { home: options.home } : {}),
         ...(cassetteProvider ? { provider: cassetteProvider } : {}),
         ...(providerRef ? { providerRef } : {}),
