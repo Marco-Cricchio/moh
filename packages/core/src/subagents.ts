@@ -93,7 +93,10 @@ export const DEFAULT_SUBAGENT_CONCURRENCY = 5;
  */
 const WRITE_PATH_TOOLS = ["write", "edit"] as const;
 
-/** Accepts either the bare glob (`client/**`) or the scope grammar (`path:client/**`). */
+/** Accepts either the bare glob (`client/**`) or the scope grammar
+ * (`path:client/**`). Deliberately not `pathScopeGlob`, whose
+ * unconditional 5-char slice corrupts a bare glob — here the prefix is
+ * stripped only when present. */
 function toWriteScopeGlob(scope: string): string {
   return scope.startsWith("path:") ? scope.slice("path:".length) : scope;
 }
