@@ -59,8 +59,8 @@ import { useViewport } from "./viewport";
 import { listFiles } from "./file-index";
 import { detectPreviewMode } from "./image-preview";
 import { trackExitWork } from "./exit";
-import { useSidebarState } from "./session-bridge";
-import { railAvailableRows } from "./rail-layout";
+import { useSidebarState, useTeamComposed } from "./session-bridge";
+import { railAvailableRows, RAIL_WIDTH } from "./rail-layout";
 import { PermissionModal } from "./PermissionModal";
 
 import { Onboarding } from "./OnboardingOverlay";
@@ -142,6 +142,9 @@ export interface AppProps {
   /** #377: yolo session (launch-only `--yolo` flag) — no permission
    * prompts, unrestricted filesystem for built-in tools. */
   yolo?: boolean;
+  /** Pre-built session (tests): mounted as-is instead of assembling one
+   * from `cwd`/`home`/`provider`. */
+  session?: AgentSession;
 }
 
 type Overlay = null | "settings" | "commands" | "manual" | "notes" | "onboarding" |"handoff-onboarding" | "workflow-offer" | "frontier" | "skill-chooser" | "model" | "skill-updates" | "quota" | "rename" | "cold-wizard" | "tree" | "mpm" | "session" | "jev" | "browser" | "lanes" | "extensions";
@@ -216,6 +219,7 @@ function AppShell({
   verifyHandoffGh,
   version,
   yolo,
+  session: preBuiltSession,
 }: AppProps) {
   const { exit } = useApp();
   const { stdout } = useStdout();
@@ -315,7 +319,11 @@ function AppShell({
   // startInChat assembles eagerly (tests, bare resume); a broken config is a
   // visible error now — no silent demo fallback (ADR-0005).
   const [initialSession] = useState(() =>
-    startInChat ? makeSession({ cwd, home, provider, ...(yolo ? { yolo } : {}) }) : null,
+    preBuiltSession !== undefined
+      ? { session: preBuiltSession }
+      : startInChat
+        ? makeSession({ cwd, home, provider, ...(yolo ? { yolo } : {}) })
+        : null,
   );
   const [session, setSession] = useState<AgentSession | null>(() =>
     initialSession && "session" in initialSession ? initialSession.session : null,
@@ -1506,7 +1514,20 @@ function AppShell({
   // repaint) while the block was open, freezing the screen under arrow
   // stress. The block renders inline in the main buffer; the composer is
   // still blocked (see `blocked` above), so it keeps exclusive keys.
-  const railVisible = railOpen && session !== null && session.extensionPanels().length > 0;
+  const panelCount = session !== null ? session.extensionPanels().length : 0;
+  const railVisible = railOpen && panelCount > 0;
+  // Owner directive (pre-main promotion): the rail opens itself when the
+  // team is actually created — the `team_composed` chrome event in the
+  // log — not at extension mount (the panel exists from the first turn
+  // with an empty roster; opening on that would flash a useless panel on
+  // every session). Closing and reopening stay manual; a later composition
+  // does not reopen a rail the user chose to close.
+  const teamComposed = useTeamComposed(session);
+  const seenCompositionRef = useRef(false);
+  useEffect(() => {
+    if (!teamComposed) { seenCompositionRef.current = false; return; }
+    if (!seenCompositionRef.current) { seenCompositionRef.current = true; setRailOpen(true); }
+  }, [teamComposed]);
   /** #1132: at or below the rail's narrow threshold the zone collapses to
    * a footer strip BELOW the conversation — never a column beside it. */
   const railWide = viewport.columns > 80;
@@ -1535,6 +1556,7 @@ function AppShell({
     <Chat
       session={session}
       cwd={sessionCwd}
+      width={railVisible && railWide ? Math.max(40, viewport.columns - (RAIL_WIDTH + 2)) : undefined}
       toastRows={toasts.length}
       mode={mode}
       modelLabel={modelLabel}

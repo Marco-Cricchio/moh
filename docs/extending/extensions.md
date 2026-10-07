@@ -155,7 +155,10 @@ added slots are highlighted.
   exist on the context. One panel per extension; at most 4 panels are
   visible across all extensions — a further registration is refused at
   load (`panel slot exhausted (4/4)`) and there is no automatic eviction:
-  collapsing and reopening is manual, from `/extensions`. The panel's
+  collapsing and reopening is manual, from `/extensions`. The rail itself
+  opens by itself when a team is composed (the client's policy, not a
+  core rule); otherwise the user opens and closes it from `/extensions`
+  (`r`). The panel's
   `render()` returns arbitrary Ink elements the client draws in the rail
   zone — opaque to the core, never wrapping native components. A
   permission-gated action triggered from a panel callback flows through
