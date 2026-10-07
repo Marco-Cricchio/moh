@@ -364,18 +364,22 @@ describe("steering: write-into-child (#1222, ADR-0055)", () => {
     // The steering write is chrome in the parent's log.
     const steer = events.find((e) => e.type === "subagent_steer") as Extract<AgentEvent, { type: "subagent_steer" }> | undefined;
     expect(steer?.extension).toBe(TEAM_NAME);
-    expect(steer?.message).toBe("rename it differently");
+    // Ids and counts only — the words live in the child log (and in the
+    // team tool_call args the parent already holds).
+    expect(steer?.messageChars).toBe("rename it differently".length);
     expect(steer?.callId).toBe((events.find((e) => e.type === "subagent_spawn") as Extract<AgentEvent, { type: "subagent_spawn" }>)?.callId);
     // The tool result of the steering call carries the post-steering outcome.
     const results = events.filter((e) => e.type === "tool_result") as { output?: string }[];
     expect(results[1]?.output).toContain("corrected answer");
     // The extension's own record of what it read.
     const memberSteer = events.find((e) => e.type === "extension_event" && (e as { name?: string }).name === "team_member_steer") as
-      | { extension?: string; payload?: { member?: string; status?: string } }
+      | { extension?: string; payload?: { member?: string; status?: string; activity?: unknown } }
       | undefined;
     expect(memberSteer?.extension).toBe(TEAM_NAME);
     expect(memberSteer?.payload?.member).toBe("builder");
     expect(memberSteer?.payload?.status).toBe("done");
+    // The child-tail activity the extension read after the steered turn.
+    expect(memberSteer?.payload?.activity).not.toBeNull();
   });
 
   test("steering an unknown member is refused didactically — the member set is the lead's, not the model's", async () => {

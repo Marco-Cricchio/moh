@@ -811,9 +811,12 @@ type AgentEventBase =
   /**
    * ADR-0055 write-into-child (#1222): an orchestration extension wrote a
    * follow-up message into a child it spawned — the member's next turn.
-   * Chrome only: the child's own log holds the turn it produced.
+   * Chrome only, ids and counts like `subagent_spawn`: the words are the
+   * child's `user_message` in its own log (and the team tool's args on
+   * the parent side when the model relayed), never duplicated verbatim
+   * into the parent's chrome.
    */
-  | { type: "subagent_steer"; callId: string; extension: string; message: string }
+  | { type: "subagent_steer"; callId: string; extension: string; messageChars: number }
   /** Subagent finished; usage tokens accumulated by the child, where exposed. */
   | {
       type: "subagent_result";

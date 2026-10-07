@@ -2298,6 +2298,9 @@ export class AgentSession {
     }
     await this.#mcp?.shutdown();
     this.#mpmLifecycle?.dispose();
+    // ADR-0055 (#1222): the extension-spawned children kept alive for
+    // steering die with the session that spawned them — no orphans at exit.
+    await this.#subagentHost?.disposeSteerableChildren();
     // #774: reap the per-session browser (no orphan Chromium at exit).
     try {
       await this.#onDispose?.();

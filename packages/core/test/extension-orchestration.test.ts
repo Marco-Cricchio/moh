@@ -300,7 +300,10 @@ describe("steer-subagent: write-into-child (ADR-0055, #1222)", () => {
     expect(steers.length).toBe(1);
     expect(steers[0]!.callId).toBe(spawned.callId);
     expect(steers[0]!.extension).toBe("orch");
-    expect(steers[0]!.message).toBe("rename the widget");
+    // Ids and counts, never the words: the message lives in the child's
+    // own log (subagent_spawn's precedent for the task text).
+    expect(steers[0]!.messageChars).toBe("rename the widget".length);
+    expect(JSON.stringify(steers[0])).not.toContain("rename the widget");
     await session.dispose();
   });
 
@@ -363,6 +366,53 @@ describe("steer-subagent: write-into-child (ADR-0055, #1222)", () => {
     expect(scoped).not.toBeNull();
     expect(scoped!.status).toBe("error");
     expect(scoped!.error).toMatch(/grandchildren/);
+    await session.dispose();
+  });
+
+  test("the owner's one stop closes the steering seat: a stopped child cannot be steered", async () => {
+    const rt = runtime();
+    let api: { spawn: NonNullable<ExtensionSetupContext["spawnSubagent"]>; steer: NonNullable<ExtensionSetupContext["steerSubagent"]> } | null = null;
+    await rt.register(
+      defineExtension({
+        name: "orch",
+        version: "1",
+        apiVersion: "1.13",
+        capabilities: ["spawn-subagent"],
+        setup: (ctx) => {
+          api = { spawn: ctx.spawnSubagent!, steer: ctx.steerSubagent! };
+        },
+      }),
+    );
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const session = createSession({
+      provider: MockProvider.scripted([{ deltas: ["ok"], finish: "stop" }]),
+      tools: { echo: echoTool },
+      extensions: rt,
+      subagents: {
+        home: tempDir(),
+        provider: MockProvider.scripted([
+          { deltas: ["working", "still working"], finish: "stop", hold: { afterDeltas: 1, release: gate } },
+        ]),
+      },
+    });
+    const { spawn, steer } = api!;
+    const pending = spawn!({ task: "child" });
+    // Wait until the child is mid-turn, then exercise the owner's stop.
+    let stopped: string[] = [];
+    for (let i = 0; i < 40 && stopped.length === 0; i++) {
+      await Bun.sleep(25);
+      stopped = session.stopSubagents();
+    }
+    expect(stopped.length).toBe(1);
+    release();
+    const spawned = await pending;
+    expect(spawned.status).toBe("cancelled");
+    // The stop closed the seat: no new turn starts in an aborted child.
+    const after = await steer!(spawned.callId, "after the stop");
+    expect(after).toBeNull();
     await session.dispose();
   });
 

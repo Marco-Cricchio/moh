@@ -312,7 +312,9 @@ export class SubagentHost {
    * ADR-0055 "one stop": stop everything this orchestration started —
    * lists the live children, aborts them, and returns their callIds so the
    * session records one `orchestration_stopped` chrome event. Children
-   * already settled contribute nothing.
+   * already settled contribute nothing. A stopped child also loses its
+   * steering seat (#1222): the owner's one stop closes the write seam —
+   * the lead cannot start a new turn in a member the user just stopped.
    */
   stop(): string[] {
     const stopped: string[] = [];
@@ -324,6 +326,7 @@ export class SubagentHost {
         // An abort that throws still counts as stopped: the child's own
         // result event carries the outcome.
       }
+      this.#extensionChildren.delete(child.callId);
     }
     this.#live.clear();
     return stopped;
@@ -432,7 +435,7 @@ export class SubagentHost {
     if (this.#spawnedByExtension.get(callId) !== extension) return null;
     const child = this.#extensionChildren.get(callId);
     if (!child) return null;
-    this.#options.onEvent({ type: "subagent_steer", callId, extension, message });
+    this.#options.onEvent({ type: "subagent_steer", callId, extension, messageChars: message.length });
     try {
       const turn = await child.send(message);
       const result: SubagentResult = turn.status === "done"
@@ -444,6 +447,17 @@ export class SubagentHost {
     } catch (err) {
       return { callId, status: "error", output: "", error: err instanceof Error ? err.message : String(err) };
     }
+  }
+
+  /**
+   * ADR-0055 (#1222): disposes the extension-spawned children the host
+   * kept alive for steering. Called by the parent session's dispose —
+   * a child's steering seat dies with the session that spawned it.
+   */
+  async disposeSteerableChildren(): Promise<void> {
+    const children = [...this.#extensionChildren.values()];
+    this.#extensionChildren.clear();
+    await Promise.allSettled(children.map((child) => child.dispose()));
   }
 
   /** Merged preset descriptions, for the spawn tool's docs. */

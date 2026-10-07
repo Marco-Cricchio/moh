@@ -129,7 +129,7 @@ export function createTeamExtension(): ExtensionDefinition {
             }
             // The lead's view of the member: the post-steering outcome
             // recorded once, so the log holds what the extension read.
-            const activity = ctx.subagentActivity?.(callId);
+            const activity = await ctx.subagentActivity?.(callId);
             ctx.appendEvent({
               name: "team_member_steer",
               payload: {
@@ -153,7 +153,7 @@ export function createTeamExtension(): ExtensionDefinition {
           // The child-tail activity (never the provider reasoning),
           // recorded once at settle so the log holds what the extension
           // read; the parent reconstructs who worked on what.
-          const activity = ctx.subagentActivity?.(result.callId);
+          const activity = await ctx.subagentActivity?.(result.callId);
           ctx.appendEvent({
             name: "team_member_done",
             payload: {

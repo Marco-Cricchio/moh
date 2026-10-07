@@ -100,6 +100,25 @@
  * command and closed with `Esc`); the core carries them opaquely, and a
  * headless client contributes nothing — visible absence, never a mock.
  *
+ * 1.13 (ADR-0053/0055 + ADR-0064/0065): `spawnSubagent` / `subagentActivity`
+ * on the `spawn-subagent` capability slot, and the `path:<glob>` /
+ * `tool:<name>` / `credential:<id>` host-performs seam. The spawn rides the
+ * enable consent's envelope (ten children per extension per session, each
+ * within the session's iteration ceiling); every request outside it is
+ * refused loudly and no child is created. `subagentActivity` reads only
+ * children the extension itself spawned, in the child-tail shape — a callId
+ * it did not spawn resolves to `null`. An older runtime leaves all of it
+ * absent: enforcement by absence, never an error.
+ *
+ * 1.14 (ADR-0067): `registerTool` — the `contribute-tool:<name>` capability
+ * slot. The registered name must be one the consent granted; the tool rides
+ * the same runner and permission gate as every session tool. An older
+ * runtime leaves the method absent and the tool never reaches the model.
+ *
+ * 1.15 (#1187): `registerCommand` arguments — what the user typed after the
+ * command name rides the command's execution context, so a command can act
+ * on it. An older runtime simply never supplies arguments.
+ *
  * 1.16 (#1222, ADR-0055): `steerSubagent` — write-into-child on the
  * `spawn-subagent` capability slot. A follow-up message to a child this
  * extension spawned becomes its next turn; a callId the extension did
