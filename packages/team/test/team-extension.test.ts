@@ -658,9 +658,12 @@ describe("composition by complexity — scoped roles + lanes (#1224, ADR-0074)",
     expect(spawns[0]!.name).toBe("wisher");
     expect(spawns[0]!.limits.pathScopes).toBeUndefined();
     // The tool result tells the model, so the model can tell the user —
-    // the degradation is never silent, and never a hard error.
+    // the degradation is never silent, and never a hard error. Both
+    // doors are named: the agent's (bash, consented per the session
+    // mode) and the human's (/lanes).
     const toolResult = events.filter((e) => e.type === "tool_result").map((e) => String((e as { output?: string }).output)).join("\n");
     expect(toolResult).toContain("works without its lane");
+    expect(toolResult).toContain("moh lanes start");
     expect(toolResult).toContain("/lanes");
     expect(toolResult).toContain("member work done");
   });

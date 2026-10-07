@@ -119,7 +119,10 @@ export const TEAM_COMPOSED = "team_composed";
 /**
  * The visible degradation of a pinned lane that does not exist (#1224
  * follow-up): the member works un-laned, this event records `{ member,
- * lane }`, and the tool result names `/lanes` as the fix — an error at
+ * lane }`, and the tool result names the agent door (bash `moh lanes
+ * start`, consented per the session mode: ask in normal — once, then
+ * the "always" session rule covers the next lane command; auto-accept
+ * lifts it; yolo runs it) and `/lanes` as the human door — an error at
  * the end of the chain is the one friction this never gives the user.
  */
 export const TEAM_LANE_SKIPPED = "team_lane_skipped";
@@ -284,7 +287,7 @@ async function selfServeLoop(
         : `${next.id} (${next.title}): ${outcome.status}${outcome.error ? ` — ${outcome.error}` : ""}`,
     );
   }
-  const laneNotes = [...skippedLanes].map(([m, lane]) => `${m} works without its lane "${lane}" — no active lane matched; create it with /lanes and re-run for isolation`);
+  const laneNotes = [...skippedLanes].map(([m, lane]) => `${m} works without its lane "${lane}" — no active lane matched. To isolate it: create the lane (CLI door: moh lanes group <group> + moh lanes start <group> <branch>; in the TUI: /lanes) and re-run the dispatch for that member`);
   return `${bag.summary()}\n${reports.join("\n")}${laneNotes.length > 0 ? `\n${laneNotes.join("\n")}` : ""}`;
 }
 
@@ -324,7 +327,7 @@ export function createTeamExtension(): ExtensionDefinition {
         description:
           "Delegate work to the team, compose it by complexity, or steer an existing member. " +
           "Spawn: pass `task` — spawns a builder member as a child session that works on the task and returns its result (the simple, one-member ask). " +
-          "Compose: pass `compose` — a list of members (`role: builder|reviewer`, optional `name`, `scope` path glob, `lane` branchRef, `model` route, `task`) plus an optional `brief`; builders are scoped to disjoint paths, reviewers are read-only, members with a task are dispatched in parallel, and the roster then drives `work`. " +
+          "Compose: pass `compose` — a list of members (`role: builder|reviewer`, optional `name`, `scope` path glob, `lane` branchRef, `model` route, `task`) plus an optional `brief`; builders are scoped to disjoint paths, reviewers are read-only, members with a task are dispatched in parallel, and the roster then drives `work`. A member whose lane does not exist yet works un-laned: to give it isolation, create the lane yourself (bash: moh lanes group <group> && moh lanes start <group> <branch> — it asks for consent per the session mode) and re-dispatch the member. " +
           "Plan: pass `plan` — decomposes the brief into bag tasks; then pass `work` (and optionally `member`) to run the team through the bag. " +
           "Steer: pass `member` + `message` — relays a follow-up instruction to that member's next turn (it keeps its context) and returns the new outcome. " +
           "Use when the user asks to work on something with the team, or to correct or redirect one of its members.",
@@ -403,7 +406,7 @@ export function createTeamExtension(): ExtensionDefinition {
               (result.status === "done"
                 ? `${m.name} (${m.role}): ${result.output}`
                 : `${m.name} (${m.role}): ${result.status}${result.error ? ` — ${result.error}` : ""}`)
-                + (laneSkipped ? ` — works without its lane "${m.lane}" (no active lane matched; create it with /lanes)` : ""),
+                + (laneSkipped ? ` — works without its lane "${m.lane}" (no active lane matched). To isolate it: create the lane (moh lanes group <group> + moh lanes start <group> <branch>; TUI: /lanes) and re-dispatch this member` : ""),
             );
             if (work === undefined) return `team of ${roster.length} settled:\n${lines.join("\n")}`;
             // `compose` + `work`: the roster is registered and immediately
