@@ -74,12 +74,17 @@ describe("team panel render + keys (#1225)", () => {
     const first = String(panel.render());
     expect(first).toContain("builder-1 · builder");
     expect(first).toContain("scope src/**");
-    expect(first).toContain("enter back");
+    expect(first).toContain("enter send/back");
+    // In the detail every letter composes the draft (#1226): selection
+    // is frozen; an empty enter closes instead.
     expect(panel.onKey!("n", { input: "n" })).toBe(true);
-    expect(String(panel.render())).toContain("reviewer-1 · reviewer");
-    expect(panel.onKey!("\r", { input: "\r", return: true })).toBe(true);
+    expect(String(panel.render())).toContain("steer> n");
+    expect(panel.onKey!("\r", { input: "\r", return: true })).toBe(true); // sends the draft
+    expect(panel.onKey!("\r", { input: "\r", return: true })).toBe(true); // empty enter closes
     const roster = String(panel.render());
-    expect(roster).toContain(">● reviewer-1");
+    expect(roster).toContain(">● builder-1");
+    expect(panel.onKey!("n", { input: "n" })).toBe(true);
+    expect(String(panel.render())).toContain(">● reviewer-1");
     expect(panel.onKey!("p", { input: "p" })).toBe(true);
     expect(String(panel.render())).toContain(">● builder-1");
   });
@@ -89,7 +94,7 @@ describe("team panel render + keys (#1225)", () => {
     markMemberWorking(state, { name: "builder-1", role: "builder" }, "t");
     const panel = createTeamPanel(state, () => []);
     expect(panel.onKey!("p", { input: "p" })).toBe(true);
-    expect(panel.onKey!("x", { input: "x" })).toBe(false);
+    expect(panel.onKey!("z", { input: "z" })).toBe(false);
     expect(panel.onKey!("j", { input: "j" })).toBe(false); // the client's scroll
     expect(panel.onKey!("\x1b", { input: "", escape: true })).toBe(false); // the client's exit
     expect(panel.onKey!("\t", { input: "", tab: true })).toBe(false);

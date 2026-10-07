@@ -182,7 +182,7 @@ describe("focused keys → the panel's onKey (#1225)", () => {
     i.unmount();
   });
 
-  test("tab cycles panels, never reaches onKey; j/k scroll instead of forwarding", async () => {
+  test("tab cycles panels, never reaches onKey; j scrolls when the panel ignores it (#1226 precedence)", async () => {
     const seen: { input: string; key: PanelKeyEvent }[] = [];
     const lines = (n: number) =>
       React.createElement(React.Fragment, null, Array.from({ length: n }, (_, k) => React.createElement(Text, { key: k }, `line ${k}`)));
@@ -193,7 +193,7 @@ describe("focused keys → the panel's onKey (#1225)", () => {
       render: () => lines(20),
       onKey: (input, key) => {
         seen.push({ input, key });
-        return true;
+        return false; // the panel ignores keys: j/k stay the scroll fallback
       },
     };
     const i = mount(
@@ -206,13 +206,37 @@ describe("focused keys → the panel's onKey (#1225)", () => {
       />,
     );
     await new Promise((r) => setTimeout(r, 30));
-    i.instance.stdin.write("j"); // scrolls the selected panel — client-owned
+    i.instance.stdin.write("j"); // the panel ignores it — the client scrolls
     await new Promise((r) => setTimeout(r, 30));
-    expect(seen).toEqual([]);
+    expect(seen.map((s) => s.input)).toEqual(["j"]); // forwarded first (#1226)
     expect(i.frame()).toContain("↑1"); // the position indicator tracks the window
     i.instance.stdin.write("\t"); // cycles to "second" — client-owned
     await new Promise((r) => setTimeout(r, 30));
-    expect(seen).toEqual([]);
+    expect(seen.map((s) => s.input)).toEqual(["j"]);
+    i.unmount();
+  });
+
+  test("a composing panel consumes j/k: the draft letters win over the scroll (#1226)", async () => {
+    const seen: string[] = [];
+    const composing: Panel = {
+      extension: "ops",
+      name: "compose",
+      description: "",
+      maxHeight: 6,
+      render: () => React.createElement(Text, null, `draft ${seen.join("")}`),
+      onKey: (input) => {
+        seen.push(input);
+        return true;
+      },
+    };
+    const i = mount(<ExtensionsRail panels={[composing]} collapsed={new Set()} columns={120} rows={ROWS} focused />);
+    await new Promise((r) => setTimeout(r, 30));
+    i.instance.stdin.write("j");
+    await new Promise((r) => setTimeout(r, 30));
+    i.instance.stdin.write("k");
+    await new Promise((r) => setTimeout(r, 30));
+    expect(seen).toEqual(["j", "k"]); // no scroll: the panel consumed both
+    expect(i.frame()).toContain("draft jk");
     i.unmount();
   });
 

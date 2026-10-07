@@ -739,3 +739,96 @@ describe("member path scopes (#1224, ADR-0074 roles carry scopes)", () => {
     expect(spawned).toBeUndefined();
   });
 });
+
+describe("stopSubagents: the team-scoped one-stop (ADR-0055, #1226)", () => {
+  test("granted: the API is present; refused: enforcement by absence", async () => {
+    const granted = await capturing({
+      name: "orch",
+      version: "1",
+      apiVersion: "1.13",
+      capabilities: ["spawn-subagent"],
+      setup: () => {},
+    });
+    await granted.rt.ready();
+    expect(typeof granted.ctx!.stopSubagents).toBe("function");
+
+    const refused = await capturing({ name: "plain", version: "1", apiVersion: "1.13", setup: () => {} });
+    await refused.rt.ready();
+    expect(refused.ctx!.stopSubagents).toBeUndefined();
+  });
+
+  test("stopSubagents aborts only this extension's live child and records the stop with its name", async () => {
+    const rt = runtime();
+    let api: { spawn: NonNullable<ExtensionSetupContext["spawnSubagent"]>; stop: NonNullable<ExtensionSetupContext["stopSubagents"]> } | null = null;
+    await rt.register(
+      defineExtension({
+        name: "orch",
+        version: "1",
+        apiVersion: "1.13",
+        capabilities: ["spawn-subagent"],
+        setup: (ctx) => {
+          api = { spawn: ctx.spawnSubagent!, stop: ctx.stopSubagents! };
+        },
+      }),
+    );
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const session = createSession({
+      provider: MockProvider.scripted([{ deltas: ["ok"], finish: "stop" }]),
+      tools: { echo: echoTool },
+      extensions: rt,
+      subagents: {
+        home: tempDir(),
+        provider: MockProvider.scripted([
+          { deltas: ["working", "still working"], finish: "stop", hold: { afterDeltas: 1, release: gate } },
+        ]),
+      },
+    });
+    const events = tap(session);
+    const { spawn, stop } = api!;
+    const pending = spawn!({ task: "child" });
+    let live: ReturnType<typeof session.liveSubagents> = [];
+    for (let i = 0; i < 40 && live.length === 0; i++) {
+      await Bun.sleep(25);
+      live = session.liveSubagents();
+    }
+    expect(live).toHaveLength(1);
+    const stopped = stop();
+    expect(stopped).toEqual([live[0]!.callId]);
+    release();
+    const spawned = await pending;
+    expect(spawned.status).toBe("cancelled");
+    const record = events.find((e) => e.type === "orchestration_stopped") as Extract<AgentEvent, { type: "orchestration_stopped" }>;
+    expect(record.extension).toBe("orch");
+    expect(record.callIds).toEqual([live[0]!.callId]);
+    await session.dispose();
+  });
+
+  test("a stop with nothing of this extension's live records nothing and returns []", async () => {
+    const rt = runtime();
+    let stop: NonNullable<ExtensionSetupContext["stopSubagents"]> | null = null;
+    await rt.register(
+      defineExtension({
+        name: "orch",
+        version: "1",
+        apiVersion: "1.13",
+        capabilities: ["spawn-subagent"],
+        setup: (ctx) => {
+          stop = ctx.stopSubagents!;
+        },
+      }),
+    );
+    const session = createSession({
+      provider: MockProvider.scripted([{ deltas: ["ok"], finish: "stop" }]),
+      tools: { echo: echoTool },
+      extensions: rt,
+      subagents: { home: tempDir(), provider: MockProvider.scripted([{ deltas: ["ok"], finish: "stop" }]) },
+    });
+    const events = tap(session);
+    expect(stop!()).toEqual([]);
+    await session.dispose();
+    expect(events.some((e) => e.type === "orchestration_stopped")).toBe(false);
+  });
+});

@@ -41,10 +41,16 @@ export interface TeamPanelState {
   selection: number;
   /** false = roster, true = the selected member's detail. */
   detail: boolean;
+  /**
+   * #1226: the steering draft the user composes in the detail view.
+   * Every printable focused key lands here while the detail is open;
+   * enter sends it to the member (empty enter closes the detail).
+   */
+  draft: string;
 }
 
 export function createTeamPanelState(): TeamPanelState {
-  return { members: new Map(), selection: 0, detail: false };
+  return { members: new Map(), selection: 0, detail: false, draft: "" };
 }
 
 /** Registers (or refreshes) a member as dispatched: status working. */
@@ -118,8 +124,9 @@ function rosterLine(member: PanelMember, selected: boolean): string {
   return `${head}${suffix.length <= budget ? suffix : clip(suffix, budget)}`;
 }
 
-/** The detail view: the member's envelope and its last observation. */
-function detailView(member: PanelMember): string {
+/** The detail view: the member's envelope, its last observation, and the
+ * steering draft (#1226). */
+function detailView(member: PanelMember, draft: string): string {
   const lines = [
     `${member.name} · ${member.role}`,
     member.scope !== undefined ? `scope ${member.scope}` : "unscoped",
@@ -130,8 +137,22 @@ function detailView(member: PanelMember): string {
       : `${member.status}${member.outputChars !== undefined ? ` · ${member.outputChars} chars` : ""}`,
     ...(member.task !== undefined ? [clip(`task: ${member.task}`)] : []),
     ...(member.error ? [clip(`error: ${member.error}`)] : []),
+    `steer> ${clip(draft, 28)}`,
   ];
-  return `${lines.join("\n")}\nn/p member · enter back`;
+  return `${lines.join("\n")}\ntype to compose · enter send/back`;
+}
+
+/**
+ * The actions the panel hands back to the extension (#1226): steering
+ * writes into the member (its next turn) and stop-all aborts everything
+ * the team spawned. The extension owns the seams — the panel only calls.
+ * Both are async and fire-and-forget from `onKey`: the panel's state is
+ * updated synchronously (draft cleared, member marked working) and the
+ * settle lands through the same mark/settle paths the tool uses.
+ */
+export interface TeamPanelActions {
+  steer(member: string, message: string): void;
+  stopAll(): void;
 }
 
 /**
@@ -139,8 +160,12 @@ function detailView(member: PanelMember): string {
  * durable state) so the header carries the board summary without the
  * panel owning any state of its own.
  */
-export function createTeamPanel(state: TeamPanelState, bagTasks: () => readonly { status: string }[]): ExtensionPanel {
+export function createTeamPanel(state: TeamPanelState, bagTasks: () => readonly { status: string }[], actions?: TeamPanelActions): ExtensionPanel {
   const order = (): PanelMember[] => [...state.members.values()];
+  const selectedMember = (): PanelMember | undefined => {
+    const members = order();
+    return members.length === 0 ? undefined : members[Math.min(state.selection, members.length - 1)]!;
+  };
   return {
     name: "team",
     description: "live team roster and member detail",
@@ -150,21 +175,60 @@ export function createTeamPanel(state: TeamPanelState, bagTasks: () => readonly 
       if (members.length === 0) return "no members yet — ask the team to work";
       const bag = bagTasks();
       if (state.detail) {
-        const member = members[Math.min(state.selection, members.length - 1)]!;
-        return detailView(member);
+        const member = selectedMember()!;
+        return detailView(member, state.draft);
       }
       const counts = bagCounts(bag);
       const head = clip(`team: ${members.length} member${members.length === 1 ? "" : "s"} · bag ${counts.done}/${bag.length} done`);
-      const selected = Math.min(state.selection, members.length - 1);
-      const lines = members.map((m, i) => rosterLine(m, i === selected));
-      lines.push("n/p member · enter detail");
+      const lines = members.map((m, i) => rosterLine(m, i === Math.min(state.selection, members.length - 1)));
+      lines.push("n/p member · enter detail · x stop all");
       return [clip(head), ...lines.map((line) => clip(line))].join("\n");
     },
     onKey: (input: string, key: PanelKeyEvent): boolean => {
       const count = state.members.size;
+      // Detail mode is the compose surface (#1226): every printable key —
+      // including `n`, `p`, `x` — lands in the draft, backspace edits,
+      // enter sends a non-empty draft and closes an empty one. Selection
+      // stays frozen while composing.
+      if (state.detail) {
+        if (count === 0) {
+          state.detail = false;
+          return false;
+        }
+        if (key.return) {
+          if (state.draft.trim() !== "") {
+            const member = selectedMember()!;
+            const message = state.draft;
+            state.draft = "";
+            actions?.steer(member.name, message);
+            return true;
+          }
+          state.detail = false;
+          return true;
+        }
+        if (key.backspace || key.delete) {
+          if (state.draft.length > 0) {
+            state.draft = state.draft.slice(0, -1);
+            return true;
+          }
+          return false;
+        }
+        if (input.length === 1 && !key.ctrl && !key.meta) {
+          state.draft += input;
+          return true;
+        }
+        return false;
+      }
       if (key.return) {
         if (count === 0) return false;
-        state.detail = !state.detail;
+        state.detail = true;
+        return true;
+      }
+      if (input === "x") {
+        // The one action: every child the team spawned stops; lanes and
+        // worktrees survive. Nothing live records nothing.
+        if (count === 0) return false;
+        actions?.stopAll();
         return true;
       }
       if (input === "n") {

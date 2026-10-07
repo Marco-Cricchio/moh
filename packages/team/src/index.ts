@@ -544,9 +544,45 @@ export function createTeamExtension(): ExtensionDefinition {
       // The rail panel (#1225, ADR-0062 as amended): only with the
       // `contribute-panels` grant (enforcement by absence). One panel,
       // the roster with the detail view inside it; keys reach it only
-      // through the client's focus-mode forwarding.
+      // through the client's focus-mode forwarding. The actions (#1226)
+      // ride the same seams the tool drives: steering through
+      // `steerSubagent` with the same mark/settle/event path, stop-all
+      // through the team-scoped `stopSubagents` — lanes and worktrees
+      // are untouched and the extension stays enabled.
       if (typeof ctx.registerPanel === "function") {
-        ctx.registerPanel(createTeamPanel(panelState, () => (toolState.bag instanceof TaskBag ? [...toolState.bag.tasks.values()] : [])));
+        ctx.registerPanel(
+          createTeamPanel(panelState, () => (toolState.bag instanceof TaskBag ? [...toolState.bag.tasks.values()] : []), {
+            steer: (member, message) => {
+              void (async () => {
+                const callId = members.get(member);
+                if (callId === undefined) return;
+                const known = toolState.roster?.find((m) => m.name === member);
+                if (known) markMemberWorking(panelState, known, lastLine(message));
+                const result = await ctx.steerSubagent!(callId, message);
+                if (!result) {
+                  if (known) settleMember(panelState, member, "error", { error: "not reachable for steering" });
+                  return;
+                }
+                const activity = await ctx.subagentActivity?.(callId);
+                settleMember(panelState, member, result.status, { outputChars: result.output.length, error: result.error, currentTool: activity?.currentTool ?? null });
+                ctx.appendEvent({
+                  name: "team_member_steer",
+                  payload: { member, callId, message, status: result.status, outputChars: result.output.length, ...(activity ? { activity } : {}) },
+                });
+              })();
+            },
+            stopAll: () => {
+              const stopped = ctx.stopSubagents!();
+              // The in-flight spawns settle themselves as cancelled through
+              // their own result path; a settled-but-steerable member the
+              // stop closed the write seam on is marked here.
+              const stoppedSet = new Set(stopped);
+              for (const [name, callId] of members) {
+                if (stoppedSet.has(callId)) settleMember(panelState, name, "cancelled", { error: "stopped from the panel" });
+              }
+            },
+          }),
+        );
       }
     },
   });

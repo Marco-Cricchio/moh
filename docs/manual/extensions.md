@@ -132,10 +132,15 @@ are visible across all extensions — a fifth extension asking for a panel
 is refused visibly at load (`panel slot exhausted (4/4) — disable a panel
 in /extensions`), and there is no automatic eviction: collapsing and
 reopening a panel is manual, from `/extensions`. With the rail focused
-(`ctrl+p`) the client scrolls a panel with `j`/`k` and hands the panel
-its remaining keys (apiVersion 1.17): the team panel, for one, uses
-`n`/`p` to move between members and `enter` to open and close the
-member detail inside the panel. `esc` always leaves the rail. An
+(`ctrl+p`) the client hands the panel its keys (apiVersion 1.17): the
+team panel, for one, uses `n`/`p` to move between members and `enter`
+to open and close the member detail inside the panel. `j`/`k` and the
+arrows scroll the panel's window, unless the panel consumes them first
+(apiVersion 1.18) — in the team detail view every letter composes the
+steering draft, and `enter` sends it to the member as its next turn;
+in the roster, `x` stops everything the team spawned (one
+`orchestration_stopped` record; lanes and worktrees survive).
+`esc` always leaves the rail. An
 extension whose grant
 covers `contribute-overlays` contributes a full-screen overlay, opened by
 the extension's own command and closed with `Esc`. A headless client has

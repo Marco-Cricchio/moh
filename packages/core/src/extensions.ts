@@ -2033,11 +2033,12 @@ bindPathDeny(isDenied: (resolvedAbsPath: string) => boolean): void {
     // Present only when granted (enforcement by absence); the envelope is
     // intersected at every call, and a refusal is a loud
     // `extension_failed` with the child never created.
-    const spawnSlot: Pick<ExtensionSetupContext, "spawnSubagent" | "subagentActivity" | "steerSubagent"> = granted.includes("spawn-subagent")
+    const spawnSlot: Pick<ExtensionSetupContext, "spawnSubagent" | "subagentActivity" | "steerSubagent" | "stopSubagents"> = granted.includes("spawn-subagent")
       ? {
           spawnSubagent: (spec) => this.#spawnSubagentFor(instance, spec),
           subagentActivity: (callId) => this.#subagentActivityFor(instance, callId),
           steerSubagent: (callId, message) => this.#steerSubagentFor(instance, callId, message),
+          stopSubagents: () => this.#stopSubagentsFor(instance),
         }
       : {};
     // ADR-0064 + ADR-0065: the host-performs seam. Present only when the
@@ -2435,6 +2436,26 @@ bindPathDeny(isDenied: (resolvedAbsPath: string) => boolean): void {
     } catch (err) {
       return refuse("steer_failed", errMessage(err));
     }
+  }
+
+  /**
+   * ADR-0055 "one stop", team-scoped (#1226): the extension stops only
+   * the children it spawned. One `orchestration_stopped` chrome event
+   * with the `extension` field records the stop; a session-level
+   * `stopSubagents()` is unchanged and stays the owner's door.
+   */
+  #stopSubagentsFor(instance: RuntimeExtension): string[] {
+    const name = instance.def.name;
+    const host = this.#subagentHost;
+    if (!host) {
+      this.#emitFailed(name, "stop_unavailable", `extension "${name}" holds the spawn-subagent capability but this session exposes no subagent host`);
+      return [];
+    }
+    const stopped = host.stopForExtension(name);
+    if (stopped.length > 0) {
+      this.#emit({ type: "orchestration_stopped", callIds: stopped, stoppedAt: new Date().toISOString(), extension: name });
+    }
+    return stopped;
   }
 
   /**

@@ -84,7 +84,7 @@ describe("@moh/extension contract", () => {
     // control channel, the post-tool inspection seam, `confirm.onResolved`,
     // the session identity on the beforeTurn context, and the compaction
     // hook's own window/signal.
-    expect(parseApiVersion(MOH_EXTENSION_API_VERSION)).toEqual({ major: 1, minor: 17 });
+    expect(parseApiVersion(MOH_EXTENSION_API_VERSION)).toEqual({ major: 1, minor: 18 });
     expect(parseApiVersion("banana")).toBeNull();
   });
 });
