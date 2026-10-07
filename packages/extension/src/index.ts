@@ -137,7 +137,7 @@
  * Minor bumps are additive (new optional hooks/fields); major bumps are
  * breaking and refuse to load older/newer extensions.
  */
-export const MOH_EXTENSION_API_VERSION = "1.17";
+export const MOH_EXTENSION_API_VERSION = "1.18";
 
 /** One spawn an orchestration extension requests (ADR-0055, apiVersion 1.13).
  * `preset` resolves against the host's subagent presets (built-ins and
@@ -1055,6 +1055,17 @@ export interface ExtensionSetupContext {
    * borrowed (child) session's dispatch is refused loudly, like spawning.
    */
   steerSubagent?(callId: string, message: string): Promise<ExtensionSpawnResult | null>;
+  /**
+   * Team-scoped one-stop (ADR-0055, apiVersion 1.18, #1226): abort every
+   * child this extension spawned — live ones now, settled ones lose their
+   * steering seat either way — and nothing else. One `orchestration_stopped`
+   * chrome event naming this extension records the stop when anything was
+   * stopped; the return is the stopped callIds. **Present only when the
+   * `spawn-subagent` capability is granted.** The session-level stop is
+   * unchanged and stays the owner's door, and a stop never disables or
+   * unloads the extension.
+   */
+  stopSubagents?(): string[];
   /**
    * Ask the core to run one turn with a synthetic user-side message
    * (ADR-0037, apiVersion 1.6). You supply the text — deterministic,

@@ -690,3 +690,191 @@ describe("composition by complexity — scoped roles + lanes (#1224, ADR-0074)",
     expect(toolResult).toContain("member work done");
   });
 });
+
+describe("panel steering + team-scoped stop-all (#1226, ADR-0055)", () => {
+  function panelRt() {
+    const rt = runtime(() => true);
+    return rt.register(createTeamExtension(), { manifest: teamManifestAuthority() }).then(() => rt);
+  }
+
+  test("a panel draft reaches the member as its next turn and the detail reflects the outcome", async () => {
+    const rt = await panelRt();
+    await rt.ready();
+    const panel = rt.panels()[0]!;
+    const session = createSession({
+      provider: MockProvider.scripted([
+        {
+          deltas: ["handing it to the team"],
+          finish: "tool_calls",
+          toolCalls: [{ name: "team", args: { task: "rename the export" } }],
+        },
+        { deltas: ["done steering"], finish: "stop" },
+      ]),
+      extensions: rt,
+      subagents: {
+        home: tempDir(),
+        provider: MockProvider.scripted([
+          { deltas: ["first answer"], finish: "stop" },
+          { deltas: ["steered answer"], finish: "stop" },
+        ]),
+      },
+      permissions: { unrestrictedTools: true },
+    });
+    const events = tap(session);
+    await session.send("rename the export with the team");
+
+    // The closed loop lives on the panel: open the detail, compose, send.
+    const frame = String(panel.render());
+    expect(frame).toContain("✓ builder");
+    expect(panel.onKey!("\r", { input: "\r", return: true })).toBe(true);
+    for (const ch of "now rename it back") panel.onKey!(ch, { input: ch });
+    expect(String(panel.render())).toContain("steer> now rename it back");
+    expect(panel.onKey!("\r", { input: "\r", return: true })).toBe(true);
+    // The settle + record run after the steered turn settles: wait for
+    // the extension's own record, never a fixed sleep.
+    let memberSteer: { payload?: { member?: string; status?: string } } | undefined;
+    for (let i = 0; i < 100 && !memberSteer; i++) {
+      await Bun.sleep(10);
+      memberSteer = events.find((e) => e.type === "extension_event" && (e as { name?: string }).name === "team_member_steer") as
+        | { payload?: { member?: string; status?: string } }
+        | undefined;
+    }
+    await session.dispose();
+
+    // The write is chrome in the parent's log, with the panel's message.
+    const steer = events.find((e) => e.type === "subagent_steer") as Extract<AgentEvent, { type: "subagent_steer" }> | undefined;
+    expect(steer?.extension).toBe(TEAM_NAME);
+    expect(steer?.messageChars).toBe("now rename it back".length);
+    // The extension's record names the member and the steered outcome.
+    expect(memberSteer?.payload?.member).toBe("builder");
+    expect(memberSteer?.payload?.status).toBe("done");
+    // The detail view reflects the post-steering observation.
+    const detail = String(panel.render());
+    expect(detail).toContain("builder · builder");
+    expect(detail).toContain("done");
+  });
+
+  test("stop-all from the panel aborts the team's child, is recorded, and the roster flips to cancelled", async () => {
+    const rt = await panelRt();
+    await rt.ready();
+    const panel = rt.panels()[0]!;
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const session = createSession({
+      provider: MockProvider.scripted([
+        {
+          deltas: ["handing it to the team"],
+          finish: "tool_calls",
+          toolCalls: [{ name: "team", args: { task: "long churn" } }],
+        },
+        { deltas: ["the team stopped"], finish: "stop" },
+      ]),
+      extensions: rt,
+      subagents: {
+        home: tempDir(),
+        provider: MockProvider.scripted([
+          { deltas: ["working", "still working"], finish: "stop", hold: { afterDeltas: 1, release: gate } },
+        ]),
+      },
+      permissions: { unrestrictedTools: true },
+    });
+    const events = tap(session);
+    const turn = session.send("start the team on the long churn");
+    let working = false;
+    for (let i = 0; i < 50 && !working; i++) {
+      await Bun.sleep(20);
+      working = String(panel.render()).includes("● builder");
+    }
+    expect(working).toBe(true);
+
+    // One action: x in the roster stops everything the team spawned.
+    expect(panel.onKey!("x", { input: "x" })).toBe(true);
+    const stop = await turn;
+    expect(stop.status).toBe("done");
+    release();
+    await session.dispose();
+
+    // The stop is the team's own chrome record, with its name.
+    const record = events.find((e) => e.type === "orchestration_stopped") as Extract<AgentEvent, { type: "orchestration_stopped" }> | undefined;
+    expect(record?.extension).toBe(TEAM_NAME);
+    expect(record?.callIds.length).toBe(1);
+    // The member's own spawn resolved cancelled through its result path.
+    const childResult = events.find((e) => e.type === "subagent_result") as Extract<AgentEvent, { type: "subagent_result" }> | undefined;
+    expect(childResult?.status).toBe("cancelled");
+    // The roster shows the aborted state; lanes and worktrees are untouched.
+    expect(String(panel.render())).toContain("◌ builder");
+    // The stop is not a revocation: the extension stays loaded, panel and
+    // team tool alive (the session-level consent door is a separate path).
+    expect(rt.panels()).toHaveLength(1);
+    expect(String(panel.render())).toContain("x stop");
+  });
+
+  test("one stop-all action reaches every child of a composed team, live or steerable", async () => {
+    const rt = await panelRt();
+    await rt.ready();
+    const panel = rt.panels()[0]!;
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const session = createSession({
+      provider: MockProvider.scripted([
+        {
+          deltas: ["composing the team"],
+          finish: "tool_calls",
+          toolCalls: [
+            {
+              name: "team",
+              args: {
+                compose: [
+                  { role: "builder", name: "builder-1", task: "long churn" },
+                  { role: "builder", name: "builder-2", task: "quick job" },
+                ],
+              },
+            },
+          ],
+        },
+        { deltas: ["the team stopped"], finish: "stop" },
+      ]),
+      extensions: rt,
+      subagents: {
+        home: tempDir(),
+        provider: MockProvider.scripted([
+          { deltas: ["working", "still working"], finish: "stop", hold: { afterDeltas: 1, release: gate } },
+          { deltas: ["done"], finish: "stop" },
+        ]),
+      },
+      permissions: { unrestrictedTools: true },
+    });
+    const events = tap(session);
+    const turn = session.send("compose the team and stop it");
+    // Wait until the live child is in the roster, then one x stops all.
+    let working = false;
+    for (let i = 0; i < 50 && !working; i++) {
+      await Bun.sleep(20);
+      working = String(panel.render()).includes("● builder-1");
+    }
+    expect(working).toBe(true);
+    expect(panel.onKey!("x", { input: "x" })).toBe(true);
+    const stop = await turn;
+    expect(stop.status).toBe("done");
+    release();
+    await session.dispose();
+
+    // Two children were the team's; the stop names the team once and the
+    // live child resolved cancelled. The settled child (builder-2) loses
+    // its steering seat without a second record — nothing left to abort.
+    const spawns = events.filter((e) => e.type === "subagent_spawn");
+    expect(spawns).toHaveLength(2);
+    const record = events.find((e) => e.type === "orchestration_stopped") as Extract<AgentEvent, { type: "orchestration_stopped" }> | undefined;
+    expect(record?.extension).toBe(TEAM_NAME);
+    expect(record?.callIds.length).toBe(1);
+    const results = events.filter((e) => e.type === "subagent_result") as Extract<AgentEvent, { type: "subagent_result" }>[];
+    expect(results.map((r) => r.status).sort()).toEqual(["cancelled", "done"]);
+    const roster = String(panel.render());
+    expect(roster).toContain("◌ builder");
+    expect(roster).toContain("✓ builder");
+  });
+});

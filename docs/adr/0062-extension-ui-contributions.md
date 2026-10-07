@@ -49,6 +49,17 @@ re-render. Outside focus mode a panel receives nothing; a panel without
 `Esc`-owned modal focus; the modal-vs-overlay focus question above stays
 deferred.
 
+## Amendment (#1226, apiVersion 1.18): the scroll keys compose
+
+The team steering draft (#1226) is the case the 1.17 precedence waited
+for: a panel that composes text must be able to consume `j`/`k` — a
+message with a letter in it is not a scroll request. The fallback order
+flips; the ownership rule holds. While the rail holds focus the client
+hands each key to the focused panel's `onKey` first and scrolls only
+what the panel ignores; `esc` and `tab` never reach the panel. A panel
+without `onKey` sees no difference: its `j`/`k` still scroll, exactly
+as before.
+
 ## Considered Options
 
 - **Onion wrapping of native components** (the Claude-Mods `ui.render` model): maximum expressiveness — badges inside the status line, redecorated transcript — but it couples the extension to moh's internal component structure (every moh update potentially breaking), makes deactivation a chain re-linking problem, reintroduces authority by registration position, makes the UI non-reconstructible, and contradicts one-author-per-section and consent-only authority. Rejected after the owner weighed the trade-off explicitly; revisitable only with its own ADR if a real deep-integration use case materializes.

@@ -177,20 +177,25 @@ function RailColumn({
       // allocation), not at its declared or natural height — otherwise a
       // share-capped panel could never scroll at all.
       const body = Math.max(1, allocations[panels.indexOf(panel)]!.body);
-      if (input === "j" || key.downArrow) return scroll(panel.name, body, natural, 1);
-      if (input === "k" || key.upArrow) return scroll(panel.name, body, natural, -1);
-      // The keys the client does not consume go to the panel (#1225): the
-      // client keeps the rail — esc/tab/j/k/scroll — the extension only
-      // answers inside it. A consumed key costs one re-render. The call
-      // sits outside the PanelBoundary (that guards rendering), so the
-      // extension's own throw is its one visible record, never a crash
-      // of the input loop around it — the same discipline as a render.
-      if (!panel.onKey) return;
+      // apiVersion 1.18 (#1226): the scroll keys reach the panel first —
+      // a panel composing text (the team draft) must be able to consume
+      // `j`/`k`, so the fallback order flips while the ownership rule
+      // holds: keys the panel ignores still scroll, esc/tab never arrive.
+      const scrollDelta = input === "j" || key.downArrow ? 1 : input === "k" || key.upArrow ? -1 : 0;
+      if (!panel.onKey) {
+        if (scrollDelta !== 0) scroll(panel.name, body, natural, scrollDelta);
+        return;
+      }
       try {
-        if (panel.onKey(input, panelKeyEvent(input, key))) bumpForKey();
+        if (panel.onKey(input, panelKeyEvent(input, key))) {
+          bumpForKey();
+          return;
+        }
       } catch {
         bumpForKey(); // redraw: the failure line (boundary) or the honest state
+        return;
       }
+      if (scrollDelta !== 0) scroll(panel.name, body, natural, scrollDelta);
     },
     { isActive: focused },
   );

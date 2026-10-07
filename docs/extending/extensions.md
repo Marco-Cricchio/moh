@@ -782,7 +782,10 @@ extension's note.
   1.15 added the endpoint scope per ADR-0068, #1164 — `ctx.host.modelCall`
   and `ctx.host.listModels` under `endpoint:<ref>`. 1.17 added the
   optional `onKey` on `ExtensionPanel` — the focused panel answers the
-  keys the client does not consume, #1225, ADR-0062 as amended.
+  keys the client does not consume, #1225, ADR-0062 as amended. 1.18
+  added `ctx.stopSubagents` — the team-scoped one-stop under
+  `spawn-subagent`: the extension aborts only the children it spawned
+  and one `orchestration_stopped` event names it, #1226, ADR-0055.
 - **Additive-only within a major**: new hooks and context fields may be
   added; existing ones never change meaning or disappear. Deprecated APIs
   survive one full major.

@@ -367,6 +367,34 @@ export class SubagentHost {
     return this.#options.presets?.[name] ?? BUILTIN_AGENT_PRESETS[name];
   }
 
+  /**
+   * #1226: the team-scoped stop — one extension stops everything *it*
+   * started, touching nothing else. Live children it spawned are aborted,
+   * every child it spawned loses its steering seat (the write seam closes
+   * with the stop, as for the owner's one stop), settled children
+   * contribute their callId only when they were still abortable. The
+   * caller records the chrome event; lanes and worktrees are untouched.
+   */
+  stopForExtension(extension: string): string[] {
+    const stopped: string[] = [];
+    for (const [callId, by] of this.#spawnedByExtension) {
+      if (by !== extension) continue;
+      const live = this.#live.get(callId);
+      if (live) {
+        stopped.push(callId);
+        try {
+          live.abort();
+        } catch {
+          // An abort that throws still counts as stopped: the child's own
+          // result event carries the outcome.
+        }
+        this.#live.delete(callId);
+      }
+      this.#extensionChildren.delete(callId);
+    }
+    return stopped;
+  }
+
   /** ADR-0053: children this extension spawned this session, by callId. */
   spawnedByExtension(extension: string): string[] {
     return [...this.#spawnedByExtension].filter(([, by]) => by === extension).map(([callId]) => callId);

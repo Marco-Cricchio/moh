@@ -810,7 +810,7 @@ type AgentEventBase =
    * stopped — the listed live children were aborted. Chrome only; the
    * aborted children still land their own `subagent_result` (cancelled).
    */
-  | { type: "orchestration_stopped"; callIds: string[]; stoppedAt: string }
+  | { type: "orchestration_stopped"; callIds: string[]; stoppedAt: string; extension?: string }
   /**
    * ADR-0055 write-into-child (#1222): an orchestration extension wrote a
    * follow-up message into a child it spawned — the member's next turn.
