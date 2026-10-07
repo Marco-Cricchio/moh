@@ -99,6 +99,12 @@
  * zone (panels) or full-screen (overlays, opened by the extension's
  * command and closed with `Esc`); the core carries them opaquely, and a
  * headless client contributes nothing — visible absence, never a mock.
+ *
+ * 1.16 (#1222, ADR-0055): `steerSubagent` — write-into-child on the
+ * `spawn-subagent` capability slot. A follow-up message to a child this
+ * extension spawned becomes its next turn; a callId the extension did
+ * not spawn resolves to `null`, so members can never address each other.
+ * Contributed tools are excluded from every child's toolset by the host.
  */
 
 /**
@@ -106,7 +112,7 @@
  * Minor bumps are additive (new optional hooks/fields); major bumps are
  * breaking and refuse to load older/newer extensions.
  */
-export const MOH_EXTENSION_API_VERSION = "1.15";
+export const MOH_EXTENSION_API_VERSION = "1.16";
 
 /** One spawn an orchestration extension requests (ADR-0055, apiVersion 1.13).
  * `preset` resolves against the host's subagent presets (built-ins and
@@ -966,6 +972,19 @@ export interface ExtensionSetupContext {
    * does not exist for it, and there is no API that reads or resumes one.
    */
   subagentActivity?(callId: string): Promise<ExtensionSubagentActivity | null>;
+  /**
+   * Write-into-child (ADR-0055, apiVersion 1.16): send a follow-up
+   * message to a child this extension spawned — it becomes the member's
+   * next turn, keeping its full context and its own route. **Present only
+   * when the `spawn-subagent` capability is granted.** A callId this
+   * extension did not spawn resolves to `null`: members can never write
+   * into each other, by construction — every child answers only to the
+   * extension that spawned it (star-shaped coordination). The write is
+   * recorded as `subagent_steer` chrome in the parent's log, so replay
+   * reconstructs who wrote what into whom; steering from inside a
+   * borrowed (child) session's dispatch is refused loudly, like spawning.
+   */
+  steerSubagent?(callId: string, message: string): Promise<ExtensionSpawnResult | null>;
   /**
    * Ask the core to run one turn with a synthetic user-side message
    * (ADR-0037, apiVersion 1.6). You supply the text — deterministic,

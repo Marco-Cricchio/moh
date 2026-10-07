@@ -1405,6 +1405,14 @@ bindPathDeny(isDenied: (resolvedAbsPath: string) => boolean): void {
    */
   #toolContributor: ((registration: { extension: string; tool: unknown }) => void) | null = null;
   #pendingContributed: { extension: string; tool: unknown }[] = [];
+  /** ADR-0055 (#1222): names of accepted contributed tools — the set the
+   * subagent host excludes from every child's toolset. */
+  #contributedToolNames = new Set<string>();
+
+  /** ADR-0055 (#1222): the contributed tools this runtime holds. */
+  contributedToolNames(): readonly string[] {
+    return [...this.#contributedToolNames];
+  }
 
   bindToolContributor(contributor: (registration: { extension: string; tool: unknown }) => void): void {
     this.#toolContributor = contributor;
@@ -1442,6 +1450,7 @@ bindPathDeny(isDenied: (resolvedAbsPath: string) => boolean): void {
       return;
     }
     const registration = { extension, tool };
+    this.#contributedToolNames.add(name);
     if (this.#toolContributor) this.#toolContributor(registration);
     else this.#pendingContributed.push(registration);
     // The `tool_contributed` record is emitted by `bindToolContributor`
@@ -2014,10 +2023,11 @@ bindPathDeny(isDenied: (resolvedAbsPath: string) => boolean): void {
     // Present only when granted (enforcement by absence); the envelope is
     // intersected at every call, and a refusal is a loud
     // `extension_failed` with the child never created.
-    const spawnSlot: Pick<ExtensionSetupContext, "spawnSubagent" | "subagentActivity"> = granted.includes("spawn-subagent")
+    const spawnSlot: Pick<ExtensionSetupContext, "spawnSubagent" | "subagentActivity" | "steerSubagent"> = granted.includes("spawn-subagent")
       ? {
           spawnSubagent: (spec) => this.#spawnSubagentFor(instance, spec),
           subagentActivity: (callId) => this.#subagentActivityFor(instance, callId),
+          steerSubagent: (callId, message) => this.#steerSubagentFor(instance, callId, message),
         }
       : {};
     // ADR-0064 + ADR-0065: the host-performs seam. Present only when the
@@ -2384,6 +2394,37 @@ bindPathDeny(isDenied: (resolvedAbsPath: string) => boolean): void {
     const host = this.#subagentHost;
     if (!host) return null;
     return host.activityFor(instance.def.name, callId);
+  }
+
+  /**
+   * ADR-0055 write-into-child (#1222): the steering path. Same ownership
+   * rule as `subagentActivity` — only children this extension spawned
+   * exist for it, so members can never write into each other — plus the
+   * no-grandchildren guard: extension code running on a borrowed (child)
+   * session may not steer either.
+   */
+  async #steerSubagentFor(
+    instance: RuntimeExtension,
+    callId: string,
+    message: string,
+  ): Promise<{ callId: string; status: "done" | "error" | "cancelled"; output: string; error?: string } | null> {
+    const name = instance.def.name;
+    const refuse = (reason: string, message: string) => {
+      this.#emitFailed(name, reason, message);
+      return { callId, status: "error" as const, output: "", error: message };
+    };
+    if (this.#borrowedSessions.getStore() !== undefined) {
+      return refuse("no_grandchildren", `extension "${name}" attempted to steer from inside a subagent — grandchildren are refused`);
+    }
+    const host = this.#subagentHost;
+    if (!host) {
+      return refuse("steer_unavailable", `extension "${name}" holds the spawn-subagent capability but this session exposes no subagent host`);
+    }
+    try {
+      return await host.steerFor(name, callId, message);
+    } catch (err) {
+      return refuse("steer_failed", errMessage(err));
+    }
   }
 
   /**

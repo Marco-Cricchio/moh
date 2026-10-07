@@ -186,6 +186,16 @@ added slots are highlighted.
   reasoning. A callId you did not spawn resolves to `null`: a session you
   did not create does not exist for you, and there is no API that reads
   or resumes one.
+- `steerSubagent(callId, message)` — write-into-child (same capability
+  slot, apiVersion 1.16, ADR-0055 #1222): the message becomes the
+  member's next turn, keeping its full context and its own route. Same
+  ownership rule as `subagentActivity` — a callId you did not spawn
+  resolves to `null`, so members can never write into each other
+  (star-shaped by construction) — and steering from inside a child's
+  dispatch is refused like spawning. The write is recorded as
+  `subagent_steer` chrome in the parent's log, so replay reconstructs
+  who wrote what into whom. Contributed tools are excluded from every
+  child's toolset by the host.
 - `registerTool(tool)` — contribute a tool the session's model can call,
   **only present when a `contribute-tool:<name>` capability is granted**
   (apiVersion 1.14, ADR-0067). The registered tool's `name` must be one

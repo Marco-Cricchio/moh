@@ -148,7 +148,12 @@ refused loudly (`extension_failed`), never silently narrowed. No
 grandchildren, and the owner's one stop aborts everything the extension
 started. `ctx.subagentActivity(callId)` reads the bounded child-tail
 activity of a child the extension spawned; a session it did not spawn
-does not exist for it. The `extension_loaded` event carries the granted
+does not exist for it. `ctx.steerSubagent(callId, message)` (#1222)
+writes a follow-up message into a child it spawned — the member's next
+turn, context and route kept; the same ownership rule applies, so
+members can never address each other, and the write is recorded as
+`subagent_steer` chrome in the parent's log. The `extension_loaded`
+event carries the granted
 capabilities — the startup announcement of what each enabled extension
 holds.
 

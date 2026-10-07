@@ -808,6 +808,12 @@ type AgentEventBase =
    * aborted children still land their own `subagent_result` (cancelled).
    */
   | { type: "orchestration_stopped"; callIds: string[]; stoppedAt: string }
+  /**
+   * ADR-0055 write-into-child (#1222): an orchestration extension wrote a
+   * follow-up message into a child it spawned — the member's next turn.
+   * Chrome only: the child's own log holds the turn it produced.
+   */
+  | { type: "subagent_steer"; callId: string; extension: string; message: string }
   /** Subagent finished; usage tokens accumulated by the child, where exposed. */
   | {
       type: "subagent_result";

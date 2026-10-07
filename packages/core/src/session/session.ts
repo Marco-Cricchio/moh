@@ -363,6 +363,8 @@ export class AgentSession {
       const host = new SubagentHost({
         cwd: this.#cwd,
         parentTools: () => this.#allTools(),
+        // ADR-0055 (#1222): the lead's contributed tools never reach a child.
+        contributedTools: () => this.#extensions?.contributedToolNames?.() ?? [],
         onEvent: (event) => this.#append(event),
         permissions: config.permissions,
         runtimeRules: () => this.#permissions.rules,
