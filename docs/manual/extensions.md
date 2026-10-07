@@ -141,7 +141,10 @@ arrows scroll the panel's window, unless the panel consumes them first
 steering draft, and `enter` sends it to the member as its next turn;
 in the roster, `x` stops everything the team spawned (one
 `orchestration_stopped` record; lanes and worktrees survive).
-`esc` always leaves the rail. An
+`esc` always leaves the rail. When the rail is wide, the conversation beside
+it shows a bounded tail; close the rail from `/extensions` (`r`) to access
+the full conversation in terminal scrollback. A terminal too short for the
+rail collapses it to the footer and returns focus to the composer. An
 extension whose grant
 covers `contribute-overlays` contributes a full-screen overlay, opened by
 the extension's own command and closed with `Esc`. A headless client has

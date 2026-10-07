@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import React from "react";
 import { render } from "ink-testing-library";
+import { Text } from "ink";
 import { createSession, builtinTools, type AgentEvent } from "@moh/core";
 import { Chat } from "../src/Chat";
 import { projectTranscript, TranscriptBlockView } from "../src/transcript";
@@ -185,7 +186,8 @@ describe("live tool timer in Chat (#300 integration)", () => {
     });
     drain(session);
     const ui = render(
-      <Chat session={session} cwd={process.cwd()} mode="dev" modelLabel="gated" width={80} />,
+      <Chat session={session} cwd={process.cwd()} mode="dev" modelLabel="gated" width={100}
+        railContent={() => <Text>timer rail</Text>} />,
     );
     const done = session.send("run it");
     // The first Clock tick can be delayed under a loaded CI worker. Poll for

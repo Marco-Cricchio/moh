@@ -9,6 +9,7 @@ import { useLiveReasoning } from "./live-reasoning";
 import { useToolProgress } from "./tool-progress";
 import { scannerFrame } from "./scanner";
 import { useViewport } from "./viewport";
+import { RAIL_MIN_ROWS, RAIL_WIDTH } from "./rail-layout";
 import { sanitizeLine, truncate } from "./ui";
 import { advanceReveal, DEFAULT_REVEAL_SETTINGS, type RevealSettings } from "./reveal";
 import { MultilineInput, pasteAsPath, type ComposerHandle } from "./Input";
@@ -88,13 +89,9 @@ export interface ChatProps {
   inputFocused?: boolean;
   /** #1218: the rail's Ctrl+P focus mode holds the keys — the composer dims. */
   composerDimmed?: boolean;
-  /** Owner directive: the extensions rail, drawn in a band reserved above
-   * the composer — out of the volatile transcript, never over the composer
-   * frame or the footer. The band's height rides `railBand`. */
-  railContent?: React.ReactNode;
-  /** Rows the `railContent` band occupies (0 = no rail): reserved out of
-   * the volatile transcript so the composer's rows never move. */
-  railBand?: number;
+  /** Chat owns the rail's real space above the full-width composer. */
+  railContent?: ((space: { columns: number; rows: number }) => React.ReactNode) | null;
+  onRailWideChange?: (wide: boolean) => void;
   focusedChip?: number | null;
   tokens?: SidebarTokens;
   /** Context-bar denominator (note 11): the active model's catalog window,
@@ -219,7 +216,7 @@ export function Chat({
   inputFocused = true,
   composerDimmed = false,
   railContent = null,
-  railBand = 0,
+  onRailWideChange,
   focusedChip = null,
   tokens = EMPTY_TOKENS,
   contextLimit,
@@ -553,6 +550,7 @@ export function Chat({
     repaintRef.current = false;
     segmentsRef.current = [{ base: 0, mode, show: showReasoning }];
     reasoningChainRef.current = null;
+    lastLiveChainRef.current = null;
     reasoningHeadsRef.current.clear();
     markdownChainRef.current = null;
     markdownChainsRef.current = [];
@@ -565,12 +563,14 @@ export function Chat({
     // (e.g. vibe) blocks survive the wipe into the new scrollback
     // (mixed-grammar transcript, duplicated lists after a mode toggle).
     emittedRef.current = [];
+    frozenRef.current = null;
+    lastStaticItemsRef.current = [];
     assembledCountRef.current = 0;
     // Clear screen + scrollback, cursor home: the whole visible transcript
     // (including anything printed before moh) goes away by owner decision.
     stdout.write("\x1b[H\x1b[2J\x1b[3J");
     setRepaint((value) => value + 1);
-  }, [mode, showReasoning, replaySettled, blocked, bufferFlipPending, stdout, widthTick, state.events.length]);
+  }, [mode, showReasoning, replaySettled, blocked, bufferFlipPending, stdout, widthTick, state.events.length, railContent, viewport.rows, cols, composerRows]);
 
   useEffect(() => {
     // While a modal owns the input (ask/permission), the turn is parked
@@ -608,14 +608,6 @@ export function Chat({
   // least 8); this is chrome budgeted out of the volatile transcript
   // below, never unbounded panel growth.
   const panelRows = 8;
-  // Owner directive: the extensions rail lives in the chat area — the rows
-  // directly above the composer — never below the composer's top line. The
-  // rail's height is chrome budgeted out of the volatile transcript tail
-  // exactly like the subagent peek: App passes the rows the rail will
-  // occupy (allocation + borders + status lines), Chat reserves that band
-  // and App renders the rail inside it. Without the reservation the rail
-  // overlapped the composer frame and the footer whenever a panel redrew
-  // (the reviewer finishing grew the roster and the panel "moved down").
   // The footer is bottom-anchored. Its changing chrome (peek/chips) takes
   // rows from the volatile transcript budget rather than pushing composer,
   // status and action chips down the terminal.
@@ -629,7 +621,9 @@ export function Chat({
   // This intentionally over-reserves at tiny sizes: a stable footer takes
   // precedence over one more volatile transcript row. #918 adds one plain
   // line while the project root sits on a Windows drive (`/mnt`).
-  const fixedFooterRows = 9 + toastRows + railBand + (subagents.length > 0 ? 3 : 0) + (panelOpen ? 1 + panelRows : 0) + (rootOnWindowsMount ? 1 : 0);
+  const baseFooterRows = 9 + toastRows + (subagents.length > 0 ? 3 : 0) + (panelOpen ? 1 + panelRows : 0) + (rootOnWindowsMount ? 1 : 0);
+  const narrowRail = railContent !== null && (cols <= 80 || viewport.rows - baseFooterRows - composerRows - 1 < RAIL_MIN_ROWS);
+  const fixedFooterRows = baseFooterRows + (narrowRail ? 1 : 0);
   const footerRows = fixedFooterRows + composerRows;
   // #1022: the one transcript row the volatile frame keeps at the floor, plus
   // the safety row ink needs (`outputHeight == rows` already takes the
@@ -639,6 +633,14 @@ export function Chat({
   // window, so nothing is lost — and the tail then takes whatever is left.
   const composerBudget = Math.max(1, viewport.rows - fixedFooterRows - 2);
   const tailBudget = Math.max(1, viewport.rows - footerRows - 1);
+  const railWide = railContent !== null && cols > 80 && tailBudget >= RAIL_MIN_ROWS;
+  useEffect(() => { onRailWideChange?.(railWide); }, [railWide, onRailWideChange]);
+  const previousRailWideRef = useRef(railWide);
+  if (previousRailWideRef.current !== railWide) {
+    previousRailWideRef.current = railWide;
+    repaintRef.current = true;
+  }
+  const transcriptCols = railWide ? Math.max(1, cols - RAIL_WIDTH - 2) : cols;
 
   // ── Settled + live projection with #329 head promotion ────────────────
   // The raw live projection comes first (untrimmed): the head chain state
@@ -1054,8 +1056,8 @@ export function Chat({
     ? Math.max(1, tailBudget - askRows)
     : undefined;
   const liveTail = useMemo(
-    () => transcriptTail(liveBlocks, cols, askBudget ?? tailBudget),
-    [liveBlocks, cols, viewport.rows, askBudget, footerRows],
+    () => transcriptTail(liveBlocks, transcriptCols, askBudget ?? tailBudget),
+    [liveBlocks, transcriptCols, viewport.rows, askBudget, footerRows],
   );
   // #329: the head chunks (open chain and sealed chains) ride the Static
   // items appended at the current end — never through the settled
@@ -1096,13 +1098,17 @@ export function Chat({
       emittedRef.current = [...emittedRef.current, ...fresh];
     }
   }
+  const lastStaticItemsRef = useRef<readonly TranscriptBlock[]>([]);
   let staticItems: readonly TranscriptBlock[];
-  if (replaySettled) {
+  if (railWide || repaintRef.current) {
+    staticItems = [];
+  } else if (replaySettled) {
     if (frozenRef.current === null) frozenRef.current = emittedRef.current;
     staticItems = frozenRef.current;
   } else {
     frozenRef.current = null;
     staticItems = emittedRef.current;
+    lastStaticItemsRef.current = staticItems;
   }
   // #876/ADR-0042: the liveness beat is the scanner sweep, one cell per tick
   // (the tick above is the 90 ms clock, gated on the active turn).
@@ -1131,7 +1137,7 @@ export function Chat({
   }, [repaint, previewMode, stdout]);
   useEffect(() => {
     if (previewMode.protocol === "none") return;
-    if (replaySettled || bufferFlipPending) return;
+    if (replaySettled || railWide || bufferFlipPending) return;
     for (const block of staticItems) {
       const image = block.kind === "user" ? block.image : undefined;
       if (!image || emittedImagesRef.current.has(block.key)) continue;
@@ -1176,30 +1182,67 @@ export function Chat({
     <SubagentPanel sub={panelSub} tail={subagentTails.get(panelSub.callId)} now={panelNow} width={Math.max(20, cols - 2)} rows={panelRows} />
   ) : null;
 
+  // Ink extracts Static above the entire interactive tree, even when nested
+  // in a row. A live right rail therefore needs a bounded, replayable
+  // transcript column; keep Static mounted but frozen until the rail closes.
+  const railMarkdownRenderer = useMemo(() => createMarkdownRenderer(theme, Math.max(20, transcriptCols - 6)), [theme, transcriptCols]);
+  // Live ticks must not parse historical Markdown again. Retain the prefix
+  // identity until an event in the settled range actually changes.
+  const railSettledEventsRef = useRef<readonly AgentEvent[]>([]);
+  if (railSettledEventsRef.current.length !== settledEnd
+    || railSettledEventsRef.current.some((event, index) => event !== state.events[index])) {
+    railSettledEventsRef.current = state.events.slice(0, settledEnd);
+  }
+  const railSettledEvents = railSettledEventsRef.current;
+  const railRows = (block: TranscriptBlock): TranscriptBlock => block.markdown === undefined ? block : {
+    ...block,
+    markdown: undefined,
+    lines: [],
+    renderedMarkdownRows: renderMarkdownRows(block.markdown, railMarkdownRenderer, Math.max(20, transcriptCols - 6)),
+  };
+  const railSettledBlocks = useMemo(() => railWide
+    ? projectTranscript(railSettledEvents, { filePreview, mode, showReasoning, toolTimings }).map(railRows)
+    : [], [railWide, railSettledEvents, filePreview, mode, showReasoning, railMarkdownRenderer, transcriptCols]);
+  const railLiveBlocks = useMemo(() => railWide && state.pending ? rawLiveBlocks.map(railRows) : [],
+    [railWide, state.pending, rawLiveBlocks, railMarkdownRenderer, transcriptCols]);
+  const railTranscript = useMemo(() => transcriptTail([...railSettledBlocks, ...railLiveBlocks],
+    transcriptCols, Math.max(1, (askBudget ?? tailBudget) - 1), true),
+    [railSettledBlocks, railLiveBlocks, transcriptCols, askBudget, tailBudget]);
+  const liveBlockView = (block: TranscriptBlock, columns: number) => (
+    <TranscriptBlockView
+      key={`live-${block.key}`}
+      block={block.state === "run" && (block.kind === "tool" || block.kind === "moh")
+        ? { ...block, glyph: ANIM_GLYPHS[animFrame % ANIM_GLYPHS.length]! }
+        : block}
+      width={columns}
+      {...(liveTimerTick && block.callId !== undefined && block.durationMs === undefined && toolTimings.get(block.callId)?.at !== undefined
+        ? { liveMeta: { elapsedMs: Date.now() - toolTimings.get(block.callId)!.at, timeoutMs: block.timeoutMs } }
+        : {})}
+    />
+  );
+
   return (
     <Box flexDirection="column" width={Math.max(1, cols - 1)}>
       <Static key={repaint} items={staticItems as TranscriptBlock[]}>
         {(block) => <TranscriptBlockView key={block.key} block={block} width={cols} />}
       </Static>
-      {replaySettled && replayBlocks.map((block) => (
-        <TranscriptBlockView key={`replay-${block.key}`} block={block} width={cols} />
-      ))}
-      {state.pending && <Box flexDirection="column">{liveTail.map((block) => (
-        <TranscriptBlockView
-          key={`live-${block.key}`}
-          block={block.state === "run" && (block.kind === "tool" || block.kind === "moh")
-            ? { ...block, glyph: ANIM_GLYPHS[animFrame % ANIM_GLYPHS.length]! }
-            : block}
-          width={cols}
-          {...(liveTimerTick && block.callId !== undefined && block.durationMs === undefined && toolTimings.get(block.callId)?.at !== undefined
-            ? { liveMeta: { elapsedMs: Date.now() - toolTimings.get(block.callId)!.at, timeoutMs: block.timeoutMs } }
-            : {})}
-        />
-      ))}</Box>}
-
-      {/* Owner directive: the extensions rail band — above the composer,
-          inside the volatile region, budgeted out of the transcript tail. */}
-      {railContent !== null && <Box flexDirection="row" justifyContent="flex-end" flexShrink={0} height={Math.max(1, railBand)}>{railContent}</Box>}
+      {railWide ? (
+        <Box flexDirection="row" height={askBudget ?? tailBudget} flexShrink={0} alignItems="flex-start">
+          <Box flexDirection="column" width={transcriptCols} flexShrink={0} overflow="hidden">
+            <Text dimColor wrap="truncate">History: /extensions → close rail for scrollback</Text>
+            {railTranscript.map((block) => liveBlockView(block, transcriptCols))}
+          </Box>
+          <Box flexDirection="column" width={RAIL_WIDTH + 1} height={askBudget ?? tailBudget} flexShrink={0} overflow="hidden">
+            {railContent!({ columns: cols, rows: askBudget ?? tailBudget })}
+          </Box>
+        </Box>
+      ) : <>
+        {replaySettled && replayBlocks.map((block) => (
+          <TranscriptBlockView key={`replay-${block.key}`} block={block} width={cols} />
+        ))}
+        {state.pending && <Box flexDirection="column">{liveTail.map((block) => liveBlockView(block, cols))}</Box>}
+        {railContent?.({ columns: cols, rows: tailBudget })}
+      </>}
 
       {/* #497: the subagent peek — the panel content rides the volatile
           region above the footer (the only layout, at every width). */}
@@ -1569,7 +1612,7 @@ export function visibleVolatileTail(
   return visibleTail < tail.length ? tail.slice(0, visibleTail) : tail;
 }
 
-export function transcriptTail(blocks: readonly TranscriptBlock[], width: number, rowBudget: number): TranscriptBlock[] {
+export function transcriptTail(blocks: readonly TranscriptBlock[], width: number, rowBudget: number, fillPartial = false): TranscriptBlock[] {
   const selected: TranscriptBlock[] = [];
   let rows = 0;
   const bodyWidth = Math.max(1, width - 3);
@@ -1582,7 +1625,10 @@ export function transcriptTail(blocks: readonly TranscriptBlock[], width: number
     // hundreds of rows every frame — text flashes/disappears in Terminal.
     // Clip its tail at line/character granularity instead.
     if (selected.length === 0 && blockRows > rowBudget) return [clipBlockTail(block, bodyWidth, rowBudget)];
-    if (selected.length > 0 && rows + blockRows > rowBudget) break;
+    if (selected.length > 0 && rows + blockRows > rowBudget) {
+      if (fillPartial && rowBudget - rows >= 4) selected.unshift(clipBlockTail(block, bodyWidth, rowBudget - rows));
+      break;
+    }
     selected.unshift(block);
     rows += blockRows;
   }
