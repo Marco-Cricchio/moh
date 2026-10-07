@@ -857,7 +857,7 @@ write path outside the `pathScopes` the consented spawn carries.
 ## Versioning policy
 
 - The host speaks `MOH_EXTENSION_API_VERSION` (`"major.minor"`); the
-  current version is **1.15** (1.1 added `ask` and the two observation
+  current version is **1.18** (1.1 added `ask` and the two observation
   seams; 1.2 added `beforeTurn`; 1.3 added the `extension_control`
   command channel; 1.4 added `onToolResult`, `confirm.onResolved` and
   `onCompaction`; 1.5 added `setPromptNote`; 1.6 added `requestTurn`;
@@ -879,7 +879,8 @@ write path outside the `pathScopes` the consented spawn carries.
   tool scopes per ADR-0067, #1163 — `ctx.host.runTool` under
   `tool:<name|*>` and `ctx.registerTool` under `contribute-tool:<name>`.
   1.15 added the endpoint scope per ADR-0068, #1164 — `ctx.host.modelCall`
-  and `ctx.host.listModels` under `endpoint:<ref>`. 1.17 added the
+  and `ctx.host.listModels` under `endpoint:<ref>`. 1.16 added `steerSubagent`, the write-into-child seam
+(#1222, ADR-0055). 1.17 added the
   optional `onKey` on `ExtensionPanel` — the focused panel answers the
   keys the client does not consume, #1225, ADR-0062 as amended. 1.18
   added `ctx.stopSubagents` — the team-scoped one-stop under
