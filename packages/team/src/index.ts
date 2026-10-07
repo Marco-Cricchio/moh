@@ -1,15 +1,18 @@
 /**
  * `moh-extension-team`: the first-party team extension (ADR-0074, #1220).
  *
- * Scope of this layer (ticket #1221, slice 2b): the one-member team, end
- * to end. The `team` tool is contributed to the session's model (ADR-0067);
- * when the user asks to work on something with the team, the model calls
- * it with the task and the extension composes the single builder member
- * through the ADR-0055 spawn API. The child runs as a real subagent
- * session (own route, ADR-0050), the extension reads its turn activity
- * (child-tail shape, never the provider reasoning) and the settled
- * outcome returns to the model as the tool result. The task bag (#1223),
- * the roles (#1224) and the panel (#1225) arrive later.
+ * Scope of this layer (ticket #1221, slice 2b; #1222, slice 2c): the
+ * one-member team, end to end, plus steering. The `team` tool is
+ * contributed to the session's model (ADR-0067); when the user asks to
+ * work on something with the team, the model calls it with the task and
+ * the extension composes the single builder member through the ADR-0055
+ * spawn API. The child runs as a real subagent session (own route,
+ * ADR-0050), the extension reads its turn activity (child-tail shape,
+ * never the provider reasoning) and the settled outcome returns to the
+ * model as the tool result. A follow-up call with `member` + `message`
+ * steers the member (ADR-0055 write-into-child): its next turn keeps the
+ * member's context and route, and the new outcome returns to the lead.
+ * The task bag (#1223), the roles (#1224) and the panel (#1225) arrive later.
  *
  * Boundary: the core never learns about teams — it knows only the generic
  * `spawn-subagent` capability (ADR-0053/0055) and the manifest authority
@@ -59,11 +62,15 @@ export function teamManifestAuthority(): {
 }
 
 /**
- * The `team` tool's argument shape, checked before anything spawns: the
- * task is the only thing the model must supply — the team composition is
- * the extension's judgment (ADR-0074), not the caller's.
+ * The `team` tool's argument shape, checked before anything happens: a
+ * spawn supplies the `task`; a steering write-into-child (#1222) supplies
+ * the `member` and the `message` — the two are exclusive.
  */
-const teamArgsSchema = z.object({ task: z.string().min(1) });
+const teamArgsSchema = z.object({
+  task: z.string().min(1).optional(),
+  member: z.string().min(1).optional(),
+  message: z.string().min(1).optional(),
+});
 
 /**
  * Builds the team extension's definition. A factory, not a ready-made
@@ -83,23 +90,70 @@ export function createTeamExtension(): ExtensionDefinition {
       // ADR-0055 spawn API. The child runs as a real subagent session
       // (own route, ADR-0050); its settled outcome returns to the model
       // as the tool result, so it flows into the parent's turn.
-      if (typeof ctx.registerTool !== "function" || typeof ctx.spawnSubagent !== "function") {
+      // Ticket #1222 (slice 2c): steering — the lead relays a follow-up
+      // message to a member it spawned (ADR-0055 write-into-child); the
+      // member keeps its context and route, and the new turn's outcome
+      // returns to the lead. Star-shaped by construction: the API only
+      // reaches children this extension spawned, and the host excludes
+      // the contributed `team` tool from every child's toolset, so a
+      // member cannot address another member.
+      if (typeof ctx.registerTool !== "function" || typeof ctx.spawnSubagent !== "function" || typeof ctx.steerSubagent !== "function") {
         return; // enforcement by absence: no grant, no team (unreachable with the granted manifest)
       }
+      // The members this lead spawned: name → callId, the set steering
+      // can reach. A member that is not here does not exist.
+      const members = new Map<string, string>();
       ctx.registerTool({
         name: "team",
         description:
-          "Delegate a task to the team: spawns a builder member as a child session that works on the task and returns its result. Use when the user asks to work on something with the team.",
+          "Delegate work to the team or steer an existing member. " +
+          "Spawn: pass `task` — spawns a builder member as a child session that works on the task and returns its result. " +
+          "Steer: pass `member` + `message` — relays a follow-up instruction to that member's next turn (it keeps its context) and returns the new outcome. " +
+          "Use when the user asks to work on something with the team, or to correct or redirect one of its members.",
         inputSchema: teamArgsSchema,
         execute: async (args) => {
           const parsed = teamArgsSchema.safeParse(args);
           if (!parsed.success) return `team: refused — ${parsed.error.issues[0]?.message ?? "invalid arguments"}`;
-          const { task } = parsed.data as { task: string };
+          const { task, member, message } = parsed.data as { task?: string; member?: string; message?: string };
+          if (member !== undefined || message !== undefined) {
+            if (task !== undefined) return "team: refused — pass either `task` (spawn) or `member` + `message` (steer), not both";
+            if (member === undefined || message === undefined) return "team: refused — steering needs both `member` and `message`";
+            const callId = members.get(member);
+            if (callId === undefined) {
+              const known = [...members.keys()];
+              return `team: no member "${member}"${known.length > 0 ? ` — members: ${known.join(", ")}` : " — the team has no members yet"}`;
+            }
+            const result = await ctx.steerSubagent!(callId, message);
+            if (!result) {
+              return `team: refused — member "${member}" is not reachable for steering`;
+            }
+            // The lead's view of the member: the post-steering outcome
+            // recorded once, so the log holds what the extension read.
+            const activity = await ctx.subagentActivity?.(callId);
+            ctx.appendEvent({
+              name: "team_member_steer",
+              payload: {
+                member,
+                callId,
+                message,
+                status: result.status,
+                outputChars: result.output.length,
+                ...(activity ? { activity } : {}),
+              },
+            });
+            return result.status === "done"
+              ? `team member ${member} took the steering:\n${result.output}`
+              : `team member ${member} steering ${result.status}${result.error ? `: ${result.error}` : ""}`;
+          }
+          if (task === undefined) {
+            return "team: refused — pass `task` to spawn a member, or `member` + `message` to steer an existing one";
+          }
           const result = await ctx.spawnSubagent!({ name: "builder", task });
+          if (result.callId) members.set("builder", result.callId);
           // The child-tail activity (never the provider reasoning),
           // recorded once at settle so the log holds what the extension
           // read; the parent reconstructs who worked on what.
-          const activity = ctx.subagentActivity?.(result.callId);
+          const activity = await ctx.subagentActivity?.(result.callId);
           ctx.appendEvent({
             name: "team_member_done",
             payload: {

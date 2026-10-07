@@ -99,6 +99,31 @@
  * zone (panels) or full-screen (overlays, opened by the extension's
  * command and closed with `Esc`); the core carries them opaquely, and a
  * headless client contributes nothing — visible absence, never a mock.
+ *
+ * 1.13 (ADR-0053/0055 + ADR-0064/0065): `spawnSubagent` / `subagentActivity`
+ * on the `spawn-subagent` capability slot, and the `path:<glob>` /
+ * `tool:<name>` / `credential:<id>` host-performs seam. The spawn rides the
+ * enable consent's envelope (ten children per extension per session, each
+ * within the session's iteration ceiling); every request outside it is
+ * refused loudly and no child is created. `subagentActivity` reads only
+ * children the extension itself spawned, in the child-tail shape — a callId
+ * it did not spawn resolves to `null`. An older runtime leaves all of it
+ * absent: enforcement by absence, never an error.
+ *
+ * 1.14 (ADR-0067): `registerTool` — the `contribute-tool:<name>` capability
+ * slot. The registered name must be one the consent granted; the tool rides
+ * the same runner and permission gate as every session tool. An older
+ * runtime leaves the method absent and the tool never reaches the model.
+ *
+ * 1.15 (#1187): `registerCommand` arguments — what the user typed after the
+ * command name rides the command's execution context, so a command can act
+ * on it. An older runtime simply never supplies arguments.
+ *
+ * 1.16 (#1222, ADR-0055): `steerSubagent` — write-into-child on the
+ * `spawn-subagent` capability slot. A follow-up message to a child this
+ * extension spawned becomes its next turn; a callId the extension did
+ * not spawn resolves to `null`, so members can never address each other.
+ * Contributed tools are excluded from every child's toolset by the host.
  */
 
 /**
@@ -106,7 +131,7 @@
  * Minor bumps are additive (new optional hooks/fields); major bumps are
  * breaking and refuse to load older/newer extensions.
  */
-export const MOH_EXTENSION_API_VERSION = "1.15";
+export const MOH_EXTENSION_API_VERSION = "1.16";
 
 /** One spawn an orchestration extension requests (ADR-0055, apiVersion 1.13).
  * `preset` resolves against the host's subagent presets (built-ins and
@@ -966,6 +991,19 @@ export interface ExtensionSetupContext {
    * does not exist for it, and there is no API that reads or resumes one.
    */
   subagentActivity?(callId: string): Promise<ExtensionSubagentActivity | null>;
+  /**
+   * Write-into-child (ADR-0055, apiVersion 1.16): send a follow-up
+   * message to a child this extension spawned — it becomes the member's
+   * next turn, keeping its full context and its own route. **Present only
+   * when the `spawn-subagent` capability is granted.** A callId this
+   * extension did not spawn resolves to `null`: members can never write
+   * into each other, by construction — every child answers only to the
+   * extension that spawned it (star-shaped coordination). The write is
+   * recorded as `subagent_steer` chrome in the parent's log, so replay
+   * reconstructs who wrote what into whom; steering from inside a
+   * borrowed (child) session's dispatch is refused loudly, like spawning.
+   */
+  steerSubagent?(callId: string, message: string): Promise<ExtensionSpawnResult | null>;
   /**
    * Ask the core to run one turn with a synthetic user-side message
    * (ADR-0037, apiVersion 1.6). You supply the text — deterministic,

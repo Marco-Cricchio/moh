@@ -270,13 +270,14 @@ describe("one-member team end to end (#1221, ADR-0055)", () => {
       ]),
       extensions: rt,
       subagents: { home: tempDir(), provider: MockProvider.scripted([{ deltas: ["should not run"], finish: "stop" }]) },
+      permissions: { unrestrictedTools: true },
     });
     const events = tap(session);
     await session.send("do it with the team");
     await session.dispose();
     expect(events.find((e) => e.type === "subagent_spawn")).toBeUndefined();
     const toolResult = events.find((e) => e.type === "tool_result") as { output?: string } | undefined;
-    expect(toolResult?.output).toContain("invalid arguments");
+    expect(toolResult?.output).toContain("pass `task`");
   });
 });
 
@@ -316,5 +317,125 @@ describe("spawn through the ADR-0055 API (#1220)", () => {
     const live = session.extensionLiveInfo().find((i) => i.name === TEAM_NAME);
     expect(live?.capabilities).toEqual(["spawn-subagent", "contribute-tool:team"]);
     await session.dispose();
+  });
+});
+
+describe("steering: write-into-child (#1222, ADR-0055)", () => {
+  function steeringRt() {
+    const rt = runtime(() => true);
+    return rt.register(createTeamExtension(), { manifest: teamManifestAuthority() }).then(() => rt);
+  }
+
+  function steeringSession(rt: ExtensionRuntime) {
+    return createSession({
+      provider: MockProvider.scripted([
+        {
+          deltas: ["handing it to the team"],
+          finish: "tool_calls",
+          toolCalls: [{ name: "team", args: { task: "rename the export" } }],
+        },
+        {
+          deltas: ["relaying the correction"],
+          finish: "tool_calls",
+          toolCalls: [{ name: "team", args: { member: "builder", message: "rename it differently" } }],
+        },
+        { deltas: ["the member took the correction"], finish: "stop" },
+      ]),
+      extensions: rt,
+      subagents: {
+        home: tempDir(),
+        provider: MockProvider.scripted([
+          { deltas: ["first answer"], finish: "stop" },
+          { deltas: ["corrected answer"], finish: "stop" },
+        ]),
+      },
+      permissions: { unrestrictedTools: true },
+    });
+  }
+
+  test("the lead relays a correction; the member's next turn keeps its context and the outcome flows back", async () => {
+    const rt = await steeringRt();
+    const session = steeringSession(rt);
+    const events = tap(session);
+    const turn = await session.send("rename the export with the team — actually, rename it differently");
+    await session.dispose();
+
+    expect(turn.status).toBe("done");
+    // The steering write is chrome in the parent's log.
+    const steer = events.find((e) => e.type === "subagent_steer") as Extract<AgentEvent, { type: "subagent_steer" }> | undefined;
+    expect(steer?.extension).toBe(TEAM_NAME);
+    // Ids and counts only — the words live in the child log (and in the
+    // team tool_call args the parent already holds).
+    expect(steer?.messageChars).toBe("rename it differently".length);
+    expect(steer?.callId).toBe((events.find((e) => e.type === "subagent_spawn") as Extract<AgentEvent, { type: "subagent_spawn" }>)?.callId);
+    // The tool result of the steering call carries the post-steering outcome.
+    const results = events.filter((e) => e.type === "tool_result") as { output?: string }[];
+    expect(results[1]?.output).toContain("corrected answer");
+    // The extension's own record of what it read.
+    const memberSteer = events.find((e) => e.type === "extension_event" && (e as { name?: string }).name === "team_member_steer") as
+      | { extension?: string; payload?: { member?: string; status?: string; activity?: unknown } }
+      | undefined;
+    expect(memberSteer?.extension).toBe(TEAM_NAME);
+    expect(memberSteer?.payload?.member).toBe("builder");
+    expect(memberSteer?.payload?.status).toBe("done");
+    // The child-tail activity the extension read after the steered turn.
+    expect(memberSteer?.payload?.activity).not.toBeNull();
+  });
+
+  test("steering an unknown member is refused didactically — the member set is the lead's, not the model's", async () => {
+    const rt = await steeringRt();
+    const session = createSession({
+      provider: MockProvider.scripted([
+        {
+          deltas: ["who?"],
+          finish: "tool_calls",
+          toolCalls: [{ name: "team", args: { member: "ghost", message: "hello" } }],
+        },
+        { deltas: ["refused"], finish: "stop" },
+      ]),
+      extensions: rt,
+      subagents: { home: tempDir(), provider: MockProvider.scripted([{ deltas: ["c"], finish: "stop" }]) },
+      permissions: { unrestrictedTools: true },
+    });
+    const events = tap(session);
+    await session.send("tell ghost hello");
+    await session.dispose();
+    const result = events.find((e) => e.type === "tool_result") as { output?: string } | undefined;
+    expect(result?.output).toContain("no member \"ghost\"");
+    expect(result?.output).toContain("no members yet");
+    expect(events.some((e) => e.type === "subagent_steer")).toBe(false);
+  });
+
+  test("star-shaped: the member never receives the team tool — it cannot address another member", async () => {
+    const rt = await steeringRt();
+    const childToolNames: string[][] = [];
+    const childProvider: import("@moh/core").Provider = {
+      name: "mock",
+      async *stream(_messages: unknown, _signal: unknown, tools?: readonly { name: string }[]) {
+        childToolNames.push((tools ?? []).map((t) => t.name));
+        yield { type: "model_call_start", model: "mock" };
+        yield { type: "text_delta", text: "c" };
+        yield { type: "finish", reason: "stop" };
+      },
+    } as unknown as import("@moh/core").Provider;
+    const session = createSession({
+      provider: MockProvider.scripted([
+        { deltas: ["spawn"], finish: "tool_calls", toolCalls: [{ name: "team", args: { task: "t" } }] },
+        { deltas: ["done"], finish: "stop" },
+      ]),
+      tools: { echo: echoTool },
+      extensions: rt,
+      subagents: { home: tempDir(), provider: childProvider },
+      permissions: { unrestrictedTools: true },
+    });
+    const events = tap(session);
+    await session.send("work with the team");
+    await session.dispose();
+    expect(childToolNames.length).toBeGreaterThan(0);
+    for (const names of childToolNames) {
+      expect(names).toContain("echo");
+      expect(names).not.toContain("team");
+    }
+    void events;
   });
 });
