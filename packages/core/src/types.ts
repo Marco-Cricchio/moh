@@ -796,6 +796,9 @@ type AgentEventBase =
       limits: {
         /** The child's applied tool allow-list, when the spec named one. */
         tools?: string[];
+        /** #1224: the child's applied write-path scopes (present =
+         * enforced, empty = read-only). */
+        pathScopes?: readonly string[];
         /** The effective permission mode the child runs under. */
         mode: "normal" | "auto-accept" | "yolo";
         /** The applied per-turn iteration cap (resolved, never undefined). */
@@ -807,7 +810,16 @@ type AgentEventBase =
    * stopped — the listed live children were aborted. Chrome only; the
    * aborted children still land their own `subagent_result` (cancelled).
    */
-  | { type: "orchestration_stopped"; callIds: string[]; stoppedAt: string }
+  | { type: "orchestration_stopped"; callIds: string[]; stoppedAt: string; extension?: string }
+  /**
+   * ADR-0055 write-into-child (#1222): an orchestration extension wrote a
+   * follow-up message into a child it spawned — the member's next turn.
+   * Chrome only, ids and counts like `subagent_spawn`: the words are the
+   * child's `user_message` in its own log (and the team tool's args on
+   * the parent side when the model relayed), never duplicated verbatim
+   * into the parent's chrome.
+   */
+  | { type: "subagent_steer"; callId: string; extension: string; messageChars: number }
   /** Subagent finished; usage tokens accumulated by the child, where exposed. */
   | {
       type: "subagent_result";

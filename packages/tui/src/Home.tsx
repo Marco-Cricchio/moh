@@ -14,7 +14,7 @@ import {
   useViewport,
 } from "./viewport";
 import { deleteSession, listSessionSummaries, renameSession, setSessionPinned, type SessionSummary } from "./sessions";
-import { MOH_VERSION, type HandoffOffer } from "@moh/core";
+import { MOH_VERSION, projectSessionsDir, readStrandedDataRecord, type HandoffOffer, type StrandedDataRecord } from "@moh/core";
 import type { Mode } from "./Chat";
 import type { UpdateNotice } from "@moh/core";
 import { skillUpdateNoticeText } from "./update-poll";
@@ -173,6 +173,9 @@ export function Home({ cwd, home, mode, onOpen, onOpenSettings, onOpenCommands, 
   // first frame, so the picker paints immediately and fills in behind it.
   const [sessions, setSessions] = useState<SessionSummary[]>([]);
   const [sessionsLoaded, setSessionsLoaded] = useState(false);
+  // #1217: older data stranded in the pre-origin uuid project directory —
+  // both directories hold data, so nothing migrated; Home names both paths.
+  const [stranded, setStranded] = useState<StrandedDataRecord | null>(null);
   useEffect(() => {
     // Do not let synchronous JSONL parsing freeze the logo animation.
     // Once the intro settles, the static Home paints its loading state first.
@@ -189,6 +192,11 @@ export function Home({ cwd, home, mode, onOpen, onOpenSettings, onOpenCommands, 
       if (!cancelled) {
         setSessions(next);
         setSessionsLoaded(true);
+        try {
+          setStranded(readStrandedDataRecord(projectSessionsDir(cwd, home)));
+        } catch {
+          // A record that cannot be read never blocks the home list.
+        }
       }
     };
     const timer = setTimeout(load, 0);
@@ -436,6 +444,11 @@ export function Home({ cwd, home, mode, onOpen, onOpenSettings, onOpenCommands, 
       {deleteError ? <Text color={theme.warn}>{deleteError}</Text> : null}
       {query ? <Dim>{"enter open · esc clear · ↑↓ select"}</Dim> : null}
       {vertical.spacers >= 1 ? <Text> </Text> : null}
+      {stranded ? (
+        <Text color={theme.warn} wrap="truncate">
+          {`⚠ older data kept in ${stranded.source} — this project now uses ${stranded.destination} (move or delete the old directory)`}
+        </Text>
+      ) : null}
       {updateNotice ? <Text color={theme.warn}>{updateNoticeText(updateNotice)}</Text> : null}
       {skillUpdateCount > 0 ? <Text color={theme.warn}>{skillUpdateNoticeText(skillUpdateCount)}</Text> : null}
       <Footer

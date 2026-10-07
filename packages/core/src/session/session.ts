@@ -22,6 +22,7 @@ import { McpRuntime } from "../mcp";
 import { PromptComposer, type AssembledPrompt, type SkillIndexEntry } from "../prompt-composer";
 import { discoverSkills } from "../skills";
 import { ExtensionRuntime, type ExtensionUIRefusal, type ActiveExtensionOverlay } from "../extensions";
+import type { PanelKeyEvent } from "@moh/extension";
 import { EventLog } from "./event-log";
 import { commercialDeclarationEvent, observationsFromQuotaReport } from "../quota/telemetry";
 import { endpointIdentity } from "../types";
@@ -363,6 +364,8 @@ export class AgentSession {
       const host = new SubagentHost({
         cwd: this.#cwd,
         parentTools: () => this.#allTools(),
+        // ADR-0055 (#1222): the lead's contributed tools never reach a child.
+        contributedTools: () => this.#extensions?.contributedToolNames?.() ?? [],
         onEvent: (event) => this.#append(event),
         permissions: config.permissions,
         runtimeRules: () => this.#permissions.rules,
@@ -1662,7 +1665,14 @@ export class AgentSession {
    * per extension, at most 4 across all. `render` is the extension's own
    * Ink render function — opaque to the core, drawn only by a client with
    * a surface (the TUI rail); a headless client never calls it. */
-  extensionPanels(): { extension: string; name: string; description: string; maxHeight?: number; render(): unknown }[] {
+  extensionPanels(): {
+    extension: string;
+    name: string;
+    description: string;
+    maxHeight?: number;
+    render(): unknown;
+    onKey?(input: string, key: PanelKeyEvent): boolean;
+  }[] {
     return this.#extensions?.panels() ?? [];
   }
 
@@ -2296,6 +2306,9 @@ export class AgentSession {
     }
     await this.#mcp?.shutdown();
     this.#mpmLifecycle?.dispose();
+    // ADR-0055 (#1222): the extension-spawned children kept alive for
+    // steering die with the session that spawned them — no orphans at exit.
+    await this.#subagentHost?.disposeSteerableChildren();
     // #774: reap the per-session browser (no orphan Chromium at exit).
     try {
       await this.#onDispose?.();

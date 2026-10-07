@@ -48,8 +48,8 @@ function failedReasons(rt: ExtensionRuntime): { name: string; reason: string; me
 }
 
 describe("contribute-panels / contribute-overlays (#1132, ADR-0062)", () => {
-  test("apiVersion is 1.12", () => {
-    expect(parseApiVersion(MOH_EXTENSION_API_VERSION)).toEqual({ major: 1, minor: 15 });
+  test("apiVersion is 1.17", () => {
+    expect(parseApiVersion(MOH_EXTENSION_API_VERSION)).toEqual({ major: 1, minor: 18 });
   });
 
   test("with the grants, the extension registers a panel and an overlay; the runtime reports them", async () => {
@@ -73,6 +73,44 @@ describe("contribute-panels / contribute-overlays (#1132, ADR-0062)", () => {
     expect(rt.overlays()).toMatchObject([{ extension: "ops", name: "ops-console", description: "console" }]);
     expect(rt.overlays()[0]?.render()).toBe("overlay");
     expect(rt.uiRefusals()).toEqual([]);
+  });
+
+  test("a panel's onKey rides panels(); a panel without one stays absent (#1225)", async () => {
+    const rt = runtime();
+    await load(
+      rt,
+      defineExtension({
+        name: "keys",
+        version: "1.0.0",
+        apiVersion: "1.0",
+        capabilities: ["contribute-panels"],
+        setup(ctx) {
+          ctx.registerPanel!({
+            name: "keys-on",
+            render: () => "on",
+            onKey: (input, key) => input === "x" || key.return === true,
+          });
+        },
+      }),
+    );
+    await load(
+      rt,
+      defineExtension({
+        name: "nokeys",
+        version: "1.0.0",
+        apiVersion: "1.0",
+        capabilities: ["contribute-panels"],
+        setup(ctx) {
+          ctx.registerPanel!({ name: "keys-off", render: () => "off" });
+        },
+      }),
+    );
+    const panels = rt.panels();
+    expect(panels.map((p) => p.name)).toEqual(["keys-on", "keys-off"]);
+    expect(panels[0]?.onKey?.("x", { input: "x" })).toBe(true);
+    expect(panels[0]?.onKey?.("z", { input: "z", return: true })).toBe(true);
+    expect(panels[0]?.onKey?.("z", { input: "z" })).toBe(false);
+    expect(panels[1]?.onKey).toBeUndefined();
   });
 
   test("without the grants, the registration APIs are absent from the context", async () => {

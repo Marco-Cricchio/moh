@@ -8,6 +8,8 @@ import { AgentSession } from "./session/session";
 import { DevelopmentLaneStore } from "./development-lanes";
 import { SessionStore, lastAssistantText } from "./session-store";
 import { ExtensionSpawnRefusedError } from "./extension-scope";
+import { validatePathGlob } from "./host-scope";
+import type { PermissionRule } from "./permissions";
 import { PromptComposer, BASE_PROMPT } from "./prompt-composer";
 import { tailChildLog } from "./child-tail";
 import { resolveProviderRef, defaultRegistry, type FrozenProviderRegistry, type ProviderRegistry } from "./provider-registry";
@@ -81,7 +83,32 @@ export const BUILTIN_AGENT_PRESETS: Record<string, SubagentSpec> = {
   },
 };
 
-export const DEFAULT_SUBAGENT_CONCURRENCY = 3;
+export const DEFAULT_SUBAGENT_CONCURRENCY = 5;
+
+/**
+ * #1224: the write tools a member's `pathScopes` gate. Present scopes deny
+ * every one of these outside the union of the globs (bare runtime deny)
+ * and allow inside (a more specific path rule beats the bare deny within
+ * the runtime tier); an empty scope list is the read-only reviewer.
+ */
+const WRITE_PATH_TOOLS = ["write", "edit"] as const;
+
+/** Accepts either the bare glob (`client/**`) or the scope grammar
+ * (`path:client/**`). Deliberately not `pathScopeGlob`, whose
+ * unconditional 5-char slice corrupts a bare glob — here the prefix is
+ * stripped only when present. */
+function toWriteScopeGlob(scope: string): string {
+  return scope.startsWith("path:") ? scope.slice("path:".length) : scope;
+}
+
+function pathScopeRules(scopes: readonly string[]): PermissionRule[] {
+  const rules: PermissionRule[] = [];
+  for (const tool of WRITE_PATH_TOOLS) rules.push({ tier: "runtime", tool, effect: "deny" });
+  for (const scope of scopes) {
+    for (const tool of WRITE_PATH_TOOLS) rules.push({ tier: "runtime", tool, effect: "allow", path: scope });
+  }
+  return rules;
+}
 
 /** ADR-0055 (#1127): who asked for a spawn. */
 export type SubagentSpawnRequester = { kind: "model" } | { kind: "extension"; extension: string };
@@ -89,6 +116,9 @@ export type SubagentSpawnRequester = { kind: "model" } | { kind: "extension"; ex
 /** ADR-0055 (#1127): the scopes actually applied to a spawned child. */
 export interface SubagentSpawnLimits {
   tools?: string[];
+  /** #1224: write-path scopes applied to the child (present = enforced,
+   * empty = read-only); recorded so the composition is derivable from the log. */
+  pathScopes?: readonly string[];
   mode: "normal" | "auto-accept" | "yolo";
   maxIterations: number;
 }
@@ -109,7 +139,7 @@ export const EXTENSION_MAX_SESSIONS = 10;
 export interface SubagentOptions {
   /** Presets from moh.json `agents`, merged over the built-ins (user wins). */
   presets?: Record<string, SubagentSpec>;
-  /** Max concurrently running children. Default 3; extra spawns queue. */
+  /** Max concurrently running children. Default 5; extra spawns queue. */
   maxConcurrency?: number;
   /** Provider used when a spec declares neither `provider` nor `model`. */
   provider?: Provider | string;
@@ -205,10 +235,14 @@ export interface SubagentHostOptions {
    * silently narrowed.
    */
   extensionEnvelope?: { maxSessions?: number; maxIterations?: number };
+  /** ADR-0055 write-into-child (#1222): the names of the extension-
+   * contributed tools, excluded from every child's toolset — members
+   * cannot address each other, by construction. */
+  contributedTools?: () => readonly string[];
 }
 
 /** #1143: counting semaphore with permit transfer — caps parallel children
- * (default 3). Exported for tests. */
+ * (default 5). Exported for tests. */
 export class Semaphore {
   #active = 0;
   readonly #waiting: { resolve: () => void; aborted: boolean; handedOff: boolean }[] = [];
@@ -277,6 +311,13 @@ export class SubagentHost {
    * settle (activity of a settled child is still its own).
    */
   readonly #spawnedByExtension = new Map<string, string>();
+  /**
+   * ADR-0055 write-into-child (#1222): the sessions behind extension
+   * spawns, keyed by callId — `steerFor` writes only into these. A child
+   * the extension did not spawn is not in the map, so it cannot be
+   * written into; membership is the ownership proof.
+   */
+  readonly #extensionChildren = new Map<string, AgentSession>();
   /** Children log paths by callId, for the bounded activity read. */
   readonly #logs = new Map<string, string>();
   /** ADR-0053: spawns per extension per session — the envelope counter. */
@@ -301,7 +342,9 @@ export class SubagentHost {
    * ADR-0055 "one stop": stop everything this orchestration started —
    * lists the live children, aborts them, and returns their callIds so the
    * session records one `orchestration_stopped` chrome event. Children
-   * already settled contribute nothing.
+   * already settled contribute nothing. A stopped child also loses its
+   * steering seat (#1222): the owner's one stop closes the write seam —
+   * the lead cannot start a new turn in a member the user just stopped.
    */
   stop(): string[] {
     const stopped: string[] = [];
@@ -313,6 +356,7 @@ export class SubagentHost {
         // An abort that throws still counts as stopped: the child's own
         // result event carries the outcome.
       }
+      this.#extensionChildren.delete(child.callId);
     }
     this.#live.clear();
     return stopped;
@@ -321,6 +365,34 @@ export class SubagentHost {
   /** Resolves a preset name against moh.json agents (user) over built-ins. */
   resolvePreset(name: string): SubagentSpec | undefined {
     return this.#options.presets?.[name] ?? BUILTIN_AGENT_PRESETS[name];
+  }
+
+  /**
+   * #1226: the team-scoped stop — one extension stops everything *it*
+   * started, touching nothing else. Live children it spawned are aborted,
+   * every child it spawned loses its steering seat (the write seam closes
+   * with the stop, as for the owner's one stop), settled children
+   * contribute their callId only when they were still abortable. The
+   * caller records the chrome event; lanes and worktrees are untouched.
+   */
+  stopForExtension(extension: string): string[] {
+    const stopped: string[] = [];
+    for (const [callId, by] of this.#spawnedByExtension) {
+      if (by !== extension) continue;
+      const live = this.#live.get(callId);
+      if (live) {
+        stopped.push(callId);
+        try {
+          live.abort();
+        } catch {
+          // An abort that throws still counts as stopped: the child's own
+          // result event carries the outcome.
+        }
+        this.#live.delete(callId);
+      }
+      this.#extensionChildren.delete(callId);
+    }
+    return stopped;
   }
 
   /** ADR-0053: children this extension spawned this session, by callId. */
@@ -336,7 +408,7 @@ export class SubagentHost {
    */
   async spawnForExtension(
     extension: string,
-    spec: { preset?: string; name?: string; task: string; systemPrompt?: string; allowedTools?: readonly string[]; maxIterations?: number },
+    spec: { preset?: string; name?: string; task: string; systemPrompt?: string; allowedTools?: readonly string[]; pathScopes?: readonly string[]; model?: string; maxIterations?: number },
   ): Promise<{ callId: string } & SubagentResult> {
     const envelope = this.#options.extensionEnvelope;
     const maxSessions = envelope?.maxSessions ?? EXTENSION_MAX_SESSIONS;
@@ -366,6 +438,16 @@ export class SubagentHost {
         );
       }
     }
+    // #1224: a malformed scope is a loud refusal, like its capability
+    // sibling at load (ADR-0065) — a glob that never parses must not
+    // silently narrow to "no enforcement".
+    const pathScopes = spec.pathScopes !== undefined ? spec.pathScopes.map(toWriteScopeGlob) : undefined;
+    if (pathScopes) {
+      for (let i = 0; i < pathScopes.length; i++) {
+        const validity = validatePathGlob(pathScopes[i]!);
+        if (!validity.ok) throw new ExtensionSpawnRefusedError("spawn_refused", validity.message);
+      }
+    }
     const base = spec.preset ? this.resolvePreset(spec.preset) : undefined;
     if (spec.preset && !base) {
       throw new ExtensionSpawnRefusedError("spawn_refused", `unknown subagent preset: ${spec.preset}`);
@@ -376,6 +458,7 @@ export class SubagentHost {
       ...(spec.name ? { name: spec.name } : {}),
       ...(spec.systemPrompt ? { systemPrompt: spec.systemPrompt } : {}),
       ...(spec.allowedTools ? { allowedTools: [...spec.allowedTools] } : {}),
+      ...(spec.model ? { model: spec.model } : {}),
       ...(spec.maxIterations !== undefined ? { maxIterations: spec.maxIterations } : {}),
     };
     // The envelope counts *created* children (ADR-0053 "children one
@@ -384,9 +467,13 @@ export class SubagentHost {
     let callId = "";
     const raw = await this.#spawn({ ...resolved, task: spec.task }, new AbortController().signal, {
       extension,
+      ...(pathScopes !== undefined ? { pathScopes } : {}),
       onSpawned: (id) => {
         this.#extensionSpawnCounts.set(extension, (this.#extensionSpawnCounts.get(extension) ?? 0) + 1);
         callId = id;
+      },
+      onSession: (session) => {
+        this.#extensionChildren.set(callId, session);
       },
     });
     return { ...(JSON.parse(raw) as SubagentResult), callId };
@@ -404,6 +491,43 @@ export class SubagentHost {
     if (!log) return null;
     const tail = await tailChildLog(log, 0);
     return tail.activity;
+  }
+
+  /**
+   * ADR-0055 write-into-child (#1222): a follow-up message from the
+   * extension becomes the child's next turn — the child keeps its full
+   * context and its own route. `null` for a callId the extension did not
+   * spawn: a session it did not create does not exist for it. The write
+   * is recorded as `subagent_steer` chrome in the parent's log before the
+   * turn runs, so replay reconstructs who wrote what into whom.
+   */
+  async steerFor(extension: string, callId: string, message: string): Promise<({ callId: string } & SubagentResult) | null> {
+    if (this.#spawnedByExtension.get(callId) !== extension) return null;
+    const child = this.#extensionChildren.get(callId);
+    if (!child) return null;
+    this.#options.onEvent({ type: "subagent_steer", callId, extension, messageChars: message.length });
+    try {
+      const turn = await child.send(message);
+      const result: SubagentResult = turn.status === "done"
+        ? { status: "done", output: lastAssistantText(child.history()) }
+        : turn.status === "cancelled"
+          ? { status: "cancelled", output: "", error: "subagent was cancelled" }
+          : { status: "error", output: "", error: turn.message ?? turn.reason ?? "subagent failed" };
+      return { callId, ...result };
+    } catch (err) {
+      return { callId, status: "error", output: "", error: err instanceof Error ? err.message : String(err) };
+    }
+  }
+
+  /**
+   * ADR-0055 (#1222): disposes the extension-spawned children the host
+   * kept alive for steering. Called by the parent session's dispose —
+   * a child's steering seat dies with the session that spawned it.
+   */
+  async disposeSteerableChildren(): Promise<void> {
+    const children = [...this.#extensionChildren.values()];
+    this.#extensionChildren.clear();
+    await Promise.allSettled(children.map((child) => child.dispose()));
   }
 
   /** Merged preset descriptions, for the spawn tool's docs. */
@@ -440,9 +564,13 @@ export class SubagentHost {
   #childTools(spec: SubagentSpec): Record<string, Tool> {
     const parent = this.#options.parentTools();
     const allowed = new Set(spec.allowedTools);
+    // ADR-0055 (#1222): extension-contributed tools belong to the lead
+    // session only — a member never receives them, so members cannot
+    // address each other even through the lead's own door.
+    const contributed = new Set(this.#options.contributedTools?.() ?? []);
     const tools: Record<string, Tool> = {};
     for (const [name, tool] of Object.entries(parent)) {
-      if (name === "spawn" || name.startsWith("mcp__")) continue;
+      if (name === "spawn" || name.startsWith("mcp__") || contributed.has(name)) continue;
       if (spec.allowedTools && !allowed.has(name)) continue;
       tools[name] = tool;
     }
@@ -466,9 +594,14 @@ export class SubagentHost {
     args: z.infer<typeof spawnInputSchema>,
     signal: AbortSignal,
     /** ADR-0053: set when an extension asked for this spawn. */
-    from?: { extension: string; /** Called once with the child's callId, as
+    from?: { extension: string; /** #1224: write-path scopes enforced on
+     * this child through the permission spine (present = enforced, empty =
+     * read-only). */ pathScopes?: readonly string[]; /** Called once with
+     * the child's callId, as
      * soon as it exists (the extension result needs it, the tool result
-     * does not). */ onSpawned?: (callId: string) => void },
+     * does not). */ onSpawned?: (callId: string) => void; /** Called with
+     * the child session as soon as it exists (#1222): the host keeps it
+     * for the extension's write-into-child seam. */ onSession?: (session: AgentSession) => void },
   ): Promise<string> {
     const { preset, task, ...inline } = args;
     const base = preset ? this.resolvePreset(preset) : undefined;
@@ -562,7 +695,13 @@ export class SubagentHost {
         ...(this.#options.endpoints?.length ? { endpoints: this.#options.endpoints } : {}),
         cwd: childCwd,
         maxIterations: spec.maxIterations,
-        permissions: { ...permsForChild, runtimeRules: this.#options.runtimeRules() },
+        permissions: {
+          ...permsForChild,
+          // #1224: the member's write-path scopes ride the permission spine
+          // — a bare deny with more specific allows, so the denial is a
+          // logged `permission_denied`, not prompt discipline.
+          runtimeRules: [...this.#options.runtimeRules(), ...(from?.pathScopes ? pathScopeRules(from.pathScopes) : [])],
+        },
         ...(this.#options.onPermissionRequest ? { onPermissionRequest: this.#options.onPermissionRequest } : {}),
         ...(this.#options.onConfirmTurn ? { onConfirmTurn: this.#options.onConfirmTurn } : {}),
         ...(this.#options.extensions ? { toolHooks: this.#options.extensions } : {}),
@@ -596,6 +735,7 @@ export class SubagentHost {
       const requester: SubagentSpawnRequester = from ? { kind: "extension", extension: from.extension } : (this.#options.requester?.() ?? { kind: "model" });
       const limits: SubagentSpawnLimits = {
         ...(spec.allowedTools ? { tools: [...spec.allowedTools] } : {}),
+        ...(from?.pathScopes !== undefined ? { pathScopes: from.pathScopes } : {}),
         mode: permsForChild.unrestrictedTools === true ? "yolo" : permsForChild.mode ?? liveMode ?? perms.mode ?? "normal",
         maxIterations: spec.maxIterations ?? this.#options.defaultMaxIterations?.() ?? DEFAULT_MAX_ITERATIONS,
       };
@@ -614,6 +754,7 @@ export class SubagentHost {
       this.#spawnedByExtension.set(spawnId, from?.extension ?? "");
       this.#logs.set(spawnId, store.file);
       from?.onSpawned?.(spawnId);
+      from?.onSession?.(child);
       const live: LiveChild = { callId: spawnId, name: spec.name, requester, limits, abort: () => child?.abort() };
       this.#live.set(spawnId, live);
       const forget = () => this.#live.delete(spawnId);
@@ -653,7 +794,11 @@ export class SubagentHost {
       });
     } finally {
       this.#semaphore.release();
-      await child?.dispose().catch(() => {});
+      // An extension-spawned child stays alive after its first turn: the
+      // extension's write-into-child seam (#1222) sends its follow-up
+      // turns. Bounded by the spawn envelope (≤10 per extension); model
+      // spawns are disposed here as before.
+      if (!from) await child?.dispose().catch(() => {});
     }
   }
 }

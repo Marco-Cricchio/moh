@@ -49,6 +49,19 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v7
+      # The lane-symlink guard (#1234): a worktree lane can drop a
+      # `node_modules` symlink at the repo root, and an agent's
+      # `git add -A` commits it — every job then dies at install with an
+      # opaque `ENOENT: could not open the "node_modules" directory`.
+      # .gitignore now names `node_modules` without the trailing slash so
+      # it covers the symlink too; this check is the loud backstop, run
+      # before any install instead of after a 5-second cryptic failure.
+      - name: refuse a tracked node_modules (symlink or otherwise)
+        run: |
+          if [ -n "$(git ls-files -s node_modules)" ]; then
+            echo "::error::node_modules is tracked in the index (gitlink or symlink) — remove it with git rm --cached node_modules; bun install cannot run over it"
+            exit 1
+          fi
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: ${{ env.BUN_VERSION }}

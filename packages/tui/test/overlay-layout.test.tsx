@@ -11,7 +11,7 @@ import { PermissionModal } from "../src/PermissionModal";
 import { PermissionGate } from "../src/permission-gate";
 import { AskUserGate } from "../src/ask-user-gate";
 import { makeSession } from "../src/factory";
-import { stripAnsi, unwrap } from "./helpers";
+import { grantTeamExtension, stripAnsi, unwrap } from "./helpers";
 import { Dialog } from "../src/ui";
 import { ThemeProvider, THEMES, DEFAULT_THEME } from "../src/themes";
 
@@ -50,10 +50,12 @@ const bashScript = () => [
 ];
 
 function tempDirs() {
-  return {
+  const dirs = {
     cwd: mkdtempSync(join(tmpdir(), "moh-ovl-")),
     home: mkdtempSync(join(tmpdir(), "moh-ovl-h-")),
   };
+  grantTeamExtension(dirs.home);
+  return dirs;
 }
 
 /**

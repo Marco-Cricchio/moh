@@ -59,7 +59,8 @@ import { useViewport } from "./viewport";
 import { listFiles } from "./file-index";
 import { detectPreviewMode } from "./image-preview";
 import { trackExitWork } from "./exit";
-import { useSidebarState } from "./session-bridge";
+import { useSidebarState, useTeamComposed } from "./session-bridge";
+import { railAvailableRows, RAIL_WIDTH } from "./rail-layout";
 import { PermissionModal } from "./PermissionModal";
 
 import { Onboarding } from "./OnboardingOverlay";
@@ -141,6 +142,9 @@ export interface AppProps {
   /** #377: yolo session (launch-only `--yolo` flag) — no permission
    * prompts, unrestricted filesystem for built-in tools. */
   yolo?: boolean;
+  /** Pre-built session (tests): mounted as-is instead of assembling one
+   * from `cwd`/`home`/`provider`. */
+  session?: AgentSession;
 }
 
 type Overlay = null | "settings" | "commands" | "manual" | "notes" | "onboarding" |"handoff-onboarding" | "workflow-offer" | "frontier" | "skill-chooser" | "model" | "skill-updates" | "quota" | "rename" | "cold-wizard" | "tree" | "mpm" | "session" | "jev" | "browser" | "lanes" | "extensions";
@@ -215,6 +219,7 @@ function AppShell({
   verifyHandoffGh,
   version,
   yolo,
+  session: preBuiltSession,
 }: AppProps) {
   const { exit } = useApp();
   const { stdout } = useStdout();
@@ -314,7 +319,11 @@ function AppShell({
   // startInChat assembles eagerly (tests, bare resume); a broken config is a
   // visible error now — no silent demo fallback (ADR-0005).
   const [initialSession] = useState(() =>
-    startInChat ? makeSession({ cwd, home, provider, ...(yolo ? { yolo } : {}) }) : null,
+    preBuiltSession !== undefined
+      ? { session: preBuiltSession }
+      : startInChat
+        ? makeSession({ cwd, home, provider, ...(yolo ? { yolo } : {}) })
+        : null,
   );
   const [session, setSession] = useState<AgentSession | null>(() =>
     initialSession && "session" in initialSession ? initialSession.session : null,
@@ -1452,6 +1461,11 @@ function AppShell({
     if (key.ctrl && input === "y" && session) return cycleThinkingLevel();
     if (key.ctrl && input === "w" && session) return activateChip("workflow");
     if (overlay === null && key.ctrl && input === "s") return setOverlay("settings");
+    // #1218: Ctrl+P toggles the extensions-rail focus mode — the panel
+    // scrolls, esc/Ctrl+P hands the keys back to the composer.
+    if (overlay === null && key.ctrl && input === "p" && railVisible && railWide) {
+      return setRailFocused((v) => !v);
+    }
     if (overlay === null && key.ctrl && input === "k") return setOverlay("commands");
     // #457: the user manual, from chat and home alike (slash fallback: /help).
     // ctrl+h spike finding: terminals with extended-key encoding (kitty,
@@ -1500,10 +1514,36 @@ function AppShell({
   // repaint) while the block was open, freezing the screen under arrow
   // stress. The block renders inline in the main buffer; the composer is
   // still blocked (see `blocked` above), so it keeps exclusive keys.
-  const railVisible = railOpen && session !== null && session.extensionPanels().length > 0;
+  const panelCount = session !== null ? session.extensionPanels().length : 0;
+  const railVisible = railOpen && panelCount > 0;
+  // Owner directive (pre-main promotion): the rail opens itself when the
+  // team is actually created — the `team_composed` chrome event in the
+  // log — not at extension mount (the panel exists from the first turn
+  // with an empty roster; opening on that would flash a useless panel on
+  // every session). Closing and reopening stay manual; a later composition
+  // does not reopen a rail the user chose to close.
+  const teamComposed = useTeamComposed(session);
+  const seenCompositionRef = useRef(false);
+  useEffect(() => {
+    if (!teamComposed) { seenCompositionRef.current = false; return; }
+    if (!seenCompositionRef.current) { seenCompositionRef.current = true; setRailOpen(true); }
+  }, [teamComposed]);
   /** #1132: at or below the rail's narrow threshold the zone collapses to
    * a footer strip BELOW the conversation — never a column beside it. */
   const railWide = viewport.columns > 80;
+  // #1218: the rail's available rows — viewport minus the composer frame
+  // and the footer (the subagent chips row costs one more). Below the
+  // rail's own minimum the rail collapses to the names strip.
+  const railRows = railAvailableRows(viewport.rows, useSubagentCount(session) > 0 ? 1 : 0);
+  // #1218 focus mode: Ctrl+P hands the keys to the selected panel; any
+  // modal or the esc/Ctrl+P exit returns them to the composer.
+  const [railFocused, setRailFocused] = useState(false);
+  /** #1218: clamps the client applied to declared maxHeights, recorded in
+   * /extensions with the overlay advice past the threshold. */
+  const [panelClamps, setPanelClamps] = useState<ReadonlyMap<string, { max: number; shown: number }>>(new Map());
+  useEffect(() => {
+    if (!railVisible || !railWide) setRailFocused(false);
+  }, [railVisible, railWide]);
   const overlayOpen = overlay !== null || pending !== null || extensionOverlay !== null;
   // #330: a flip back to the main buffer is pending from the moment the
   // overlay closes (render-phase: covers the first post-close commit,
@@ -1516,12 +1556,14 @@ function AppShell({
     <Chat
       session={session}
       cwd={sessionCwd}
+      width={railVisible && railWide ? Math.max(40, viewport.columns - (RAIL_WIDTH + 2)) : undefined}
       toastRows={toasts.length}
       mode={mode}
       modelLabel={modelLabel}
       blocked={blocked}
       filePreview={config.filePreview}
-      inputFocused={focusedChip === null}
+      inputFocused={focusedChip === null && !(railFocused && !overlayOpen)}
+      composerDimmed={railFocused && !overlayOpen}
       composerHandle={composerRef}
       focusedChip={focusedChip}
       focusedSubagent={focusedChip === -1 ? focusedSubagent : null}
@@ -1732,6 +1774,10 @@ function AppShell({
             panels={session!.extensionPanels()}
             collapsed={collapsedPanels}
             columns={viewport.columns}
+            rows={railRows}
+            focused={railFocused && !overlayOpen}
+            onFocusExit={() => setRailFocused(false)}
+            onClamp={setPanelClamps}
           />
         )}
         </Box>
@@ -1887,6 +1933,7 @@ function AppShell({
             <ExtensionsModal
               state={extensionsReport.state}
               duplicates={extensionsReport.duplicates}
+              panelClamps={panelClamps}
               rail={{
                 open: railOpen,
                 onToggleRail: () => setRailOpen((v) => !v),

@@ -38,6 +38,12 @@ export function scopeEffectSentence(capability: string): string | null {
   if (isToolScope(capability)) {
     return toolEffectSentence(capability);
   }
+  // ADR-0053/0055: the delegation slot's envelope is core-enforced (the
+  // 10-children cap, no grandchildren), so the question can state it as a
+  // fact, not a promise.
+  if (capability === "spawn-subagent") {
+    return "may create up to 10 concurrent child sessions and steer or stop them";
+  }
   if (!isPathScope(capability)) return null;
   const check = validatePathScope(capability);
   const glob = check.ok ? check.glob : pathScopeGlob(capability);

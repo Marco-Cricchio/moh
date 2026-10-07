@@ -1788,9 +1788,10 @@
       }
     },
     "kwaipilot/kat-coder-pro-v2.5": {
-      "author": "moh migration (#959)",
-      "date": "2026-09-24",
-      "reason": "labels and row identity are moh-owned (ADR-0046): never aggregator-supplied",
+      "author": "moh (v0.59.0)",
+      "date": "2026-10-07",
+      "reason": "OpenRouter retired the listing: the rebuild produces neither a window nor a metered rate, and no declared source covers the row (models.dev carries only the base model via novita-ai, zenmux and requesty, not this OpenRouter variant) — so it is dropped rather than frozen by hand (#1005)",
+      "retired": true,
       "api": "openai-completions",
       "baseUrl": "https://openrouter.ai/api/v1",
       "name": "Kwaipilot: KAT-Coder-Pro V2.5",

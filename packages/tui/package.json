@@ -10,6 +10,7 @@
   "dependencies": {
     "@moh/core": "workspace:*",
     "@moh/jev-guard": "workspace:*",
+    "@moh/team": "workspace:*",
     "cli-highlight": "^2.1.11",
     "cli-table3": "^0.6.5",
     "ink": "^6.4.0",
