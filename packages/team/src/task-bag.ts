@@ -36,6 +36,7 @@ export interface BagEvent {
     callId?: string;
     outcome?: string;
     outputChars?: number;
+    error?: string;
   };
 }
 
@@ -68,18 +69,22 @@ export class TaskBag {
     return created;
   }
 
+  /** True when every dependency of the task is done. */
+  #unblocked(task: BagTask): boolean {
+    return task.blockedBy.every((ref) => this.tasks.get(ref)?.status === "done");
+  }
+
   /** The next task a member may claim: open, and every blocker done. */
   claimable(): BagTask | null {
     for (const task of this.tasks.values()) {
-      if (task.status !== "open") continue;
-      if (task.blockedBy.every((ref) => this.tasks.get(ref)?.status === "done")) return task;
+      if (task.status === "open" && this.#unblocked(task)) return task;
     }
     return null;
   }
 
   claim(id: string, member: string): boolean {
     const task = this.tasks.get(id);
-    if (!task || task.status !== "open" || !task.blockedBy.every((ref) => this.tasks.get(ref)?.status === "done")) {
+    if (!task || task.status !== "open" || !this.#unblocked(task)) {
       return false;
     }
     task.status = "claimed";

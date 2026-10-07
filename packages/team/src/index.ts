@@ -12,24 +12,22 @@
  * model as the tool result. A follow-up call with `member` + `message`
  * steers the member (ADR-0055 write-into-child): its next turn keeps the
  * member's context and route, and the new outcome returns to the lead.
- * The task bag (#1223), the roles (#1224) and the panel (#1225) arrive later.
+ * The task bag is slice 3 (#1223, this file + `task-bag.ts`);
+ * the roles (#1224) and the panel (#1225) arrive later.
  *
- * Scope of this layer (ticket #1223, slice 3): the task bag — the
- * extension-owned coordination seam (ADR-0074). The `team` tool grows two
- * shapes: `plan` decomposes the brief into bag tasks (whole or nothing,
- * `blockedBy` refs validated up front) and `work` runs a member through
- * the bag — the extension claims the next claimable task, hands the
- * member only that task (spawn, then steering for the follow-ups), and
- * records every transition (`team_task_created`/`_claimed`/`_completed`)
- * as chrome events, so the board reconstructs from the log alone
- * (`replayBoard`). A failed task is released and skipped for the pass —
- * the loop always terminates. Star-shaped: the member sees its task,
- * never the bag or another member.
+ * Scope of the task bag (#1223): the extension-owned coordination seam
+ * (ADR-0074). The `team` tool grows two shapes: `plan` decomposes the
+ * brief into bag tasks (whole or nothing, `blockedBy` refs validated up
+ * front) and `work` runs a member through the bag — the extension claims
+ * the next claimable task, hands the member only that task (spawn, then
+ * steering for the follow-ups), and records every transition
+ * (`team_task_created`/`_claimed`/`_completed`) as chrome events, so the
+ * board reconstructs from the log alone (`replayBoard`).
  *
  * Boundary: the core never learns about teams — it knows only the generic
  * `spawn-subagent` capability (ADR-0053/0055) and the manifest authority
- * the consent signs. Roles, the task bag, and the panel belong to later
- * tickets (#1223, #1224, #1225).
+ * the consent signs. Roles and the panel belong to later tickets
+ * (#1224, #1225).
  *
  * The default export is the factory below; the registration helper pairs it
  * with the manifest authority so a client enables the extension through the
@@ -41,7 +39,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { defineExtension, MOH_EXTENSION_API_VERSION, type ExtensionDefinition } from "@moh/extension";
 import { z } from "zod";
-import { TASK_CLAIMED, TASK_COMPLETED, TASK_CREATED, TaskBag } from "./task-bag";
+import { TASK_CLAIMED, TASK_COMPLETED, TASK_CREATED, TaskBag, type BagTask } from "./task-bag";
 export { replayBoard, TASK_CLAIMED, TASK_COMPLETED, TASK_CREATED, TaskBag } from "./task-bag";
 
 /** The extension's name, as stamped in the log and shown in /extensions. */
@@ -111,9 +109,7 @@ async function selfServeLoop(
   // at most as many iterations as there are tasks.
   const skipped = new Set<string>();
   for (;;) {
-    const next = [...bag.tasks.values()].find(
-      (task) => !skipped.has(task.id) && task.status === "open" && task.blockedBy.every((ref) => bag.tasks.get(ref)?.status === "done"),
-    );
+    const next = [...bag.tasks.values()].find((task) => !skipped.has(task.id) && task.id === bag.claimable()?.id);
     if (!next) break;
     if (!bag.claim(next.id, member)) break;
     const callId = members.get(member);
@@ -205,14 +201,14 @@ export function createTeamExtension(): ExtensionDefinition {
             if (task !== undefined || member !== undefined || message !== undefined) {
               return "team: refused — pass either `plan` (decompose the brief into tasks) or `task`/`member` (spawn/steer), not both";
             }
-            // Whole or nothing: a plan with a dangling `blockedBy` ref is
-            // refused before any task is created.
-            const known = new Set([...bag.tasks.keys(), ...TaskBag.planIds(plan.length)]);
-            for (const spec of plan) {
-              const unknown = (spec.blockedBy ?? []).filter((ref) => !known.has(ref));
-              if (unknown.length > 0) return `team: refused — unknown task reference: ${unknown.join(", ")}`;
+            // Whole or nothing: `create` validates every `blockedBy` ref
+            // before any mutation and throws on a dangling one.
+            let created: BagTask[];
+            try {
+              created = bag.create(plan);
+            } catch (error) {
+              return `team: refused — ${(error as Error).message}`;
             }
-            const created = bag.create(plan);
             for (const task2 of created) {
               ctx.appendEvent({
                 name: TASK_CREATED,
