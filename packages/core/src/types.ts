@@ -796,6 +796,9 @@ type AgentEventBase =
       limits: {
         /** The child's applied tool allow-list, when the spec named one. */
         tools?: string[];
+        /** #1224: the child's applied write-path scopes (present =
+         * enforced, empty = read-only). */
+        pathScopes?: readonly string[];
         /** The effective permission mode the child runs under. */
         mode: "normal" | "auto-accept" | "yolo";
         /** The applied per-turn iteration cap (resolved, never undefined). */

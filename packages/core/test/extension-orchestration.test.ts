@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdtempSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { defineExtension, type ExtensionDefinition, type ExtensionSetupContext } from "@moh/extension";
@@ -630,5 +630,112 @@ describe("ADR-0053 absolute prohibitions", () => {
     // No forged chrome in the log.
     expect(events.filter((e) => e.type === "user_message").length).toBe(1); // the real send only
     await session.dispose();
+  });
+});
+
+describe("member path scopes (#1224, ADR-0074 roles carry scopes)", () => {
+  async function scopedTeamFixture(pathScopes: readonly string[] | undefined) {
+    const rt = runtime();
+    let spawn: NonNullable<ExtensionSetupContext["spawnSubagent"]> | null = null;
+    await rt.register(
+      defineExtension({
+        name: "orch",
+        version: "1",
+        apiVersion: "1.13",
+        capabilities: ["spawn-subagent"],
+        setup: (ctx) => {
+          spawn = ctx.spawnSubagent!;
+        },
+      }),
+    );
+    const projectDir = tempDir();
+    const session = createSession({
+      provider: MockProvider.scripted([{ deltas: ["ok"], finish: "stop" }]),
+      tools: builtinTools(),
+      cwd: projectDir,
+      extensions: rt,
+      subagents: {
+        home: tempDir(),
+        provider: MockProvider.scripted([
+          { deltas: [], finish: "tool_calls", toolCalls: [{ name: "write", args: { path: "outside/leak.ts", content: "leak" } }] },
+          { deltas: [], finish: "tool_calls", toolCalls: [{ name: "write", args: { path: "client/app.ts", content: "real" } }] },
+          { deltas: ["done"], finish: "stop" },
+        ]),
+      },
+    });
+    const events = tap(session);
+    const result = await spawn!({ task: "work", ...(pathScopes !== undefined ? { pathScopes } : {}) });
+    const spawned = events.find((e) => e.type === "subagent_spawn") as Extract<AgentEvent, { type: "subagent_spawn" }>;
+    return { result, spawned, projectDir, session };
+  }
+
+  test("a scoped builder cannot write outside its scope; inside writes land; the scopes are recorded", async () => {
+    const { result, spawned, projectDir, session } = await scopedTeamFixture(["client/**"]);
+    await session.dispose();
+    expect(result.status).toBe("done");
+    expect(existsSync(join(projectDir, "client", "app.ts"))).toBe(true);
+    expect(existsSync(join(projectDir, "outside", "leak.ts"))).toBe(false);
+    // The denial is the spine's, logged in the child's own log — not prompt discipline.
+    const childLog = readFileSync(spawned.log!, "utf8");
+    expect(childLog).toContain('"permission_denied"');
+    expect(childLog).toContain("denied by permission rule");
+    expect(spawned.limits.pathScopes).toEqual(["client/**"]);
+  });
+
+  test("empty pathScopes is the read-only reviewer: every write is denied", async () => {
+    const { result, spawned, projectDir, session } = await scopedTeamFixture([]);
+    await session.dispose();
+    expect(result.status).toBe("done");
+    expect(existsSync(join(projectDir, "client", "app.ts"))).toBe(false);
+    expect(existsSync(join(projectDir, "outside", "leak.ts"))).toBe(false);
+    const childLog = readFileSync(spawned.log!, "utf8");
+    expect(childLog).toContain('"permission_denied"');
+    expect(spawned.limits.pathScopes).toEqual([]);
+  });
+
+  test("scopes survive yolo: the parent's mode does not lift a written deny", async () => {
+    const rt = runtime();
+    let spawn: NonNullable<ExtensionSetupContext["spawnSubagent"]> | null = null;
+    await rt.register(
+      defineExtension({
+        name: "orch",
+        version: "1",
+        apiVersion: "1.13",
+        capabilities: ["spawn-subagent"],
+        setup: (ctx) => {
+          spawn = ctx.spawnSubagent!;
+        },
+      }),
+    );
+    const projectDir = tempDir();
+    const session = createSession({
+      provider: MockProvider.scripted([{ deltas: ["ok"], finish: "stop" }]),
+      tools: builtinTools(),
+      cwd: projectDir,
+      permissions: { unrestrictedTools: true },
+      extensions: rt,
+      subagents: {
+        home: tempDir(),
+        provider: MockProvider.scripted([
+          { deltas: [], finish: "tool_calls", toolCalls: [{ name: "write", args: { path: "outside/leak.ts", content: "leak" } }] },
+          { deltas: ["done"], finish: "stop" },
+        ]),
+      },
+    });
+    const events = tap(session);
+    const result = await spawn!({ task: "work", pathScopes: ["client/**"] });
+    const spawned = events.find((e) => e.type === "subagent_spawn") as Extract<AgentEvent, { type: "subagent_spawn" }>;
+    await session.dispose();
+    expect(result.status).toBe("done");
+    expect(existsSync(join(projectDir, "outside", "leak.ts"))).toBe(false);
+    expect(readFileSync(spawned.log!, "utf8")).toContain('"permission_denied"');
+  });
+
+  test("an invalid scope is refused loudly; no child is created", async () => {
+    const { result, spawned, session } = await scopedTeamFixture(["/abs/**"] as unknown as readonly string[]);
+    await session.dispose();
+    expect(result.status).toBe("error");
+    expect(result.error).toContain("absolute paths are not allowed");
+    expect(spawned).toBeUndefined();
   });
 });

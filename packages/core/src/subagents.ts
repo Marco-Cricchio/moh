@@ -8,6 +8,8 @@ import { AgentSession } from "./session/session";
 import { DevelopmentLaneStore } from "./development-lanes";
 import { SessionStore, lastAssistantText } from "./session-store";
 import { ExtensionSpawnRefusedError } from "./extension-scope";
+import { validatePathGlob } from "./host-scope";
+import type { PermissionRule } from "./permissions";
 import { PromptComposer, BASE_PROMPT } from "./prompt-composer";
 import { tailChildLog } from "./child-tail";
 import { resolveProviderRef, defaultRegistry, type FrozenProviderRegistry, type ProviderRegistry } from "./provider-registry";
@@ -83,12 +85,37 @@ export const BUILTIN_AGENT_PRESETS: Record<string, SubagentSpec> = {
 
 export const DEFAULT_SUBAGENT_CONCURRENCY = 5;
 
+/**
+ * #1224: the write tools a member's `pathScopes` gate. Present scopes deny
+ * every one of these outside the union of the globs (bare runtime deny)
+ * and allow inside (a more specific path rule beats the bare deny within
+ * the runtime tier); an empty scope list is the read-only reviewer.
+ */
+const WRITE_PATH_TOOLS = ["write", "edit"] as const;
+
+/** Accepts either the bare glob (`client/**`) or the scope grammar (`path:client/**`). */
+function toWriteScopeGlob(scope: string): string {
+  return scope.startsWith("path:") ? scope.slice("path:".length) : scope;
+}
+
+function pathScopeRules(scopes: readonly string[]): PermissionRule[] {
+  const rules: PermissionRule[] = [];
+  for (const tool of WRITE_PATH_TOOLS) rules.push({ tier: "runtime", tool, effect: "deny" });
+  for (const scope of scopes) {
+    for (const tool of WRITE_PATH_TOOLS) rules.push({ tier: "runtime", tool, effect: "allow", path: scope });
+  }
+  return rules;
+}
+
 /** ADR-0055 (#1127): who asked for a spawn. */
 export type SubagentSpawnRequester = { kind: "model" } | { kind: "extension"; extension: string };
 
 /** ADR-0055 (#1127): the scopes actually applied to a spawned child. */
 export interface SubagentSpawnLimits {
   tools?: string[];
+  /** #1224: write-path scopes applied to the child (present = enforced,
+   * empty = read-only); recorded so the composition is derivable from the log. */
+  pathScopes?: readonly string[];
   mode: "normal" | "auto-accept" | "yolo";
   maxIterations: number;
 }
@@ -350,7 +377,7 @@ export class SubagentHost {
    */
   async spawnForExtension(
     extension: string,
-    spec: { preset?: string; name?: string; task: string; systemPrompt?: string; allowedTools?: readonly string[]; maxIterations?: number },
+    spec: { preset?: string; name?: string; task: string; systemPrompt?: string; allowedTools?: readonly string[]; pathScopes?: readonly string[]; maxIterations?: number },
   ): Promise<{ callId: string } & SubagentResult> {
     const envelope = this.#options.extensionEnvelope;
     const maxSessions = envelope?.maxSessions ?? EXTENSION_MAX_SESSIONS;
@@ -380,6 +407,16 @@ export class SubagentHost {
         );
       }
     }
+    // #1224: a malformed scope is a loud refusal, like its capability
+    // sibling at load (ADR-0065) — a glob that never parses must not
+    // silently narrow to "no enforcement".
+    const pathScopes = spec.pathScopes !== undefined ? spec.pathScopes.map(toWriteScopeGlob) : undefined;
+    if (pathScopes) {
+      for (let i = 0; i < pathScopes.length; i++) {
+        const validity = validatePathGlob(pathScopes[i]!);
+        if (!validity.ok) throw new ExtensionSpawnRefusedError("spawn_refused", validity.message);
+      }
+    }
     const base = spec.preset ? this.resolvePreset(spec.preset) : undefined;
     if (spec.preset && !base) {
       throw new ExtensionSpawnRefusedError("spawn_refused", `unknown subagent preset: ${spec.preset}`);
@@ -398,6 +435,7 @@ export class SubagentHost {
     let callId = "";
     const raw = await this.#spawn({ ...resolved, task: spec.task }, new AbortController().signal, {
       extension,
+      ...(pathScopes !== undefined ? { pathScopes } : {}),
       onSpawned: (id) => {
         this.#extensionSpawnCounts.set(extension, (this.#extensionSpawnCounts.get(extension) ?? 0) + 1);
         callId = id;
@@ -524,7 +562,10 @@ export class SubagentHost {
     args: z.infer<typeof spawnInputSchema>,
     signal: AbortSignal,
     /** ADR-0053: set when an extension asked for this spawn. */
-    from?: { extension: string; /** Called once with the child's callId, as
+    from?: { extension: string; /** #1224: write-path scopes enforced on
+     * this child through the permission spine (present = enforced, empty =
+     * read-only). */ pathScopes?: readonly string[]; /** Called once with
+     * the child's callId, as
      * soon as it exists (the extension result needs it, the tool result
      * does not). */ onSpawned?: (callId: string) => void; /** Called with
      * the child session as soon as it exists (#1222): the host keeps it
@@ -622,7 +663,13 @@ export class SubagentHost {
         ...(this.#options.endpoints?.length ? { endpoints: this.#options.endpoints } : {}),
         cwd: childCwd,
         maxIterations: spec.maxIterations,
-        permissions: { ...permsForChild, runtimeRules: this.#options.runtimeRules() },
+        permissions: {
+          ...permsForChild,
+          // #1224: the member's write-path scopes ride the permission spine
+          // — a bare deny with more specific allows, so the denial is a
+          // logged `permission_denied`, not prompt discipline.
+          runtimeRules: [...this.#options.runtimeRules(), ...(from?.pathScopes ? pathScopeRules(from.pathScopes) : [])],
+        },
         ...(this.#options.onPermissionRequest ? { onPermissionRequest: this.#options.onPermissionRequest } : {}),
         ...(this.#options.onConfirmTurn ? { onConfirmTurn: this.#options.onConfirmTurn } : {}),
         ...(this.#options.extensions ? { toolHooks: this.#options.extensions } : {}),
@@ -656,6 +703,7 @@ export class SubagentHost {
       const requester: SubagentSpawnRequester = from ? { kind: "extension", extension: from.extension } : (this.#options.requester?.() ?? { kind: "model" });
       const limits: SubagentSpawnLimits = {
         ...(spec.allowedTools ? { tools: [...spec.allowedTools] } : {}),
+        ...(from?.pathScopes !== undefined ? { pathScopes: from.pathScopes } : {}),
         mode: permsForChild.unrestrictedTools === true ? "yolo" : permsForChild.mode ?? liveMode ?? perms.mode ?? "normal",
         maxIterations: spec.maxIterations ?? this.#options.defaultMaxIterations?.() ?? DEFAULT_MAX_ITERATIONS,
       };
