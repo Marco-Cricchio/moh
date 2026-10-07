@@ -574,8 +574,9 @@ export function createTeamExtension(): ExtensionDefinition {
             stopAll: () => {
               const stopped = ctx.stopSubagents!();
               // The in-flight spawns settle themselves as cancelled through
-              // their own result path; a settled-but-steerable member the
-              // stop closed the write seam on is marked here.
+              // their own result path; the stop also closed the write seam
+              // of every settled-but-steerable child, and those members are
+              // marked here.
               const stoppedSet = new Set(stopped);
               for (const [name, callId] of members) {
                 if (stoppedSet.has(callId)) settleMember(panelState, name, "cancelled", { error: "stopped from the panel" });

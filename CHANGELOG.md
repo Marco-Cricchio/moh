@@ -7,6 +7,17 @@ matching section here at tag time.
 
 ## [Unreleased]
 
+### Added
+
+- **Team panel: steering from the member detail and a team-scoped
+  stop-all** (#1226): in the rail panel's detail view every letter
+  composes a steering draft and `enter` sends it to the member as its
+  next turn; `x` in the roster stops everything the team spawned in one
+  action — recorded as `orchestration_stopped` naming the team
+  extension, lanes and worktrees untouched, the extension stays
+  enabled. Panels that compose text may now consume the rail's scroll
+  keys (extension apiVersion 1.18).
+
 ## [0.58.2] - 2026-10-05
 
 ### Fixed

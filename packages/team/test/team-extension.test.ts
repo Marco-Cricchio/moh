@@ -805,5 +805,76 @@ describe("panel steering + team-scoped stop-all (#1226, ADR-0055)", () => {
     expect(childResult?.status).toBe("cancelled");
     // The roster shows the aborted state; lanes and worktrees are untouched.
     expect(String(panel.render())).toContain("◌ builder");
+    // The stop is not a revocation: the extension stays loaded, panel and
+    // team tool alive (the session-level consent door is a separate path).
+    expect(rt.panels()).toHaveLength(1);
+    expect(String(panel.render())).toContain("x stop");
+  });
+
+  test("one stop-all action reaches every child of a composed team, live or steerable", async () => {
+    const rt = await panelRt();
+    await rt.ready();
+    const panel = rt.panels()[0]!;
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const session = createSession({
+      provider: MockProvider.scripted([
+        {
+          deltas: ["composing the team"],
+          finish: "tool_calls",
+          toolCalls: [
+            {
+              name: "team",
+              args: {
+                compose: [
+                  { role: "builder", name: "builder-1", task: "long churn" },
+                  { role: "builder", name: "builder-2", task: "quick job" },
+                ],
+              },
+            },
+          ],
+        },
+        { deltas: ["the team stopped"], finish: "stop" },
+      ]),
+      extensions: rt,
+      subagents: {
+        home: tempDir(),
+        provider: MockProvider.scripted([
+          { deltas: ["working", "still working"], finish: "stop", hold: { afterDeltas: 1, release: gate } },
+          { deltas: ["done"], finish: "stop" },
+        ]),
+      },
+      permissions: { unrestrictedTools: true },
+    });
+    const events = tap(session);
+    const turn = session.send("compose the team and stop it");
+    // Wait until the live child is in the roster, then one x stops all.
+    let working = false;
+    for (let i = 0; i < 50 && !working; i++) {
+      await Bun.sleep(20);
+      working = String(panel.render()).includes("● builder-1");
+    }
+    expect(working).toBe(true);
+    expect(panel.onKey!("x", { input: "x" })).toBe(true);
+    const stop = await turn;
+    expect(stop.status).toBe("done");
+    release();
+    await session.dispose();
+
+    // Two children were the team's; the stop names the team once and the
+    // live child resolved cancelled. The settled child (builder-2) loses
+    // its steering seat without a second record — nothing left to abort.
+    const spawns = events.filter((e) => e.type === "subagent_spawn");
+    expect(spawns).toHaveLength(2);
+    const record = events.find((e) => e.type === "orchestration_stopped") as Extract<AgentEvent, { type: "orchestration_stopped" }> | undefined;
+    expect(record?.extension).toBe(TEAM_NAME);
+    expect(record?.callIds.length).toBe(1);
+    const results = events.filter((e) => e.type === "subagent_result") as Extract<AgentEvent, { type: "subagent_result" }>[];
+    expect(results.map((r) => r.status).sort()).toEqual(["cancelled", "done"]);
+    const roster = String(panel.render());
+    expect(roster).toContain("◌ builder");
+    expect(roster).toContain("✓ builder");
   });
 });
