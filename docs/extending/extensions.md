@@ -755,6 +755,105 @@ extension's note.
   `typeof ctx.requestTurn === "function"` and degrade to
   judgment-without-correction.
 
+## The team extension: the first first-party orchestration (ADR-0074)
+
+Everything in the orchestration slots above — the `spawn-subagent`
+envelope, `subagentActivity`, `steerSubagent`, `stopSubagents`, the
+panel — is a capability a *third party* can build on too. The **team**
+extension (`@moh/team`) is moh's own proof: the first first-party
+consumer of the ADR-0055 grant, shipped inside the binary and mounted by
+both clients. This section reads it three ways: what it does, what its
+consent envelope names, and what you would reuse to build your own
+orchestration.
+
+### What it grants
+
+The manifest declares three capability slots, and the enable consent
+names exactly these:
+
+| Slot | What a yes grants for `team` |
+| --- | --- |
+| `spawn-subagent` | up to 10 concurrent child sessions per session (the envelope), each within the session's iteration ceiling; read back their activity, steer them, stop them; no grandchildren |
+| `contribute-tool:team` | one tool the model can call: the `team` tool |
+| `contribute-panels` | one panel in the extensions rail: the live roster and the member detail |
+
+There is no config key: the question is the switch. The extension ships
+always-mounted, and a client with nobody to ask (headless, nothing
+previously granted) does not mount it at all — no failed load in every
+session for an extension that could never run there.
+
+### What the model sees
+
+One contributed tool, `team`, whose argument shape picks the behavior —
+the model judges the ask's complexity and composes accordingly:
+
+- **`task`** — the simple ask: one builder member spawned, works, returns
+  its result. The hybrid's escape hatch: plain work that needs no
+  structure never pays for a roster.
+- **`compose`** — the team: a member list (`role: builder | reviewer`,
+  optional `name`, `scope` path glob, `lane`, `model` route, `task`) plus
+  an optional `brief`. Builders carry disjoint write scopes enforced by
+  the permission spine (`pathScopes` — denied writes even in yolo);
+  reviewers carry no scope at all — read-only *is* the role, and the
+  extension refuses a reviewer that ships one. Members with a `task` are
+  dispatched in parallel; the rest wait for the bag.
+- **`plan` / `work`** — the coordination: `plan` decomposes a brief into
+  bag tasks; `work` runs the roster through the shared task bag
+  round-robin. The bag is the star-shaped seam — members claim tasks,
+  they never message each other; every claim, completion and composition
+  lands in the log as chrome (`team_task_created` / `team_task_claimed` /
+  `team_task_completed` / `team_composed` / `team_member_done` /
+  `team_member_steer`), so a replayed session reconstructs the whole
+  run. Bag state survives hot-reloads in `ctx.state`.
+- **`member` + `message`** — steering: the lead relays a follow-up into
+  one member's next turn (ADR-0055 write-into-child), the member keeps
+  its context and route.
+
+### What the user sees
+
+The panel: the roster with live per-member state, `n`/`p` to move,
+`enter` to open a member's detail, letters composing a steering draft in
+the detail view, and `x` in the roster for the team-scoped stop-all —
+one action aborting every child the extension spawned, recorded as one
+`orchestration_stopped` event, lanes and worktrees untouched, the
+extension itself still enabled. Key routing is the client's: the panel
+answers keys only while the rail holds focus (apiVersion 1.17+).
+
+### Building your own orchestration
+
+A third-party orchestrator needs no more than `team` uses:
+
+1. **Manifest**: declare `spawn-subagent` (plus whichever contribution
+   slots you need) with a `reasoning` the consent can display — the
+   envelope numbers live in the core, not in your manifest, so you name
+   the *shape* of what you do and the question states the *limits*.
+2. **Setup**: guard every gated method by absence
+   (`typeof ctx.spawnSubagent === "function"`) and degrade; the runtime
+   refuses a capability the consent did not grant, and your setup must
+   not throw on a host that simply cannot ask.
+3. **Spawning**: intersect every spawn with your own intent before
+   calling `spawnSubagent` — the core enforces the envelope (count,
+   iterations, no grandchildren) but your *roles* are yours: `pathScopes`
+   restrict writes through the permission spine, `model` pins the child's
+   route. Restrict-only holds: you can narrow a child, never widen one.
+4. **Observing and steering**: `subagentActivity(callId)` for the
+   child-tail; `steerSubagent(callId, message)` to write into it. A
+   callId you did not spawn resolves to `null` — the star is structural,
+   not a convention.
+5. **Stopping**: `stopSubagents()` aborts only your children and records
+   one `orchestration_stopped` event. Never track children outside the
+   log's spawn records — the log is what makes a restart's stop list
+   derivable.
+6. **Recording**: your own chrome events (`ctx.appendEvent`) for every
+   decision a replay should reconstruct — composition, claims, outcomes.
+   The words of your coordination stay in your code; the log holds the
+   events.
+
+What moh deliberately does *not* grant an orchestrator: reading or
+resuming a session it did not spawn, grandchildren, peer-to-peer member
+messaging (the rejected mailbox model — an injection surface), and any
+write path outside the `pathScopes` the consented spawn carries.
+
 ## Versioning policy
 
 - The host speaks `MOH_EXTENSION_API_VERSION` (`"major.minor"`); the
@@ -962,7 +1061,8 @@ dotdir copy is reported as a visible line, not an error.
   moh version) is not silently honored: the first load after the upgrade
   asks once, with the manifest in the question, and re-remembers.
 - `register(def, { bundled: true })` marks code the *host shipped*
-  (first-party bundled code, the Jev extension): consent and dependency
+  (first-party bundled code — the Jev and team extensions are the two
+  moh ships today): consent and dependency
   authorization are skipped, because those bytes never came from the user's
   disk. Trust is a property of the registration, not of the runtime, so a
   host can mix bundled and path-loaded definitions in one runtime — never
@@ -983,6 +1083,19 @@ dotdir copy is reported as a visible line, not an error.
   extension. `wire` receives a *reader* of the live instances, not a
   snapshot — registration is fire-and-forget and `ready()` is awaited
   before the first turn, so a snapshot taken at wiring time would be empty.
+- **This is how a first-party extension activates from configuration
+  without the core importing it: `@moh/core` knows the contract and no
+  extension. `wire` receives a *reader* of the live instances, not a
+  snapshot — registration is fire-and-forget and `ready()` is awaited
+  before the first turn, so a snapshot taken at wiring time would be empty.**
+  Two activation shapes exist and the team extension is deliberately the
+  other one: Jev is config-armed (`evaluateActive` reads a `typesafe`
+  block), while the team extension ships always-mounted and gates itself
+  on the enable consent alone — no config block, the question *is* the
+  switch, and a client that cannot ask (headless, nothing previously
+  granted) simply does not mount it. See
+  [The team extension](#the-team-extension-the-first-first-party-orchestration-adr-0074)
+  below.
 - Hot-reload: `startWatch()` watches the registered files; on change the
   module is re-imported and `setup()` re-runs with the previous `ctx.state`
   seeded in. The manifest is re-read first: a missing or malformed one, or

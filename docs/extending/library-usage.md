@@ -480,7 +480,11 @@ nothing, and stopping never unloads an extension. `setSpawnRequester()`
 attributes subsequent spawns — the model by default, or a named orchestration
 extension — and because every spawn event carries its requester and applied
 limits, an orchestration's children are derivable from the log across
-restarts with no session identity.
+restarts with no session identity. The team extension (see the
+orchestration section of [extensions.md](extensions.md)) is the first
+first-party consumer of these doors
+([extensions.md](extensions.md#the-team-extension-the-first-first-party-orchestration-adr-0074));
+a library user orchestrating by hand builds on the same shape.
 
 ## Session handoff transport (#433)
 
