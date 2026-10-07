@@ -122,6 +122,11 @@ export interface HomeProps {
   onOpenHandoff?: (offer: Extract<HandoffOffer, { status: "offer" }>) => void;
   /** #595: opens the "resume from another machine" cold-start wizard. */
   onOpenColdWizard?: () => void;
+  /** #1243: opens the stranded-data resolution overlay for the warning row. */
+  onOpenStranded?: () => void;
+  /** #1243: bumped by the client when the resolution overlay closes, so the
+   * stranded record is re-read and a resolved row disappears live. */
+  strandedRefresh?: number;
   /** Version shown under the logo (#292; defaults to MOH_VERSION). */
   version?: string;
   /** Startup logo intro (default on); tests pass false for a static frame. */
@@ -138,7 +143,7 @@ export interface HomeProps {
  * always the first row; the session list is capped at `listMax` visible
  * rows (floor 3 on small screens) and scrolls to follow the cursor.
  */
-export function Home({ cwd, home, mode, onOpen, onOpenSettings, onOpenCommands, blocked = false, listMax = HOME_LIST_DEFAULT, updateNotice = null, skillUpdateCount = 0, version = MOH_VERSION, handoff = null, onOpenHandoff, onOpenColdWizard, intro: introEnabled = true, onIntroEnd }: HomeProps) {
+export function Home({ cwd, home, mode, onOpen, onOpenSettings, onOpenCommands, blocked = false, listMax = HOME_LIST_DEFAULT, updateNotice = null, skillUpdateCount = 0, version = MOH_VERSION, handoff = null, onOpenHandoff, onOpenColdWizard, onOpenStranded, strandedRefresh = 0, intro: introEnabled = true, onIntroEnd }: HomeProps) {
   const theme = useTheme();
   const viewport = useViewport();
   const compact = widthClass(viewport) === "compact";
@@ -204,7 +209,7 @@ export function Home({ cwd, home, mode, onOpen, onOpenSettings, onOpenCommands, 
       cancelled = true;
       clearTimeout(timer);
     };
-  }, [cwd, home, renamesDone, intro]);
+  }, [cwd, home, renamesDone, strandedRefresh, intro]);
   // #477 rename: when non-null, the composer area becomes an inline edit
   // for the display name (prefilled with the current name; Enter confirms,
   // Esc cancels, Enter on empty resets). Owns input while open.
@@ -238,15 +243,18 @@ export function Home({ cwd, home, mode, onOpen, onOpenSettings, onOpenCommands, 
   // Row 0 is always "New session" (or "start <query>"); row 1 is the
   // handoff offer when present (T3 #436); rows after are the hits.
   const handoffRow = handoff?.status === "offer" && onOpenHandoff ? 1 : -1;
-  const pertinentRow = pertinent && !query ? (handoffRow >= 0 ? 2 : 1) : -1;
+  // #1243: the stranded warning row sits between the handoff row and the
+  // pertinent banner; enter opens the resolution overlay.
+  const strandedRow = stranded ? (handoffRow >= 0 ? 2 : 1) : -1;
+  const pertinentRow = pertinent && !query ? (strandedRow >= 0 ? strandedRow + 1 : handoffRow >= 0 ? 2 : 1) : -1;
   const effectiveCursor = cursor ?? (pertinentRow >= 0 ? pertinentRow : 0);
-  // Row 0 is always "New session" (or "start <query>"); row 1 is the
-  // handoff offer when present (T3 #436); row 2 the pertinent banner
-  // (#470); rows after are the hits.
-  const totalRows = 1 + (handoffRow >= 0 ? 1 : 0) + (pertinentRow >= 0 ? 1 : 0) + hits.length;
+  // Row 0 is always "New session" (or "start <query>"); row 1 the handoff
+  // offer when present (T3 #436); then the stranded warning row (#1243);
+  // then the pertinent banner (#470); rows after are the hits.
+  const totalRows = 1 + (handoffRow >= 0 ? 1 : 0) + (strandedRow >= 0 ? 1 : 0) + (pertinentRow >= 0 ? 1 : 0) + hits.length;
   // A narrower filter can leave the cursor past the end: clamp in render.
   const cursorRow = Math.min(effectiveCursor, totalRows - 1);
-  const hitIndex = cursorRow - 1 - (handoffRow >= 0 ? 1 : 0) - (pertinentRow >= 0 ? 1 : 0); // < 0 = new-session/handoff/pertinent rows
+  const hitIndex = cursorRow - 1 - (handoffRow >= 0 ? 1 : 0) - (strandedRow >= 0 ? 1 : 0) - (pertinentRow >= 0 ? 1 : 0); // < 0 = new-session/handoff/stranded/pertinent rows
   const win = windowing(hits.length, Math.max(hitIndex, 0), visibleListHeight(listMax, viewport.rows));
 
   useInput((input, key) => {
@@ -328,6 +336,10 @@ export function Home({ cwd, home, mode, onOpen, onOpenSettings, onOpenCommands, 
         if (query) return setQuery(""); // guard: enter while typing selects the query, not the handoff
         return onOpenHandoff(handoff);
       }
+      if (cursorRow === strandedRow && onOpenStranded) {
+        if (query) return setQuery(""); // guard: enter while typing selects the query, not the stranded row
+        return onOpenStranded();
+      }
       if (cursorRow === pertinentRow && pertinent) return onOpen(pertinent);
       const hit = hits[hitIndex];
       if (hit) return onOpen(hit);
@@ -401,6 +413,14 @@ export function Home({ cwd, home, mode, onOpen, onOpenSettings, onOpenCommands, 
             {` ${cursorRow === handoffRow ? ic("›", ">") : " "} ⤴ session handoff from another machine (${new Date(offerAt(handoff)).toISOString().slice(0, 16).replace("T", " ")} UTC)${handoff.stale ? " · stale" : ""}`}
           </Text>
         ) : null}
+        {stranded ? (
+          <Text
+            color={cursorRow === strandedRow ? theme.bg : theme.warn}
+            backgroundColor={cursorRow === strandedRow ? theme.warn : undefined}
+          >
+            {` ${cursorRow === strandedRow ? ic("›", ">") : " "} ⚠ older data kept in ${stranded.source} — enter to resolve`}
+          </Text>
+        ) : null}
         {pertinent && pertinentRow >= 0 ? (
           <HomeRow
             selected={cursorRow === pertinentRow}
@@ -444,11 +464,6 @@ export function Home({ cwd, home, mode, onOpen, onOpenSettings, onOpenCommands, 
       {deleteError ? <Text color={theme.warn}>{deleteError}</Text> : null}
       {query ? <Dim>{"enter open · esc clear · ↑↓ select"}</Dim> : null}
       {vertical.spacers >= 1 ? <Text> </Text> : null}
-      {stranded ? (
-        <Text color={theme.warn} wrap="truncate">
-          {`⚠ older data kept in ${stranded.source} — this project now uses ${stranded.destination} (move or delete the old directory)`}
-        </Text>
-      ) : null}
       {updateNotice ? <Text color={theme.warn}>{updateNoticeText(updateNotice)}</Text> : null}
       {skillUpdateCount > 0 ? <Text color={theme.warn}>{skillUpdateNoticeText(skillUpdateCount)}</Text> : null}
       <Footer

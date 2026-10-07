@@ -544,6 +544,12 @@ import {
   isProjectIdentityPrepared,
   // #1217: stranded-data record — clients surface old uuid-directory data
   // that cannot be migrated automatically (both directories hold data).
+  // #1243: the resolution seams (see the export block below).
+  acknowledgeStrandedData,
+  deleteStrandedData,
+  moveStrandedSessions,
+  strandedDataSummary,
+  type StrandedDataSummary,
   readStrandedDataRecord,
   type StrandedDataRecord,
 } from "./project-identity";
@@ -908,6 +914,13 @@ export {
   isProjectIdentityPrepared,
   // #1217: stranded-data record — clients surface old uuid-directory data
   // that cannot be migrated automatically (both directories hold data).
+  // #1243: the resolution seams — the record is live-checked, acknowledged,
+  // summarized, and resolvable (move logs / delete / keep) from a client.
+  acknowledgeStrandedData,
+  deleteStrandedData,
+  moveStrandedSessions,
+  strandedDataSummary,
+  type StrandedDataSummary,
   readStrandedDataRecord,
   type StrandedDataRecord,
   splitCommandSegments,
