@@ -51,6 +51,14 @@ matching section here at tag time.
 
 ### Fixed
 
+- **The stranded-data warning is no longer permanent and is resolvable
+  from the home screen** (#1243): the warning row clears itself once the
+  old directory stops holding project data (a leftover `.DS_Store` or
+  `migration.log` no longer keeps it alive), and pressing enter on it opens
+  a resolution overlay — move the unique session logs, delete the old
+  directory (session logs to the project trash), or keep it and stop the
+  warning with a durable acknowledgement.
+
 - **A session migrating into a materialized-empty remote directory no
   longer strands its data** (#1217, PR #1228): `moh serve` migration moved
   uuid-named session data into a remote directory that only materializes
