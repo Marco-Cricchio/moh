@@ -1,17 +1,17 @@
 {
   "schemaVersion": 1,
-  "version": "0.59.0",
-  "generatedAt": "2026-10-07T17:01:11.428Z",
+  "version": "0.59.1",
+  "generatedAt": "2026-10-07T19:52:04.406Z",
   "sources": [
     {
       "name": "models.dev",
       "url": "https://models.dev/api.json",
-      "fetchedAt": "2026-10-07T17:01:10.996Z"
+      "fetchedAt": "2026-10-07T19:52:03.800Z"
     },
     {
       "name": "openrouter",
       "url": "https://openrouter.ai/api/v1/models",
-      "fetchedAt": "2026-10-07T17:01:11.272Z"
+      "fetchedAt": "2026-10-07T19:52:04.199Z"
     }
   ],
   "totals": {
@@ -510,7 +510,7 @@
         "input": 358
       },
       "previous": {
-        "rows": 361,
+        "rows": 360,
         "pricing": 338,
         "contextWindow": 360,
         "maxTokens": 358,
@@ -892,6 +892,12 @@
       "openRouter": 1048576
     },
     {
+      "provider": "openrouter",
+      "id": "~anthropic/claude-haiku-latest",
+      "modelsDev": 200000,
+      "openRouter": 1000000
+    },
+    {
       "provider": "zai",
       "id": "glm-5-turbo",
       "modelsDev": 200000,
@@ -918,7 +924,50 @@
   ],
   "contextWindowShrinks": [],
   "changes": {
-    "pricing": [],
+    "pricing": [
+      {
+        "provider": "openrouter",
+        "id": "moonshotai/kimi-k3",
+        "from": {
+          "input": 0.62,
+          "output": 15,
+          "cacheRead": 0.43
+        },
+        "to": {
+          "input": 0.5,
+          "output": 15,
+          "cacheRead": 0.43
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "~moonshotai/kimi-latest",
+        "from": {
+          "input": 0.61,
+          "output": 13,
+          "cacheRead": 0.45
+        },
+        "to": {
+          "input": 0.49,
+          "output": 13,
+          "cacheRead": 0.45
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "~z-ai/glm-flash-latest",
+        "from": {
+          "input": 0.0214,
+          "output": 0.5,
+          "cacheRead": 0.0214
+        },
+        "to": {
+          "input": 0.04,
+          "output": 0.5,
+          "cacheRead": 0.025
+        }
+      }
+    ],
     "contextWindow": [],
     "reasoning": []
   },

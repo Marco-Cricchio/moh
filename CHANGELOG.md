@@ -7,6 +7,49 @@ matching section here at tag time.
 
 ## [Unreleased]
 
+## [0.59.1] - 2026-10-07
+
+### Added
+
+- **The stranded-data warning is live, actionable and resolvable from
+  Home** (#1243, PR #1248): the warning row was permanent — the record
+  lived as long as the old directory existed (a leftover `.DS_Store` kept
+  it alive) and nothing in the product could retire it. The row is now
+  cursor-selectable: `enter` opens a resolution overlay showing the
+  summary (`onlyHere` / `sameSize` / `differing`), `k` acknowledges (a
+  genuinely new stranded situation re-arms), `m` moves the logs that exist
+  only in the old directory (byte-identical duplicates dropped, differing
+  same-name logs untouched) and `d` sends session logs to the project
+  trash and removes the rest, refusing sources outside
+  `~/.moh/projects/` or equal to the live directory. The record is only
+  reported while it describes a live situation; a Finder visit never
+  re-arms the warning.
+
+### Fixed
+
+- **The rail band lives above the composer, reserved out of the volatile
+  transcript** (PR #1244): the rail rode beside Chat's whole column, but
+  only the volatile tail is laid out per frame — so any panel redraw moved
+  it against the composer frame and a settling member squeezed the
+  composer. The rail now reports its drawn height and Chat renders the
+  band right-aligned directly above the composer separator: composer rows
+  are budget-stable by construction, and below the composer's top line is
+  forbidden ground. Sessions without the rail are byte-identical.
+- **The team panel matches the adopted prototype** (PR #1246): selected
+  roster row painted with the theme's selection background, focused panel
+  keeps the accent border (the unselected ones dim when the rail has
+  focus, instead of inverting), and the working glyph is `◐`. The
+  selection painting lives in the client — the panel text stays verbatim,
+  no UI dependency for `@moh/team`.
+
+### Changed
+
+- **The model catalog was regenerated** (release step): 3 prices moved —
+  `moonshotai/kimi-k3` 0.62 → 0.50 and `~moonshotai/kimi-latest` 0.61 →
+  0.49 down, `~z-ai/glm-flash-latest` 0.021 → 0.04 up. No context windows
+  or reasoning flags moved; no issue and no context-window shrink.
+  `PRICING_SNAPSHOT.version` follows the manifest, which declares 0.59.1.
+
 ## [0.59.0] - 2026-10-07
 
 ### Added
@@ -2164,7 +2207,8 @@ matching section here at tag time.
   passed; a regression test pins the resolved path under
   `<home>/.moh/projects`.
 
-[Unreleased]: https://github.com/Marco-Cricchio/moh/compare/v0.59.0...develop
+[Unreleased]: https://github.com/Marco-Cricchio/moh/compare/v0.59.1...develop
+[0.59.1]: https://github.com/Marco-Cricchio/moh/compare/v0.59.0...v0.59.1
 [0.59.0]: https://github.com/Marco-Cricchio/moh/compare/v0.58.2...v0.59.0
 [0.58.2]: https://github.com/Marco-Cricchio/moh/compare/v0.58.1...v0.58.2
 [0.58.1]: https://github.com/Marco-Cricchio/moh/compare/v0.58.0...v0.58.1
