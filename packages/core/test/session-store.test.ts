@@ -1,11 +1,11 @@
 import { describe, expect, test } from "bun:test";
-import { mkdtempSync, mkdirSync, appendFileSync, existsSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, appendFileSync, existsSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import { createSession, MockProvider, SessionStore } from "../src/index";
-import { legacyProjectSlug, listSessionSummaries, MIN_SUPPORTED_SCHEMA_VERSION, projectSlug, renameSession, setSessionPinned, replayMessages, deleteSession, restoreSession, listTrashedSessions, pruneTrash, resolveEventRef, isSessionOpen } from "../src/session-store";
-import { canonicalRemoteSlug, readStrandedDataRecord } from "../src/project-identity";
+import { legacyProjectSlug, listSessionSummaries, MIN_SUPPORTED_SCHEMA_VERSION, projectSlug, renameSession, setSessionPinned, replayMessages, deleteSession, restoreSession, listTrashedSessions, pruneTrash, resolveEventRef, isSessionOpen, projectTrashDir } from "../src/session-store";
+import { acknowledgeStrandedData, canonicalRemoteSlug, deleteStrandedData, moveStrandedSessions, readStrandedDataRecord, strandedDataSummary } from "../src/project-identity";
 import { runtimeRulesFromEvents } from "../src/permissions";
 import type { AgentEvent } from "../src/index";
 
@@ -279,6 +279,161 @@ describe("session store", () => {
     // Idempotent: a second resolution does not duplicate or throw.
     expect(projectSlug(cwd, home)).toBe(slug);
     expect(readStrandedDataRecord(join(home, ".moh", "projects", slug))?.recordedAt).toBe(record?.recordedAt);
+  });
+
+  test("#1243: the stranded record stops being reported once the old directory holds no data", () => {
+    const home = tempHome();
+    const cwd = mkdtempSync(join(tmpdir(), "moh-stranded-gone-"));
+    const uuidSlug = projectSlug(cwd, home);
+    const uuidDir = join(home, ".moh", "projects", uuidSlug);
+    mkdirSync(uuidDir, { recursive: true });
+    writeFileSync(join(uuidDir, "20260101T000000000Z-deadbeef.jsonl"), "uuid-session");
+    execFileSync("git", ["init", "-q", cwd]);
+    execFileSync("git", ["-C", cwd, "remote", "add", "origin", "git@github.com:Owner/Repo.git"]);
+    const remote = join(home, ".moh", "projects", "github.com/owner/repo");
+    mkdirSync(remote, { recursive: true });
+    writeFileSync(join(remote, "20260202T000000000Z-cafebab0.jsonl"), "remote-session");
+    const slug = projectSlug(cwd, home);
+    expect(readStrandedDataRecord(join(home, ".moh", "projects", slug))).not.toBeNull();
+    // The user does what the warning asks: moves the old data out, leaving the
+    // directory (and the durable note) behind.
+    rmSync(join(uuidDir, "20260101T000000000Z-deadbeef.jsonl"));
+    expect(readStrandedDataRecord(join(home, ".moh", "projects", slug))).toBeNull();
+    // A Finder visit must not re-arm it: `.DS_Store` is not project data.
+    writeFileSync(join(uuidDir, ".DS_Store"), "");
+    expect(readStrandedDataRecord(join(home, ".moh", "projects", slug))).toBeNull();
+    // And a fresh resolution neither re-records nor reports it.
+    expect(projectSlug(cwd, home)).toBe(slug);
+    expect(readStrandedDataRecord(join(home, ".moh", "projects", slug))).toBeNull();
+  });
+
+  test("#1243: the acknowledgement is durable, idempotent, and cleared by a genuinely new situation", () => {
+    const home = tempHome();
+    const cwd = mkdtempSync(join(tmpdir(), "moh-stranded-ack-"));
+    const uuidSlug = projectSlug(cwd, home);
+    const uuidDir = join(home, ".moh", "projects", uuidSlug);
+    mkdirSync(uuidDir, { recursive: true });
+    writeFileSync(join(uuidDir, "20260101T000000000Z-deadbeef.jsonl"), "uuid-session");
+    execFileSync("git", ["init", "-q", cwd]);
+    execFileSync("git", ["-C", cwd, "remote", "add", "origin", "git@github.com:Owner/Repo.git"]);
+    const remote = join(home, ".moh", "projects", "github.com/owner/repo");
+    mkdirSync(remote, { recursive: true });
+    writeFileSync(join(remote, "20260202T000000000Z-cafebab0.jsonl"), "remote-session");
+    const dir = join(home, ".moh", "projects", projectSlug(cwd, home));
+    expect(readStrandedDataRecord(dir)).not.toBeNull();
+    acknowledgeStrandedData(dir);
+    expect(readStrandedDataRecord(dir)).toBeNull();
+    const first = JSON.parse(readFileSync(join(dir, "stranded-data.json"), "utf8")) as { acknowledgedAt?: string };
+    expect(typeof first.acknowledgedAt).toBe("string");
+    // Idempotent: the first timestamp wins.
+    acknowledgeStrandedData(dir);
+    const again = JSON.parse(readFileSync(join(dir, "stranded-data.json"), "utf8")) as { acknowledgedAt?: string };
+    expect(again.acknowledgedAt).toBe(first.acknowledgedAt);
+    // A genuinely new stranded situation (a different uuid directory with
+    // data) replaces the record and re-arms the warning.
+    const cwd2 = mkdtempSync(join(tmpdir(), "moh-stranded-ack2-"));
+    const uuidSlug2 = projectSlug(cwd2, home);
+    const uuidDir2 = join(home, ".moh", "projects", uuidSlug2);
+    mkdirSync(uuidDir2, { recursive: true });
+    writeFileSync(join(uuidDir2, "20260303T000000000Z-fresh123.jsonl"), "second");
+    execFileSync("git", ["init", "-q", cwd2]);
+    execFileSync("git", ["-C", cwd2, "remote", "add", "origin", "git@github.com:Owner/Repo.git"]);
+    projectSlug(cwd2, home);
+    const record = readStrandedDataRecord(dir);
+    expect(record?.source).toBe(uuidDir2);
+  });
+
+  test("#1243: the summary classifies only-here / same-size / differing and ignores .DS_Store + migration.log", () => {
+    const home = tempHome();
+    const cwd = mkdtempSync(join(tmpdir(), "moh-stranded-sum-"));
+    const uuidSlug = projectSlug(cwd, home);
+    const uuidDir = join(home, ".moh", "projects", uuidSlug);
+    mkdirSync(join(uuidDir, "memory"), { recursive: true });
+    writeFileSync(join(uuidDir, "20260101T000000000Z-deadbeef.jsonl"), "uuid-session");
+    writeFileSync(join(uuidDir, "session.md"), "notes");
+    writeFileSync(join(uuidDir, "memory", "facts.md"), "fact");
+    // Same name, same bytes → probably identical; same name, different
+    // bytes → differing. Non-data noise must appear in no list.
+    writeFileSync(join(uuidDir, "20260202T000000000Z-cafebab0.jsonl"), "shared");
+    writeFileSync(join(uuidDir, "20260303T000000000Z-feedface.jsonl"), "mine");
+    writeFileSync(join(uuidDir, "migration.log"), "note");
+    writeFileSync(join(uuidDir, ".DS_Store"), "");
+    execFileSync("git", ["init", "-q", cwd]);
+    execFileSync("git", ["-C", cwd, "remote", "add", "origin", "git@github.com:Owner/Repo.git"]);
+    const remote = join(home, ".moh", "projects", "github.com/owner/repo");
+    mkdirSync(remote, { recursive: true });
+    writeFileSync(join(remote, "20260202T000000000Z-cafebab0.jsonl"), "shared");
+    writeFileSync(join(remote, "20260303T000000000Z-feedface.jsonl"), "theirs-longer");
+    const dir = join(home, ".moh", "projects", projectSlug(cwd, home));
+    const summary = strandedDataSummary(dir);
+    expect(summary?.source).toBe(uuidDir);
+    expect(summary?.destination).toBe(remote);
+    expect(summary?.onlyHere).toEqual(["20260101T000000000Z-deadbeef.jsonl", "memory", "session.md"]);
+    expect(summary?.sameSize).toEqual(["20260202T000000000Z-cafebab0.jsonl"]);
+    expect(summary?.differing).toEqual(["20260303T000000000Z-feedface.jsonl"]);
+  });
+
+  test("#1243: moveStrandedSessions moves only-here logs, drops identical duplicates, keeps conflicts", () => {
+    const home = tempHome();
+    const cwd = mkdtempSync(join(tmpdir(), "moh-stranded-move-"));
+    const uuidSlug = projectSlug(cwd, home);
+    const uuidDir = join(home, ".moh", "projects", uuidSlug);
+    mkdirSync(uuidDir, { recursive: true });
+    writeFileSync(join(uuidDir, "20260101T000000000Z-deadbeef.jsonl"), "only-here");
+    writeFileSync(join(uuidDir, "20260202T000000000Z-cafebab0.jsonl"), "shared");
+    writeFileSync(join(uuidDir, "20260303T000000000Z-feedface.jsonl"), "mine");
+    execFileSync("git", ["init", "-q", cwd]);
+    execFileSync("git", ["-C", cwd, "remote", "add", "origin", "git@github.com:Owner/Repo.git"]);
+    const remote = join(home, ".moh", "projects", "github.com/owner/repo");
+    mkdirSync(remote, { recursive: true });
+    writeFileSync(join(remote, "20260202T000000000Z-cafebab0.jsonl"), "shared");
+    writeFileSync(join(remote, "20260303T000000000Z-feedface.jsonl"), "theirs");
+    const dir = join(home, ".moh", "projects", projectSlug(cwd, home));
+    const result = moveStrandedSessions(dir);
+    expect(result.moved).toEqual(["20260101T000000000Z-deadbeef.jsonl"]);
+    expect(result.dropped).toEqual(["20260202T000000000Z-cafebab0.jsonl"]);
+    expect(result.skipped).toEqual(["20260303T000000000Z-feedface.jsonl"]);
+    expect(existsSync(join(remote, "20260101T000000000Z-deadbeef.jsonl"))).toBe(true);
+    expect(existsSync(join(uuidDir, "20260101T000000000Z-deadbeef.jsonl"))).toBe(false);
+    expect(existsSync(join(uuidDir, "20260202T000000000Z-cafebab0.jsonl"))).toBe(false);
+    expect(readFileSync(join(remote, "20260303T000000000Z-feedface.jsonl"), "utf8")).toBe("theirs");
+    expect(existsSync(join(uuidDir, "20260303T000000000Z-feedface.jsonl"))).toBe(true);
+    // memory/session.md still in the old directory: the record stays live.
+    writeFileSync(join(uuidDir, "session.md"), "notes");
+    expect(readStrandedDataRecord(dir)).not.toBeNull();
+  });
+
+  test("#1243: deleteStrandedData trashes the logs, removes the rest, clears the record — and refuses outsiders", () => {
+    const home = tempHome();
+    const cwd = mkdtempSync(join(tmpdir(), "moh-stranded-del-"));
+    const uuidSlug = projectSlug(cwd, home);
+    const uuidDir = join(home, ".moh", "projects", uuidSlug);
+    mkdirSync(join(uuidDir, "memory"), { recursive: true });
+    writeFileSync(join(uuidDir, "20260101T000000000Z-deadbeef.jsonl"), "uuid-session");
+    writeFileSync(join(uuidDir, "session.md"), "notes");
+    writeFileSync(join(uuidDir, "memory", "facts.md"), "fact");
+    writeFileSync(join(uuidDir, "migration.log"), "note");
+    writeFileSync(join(uuidDir, ".DS_Store"), "");
+    execFileSync("git", ["init", "-q", cwd]);
+    execFileSync("git", ["-C", cwd, "remote", "add", "origin", "git@github.com:Owner/Repo.git"]);
+    const remote = join(home, ".moh", "projects", "github.com/owner/repo");
+    mkdirSync(remote, { recursive: true });
+    writeFileSync(join(remote, "20260202T000000000Z-cafebab0.jsonl"), "remote-session");
+    const dir = join(home, ".moh", "projects", projectSlug(cwd, home));
+    const result = deleteStrandedData(dir, cwd, home);
+    expect(result.trashed).toBe(1);
+    expect(result.removed.sort()).toEqual([".DS_Store", "memory", "migration.log", "session.md"]);
+    expect(existsSync(uuidDir)).toBe(false);
+    expect(existsSync(join(dir, "stranded-data.json"))).toBe(false);
+    expect(readStrandedDataRecord(dir)).toBeNull();
+    const trash = projectTrashDir(cwd, home);
+    expect(readFileSync(join(trash, "20260101T000000000Z-deadbeef.jsonl"), "utf8")).toBe("uuid-session");
+    // Refusal: a record pointing outside ~/.moh/projects/ is never deleted.
+    const outsider = mkdtempSync(join(tmpdir(), "moh-stranded-outsider-"));
+    writeFileSync(join(outsider, "20260404T000000000Z-aaaaaa11.jsonl"), "x");
+    writeFileSync(join(remote, "stranded-data.json"), `${JSON.stringify({ source: outsider, destination: remote, recordedAt: new Date().toISOString() })}\n`);
+    expect(() => deleteStrandedData(remote, cwd, home)).toThrow(/refusing/);
+    expect(existsSync(outsider)).toBe(true);
   });
 
   test("#591: canonicalRemoteSlug returns null for non-repo URLs and missing git", () => {

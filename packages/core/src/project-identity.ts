@@ -1,8 +1,9 @@
 import { execFileSync } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
-import { anyOpenSessionInDir } from "./session-store";
-import { existsSync, linkSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, unlinkSync, writeFileSync } from "node:fs";
-import { basename, join, resolve as pathResolve } from "node:path";
+import { anyOpenSessionInDir, isSessionFile, projectTrashDir } from "./session-store";
+import { copyFileSync, existsSync, linkSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, statSync, unlinkSync, writeFileSync } from "node:fs";
+import { homedir } from "node:os";
+import { basename, join, resolve as pathResolve, sep } from "node:path";
 
 /** The pre-#398 path-derived location, retained only to find old data. */
 export function legacyProjectSlug(cwd: string): string {
@@ -321,16 +322,20 @@ export interface StrandedDataRecord {
   destination: string;
   /** ISO timestamp of when the stranded state was first recorded. */
   recordedAt: string;
+  /** #1243: durable "keep it and stop warning" acknowledgement; a genuinely
+   * new stranded situation (a different source) re-records without it. */
+  acknowledgedAt?: string;
 }
 
 /**
  * Whether a project directory holds real data (#1217): anything beyond the
  * durable migration note counts — session logs, memory, session notes,
- * handoff, project map.
+ * handoff, project map. `.DS_Store` is not data either (#1243): a Finder
+ * visit must not keep a stranded record alive.
  */
 function holdsProjectData(dir: string): boolean {
   try {
-    return readdirSync(dir).some((name) => name !== "migration.log");
+    return readdirSync(dir).some((name) => name !== "migration.log" && name !== ".DS_Store");
   } catch {
     return false;
   }
@@ -383,7 +388,10 @@ function migrateStrandedUuidData(projects: string, remoteSlug: string, uuidId: s
  * #1217: both directories hold data. Nothing is merged or overwritten (the
  * remote-slug directory stays authoritative), but the stranded uuid data is
  * recorded once so clients surface both paths instead of leaving the old
- * session silently invisible. Idempotent: the first record wins.
+ * session silently invisible. Idempotent for the same source (the first
+ * record wins); a genuinely new stranded situation — a different source
+ * directory (#1243) — replaces the record, which also clears any
+ * acknowledgement so the warning re-arms.
  */
 function recordStrandedUuidData(projects: string, remoteSlug: string, uuidId: string | null): void {
   if (!uuidId) return;
@@ -391,7 +399,14 @@ function recordStrandedUuidData(projects: string, remoteSlug: string, uuidId: st
   const uuidDir = join(projects, identitySlug(uuidId));
   if (uuidDir === dir || !existsSync(uuidDir) || !holdsProjectData(uuidDir)) return;
   const recordFile = join(dir, STRANDED_DATA_FILE);
-  if (existsSync(recordFile)) return;
+  if (existsSync(recordFile)) {
+    try {
+      const existing = JSON.parse(readFileSync(recordFile, "utf8")) as StrandedDataRecord;
+      if (existing.source === uuidDir) return;
+    } catch {
+      // An unreadable record is as good as absent: fall through and rewrite it.
+    }
+  }
   const record: StrandedDataRecord = {
     source: uuidDir,
     destination: dir,
@@ -408,17 +423,182 @@ function recordStrandedUuidData(projects: string, remoteSlug: string, uuidId: st
 
 /**
  * Reads the stranded-data record for a resolved project directory (#1217),
- * or null. Clients (the home list) surface it so the user can move or
- * delete the stranded directory.
+ * or null. The record is reported only while it describes a live situation
+ * (#1243): the source exists, still holds project data, and has not been
+ * durably acknowledged. A resolved situation is simply not shown — the user
+ * who acts outside moh is not nagged either.
  */
 export function readStrandedDataRecord(dir: string): StrandedDataRecord | null {
   try {
     const parsed = JSON.parse(readFileSync(join(dir, STRANDED_DATA_FILE), "utf8")) as StrandedDataRecord;
-    if (typeof parsed === "object" && parsed !== null && typeof parsed.source === "string" && typeof parsed.destination === "string" && existsSync(parsed.source)) {
-      return parsed;
-    }
-    return null;
+    if (typeof parsed !== "object" || parsed === null || typeof parsed.source !== "string" || typeof parsed.destination !== "string") return null;
+    if (parsed.acknowledgedAt) return null;
+    if (!existsSync(parsed.source) || !holdsProjectData(parsed.source)) return null;
+    return parsed;
   } catch {
     return null;
   }
+}
+
+/**
+ * #1243 `k`: durably acknowledges the record ("keep it and stop warning")
+ * so it is never reported again — until a genuinely new stranded situation
+ * replaces it. Atomic (temp + rename, owner-only), idempotent: the first
+ * acknowledgement's timestamp wins.
+ */
+export function acknowledgeStrandedData(dir: string): void {
+  const file = join(pathResolve(dir), STRANDED_DATA_FILE);
+  const parsed = JSON.parse(readFileSync(file, "utf8")) as StrandedDataRecord;
+  if (typeof parsed !== "object" || parsed === null || typeof parsed.source !== "string") return;
+  if (parsed.acknowledgedAt) return;
+  parsed.acknowledgedAt = new Date().toISOString();
+  const tmp = `${file}.${process.pid}.tmp`;
+  writeFileSync(tmp, `${JSON.stringify(parsed, null, 2)}\n`, { mode: 0o600 });
+  renameSync(tmp, file);
+}
+
+/** Advisory classification of the stranded source directory (#1243): what
+ * a delete or move would touch, per entry kind. Never decides anything. */
+export interface StrandedDataSummary {
+  source: string;
+  destination: string;
+  /** Entries whose name is absent in the live directory. */
+  onlyHere: string[];
+  /** Same name and same size in both directories — probably identical. */
+  sameSize: string[];
+  /** Same name, different size. */
+  differing: string[];
+}
+
+const STRANDED_NON_DATA = new Set(["migration.log", ".DS_Store"]);
+
+/**
+ * #1243: read-only cost summary for the resolution overlay. `statSync`
+ * only — hundreds of megabytes of session logs must not be read to open a
+ * modal. `.DS_Store` and `migration.log` are excluded from every count.
+ */
+export function strandedDataSummary(dir: string): StrandedDataSummary | null {
+  const record = readStrandedDataRecord(dir);
+  if (!record) return null;
+  const summary: StrandedDataSummary = { source: record.source, destination: record.destination, onlyHere: [], sameSize: [], differing: [] };
+  let destNames: Set<string>;
+  try {
+    destNames = new Set(readdirSync(record.destination));
+  } catch {
+    destNames = new Set();
+  }
+  let names: string[];
+  try {
+    names = readdirSync(record.source);
+  } catch {
+    return summary;
+  }
+  for (const name of names) {
+    if (STRANDED_NON_DATA.has(name)) continue;
+    let size = 0;
+    try {
+      size = statSync(join(record.source, name)).size;
+    } catch {
+      continue;
+    }
+    if (!destNames.has(name)) {
+      summary.onlyHere.push(name);
+      continue;
+    }
+    try {
+      if (statSync(join(record.destination, name)).size === size) summary.sameSize.push(name);
+      else summary.differing.push(name);
+    } catch {
+      summary.onlyHere.push(name);
+    }
+  }
+  for (const key of ["onlyHere", "sameSize", "differing"] as const) summary[key].sort();
+  return summary;
+}
+
+/** rename when possible (atomic, same volume), copy+unlink across devices. */
+function moveStrandedFile(from: string, to: string): void {
+  try {
+    renameSync(from, to);
+  } catch {
+    copyFileSync(from, to);
+    unlinkSync(from);
+  }
+}
+
+/**
+ * #1243 `m`: moves the session logs that exist only in the stranded source
+ * into the live project directory — a self-contained log whose name is its
+ * identity, no reconciliation problem. A same-name log already in the live
+ * directory stays behind untouched (identical bytes are dropped from the
+ * source; a differing one is reported, never overwritten). Does not clear
+ * the record: the old directory usually still holds memory, notes, handoff.
+ */
+export function moveStrandedSessions(dir: string): { moved: string[]; skipped: string[]; dropped: string[] } {
+  const record = readStrandedDataRecord(dir);
+  if (!record) throw new Error(`moveStrandedSessions: no live stranded-data record for ${dir}`);
+  const result: { moved: string[]; skipped: string[]; dropped: string[] } = { moved: [], skipped: [], dropped: [] };
+  for (const name of readdirSync(record.source)) {
+    if (!isSessionFile(name)) continue;
+    const from = join(record.source, name);
+    const to = join(record.destination, name);
+    if (!existsSync(to)) {
+      moveStrandedFile(from, to);
+      result.moved.push(name);
+      continue;
+    }
+    let fromBytes: Buffer;
+    let toBytes: Buffer;
+    try {
+      if (statSync(from).size !== statSync(to).size) throw new Error("differing");
+      fromBytes = readFileSync(from);
+      toBytes = readFileSync(to);
+    } catch {
+      result.skipped.push(name);
+      continue;
+    }
+    if (fromBytes.equals(toBytes)) {
+      unlinkSync(from);
+      result.dropped.push(name);
+    } else {
+      result.skipped.push(name);
+    }
+  }
+  return result;
+}
+
+/**
+ * #1243 `d`: deletes the stranded source directory. Its session logs go to
+ * the project trash (restorable with `moh trash restore`); every other
+ * entry is removed from disk; the record is cleared so the warning goes
+ * away. Refuses anything that is not a stranded directory under
+ * `<home>/.moh/projects/` — never the live project directory itself.
+ */
+export function deleteStrandedData(dir: string, cwd: string, home = homedir()): { trashed: number; removed: string[] } {
+  const record = readStrandedDataRecord(dir);
+  if (!record) throw new Error(`deleteStrandedData: no live stranded-data record for ${dir}`);
+  const projectsRoot = join(pathResolve(home), ".moh", "projects");
+  const source = pathResolve(record.source);
+  if (source === pathResolve(dir) || !source.startsWith(projectsRoot + sep)) {
+    throw new Error(`deleteStrandedData: refusing to delete ${source} — not a stranded directory under ${projectsRoot}`);
+  }
+  const trashDir = projectTrashDir(cwd, home);
+  mkdirSync(trashDir, { recursive: true, mode: 0o700 });
+  let trashed = 0;
+  const removed: string[] = [];
+  for (const name of readdirSync(source)) {
+    const from = join(source, name);
+    if (isSessionFile(name)) {
+      let to = join(trashDir, name);
+      for (let n = 1; existsSync(to); n++) to = join(trashDir, `${name.slice(0, -".jsonl".length)}-${n}.jsonl`);
+      moveStrandedFile(from, to);
+      trashed++;
+    } else {
+      rmSync(from, { recursive: true });
+      removed.push(name);
+    }
+  }
+  rmSync(source, { recursive: true });
+  unlinkSync(join(pathResolve(dir), STRANDED_DATA_FILE));
+  return { trashed, removed };
 }
