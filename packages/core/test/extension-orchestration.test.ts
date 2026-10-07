@@ -732,7 +732,7 @@ describe("member path scopes (#1224, ADR-0074 roles carry scopes)", () => {
   });
 
   test("an invalid scope is refused loudly; no child is created", async () => {
-    const { result, spawned, session } = await scopedTeamFixture(["/abs/**"] as unknown as readonly string[]);
+    const { result, spawned, session } = await scopedTeamFixture(["/abs/**"]);
     await session.dispose();
     expect(result.status).toBe("error");
     expect(result.error).toContain("absolute paths are not allowed");
