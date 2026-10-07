@@ -12,12 +12,22 @@
  * model as the tool result. A follow-up call with `member` + `message`
  * steers the member (ADR-0055 write-into-child): its next turn keeps the
  * member's context and route, and the new outcome returns to the lead.
- * The task bag (#1223), the roles (#1224) and the panel (#1225) arrive later.
+ * The task bag is slice 3 (#1223, this file + `task-bag.ts`);
+ * the roles (#1224) and the panel (#1225) arrive later.
+ *
+ * Scope of the task bag (#1223): the extension-owned coordination seam
+ * (ADR-0074). The `team` tool grows two shapes: `plan` decomposes the
+ * brief into bag tasks (whole or nothing, `blockedBy` refs validated up
+ * front) and `work` runs a member through the bag — the extension claims
+ * the next claimable task, hands the member only that task (spawn, then
+ * steering for the follow-ups), and records every transition
+ * (`team_task_created`/`_claimed`/`_completed`) as chrome events, so the
+ * board reconstructs from the log alone (`replayBoard`).
  *
  * Boundary: the core never learns about teams — it knows only the generic
  * `spawn-subagent` capability (ADR-0053/0055) and the manifest authority
- * the consent signs. Roles, the task bag, and the panel belong to later
- * tickets (#1223, #1224, #1225).
+ * the consent signs. Roles and the panel belong to later tickets
+ * (#1224, #1225).
  *
  * The default export is the factory below; the registration helper pairs it
  * with the manifest authority so a client enables the extension through the
@@ -29,6 +39,8 @@ import { existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { defineExtension, MOH_EXTENSION_API_VERSION, type ExtensionDefinition } from "@moh/extension";
 import { z } from "zod";
+import { TASK_CLAIMED, TASK_COMPLETED, TASK_CREATED, TaskBag, type BagTask } from "./task-bag";
+export { replayBoard, TASK_CLAIMED, TASK_COMPLETED, TASK_CREATED, TaskBag } from "./task-bag";
 
 /** The extension's name, as stamped in the log and shown in /extensions. */
 export const TEAM_NAME = "team";
@@ -64,13 +76,71 @@ export function teamManifestAuthority(): {
 /**
  * The `team` tool's argument shape, checked before anything happens: a
  * spawn supplies the `task`; a steering write-into-child (#1222) supplies
- * the `member` and the `message` — the two are exclusive.
+ * the `member` and the `message` — the two are exclusive; `plan` (#1223)
+ * decomposes the brief into bag tasks and `work` runs a member through
+ * the bag (self-serve).
  */
 const teamArgsSchema = z.object({
   task: z.string().min(1).optional(),
   member: z.string().min(1).optional(),
   message: z.string().min(1).optional(),
+  plan: z.array(z.object({ title: z.string().min(1), blockedBy: z.array(z.string()).optional() })).min(1).optional(),
+  work: z.string().min(1).optional(),
 });
+
+/**
+ * The self-serve loop (#1223): the member works through the bag — the
+ * extension claims the next claimable task, spawns or steers the member
+ * with that one task, records the transition, and hands it the next one
+ * until nothing claimable remains. Each turn's task text names only that
+ * task: the member sees its work, never the bag or another member.
+ */
+async function selfServeLoop(
+  ctx: import("@moh/extension").ExtensionSetupContext,
+  members: Map<string, string>,
+  bag: TaskBag,
+  member: string,
+  work: string,
+): Promise<string> {
+  const reports: string[] = [];
+  // A failed completion releases the task back to open; without a guard the
+  // loop would re-claim the same failing task forever. One pass: each task
+  // is attempted at most once per `work` call, so the loop terminates after
+  // at most as many iterations as there are tasks.
+  const skipped = new Set<string>();
+  for (;;) {
+    const next = [...bag.tasks.values()].find((task) => !skipped.has(task.id) && task.id === bag.claimable()?.id);
+    if (!next) break;
+    if (!bag.claim(next.id, member)) break;
+    const callId = members.get(member);
+    const prompt = `${work}\n\nTask ${next.id}: ${next.title}`;
+    const steered = callId !== undefined ? await ctx.steerSubagent!(callId, prompt) : null;
+    const outcome = steered ?? (await ctx.spawnSubagent!({ name: member, task: prompt }));
+    if (outcome.callId) members.set(member, outcome.callId);
+    bag.complete(next.id, outcome.status);
+    if (outcome.status !== "done") skipped.add(next.id);
+    ctx.appendEvent({
+      name: TASK_CLAIMED,
+      payload: { id: next.id, member },
+    });
+    ctx.appendEvent({
+      name: TASK_COMPLETED,
+      payload: {
+        id: next.id,
+        member,
+        outcome: outcome.status,
+        outputChars: outcome.output.length,
+        ...(outcome.error ? { error: outcome.error } : {}),
+      },
+    });
+    reports.push(
+      outcome.status === "done"
+        ? `${next.id} (${next.title}): ${outcome.output}`
+        : `${next.id} (${next.title}): ${outcome.status}${outcome.error ? ` — ${outcome.error}` : ""}`,
+    );
+  }
+  return `${bag.summary()}\n${reports.join("\n")}`;
+}
 
 /**
  * Builds the team extension's definition. A factory, not a ready-made
@@ -108,14 +178,63 @@ export function createTeamExtension(): ExtensionDefinition {
         description:
           "Delegate work to the team or steer an existing member. " +
           "Spawn: pass `task` — spawns a builder member as a child session that works on the task and returns its result. " +
+          "Plan: pass `plan` — decomposes the brief into bag tasks; then pass `work` (and optionally `member`) to run a member through the bag. " +
           "Steer: pass `member` + `message` — relays a follow-up instruction to that member's next turn (it keeps its context) and returns the new outcome. " +
           "Use when the user asks to work on something with the team, or to correct or redirect one of its members.",
         inputSchema: teamArgsSchema,
         execute: async (args) => {
           const parsed = teamArgsSchema.safeParse(args);
           if (!parsed.success) return `team: refused — ${parsed.error.issues[0]?.message ?? "invalid arguments"}`;
-          const { task, member, message } = parsed.data as { task?: string; member?: string; message?: string };
+          const { task, member, message, plan, work } = parsed.data as {
+            task?: string;
+            member?: string;
+            message?: string;
+            plan?: { title: string; blockedBy?: string[] }[];
+            work?: string;
+          };
+          // The bag survives hot-reloads in the per-extension durable state;
+          // a fresh session starts empty.
+          const state = ctx.state as { bag?: TaskBag };
+          if (!(state.bag instanceof TaskBag)) state.bag = new TaskBag();
+          const bag = state.bag;
+          if (plan !== undefined) {
+            if (task !== undefined || member !== undefined || message !== undefined) {
+              return "team: refused — pass either `plan` (decompose the brief into tasks) or `task`/`member` (spawn/steer), not both";
+            }
+            // Whole or nothing: `create` validates every `blockedBy` ref
+            // before any mutation and throws on a dangling one.
+            let created: BagTask[];
+            try {
+              created = bag.create(plan);
+            } catch (error) {
+              return `team: refused — ${(error as Error).message}`;
+            }
+            for (const task2 of created) {
+              ctx.appendEvent({
+                name: TASK_CREATED,
+                payload: { id: task2.id, title: task2.title, blockedBy: [...task2.blockedBy] },
+              });
+            }
+            return `team: planned ${created.length} tasks — ${bag.summary()}`;
+          }
+          if (work !== undefined) {
+            if (task !== undefined || message !== undefined) {
+              return "team: refused — `work` takes an optional `member` name for the new member, not a steering target";
+            }
+            if (bag.tasks.size === 0) {
+              return "team: refused — the task bag is empty; pass `plan` first to decompose the brief into tasks";
+            }
+            // #1223 self-serve loop: the member claims the next claimable
+            // task, works it, and the extension hands it the next one until
+            // nothing claimable remains (dependencies or the bag's end).
+            // Star-shaped: the member's prompt names only its own task —
+            // never the bag, never another member.
+            return await selfServeLoop(ctx, members, bag, member ?? "builder", work);
+          }
           if (member !== undefined || message !== undefined) {
+            if (plan !== undefined || work !== undefined) {
+              return "team: refused — pass either `member` + `message` (steer) or `plan`/`work` (bag), not both";
+            }
             if (task !== undefined) return "team: refused — pass either `task` (spawn) or `member` + `message` (steer), not both";
             if (member === undefined || message === undefined) return "team: refused — steering needs both `member` and `message`";
             const callId = members.get(member);
@@ -146,7 +265,10 @@ export function createTeamExtension(): ExtensionDefinition {
               : `team member ${member} steering ${result.status}${result.error ? `: ${result.error}` : ""}`;
           }
           if (task === undefined) {
-            return "team: refused — pass `task` to spawn a member, or `member` + `message` to steer an existing one";
+            return "team: refused — pass `task` to spawn a member, `plan` to decompose the brief, `work` to run the bag, or `member` + `message` to steer";
+          }
+          if (plan !== undefined) {
+            return "team: refused — pass either `task` (spawn) or `plan` (decompose the brief), not both";
           }
           const result = await ctx.spawnSubagent!({ name: "builder", task });
           if (result.callId) members.set("builder", result.callId);
