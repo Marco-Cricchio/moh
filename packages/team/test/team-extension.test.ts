@@ -50,7 +50,7 @@ describe("team extension manifest (#1220, ADR-0074)", () => {
     expect(raw.name).toBe(TEAM_NAME);
     expect(raw.version).toBe(TEAM_VERSION);
     expect(raw.entry).toEqual(["src/index.ts"]);
-    expect(raw.capabilities).toEqual(["spawn-subagent", "contribute-tool:team"]);
+    expect(raw.capabilities).toEqual(["spawn-subagent", "contribute-tool:team", "contribute-panels"]);
     // The enable question's NOT-do list lives in the manifest reasoning.
     expect(raw.reasoning).toContain("peer messaging");
     expect(raw.reasoning).toContain("spawn grandchildren");
@@ -58,7 +58,7 @@ describe("team extension manifest (#1220, ADR-0074)", () => {
 
   test("the manifest authority hashes the bytes on disk with the declared capabilities", () => {
     const authority = teamManifestAuthority();
-    expect(authority.capabilities).toEqual(["spawn-subagent", "contribute-tool:team"]);
+    expect(authority.capabilities).toEqual(["spawn-subagent", "contribute-tool:team", "contribute-panels"]);
     expect(authority.hash).toMatch(/^[0-9a-f]{64}$/);
     expect(authority.reasoning).toContain("up to 10 concurrent children");
   });
@@ -88,14 +88,14 @@ describe("enable consent (#1220, ADR-0053/0055 style)", () => {
 
     expect(asked).toHaveLength(1);
     expect(asked[0]!.name).toBe(TEAM_NAME);
-    expect(asked[0]!.capabilities).toEqual(["spawn-subagent", "contribute-tool:team"]);
+    expect(asked[0]!.capabilities).toEqual(["spawn-subagent", "contribute-tool:team", "contribute-panels"]);
     expect(asked[0]!.reasoning).toContain("peer messaging");
     expect(typeof ctx!.spawnSubagent).toBe("function");
     expect(typeof ctx!.subagentActivity).toBe("function");
 
     const instance = rt.instances.find((i) => i.def.name === TEAM_NAME);
     expect(instance).toBeDefined();
-    expect(instance!.grantedCapabilities).toEqual(["spawn-subagent", "contribute-tool:team"]);
+    expect(instance!.grantedCapabilities).toEqual(["spawn-subagent", "contribute-tool:team", "contribute-panels"]);
   });
 
   test("the enable is remembered; removing the stored consent removes the capability", async () => {
@@ -232,6 +232,28 @@ describe("one-member team end to end (#1221, ADR-0055)", () => {
     }
   });
 
+  test("a live session drives the roster: the member settles to done in the panel", async () => {
+    const rt = runtime();
+    await rt.register(createTeamExtension(), { manifest: teamManifestAuthority() });
+    await rt.ready();
+    const panel = rt.panels()[0]!;
+    expect(String(panel.render())).toContain("no members yet");
+
+    const session = teamSession(rt, { mode: "yolo" });
+    const events = tap(session);
+    await session.send("work on the flaky width test with the team");
+    await session.dispose();
+
+    const frame = String(panel.render());
+    expect(frame).toContain("team: 1 member");
+    expect(frame).toContain("✓ builder");
+    // The detail view opens on the client's forwarded return key.
+    expect(panel.onKey!("\r", { input: "\r", return: true })).toBe(true);
+    const detail = String(panel.render());
+    expect(detail).toContain("builder · builder");
+    expect(detail).not.toContain("reasoning");
+  });
+
   test("normal mode: the team call asks first (the ADR-0055 consent posture) and a yes drives the same loop", async () => {
     const { events, turn } = await runTeamSession({ mode: "normal", answer: "yes" });
 
@@ -316,7 +338,7 @@ describe("spawn through the ADR-0055 API (#1220)", () => {
     // /extensions (#1131): the live surface names the extension with its
     // grant list — the modal and the headless notify fallback read this.
     const live = session.extensionLiveInfo().find((i) => i.name === TEAM_NAME);
-    expect(live?.capabilities).toEqual(["spawn-subagent", "contribute-tool:team"]);
+    expect(live?.capabilities).toEqual(["spawn-subagent", "contribute-tool:team", "contribute-panels"]);
     await session.dispose();
   });
 });

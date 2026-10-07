@@ -29,6 +29,8 @@ import { dirname, join } from "node:path";
 import { defineExtension, MOH_EXTENSION_API_VERSION, type ExtensionDefinition } from "@moh/extension";
 import { z } from "zod";
 import { TASK_CLAIMED, TASK_COMPLETED, TASK_CREATED, TaskBag, type BagTask } from "./task-bag";
+import { createTeamPanel, createTeamPanelState, markMemberWorking, settleMember, type TeamPanelState } from "./panel";
+export { createTeamPanelState, type PanelMember, type PanelMemberStatus, type TeamPanelState } from "./panel";
 export { replayBoard, TASK_CLAIMED, TASK_COMPLETED, TASK_CREATED, TaskBag } from "./task-bag";
 
 /** The extension's name, as stamped in the log and shown in /extensions. */
@@ -203,7 +205,11 @@ async function spawnMemberLaned(
   ctx: import("@moh/extension").ExtensionSetupContext,
   m: TeamMember,
   prompt: string,
+  panelState: TeamPanelState | undefined,
 ): Promise<{ result: { callId: string; status: "done" | "error" | "cancelled"; output: string; error?: string }; laneSkipped: boolean }> {
+  // The panel's live roster rides the same paths the tool drives (#1225):
+  // dispatched here, settled below, never a second bookkeeping channel.
+  markMemberWorking(panelState, m, lastLine(prompt));
   const buildSpec = (task: string) => ({
     name: m.name,
     task,
@@ -215,10 +221,19 @@ async function spawnMemberLaned(
   });
   const result = await ctx.spawnSubagent!(buildSpec(m.lane !== undefined ? `${prompt}\n\nlane: ${m.lane}` : prompt));
   if (m.lane === undefined || !/no active lane for branch/.test(result.error ?? "")) {
+    settleMember(panelState, m.name, result.status, { outputChars: result.output.length, error: result.error, currentTool: (await ctx.subagentActivity?.(result.callId))?.currentTool ?? null });
     return { result, laneSkipped: false };
   }
   ctx.appendEvent({ name: TEAM_LANE_SKIPPED, payload: { member: m.name, lane: m.lane } });
-  return { result: await ctx.spawnSubagent!(buildSpec(prompt)), laneSkipped: true };
+  const retried = await ctx.spawnSubagent!(buildSpec(prompt));
+  settleMember(panelState, m.name, retried.status, { outputChars: retried.output.length, error: retried.error, currentTool: (await ctx.subagentActivity?.(retried.callId))?.currentTool ?? null });
+  return { result: retried, laneSkipped: true };
+}
+
+/** The roster line's task text: the prompt's own last line. */
+function lastLine(text: string): string {
+  const line = text.trimEnd().split("\n").at(-1) ?? text;
+  return line.length > 60 ? `${line.slice(0, 59)}…` : line;
 }
 
 /**
@@ -238,6 +253,7 @@ async function selfServeLoop(
   bag: TaskBag,
   roster: readonly TeamMember[],
   work: string,
+  panelState?: TeamPanelState,
 ): Promise<string> {
   const reports: string[] = [];
   // A failed completion releases the task back to open; without a guard the
@@ -260,9 +276,12 @@ async function selfServeLoop(
     if (!bag.claim(next.id, member)) break;
     const callId = members.get(member);
     const prompt = `${work}\n\nTask ${next.id}: ${next.title}`;
+    markMemberWorking(panelState, memberSpec, `Task ${next.id}: ${next.title}`);
     const steered = callId !== undefined ? await ctx.steerSubagent!(callId, prompt) : null;
-    const spawned = steered !== null ? { result: steered, laneSkipped: false } : await spawnMemberLaned(ctx, memberSpec, prompt);
+    const spawned = steered !== null ? { result: steered, laneSkipped: false } : await spawnMemberLaned(ctx, memberSpec, prompt, panelState);
     const outcome = spawned.result;
+    const loopActivity = await ctx.subagentActivity?.(outcome.callId);
+    settleMember(panelState, member, outcome.status, { outputChars: outcome.output.length, error: outcome.error, currentTool: loopActivity?.currentTool ?? null });
     if (spawned.laneSkipped) skippedLanes.set(member, memberSpec.lane!);
     if (outcome.callId) members.set(member, outcome.callId);
     bag.complete(next.id, outcome.status);
@@ -300,7 +319,7 @@ export function createTeamExtension(): ExtensionDefinition {
     name: TEAM_NAME,
     version: TEAM_VERSION,
     apiVersion: MOH_EXTENSION_API_VERSION,
-    capabilities: ["spawn-subagent", "contribute-tool:team"],
+    capabilities: ["spawn-subagent", "contribute-tool:team", "contribute-panels"],
     setup: (ctx) => {
       // Ticket #1221 (slice 2b): the one-member team, end to end. The
       // model sees the `team` tool; when the user asks to work on
@@ -322,6 +341,11 @@ export function createTeamExtension(): ExtensionDefinition {
       // The members this lead spawned: name → callId, the set steering
       // can reach. A member that is not here does not exist.
       const members = new Map<string, string>();
+      // The panel's live roster (#1225): the same paths the tool drives
+      // mark and settle the members, and the render reads this state per
+      // frame. No second bookkeeping channel; never provider reasoning.
+      const panelState = createTeamPanelState();
+      const toolState = ctx.state as { bag?: TaskBag; roster?: TeamMember[] };
       ctx.registerTool({
         name: "team",
         description:
@@ -387,7 +411,7 @@ export function createTeamExtension(): ExtensionDefinition {
             const outcomes = await Promise.all(
               dispatched.map(async ({ m, memberTask }) => {
                 const prompt = brief !== undefined ? `${brief}\n\n${memberTask}` : memberTask;
-                const { result, laneSkipped } = await spawnMemberLaned(ctx, m, prompt);
+                const { result, laneSkipped } = await spawnMemberLaned(ctx, m, prompt, panelState);
                 if (result.callId) members.set(m.name, result.callId);
                 const activity = await ctx.subagentActivity?.(result.callId);
                 recordMemberDone(ctx, {
@@ -451,7 +475,7 @@ export function createTeamExtension(): ExtensionDefinition {
             // nothing claimable remains (dependencies or the bag's end).
             // Star-shaped: a member's prompt names only its own task —
             // never the bag, never another member.
-            return await selfServeLoop(ctx, members, bag, roster, work);
+            return await selfServeLoop(ctx, members, bag, roster, work, panelState);
           }
           if (member !== undefined || message !== undefined) {
             if (compose !== undefined || plan !== undefined || work !== undefined) {
@@ -464,13 +488,17 @@ export function createTeamExtension(): ExtensionDefinition {
               const known = [...members.keys()];
               return `team: no member "${member}"${known.length > 0 ? ` — members: ${known.join(", ")}` : " — the team has no members yet"}`;
             }
+            const known = state.roster?.find((m) => m.name === member);
+            if (known) markMemberWorking(panelState, known, lastLine(message));
             const result = await ctx.steerSubagent!(callId, message);
             if (!result) {
+              if (known) settleMember(panelState, member, "error", { error: "not reachable for steering" });
               return `team: refused — member "${member}" is not reachable for steering`;
             }
             // The lead's view of the member: the post-steering outcome
             // recorded once, so the log holds what the extension read.
             const activity = await ctx.subagentActivity?.(callId);
+            settleMember(panelState, member, result.status, { outputChars: result.output.length, error: result.error, currentTool: activity?.currentTool ?? null });
             ctx.appendEvent({
               name: "team_member_steer",
               payload: {
@@ -495,9 +523,11 @@ export function createTeamExtension(): ExtensionDefinition {
           if (plan !== undefined) {
             return "team: refused — pass either `task` (spawn) or `plan` (decompose the brief), not both";
           }
+          markMemberWorking(panelState, { name: "builder", role: "builder" }, lastLine(task));
           const result = await ctx.spawnSubagent!({ name: "builder", task });
           if (result.callId) members.set("builder", result.callId);
           const activity = await ctx.subagentActivity?.(result.callId);
+          settleMember(panelState, "builder", result.status, { outputChars: result.output.length, error: result.error, currentTool: activity?.currentTool ?? null });
           recordMemberDone(ctx, {
             callId: result.callId,
             member: "builder",
@@ -511,6 +541,13 @@ export function createTeamExtension(): ExtensionDefinition {
             : `team member builder ${result.status}${result.error ? `: ${result.error}` : ""}`;
         },
       });
+      // The rail panel (#1225, ADR-0062 as amended): only with the
+      // `contribute-panels` grant (enforcement by absence). One panel,
+      // the roster with the detail view inside it; keys reach it only
+      // through the client's focus-mode forwarding.
+      if (typeof ctx.registerPanel === "function") {
+        ctx.registerPanel(createTeamPanel(panelState, () => (toolState.bag instanceof TaskBag ? [...toolState.bag.tasks.values()] : [])));
+      }
     },
   });
 }
@@ -531,10 +568,10 @@ export default createTeamExtension;
 export const teamBundledSource = {
   name: TEAM_NAME,
   manifest: {
-    capabilities: ["spawn-subagent", "contribute-tool:team"] as string[],
+    capabilities: ["spawn-subagent", "contribute-tool:team", "contribute-panels"] as string[],
     // ADR-0066: the NOT-do list rides the enable question.
     reasoning:
-      "The team extension coordinates child sessions as one team: up to 10 concurrent children, per-role path scopes, one stop for everything it started. It does not add peer messaging between members — steering flows through the team lead — and its children never spawn grandchildren.",
+      "The team extension coordinates child sessions as one team: up to 10 concurrent children, per-role path scopes, one stop for everything it started, and one live panel in the extensions rail (roster and member detail, read-only). It does not add peer messaging between members — steering flows through the team lead — and its children never spawn grandchildren.",
   },
   // ADR-0074: the enable consent names the envelope — the user grants it,
   // the stored answer remembers it. Shipping in the binary does not grant it.

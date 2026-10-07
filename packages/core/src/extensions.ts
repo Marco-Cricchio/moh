@@ -58,7 +58,7 @@ import {
 } from "@moh/extension";
 import type { BeforeTurnResult } from "@moh/extension";
 import type { AgentEvent, ExtensionStatus, ThinkingLevel, TokenUsage } from "./types";
-import type { ExtensionSpawnSpec } from "@moh/extension";
+import type { ExtensionSpawnSpec, PanelKeyEvent } from "@moh/extension";
 import type { SubagentHost } from "./subagents";
 import { checkScope } from "./check-scope";
 import { ExtensionSpawnRefusedError } from "./extension-scope";
@@ -802,7 +802,14 @@ export class ExtensionRuntime {
   /** ADR-0062 (#1132): every registered panel, in extension order — one
    * per extension (a second registration from the same extension is
    * refused). Empty without the grant or without registrations. */
-  panels(): { extension: string; name: string; description: string; maxHeight?: number; render(): unknown }[] {
+  panels(): {
+    extension: string;
+    name: string;
+    description: string;
+    maxHeight?: number;
+    render(): unknown;
+    onKey?(input: string, key: PanelKeyEvent): boolean;
+  }[] {
     return this.#instances
       .filter((i) => i.panel !== null)
       .map((i) => ({
@@ -811,6 +818,9 @@ export class ExtensionRuntime {
         description: typeof i.panel!.description === "string" && i.panel!.description.length > 0 ? i.panel!.description : `panel by ${i.def.name}`,
         ...(typeof i.panel!.maxHeight === "number" && i.panel!.maxHeight > 0 ? { maxHeight: i.panel!.maxHeight } : {}),
         render: () => i.panel!.render(),
+        // apiVersion 1.17: the focused-key seam rides only when the panel
+        // declared it — absence keeps the panel purely read-only.
+        ...(typeof i.panel!.onKey === "function" ? { onKey: (input: string, key: PanelKeyEvent) => i.panel!.onKey!(input, key) } : {}),
       }));
   }
 

@@ -1540,7 +1540,7 @@ function AppShell({
       modelLabel={modelLabel}
       blocked={blocked}
       filePreview={config.filePreview}
-      inputFocused={focusedChip === null}
+      inputFocused={focusedChip === null && !(railFocused && !overlayOpen)}
       composerDimmed={railFocused && !overlayOpen}
       composerHandle={composerRef}
       focusedChip={focusedChip}

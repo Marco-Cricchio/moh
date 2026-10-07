@@ -5,13 +5,16 @@
  * its declared max-height, an extension that throws contributes one visible
  * failure line instead of crashing the session, the narrow-terminal form is
  * a footer strip rather than the zone, and a full-screen overlay opens
- * through ExtensionOverlayView and closes on Esc.
+ * through ExtensionOverlayView and closes on Esc. #1225: in focus mode the
+ * client forwards the keys it does not consume to the focused panel's
+ * onKey, and a consumed key costs the panel one re-render.
  */
 import { describe, expect, test } from "bun:test";
 import React from "react";
 import { Text } from "ink";
 import { render } from "ink-testing-library";
 import { ExtensionOverlayView, ExtensionsRail } from "../src/ExtensionsRail";
+import type { PanelKeyEvent } from "@moh/extension";
 import { RAIL_MIN_ROWS } from "../src/rail-layout";
 import { ThemeProvider, THEMES, DEFAULT_THEME } from "../src/themes";
 import { stripAnsi } from "./helpers";
@@ -124,6 +127,150 @@ describe("ExtensionsRail (#1132)", () => {
     const frame = i.frame();
     expect(frame).toContain("status");
     expect(frame).not.toContain("other");
+    i.unmount();
+  });
+});
+
+describe("focused keys → the panel's onKey (#1225)", () => {
+  function keysPanel(seen: { input: string; key: PanelKeyEvent }[]) {
+    return {
+      extension: "ops",
+      name: "keys",
+      description: "key seam",
+      maxHeight: 6,
+      render: () => React.createElement(Text, null, `seen ${seen.length}`),
+      onKey: (input: string, key: PanelKeyEvent) => {
+        seen.push({ input, key });
+        return true;
+      },
+    };
+  }
+
+  test("in focus mode a non-client key reaches onKey and a consumed key re-renders", async () => {
+    const seen: { input: string; key: PanelKeyEvent }[] = [];
+    const i = mount(<ExtensionsRail panels={[keysPanel(seen)]} collapsed={new Set()} columns={120} rows={ROWS} focused />);
+    await new Promise((r) => setTimeout(r, 30));
+    expect(i.frame()).toContain("seen 0");
+    i.instance.stdin.write("x");
+    await new Promise((r) => setTimeout(r, 30));
+    expect(seen.map((s) => s.input)).toEqual(["x"]);
+    expect(seen[0]!.key.return).toBeUndefined();
+    expect(i.frame()).toContain("seen 1"); // the consumed key cost one re-render
+    i.unmount();
+  });
+
+  test("esc stays the client's: the panel never sees it and focus exits", async () => {
+    const seen: { input: string; key: PanelKeyEvent }[] = [];
+    let exited = 0;
+    const i = mount(
+      <ExtensionsRail
+        panels={[keysPanel(seen)]}
+        collapsed={new Set()}
+        columns={120}
+        rows={ROWS}
+        focused
+        onFocusExit={() => {
+          exited += 1;
+        }}
+      />,
+    );
+    await new Promise((r) => setTimeout(r, 30));
+    i.instance.stdin.write("\x1b");
+    await new Promise((r) => setTimeout(r, 30));
+    expect(seen).toEqual([]);
+    expect(exited).toBe(1);
+    i.unmount();
+  });
+
+  test("tab cycles panels, never reaches onKey; j/k scroll instead of forwarding", async () => {
+    const seen: { input: string; key: PanelKeyEvent }[] = [];
+    const lines = (n: number) =>
+      React.createElement(React.Fragment, null, Array.from({ length: n }, (_, k) => React.createElement(Text, { key: k }, `line ${k}`)));
+    const scrollPanel: Panel = {
+      extension: "ops",
+      name: "tall",
+      description: "",
+      render: () => lines(20),
+      onKey: (input, key) => {
+        seen.push({ input, key });
+        return true;
+      },
+    };
+    const i = mount(
+      <ExtensionsRail
+        panels={[scrollPanel, panel({ name: "second" })]}
+        collapsed={new Set()}
+        columns={120}
+        rows={ROWS}
+        focused
+      />,
+    );
+    await new Promise((r) => setTimeout(r, 30));
+    i.instance.stdin.write("j"); // scrolls the selected panel — client-owned
+    await new Promise((r) => setTimeout(r, 30));
+    expect(seen).toEqual([]);
+    expect(i.frame()).toContain("↑1"); // the position indicator tracks the window
+    i.instance.stdin.write("\t"); // cycles to "second" — client-owned
+    await new Promise((r) => setTimeout(r, 30));
+    expect(seen).toEqual([]);
+    i.unmount();
+  });
+
+  test("a throwing onKey costs the session nothing — the key is swallowed, the rail keeps rendering", async () => {
+    let exited = 0;
+    const boom: Panel = {
+      extension: "ops",
+      name: "boom",
+      description: "",
+      render: () => React.createElement(Text, null, "alive"),
+      onKey: () => {
+        throw new Error("extension bug");
+      },
+    };
+    const i = mount(
+      <ExtensionsRail
+        panels={[boom]}
+        collapsed={new Set()}
+        columns={120}
+        rows={ROWS}
+        focused
+        onFocusExit={() => {
+          exited += 1;
+        }}
+      />,
+    );
+    await new Promise((r) => setTimeout(r, 30));
+    i.instance.stdin.write("x");
+    await new Promise((r) => setTimeout(r, 30));
+    expect(i.frame()).toContain("alive");
+    i.instance.stdin.write("y");
+    await new Promise((r) => setTimeout(r, 30));
+    expect(i.frame()).toContain("alive"); // the input loop survived the second throw
+    i.instance.stdin.write("\x1b");
+    await new Promise((r) => setTimeout(r, 30));
+    expect(exited).toBe(1);
+    i.unmount();
+  });
+
+  test("a panel without onKey stays purely read-only — keys are simply ignored", async () => {
+    let exited = 0;
+    const i = mount(
+      <ExtensionsRail
+        panels={[panel()]}
+        collapsed={new Set()}
+        columns={120}
+        rows={ROWS}
+        focused
+        onFocusExit={() => {
+          exited += 1;
+        }}
+      />,
+    );
+    await new Promise((r) => setTimeout(r, 30));
+    i.instance.stdin.write("x");
+    await new Promise((r) => setTimeout(r, 30));
+    expect(i.frame()).toContain("all green");
+    expect(exited).toBe(0);
     i.unmount();
   });
 });

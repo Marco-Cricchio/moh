@@ -22,6 +22,7 @@ import { McpRuntime } from "../mcp";
 import { PromptComposer, type AssembledPrompt, type SkillIndexEntry } from "../prompt-composer";
 import { discoverSkills } from "../skills";
 import { ExtensionRuntime, type ExtensionUIRefusal, type ActiveExtensionOverlay } from "../extensions";
+import type { PanelKeyEvent } from "@moh/extension";
 import { EventLog } from "./event-log";
 import { commercialDeclarationEvent, observationsFromQuotaReport } from "../quota/telemetry";
 import { endpointIdentity } from "../types";
@@ -1664,7 +1665,14 @@ export class AgentSession {
    * per extension, at most 4 across all. `render` is the extension's own
    * Ink render function — opaque to the core, drawn only by a client with
    * a surface (the TUI rail); a headless client never calls it. */
-  extensionPanels(): { extension: string; name: string; description: string; maxHeight?: number; render(): unknown }[] {
+  extensionPanels(): {
+    extension: string;
+    name: string;
+    description: string;
+    maxHeight?: number;
+    render(): unknown;
+    onKey?(input: string, key: PanelKeyEvent): boolean;
+  }[] {
     return this.#extensions?.panels() ?? [];
   }
 

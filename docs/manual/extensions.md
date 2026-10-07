@@ -131,7 +131,12 @@ closes, collapsing to the footer on narrow terminals. At most 4 panels
 are visible across all extensions — a fifth extension asking for a panel
 is refused visibly at load (`panel slot exhausted (4/4) — disable a panel
 in /extensions`), and there is no automatic eviction: collapsing and
-reopening a panel is manual, from `/extensions`. An extension whose grant
+reopening a panel is manual, from `/extensions`. With the rail focused
+(`ctrl+p`) the client scrolls a panel with `j`/`k` and hands the panel
+its remaining keys (apiVersion 1.17): the team panel, for one, uses
+`n`/`p` to move between members and `enter` to open and close the
+member detail inside the panel. `esc` always leaves the rail. An
+extension whose grant
 covers `contribute-overlays` contributes a full-screen overlay, opened by
 the extension's own command and closed with `Esc`. A headless client has
 no rail and no overlays: panels and overlays contribute nothing there —

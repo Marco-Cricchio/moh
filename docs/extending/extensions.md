@@ -160,7 +160,14 @@ added slots are highlighted.
   zone — opaque to the core, never wrapping native components. A
   permission-gated action triggered from a panel callback flows through
   the existing gate (see "Interaction is gated" below) — the gated path
-  is the only path.
+  is the only path. Since apiVersion 1.17 (#1225) the panel may also
+  carry an optional `onKey(input, key): boolean`: while the rail holds
+  focus, the client forwards the keys it does not consume itself —
+  `esc`/`tab` always stay the client's, `j`/`k` and the arrows keep
+  scrolling the panel's window — and a returned `true` costs one
+  re-render so the next `render()` draws the new state. Ownership stays
+  with the client: the panel answers keys only inside focus mode and
+  can never take the rail's own keys away.
 - `registerOverlay(overlay)` — contribute a full-screen overlay, **only
   present when the `contribute-overlays` capability is granted**
   (apiVersion 1.12, ADR-0062). It returns `{ open() }`; call `open()`
@@ -773,7 +780,9 @@ extension's note.
   tool scopes per ADR-0067, #1163 — `ctx.host.runTool` under
   `tool:<name|*>` and `ctx.registerTool` under `contribute-tool:<name>`.
   1.15 added the endpoint scope per ADR-0068, #1164 — `ctx.host.modelCall`
-  and `ctx.host.listModels` under `endpoint:<ref>`.
+  and `ctx.host.listModels` under `endpoint:<ref>`. 1.17 added the
+  optional `onKey` on `ExtensionPanel` — the focused panel answers the
+  keys the client does not consume, #1225, ADR-0062 as amended.
 - **Additive-only within a major**: new hooks and context fields may be
   added; existing ones never change meaning or disappear. Deprecated APIs
   survive one full major.
