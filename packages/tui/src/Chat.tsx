@@ -88,6 +88,13 @@ export interface ChatProps {
   inputFocused?: boolean;
   /** #1218: the rail's Ctrl+P focus mode holds the keys — the composer dims. */
   composerDimmed?: boolean;
+  /** Owner directive: the extensions rail, drawn in a band reserved above
+   * the composer — out of the volatile transcript, never over the composer
+   * frame or the footer. The band's height rides `railBand`. */
+  railContent?: React.ReactNode;
+  /** Rows the `railContent` band occupies (0 = no rail): reserved out of
+   * the volatile transcript so the composer's rows never move. */
+  railBand?: number;
   focusedChip?: number | null;
   tokens?: SidebarTokens;
   /** Context-bar denominator (note 11): the active model's catalog window,
@@ -211,6 +218,8 @@ export function Chat({
   width,
   inputFocused = true,
   composerDimmed = false,
+  railContent = null,
+  railBand = 0,
   focusedChip = null,
   tokens = EMPTY_TOKENS,
   contextLimit,
@@ -599,6 +608,14 @@ export function Chat({
   // least 8); this is chrome budgeted out of the volatile transcript
   // below, never unbounded panel growth.
   const panelRows = 8;
+  // Owner directive: the extensions rail lives in the chat area — the rows
+  // directly above the composer — never below the composer's top line. The
+  // rail's height is chrome budgeted out of the volatile transcript tail
+  // exactly like the subagent peek: App passes the rows the rail will
+  // occupy (allocation + borders + status lines), Chat reserves that band
+  // and App renders the rail inside it. Without the reservation the rail
+  // overlapped the composer frame and the footer whenever a panel redrew
+  // (the reviewer finishing grew the roster and the panel "moved down").
   // The footer is bottom-anchored. Its changing chrome (peek/chips) takes
   // rows from the volatile transcript budget rather than pushing composer,
   // status and action chips down the terminal.
@@ -612,7 +629,7 @@ export function Chat({
   // This intentionally over-reserves at tiny sizes: a stable footer takes
   // precedence over one more volatile transcript row. #918 adds one plain
   // line while the project root sits on a Windows drive (`/mnt`).
-  const fixedFooterRows = 9 + toastRows + (subagents.length > 0 ? 3 : 0) + (panelOpen ? 1 + panelRows : 0) + (rootOnWindowsMount ? 1 : 0);
+  const fixedFooterRows = 9 + toastRows + railBand + (subagents.length > 0 ? 3 : 0) + (panelOpen ? 1 + panelRows : 0) + (rootOnWindowsMount ? 1 : 0);
   const footerRows = fixedFooterRows + composerRows;
   // #1022: the one transcript row the volatile frame keeps at the floor, plus
   // the safety row ink needs (`outputHeight == rows` already takes the
@@ -1179,6 +1196,10 @@ export function Chat({
             : {})}
         />
       ))}</Box>}
+
+      {/* Owner directive: the extensions rail band — above the composer,
+          inside the volatile region, budgeted out of the transcript tail. */}
+      {railContent !== null && <Box flexDirection="row" justifyContent="flex-end" flexShrink={0} height={Math.max(1, railBand)}>{railContent}</Box>}
 
       {/* #497: the subagent peek — the panel content rides the volatile
           region above the footer (the only layout, at every width). */}
