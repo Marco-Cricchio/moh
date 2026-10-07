@@ -180,6 +180,11 @@ added slots are highlighted.
   stop aborts every child you started. The spec mirrors the model-facing
   spawn tool (`preset`, `task`, `systemPrompt`, `allowedTools`,
   `maxIterations`); unknown tool names and presets refuse the spawn.
+  `pathScopes` (#1224) restricts the child's writes to project-root
+  globs through the permission spine — a bare deny on `write`/`edit`
+  with per-scope allows, logged as `permission_denied` and holding even
+  in yolo; an empty array is fully read-only — and `model` pins the
+  child's own route (`endpoint/model-id`, ADR-0050).
 - `subagentActivity(callId)` — bounded turn-activity read of a child you
   spawned (same capability slot, apiVersion 1.13): the child-tail shape —
   messages, tool calls and outcomes, activity — never the provider
