@@ -181,8 +181,16 @@ function RailColumn({
       if (input === "k" || key.upArrow) return scroll(panel.name, body, natural, -1);
       // The keys the client does not consume go to the panel (#1225): the
       // client keeps the rail — esc/tab/j/k/scroll — the extension only
-      // answers inside it. A consumed key costs one re-render.
-      if (panel.onKey && panel.onKey(input, panelKeyEvent(input, key))) bumpForKey();
+      // answers inside it. A consumed key costs one re-render. The call
+      // sits outside the PanelBoundary (that guards rendering), so the
+      // extension's own throw is its one visible record, never a crash
+      // of the input loop around it — the same discipline as a render.
+      if (!panel.onKey) return;
+      try {
+        if (panel.onKey(input, panelKeyEvent(input, key))) bumpForKey();
+      } catch {
+        bumpForKey(); // redraw: the failure line (boundary) or the honest state
+      }
     },
     { isActive: focused },
   );

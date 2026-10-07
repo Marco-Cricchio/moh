@@ -5,7 +5,6 @@
  * text — and the keys reach it only through the client's focus forwarding.
  */
 import { describe, expect, test } from "bun:test";
-import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { ExtensionRuntime, type ExtensionConsentRequest } from "@moh/core";
 import { readFileSync } from "node:fs";
@@ -22,12 +21,15 @@ describe("team panel state (#1225)", () => {
     markMemberWorking(state, { name: "builder-1", role: "builder", scope: "src/**" }, "Task t1: build it");
     expect(state.members.get("builder-1")?.status).toBe("working");
     expect(state.members.get("builder-1")?.task).toBe("Task t1: build it");
-    settleMember(state, "builder-1", "done", { outputChars: 120, currentTool: "bash" });
+    settleMember(state, "builder-1", "done", { outputChars: 120 });
     const member = state.members.get("builder-1")!;
     expect(member.status).toBe("done");
     expect(member.outputChars).toBe(120);
-    // The current tool clears on settle: a finished member runs nothing.
-    expect(member.currentTool).toBe("bash");
+    // A settle without an observation clears the tool: a finished member
+    // runs nothing.
+    expect(member.currentTool).toBe(null);
+    settleMember(state, "builder-1", "working", { currentTool: "bash" });
+    expect(state.members.get("builder-1")!.currentTool).toBe("bash");
   });
 
   test("a second dispatch refreshes the member in place, keeping its envelope", () => {
@@ -151,11 +153,15 @@ describe("team panel registration (#1225, ADR-0062 as amended)", () => {
   });
 });
 
-// The physical manifest stays the authority; this read keeps the test
-// honest about what ships (the runtime test above registers the declared
-// code capabilities for the absent-grant case).
-expect(JSON.parse(readFileSync(teamManifestAuthority().path, "utf8")).capabilities).toEqual([
-  "spawn-subagent",
-  "contribute-tool:team",
-  "contribute-panels",
-]);
+describe("the shipped manifest (#1225)", () => {
+  // The physical manifest stays the authority; this read keeps the suite
+  // honest about what ships (the runtime test above registers the
+  // declared code capabilities for the absent-grant case).
+  test("the physical manifest declares the panels grant", () => {
+    expect(JSON.parse(readFileSync(teamManifestAuthority().path, "utf8")).capabilities).toEqual([
+      "spawn-subagent",
+      "contribute-tool:team",
+      "contribute-panels",
+    ]);
+  });
+});

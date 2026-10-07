@@ -216,6 +216,42 @@ describe("focused keys → the panel's onKey (#1225)", () => {
     i.unmount();
   });
 
+  test("a throwing onKey costs the session nothing — the key is swallowed, the rail keeps rendering", async () => {
+    let exited = 0;
+    const boom: Panel = {
+      extension: "ops",
+      name: "boom",
+      description: "",
+      render: () => React.createElement(Text, null, "alive"),
+      onKey: () => {
+        throw new Error("extension bug");
+      },
+    };
+    const i = mount(
+      <ExtensionsRail
+        panels={[boom]}
+        collapsed={new Set()}
+        columns={120}
+        rows={ROWS}
+        focused
+        onFocusExit={() => {
+          exited += 1;
+        }}
+      />,
+    );
+    await new Promise((r) => setTimeout(r, 30));
+    i.instance.stdin.write("x");
+    await new Promise((r) => setTimeout(r, 30));
+    expect(i.frame()).toContain("alive");
+    i.instance.stdin.write("y");
+    await new Promise((r) => setTimeout(r, 30));
+    expect(i.frame()).toContain("alive"); // the input loop survived the second throw
+    i.instance.stdin.write("\x1b");
+    await new Promise((r) => setTimeout(r, 30));
+    expect(exited).toBe(1);
+    i.unmount();
+  });
+
   test("a panel without onKey stays purely read-only — keys are simply ignored", async () => {
     let exited = 0;
     const i = mount(

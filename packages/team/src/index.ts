@@ -221,12 +221,12 @@ async function spawnMemberLaned(
   });
   const result = await ctx.spawnSubagent!(buildSpec(m.lane !== undefined ? `${prompt}\n\nlane: ${m.lane}` : prompt));
   if (m.lane === undefined || !/no active lane for branch/.test(result.error ?? "")) {
-    settleMember(panelState, m.name, result.status, { outputChars: result.output.length, error: result.error });
+    settleMember(panelState, m.name, result.status, { outputChars: result.output.length, error: result.error, currentTool: (await ctx.subagentActivity?.(result.callId))?.currentTool ?? null });
     return { result, laneSkipped: false };
   }
   ctx.appendEvent({ name: TEAM_LANE_SKIPPED, payload: { member: m.name, lane: m.lane } });
   const retried = await ctx.spawnSubagent!(buildSpec(prompt));
-  settleMember(panelState, m.name, retried.status, { outputChars: retried.output.length, error: retried.error });
+  settleMember(panelState, m.name, retried.status, { outputChars: retried.output.length, error: retried.error, currentTool: (await ctx.subagentActivity?.(retried.callId))?.currentTool ?? null });
   return { result: retried, laneSkipped: true };
 }
 
@@ -280,7 +280,8 @@ async function selfServeLoop(
     const steered = callId !== undefined ? await ctx.steerSubagent!(callId, prompt) : null;
     const spawned = steered !== null ? { result: steered, laneSkipped: false } : await spawnMemberLaned(ctx, memberSpec, prompt, panelState);
     const outcome = spawned.result;
-    settleMember(panelState, member, outcome.status, { outputChars: outcome.output.length, error: outcome.error });
+    const loopActivity = await ctx.subagentActivity?.(outcome.callId);
+    settleMember(panelState, member, outcome.status, { outputChars: outcome.output.length, error: outcome.error, currentTool: loopActivity?.currentTool ?? null });
     if (spawned.laneSkipped) skippedLanes.set(member, memberSpec.lane!);
     if (outcome.callId) members.set(member, outcome.callId);
     bag.complete(next.id, outcome.status);
@@ -496,8 +497,8 @@ export function createTeamExtension(): ExtensionDefinition {
             }
             // The lead's view of the member: the post-steering outcome
             // recorded once, so the log holds what the extension read.
-            settleMember(panelState, member, result.status, { outputChars: result.output.length, error: result.error });
             const activity = await ctx.subagentActivity?.(callId);
+            settleMember(panelState, member, result.status, { outputChars: result.output.length, error: result.error, currentTool: activity?.currentTool ?? null });
             ctx.appendEvent({
               name: "team_member_steer",
               payload: {
@@ -525,8 +526,8 @@ export function createTeamExtension(): ExtensionDefinition {
           markMemberWorking(panelState, { name: "builder", role: "builder" }, lastLine(task));
           const result = await ctx.spawnSubagent!({ name: "builder", task });
           if (result.callId) members.set("builder", result.callId);
-          settleMember(panelState, "builder", result.status, { outputChars: result.output.length, error: result.error });
           const activity = await ctx.subagentActivity?.(result.callId);
+          settleMember(panelState, "builder", result.status, { outputChars: result.output.length, error: result.error, currentTool: activity?.currentTool ?? null });
           recordMemberDone(ctx, {
             callId: result.callId,
             member: "builder",
