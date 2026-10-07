@@ -77,10 +77,6 @@ export interface ExtensionsRailProps {
   onFocusExit?: () => void;
   /** Clamps the client applied to a declared maxHeight, for /extensions. */
   onClamp?: (clamps: ReadonlyMap<string, { max: number; shown: number }>) => void;
-  /** Owner directive: the total height the rail actually draws (panel boxes
-   * with borders + status lines), reported every layout so the client can
-   * reserve exactly this many rows above the composer. */
-  onLayout?: (height: number) => void;
 }
 
 /** Renders one extension panel's content behind an error boundary — the
@@ -100,7 +96,7 @@ class PanelBoundary extends React.Component<{ children: React.ReactNode }, { fai
   }
 }
 
-export function ExtensionsRail({ panels, collapsed, columns, rows, focused = false, onFocusExit, onClamp, onLayout }: ExtensionsRailProps) {
+export function ExtensionsRail({ panels, collapsed, columns, rows, focused = false, onFocusExit, onClamp }: ExtensionsRailProps) {
   const theme = useTheme();
   const visible = panels.filter((p) => !collapsed.has(p.name));
   if (visible.length === 0) return null;
@@ -119,32 +115,26 @@ export function ExtensionsRail({ panels, collapsed, columns, rows, focused = fal
   return (
     <RailColumn
       panels={visible}
-      collapsed={collapsed}
       rows={rows}
       focused={focused}
       onFocusExit={onFocusExit}
       onClamp={onClamp}
-      onLayout={onLayout}
     />
   );
 }
 
 function RailColumn({
   panels,
-  collapsed,
   rows,
   focused,
   onFocusExit,
   onClamp,
-  onLayout,
 }: {
   panels: ExtensionsRailProps["panels"];
-  collapsed: ReadonlySet<string>;
   rows: number;
   focused: boolean;
   onFocusExit?: () => void;
   onClamp?: ExtensionsRailProps["onClamp"];
-  onLayout?: (height: number) => void;
 }) {
   const theme = useTheme();
   // Hybrid demand (#1218): the natural render height per panel, measured
@@ -228,14 +218,6 @@ function RailColumn({
 
   return (
     <Box flexDirection="column" width={RAIL_WIDTH + 1} flexShrink={0}>
-      <RailLayoutReport
-        panels={panels}
-        collapsed={collapsed}
-        allocations={allocations}
-        cappedCount={capped.length}
-        overlayAdvices={panels.filter((p) => p.maxHeight !== undefined && suggestOverlay(p.maxHeight, rows)).length}
-        onLayout={onLayout}
-      />
       {panels.map((p, i) => {
         const a = allocations[i]!;
         const isFocused = focused && p.name === selectedName;
@@ -294,35 +276,6 @@ function RailColumn({
       )}
     </Box>
   );
-}
-
-/** Reports the rail's total drawn height (panel boxes with their borders,
- * plus the status lines) every layout. The client reserves exactly this many
- * rows above the composer — the composer's rows never move when a panel
- * redraws. */
-function RailLayoutReport({
-  panels,
-  collapsed,
-  allocations,
-  cappedCount,
-  overlayAdvices,
-  onLayout,
-}: {
-  panels: ExtensionsRailProps["panels"];
-  collapsed: ReadonlySet<string>;
-  allocations: ReturnType<typeof allocatePanels>;
-  cappedCount: number;
-  overlayAdvices: number;
-  onLayout?: (height: number) => void;
-}) {
-  const visible = panels.filter((p) => !collapsed.has(p.name));
-  const height = visible.reduce((sum, _, i) => sum + allocations[i]!.height + 2 + (i < visible.length - 1 ? 1 : 0), 0)
-    + (cappedCount > 0 ? 1 : 0) + (overlayAdvices > 0 ? 1 : 0);
-  useEffect(() => {
-    onLayout?.(height);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [height]);
-  return null;
 }
 
 /** The client-drawn header (#1218 decision 4): identity plus the real

@@ -377,6 +377,9 @@ describe("rail auto-open on the first panels (owner directive, pre-main)", () =>
         <App intro={false} cwd={tempDir()} home={tempHome()} provider={MockProvider.demo()} startInChat skipOnboarding session={session} />
       </ThemeProvider>,
     );
+    Object.defineProperty(i.stdout, "columns", { value: 100, configurable: true });
+    Object.defineProperty(i.stdout, "rows", { value: 30, configurable: true });
+    i.stdout.emit("resize");
     const frame = () => stripAnsi(i.lastFrame() ?? "");
     try {
       // Before any send: the panel is mounted but the team does not exist
@@ -393,6 +396,29 @@ describe("rail auto-open on the first panels (owner directive, pre-main)", () =>
         () => "the team panel to be visible with no user toggle",
         { timeoutMs: 8000 },
       );
+      await waitForCondition(() => frame().includes("team team") && frame().includes("team: 1 member"), () => frame());
+      const lines = frame().split("\n");
+      const header = lines.findIndex((line) => line.includes("team team"));
+      const roster = lines.findIndex((line) => line.includes("team: 1 member"));
+      const composer = lines.findIndex((line) => line.includes("shift+enter"));
+      expect(header).toBeGreaterThanOrEqual(1);
+      expect(lines[header]!.indexOf("team team")).toBeGreaterThan(60);
+      expect(roster).toBeLessThan(composer);
+      expect(lines.slice(header - 1, composer).some((line) => line.slice(0, 60).trim().length > 0)).toBe(true);
+      i.stdin.write("\x10");
+      await sleep(40);
+      i.stdin.write("\x1b");
+      await sleep(40);
+      i.stdin.write("esc-returned-draft");
+      await waitForCondition(() => frame().includes("esc-returned-draft"), frame);
+      i.stdin.write("\x10");
+      await sleep(40);
+      Object.defineProperty(i.stdout, "rows", { value: 18, configurable: true });
+      i.stdout.emit("resize");
+      await sleep(80);
+      i.stdin.write("short-height-draft");
+      await waitForCondition(() => frame().includes("short-height-draft"), frame);
+      expect(frame()).not.toContain("team team");
       i.unmount();
       await session.dispose();
     } catch (error) {
