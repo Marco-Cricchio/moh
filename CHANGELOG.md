@@ -7,6 +7,22 @@ matching section here at tag time.
 
 ## [Unreleased]
 
+## [0.59.2] - 2026-10-07
+
+### Fixed
+
+- **The right extension rail is anchored to the top of the transcript again**
+  (#1251): the previous anchoring tied the rail's position to the composer's
+  band, so the panel slid down instead of holding its place beside the
+  transcript. The rail is once again laid out from the top of the transcript
+  column, independent of composer height.
+
+### Changed
+
+- **Model catalog refresh**: 3 metered prices and 1 context window updated
+  from the live OpenRouter/model.dev listings (routine drift, generator
+  rebuilt).
+
 ## [0.59.1] - 2026-10-07
 
 ### Added
@@ -2208,6 +2224,7 @@ matching section here at tag time.
   `<home>/.moh/projects`.
 
 [Unreleased]: https://github.com/Marco-Cricchio/moh/compare/v0.59.1...develop
+[0.59.2]: https://github.com/Marco-Cricchio/moh/compare/v0.59.1...v0.59.2
 [0.59.1]: https://github.com/Marco-Cricchio/moh/compare/v0.59.0...v0.59.1
 [0.59.0]: https://github.com/Marco-Cricchio/moh/compare/v0.58.2...v0.59.0
 [0.58.2]: https://github.com/Marco-Cricchio/moh/compare/v0.58.1...v0.58.2
