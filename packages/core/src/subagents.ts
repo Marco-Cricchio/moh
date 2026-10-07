@@ -377,7 +377,7 @@ export class SubagentHost {
    */
   async spawnForExtension(
     extension: string,
-    spec: { preset?: string; name?: string; task: string; systemPrompt?: string; allowedTools?: readonly string[]; pathScopes?: readonly string[]; maxIterations?: number },
+    spec: { preset?: string; name?: string; task: string; systemPrompt?: string; allowedTools?: readonly string[]; pathScopes?: readonly string[]; model?: string; maxIterations?: number },
   ): Promise<{ callId: string } & SubagentResult> {
     const envelope = this.#options.extensionEnvelope;
     const maxSessions = envelope?.maxSessions ?? EXTENSION_MAX_SESSIONS;
@@ -427,6 +427,7 @@ export class SubagentHost {
       ...(spec.name ? { name: spec.name } : {}),
       ...(spec.systemPrompt ? { systemPrompt: spec.systemPrompt } : {}),
       ...(spec.allowedTools ? { allowedTools: [...spec.allowedTools] } : {}),
+      ...(spec.model ? { model: spec.model } : {}),
       ...(spec.maxIterations !== undefined ? { maxIterations: spec.maxIterations } : {}),
     };
     // The envelope counts *created* children (ADR-0053 "children one

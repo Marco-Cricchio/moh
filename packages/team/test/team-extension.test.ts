@@ -8,6 +8,7 @@ import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
+  DevelopmentLaneStore,
   ExtensionRuntime,
   MockProvider,
   createSession,
@@ -437,5 +438,183 @@ describe("steering: write-into-child (#1222, ADR-0055)", () => {
       expect(names).not.toContain("team");
     }
     void events;
+  });
+});
+
+describe("composition by complexity — scoped roles + lanes (#1224, ADR-0074)", () => {
+  function composeSession(
+    teamArgs: Record<string, unknown>,
+    opts: { childTurns?: number; followUp?: { name: string; args: Record<string, unknown> } } = {},
+  ) {
+    const childTurns = opts.childTurns ?? 3;
+    const providerScript: { deltas: string[]; finish: "stop" | "tool_calls"; toolCalls?: { name: string; args: Record<string, unknown> }[] }[] = [
+      {
+        deltas: ["composing the team"],
+        finish: "tool_calls",
+        toolCalls: [{ name: "team", args: teamArgs }],
+      },
+      ...(opts.followUp
+        ? [
+            {
+              deltas: ["adjusting"],
+              finish: "tool_calls" as const,
+              toolCalls: [{ name: "team", args: opts.followUp.args }],
+            },
+          ]
+        : []),
+      { deltas: ["the team reports"], finish: "stop" as const },
+    ];
+    const rt = runtime();
+    void rt.register(createTeamExtension(), { manifest: teamManifestAuthority() });
+    const session = createSession({
+      provider: MockProvider.scripted(providerScript),
+      extensions: rt,
+      subagents: {
+        home: tempDir(),
+        provider: MockProvider.scripted(
+          Array.from({ length: childTurns }, () => ({ deltas: ["member work done"], finish: "stop" as const, usage: { inputTokens: 3, outputTokens: 1 } })),
+        ),
+      },
+      permissions: { unrestrictedTools: true },
+    });
+    const events = tap(session);
+    return { session, events };
+  }
+
+  test("a complex ask composes scoped builders and a read-only reviewer; the decision is recorded", async () => {
+    const { events, session } = composeSession({
+      brief: "Ship the settings page",
+      compose: [
+        { role: "builder", name: "ui", scope: "src/client/**", task: "build the settings UI" },
+        { role: "builder", name: "api", scope: "src/api/**", task: "expose the settings endpoint" },
+        { role: "reviewer", task: "review the settings change end to end" },
+      ],
+    });
+    await session.send("ship the settings page with the team");
+    await session.dispose();
+
+    const composed = events.find((e) => e.type === "extension_event" && (e as { name?: string }).name === "team_composed") as
+      | { payload: { members: { name: string; role: string; scope?: string }[]; dispatched: number } }
+      | undefined;
+    expect(composed).toBeDefined();
+    expect(composed!.payload.members.map((m) => m.name)).toEqual(["ui", "api", "reviewer-1"]);
+    expect(composed!.payload.dispatched).toBe(3);
+
+    const spawns = events.filter((e) => e.type === "subagent_spawn") as Extract<AgentEvent, { type: "subagent_spawn" }>[];
+    expect(spawns).toHaveLength(3);
+    const byName = new Map(spawns.map((s) => [s.name, s]));
+    // Builders are scoped to disjoint paths; the reviewer is read-only by scope.
+    expect(byName.get("ui")!.limits.pathScopes).toEqual(["src/client/**"]);
+    expect(byName.get("api")!.limits.pathScopes).toEqual(["src/api/**"]);
+    expect(byName.get("reviewer-1")!.limits.pathScopes).toEqual([]);
+    // Every member's outcome lands in the log.
+    const dones = events.filter((e) => e.type === "extension_event" && (e as { name?: string }).name === "team_member_done");
+    expect(dones).toHaveLength(3);
+  });
+
+  test("overlapping builder scopes are refused loudly; no child is created", async () => {
+    const { events, session } = composeSession({
+      compose: [
+        { role: "builder", scope: "src/**", task: "a" },
+        { role: "builder", scope: "src/**", task: "b" },
+      ],
+    });
+    await session.send("split the work");
+    await session.dispose();
+    expect(events.find((e) => e.type === "subagent_spawn")).toBeUndefined();
+    const toolResult = events.find((e) => e.type === "tool_result") as { output?: string } | undefined;
+    expect(toolResult?.output).toContain("overlapping builder scopes");
+  });
+
+  test("a reviewer with a scope is refused — read-only is the role itself", async () => {
+    const { events, session } = composeSession({
+      compose: [{ role: "reviewer", scope: "src/**", task: "review" }],
+    });
+    await session.send("review with the team");
+    await session.dispose();
+    expect(events.find((e) => e.type === "subagent_spawn")).toBeUndefined();
+    const toolResult = events.find((e) => e.type === "tool_result") as { output?: string } | undefined;
+    expect(toolResult?.output).toContain("carries no scope or lane");
+  });
+
+  test("a simple ask composes one unscoped builder — the hybrid's single member", async () => {
+    const { events, session } = composeSession({
+      compose: [{ role: "builder", task: "fix the typo" }],
+    }, { childTurns: 1 });
+    await session.send("small fix with the team");
+    await session.dispose();
+    const spawns = events.filter((e) => e.type === "subagent_spawn") as Extract<AgentEvent, { type: "subagent_spawn" }>[];
+    expect(spawns).toHaveLength(1);
+    expect(spawns[0]!.name).toBe("builder-1");
+    // No scope named: the child keeps the plain spawn posture (the hybrid).
+    expect(spawns[0]!.limits.pathScopes).toBeUndefined();
+  });
+
+  test("the composed roster drives the bag: lanes ride the member's spawn, blockedBy order holds", async () => {
+    const projectDir = tempDir();
+    const childHome = tempDir();
+    const store = new DevelopmentLaneStore({ cwd: projectDir, home: childHome });
+    const group = store.createFeatureGroup({ name: "team-lanes-it", targetRef: "develop" });
+    store.createLane({
+      featureGroupId: group.id,
+      sessionId: "session-lane",
+      worktreePath: join(projectDir, "wt-a"),
+      branchRef: "feat/team-ext-4-scratch-a",
+      baseRef: "develop",
+      baseRevision: "abc",
+      targetRef: "develop",
+      relation: "independent",
+    });
+
+    const rt = runtime();
+    void rt.register(createTeamExtension(), { manifest: teamManifestAuthority() });
+    const session = createSession({
+      cwd: projectDir,
+      provider: MockProvider.scripted([
+        {
+          deltas: ["planning"],
+          finish: "tool_calls",
+          toolCalls: [{ name: "team", args: { plan: [{ title: "first" }, { title: "second", blockedBy: ["t1"] }] } }],
+        },
+        {
+          deltas: ["composing"],
+          finish: "tool_calls",
+          toolCalls: [{ name: "team", args: { compose: [{ role: "builder", name: "lane-a", lane: "feat/team-ext-4-scratch-a" }], work: "work the bag" } }],
+        },
+        { deltas: ["done"], finish: "stop" },
+      ]),
+      extensions: rt,
+      subagents: {
+        home: childHome,
+        lanes: { cwd: projectDir },
+        provider: MockProvider.scripted([
+          { deltas: ["member work done"], finish: "stop" },
+          { deltas: ["member work done"], finish: "stop" },
+        ]),
+      },
+      permissions: { unrestrictedTools: true },
+    });
+    const events = tap(session);
+    await session.send("split the plan across the team");
+    await session.dispose();
+
+    const claimed = events
+      .filter((e) => e.type === "extension_event" && (e as { name?: string }).name === "team_task_claimed")
+      .map((e) => (e as { payload: { id: string; member: string } }).payload);
+    // Blocked-by order: t2 is claimed only after t1 completes; the lane
+    // builder owns both claims.
+    expect(claimed).toEqual([
+      { id: "t1", member: "lane-a" },
+      { id: "t2", member: "lane-a" },
+    ]);
+    // One spawn, one steer: the second task rides the member's live session.
+    expect(events.filter((e) => e.type === "subagent_spawn")).toHaveLength(1);
+    expect(events.find((e) => e.type === "subagent_steer")).toBeDefined();
+    // The lane bound on the member's first prompt: the child runs in the
+    // lane's worktree and the binding is recorded.
+    const spawn = events.find((e) => e.type === "subagent_spawn") as Extract<AgentEvent, { type: "subagent_spawn" }> | undefined;
+    const childLog = readFileSync(spawn!.log, "utf8");
+    expect(childLog).toContain("lane: feat/team-ext-4-scratch-a");
+    expect(events.find((e) => e.type === "lane_created")).toBeDefined();
   });
 });

@@ -161,6 +161,10 @@ export interface ExtensionSpawnSpec {
   /** Per-turn iteration cap for the child; above the envelope's ceiling
    * the spawn is refused, never silently narrowed. */
   readonly maxIterations?: number;
+  /** #1224: model override for route-style refs (`endpoint/model-id`) —
+   * the member's own route pin (ADR-0050). Resolved before any child
+   * setup; a hallucinated ref fails the spawn fast, zero side effects. */
+  readonly model?: string;
 }
 
 /** The settled outcome of one extension spawn (apiVersion 1.13). */
