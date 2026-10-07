@@ -1,12 +1,12 @@
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { Text, useInput } from "ink";
 import {
   acknowledgeStrandedData,
   deleteStrandedData,
   moveStrandedSessions,
-  projectSessionsDir,
   readStrandedDataRecord,
   strandedDataSummary,
+  type StrandedDataSummary,
 } from "@moh/core";
 import { useTheme } from "./themes";
 import { Dialog, Dim } from "./ui";
@@ -21,25 +21,31 @@ import { Dialog, Dim } from "./ui";
  * re-reads: the reads happen once on open, and Home refreshes on close.
  */
 export interface StrandedModalProps {
-  cwd: string;
+  /** The live project directory, resolved by the client at boot (#939):
+   * the modal must never run a synchronous identity resolution in render. */
+  dir: string;
   /** Home for the user-data directories (tests inject a temp home). */
   home?: string;
   onClose: () => void;
 }
 
-export function StrandedModal({ cwd, home, onClose }: StrandedModalProps) {
+export function StrandedModal({ dir, home, onClose }: StrandedModalProps) {
   const theme = useTheme();
   const [confirming, setConfirming] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
-  const dir = projectSessionsDir(cwd, home);
+  const [summary, setSummary] = useState<StrandedDataSummary | null>(null);
   const record = useMemo(() => readStrandedDataRecord(dir), [dir]);
-  const summary = useMemo(() => strandedDataSummary(dir), [dir]);
+  // Read once after mount, off the render path: the summary is one
+  // readdirSync + statSync per entry and the first frame must not wait.
+  useEffect(() => {
+    setSummary(strandedDataSummary(dir));
+  }, [dir]);
 
   useInput((input, key) => {
     if (confirming) {
       if (input === "y" || input === "Y") {
         try {
-          deleteStrandedData(dir, cwd, home);
+          deleteStrandedData(dir, dir, home);
           onClose();
         } catch (e) {
           setNotice(e instanceof Error ? e.message : String(e));

@@ -327,6 +327,8 @@ export interface StrandedDataRecord {
   acknowledgedAt?: string;
 }
 
+const STRANDED_NON_DATA = new Set(["migration.log", ".DS_Store"]);
+
 /**
  * Whether a project directory holds real data (#1217): anything beyond the
  * durable migration note counts — session logs, memory, session notes,
@@ -335,7 +337,7 @@ export interface StrandedDataRecord {
  */
 function holdsProjectData(dir: string): boolean {
   try {
-    return readdirSync(dir).some((name) => name !== "migration.log" && name !== ".DS_Store");
+    return readdirSync(dir).some((name) => !STRANDED_NON_DATA.has(name));
   } catch {
     return false;
   }
@@ -470,8 +472,6 @@ export interface StrandedDataSummary {
   differing: string[];
 }
 
-const STRANDED_NON_DATA = new Set(["migration.log", ".DS_Store"]);
-
 /**
  * #1243: read-only cost summary for the resolution overlay. `statSync`
  * only — hundreds of megabytes of session logs must not be read to open a
@@ -527,6 +527,21 @@ function moveStrandedFile(from: string, to: string): void {
 }
 
 /**
+ * #1243: the stranded source may only sit strictly under
+ * `<home>/.moh/projects/` and must differ from the live directory — a
+ * hand-editable record never turns a resolution seam into a directory
+ * traversal.
+ */
+function strandedSourceGuard(record: StrandedDataRecord, dir: string, home: string): string {
+  const projectsRoot = join(pathResolve(home), ".moh", "projects");
+  const source = pathResolve(record.source);
+  if (source === pathResolve(dir) || !source.startsWith(projectsRoot + sep)) {
+    throw new Error(`stranded resolution: refusing to touch ${source} — not a stranded directory under ${projectsRoot}`);
+  }
+  return source;
+}
+
+/**
  * #1243 `m`: moves the session logs that exist only in the stranded source
  * into the live project directory — a self-contained log whose name is its
  * identity, no reconciliation problem. A same-name log already in the live
@@ -577,11 +592,7 @@ export function moveStrandedSessions(dir: string): { moved: string[]; skipped: s
 export function deleteStrandedData(dir: string, cwd: string, home = homedir()): { trashed: number; removed: string[] } {
   const record = readStrandedDataRecord(dir);
   if (!record) throw new Error(`deleteStrandedData: no live stranded-data record for ${dir}`);
-  const projectsRoot = join(pathResolve(home), ".moh", "projects");
-  const source = pathResolve(record.source);
-  if (source === pathResolve(dir) || !source.startsWith(projectsRoot + sep)) {
-    throw new Error(`deleteStrandedData: refusing to delete ${source} — not a stranded directory under ${projectsRoot}`);
-  }
+  const source = strandedSourceGuard(record, dir, home);
   const trashDir = projectTrashDir(cwd, home);
   mkdirSync(trashDir, { recursive: true, mode: 0o700 });
   let trashed = 0;

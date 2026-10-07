@@ -5,7 +5,7 @@ import { mkdtempSync, mkdirSync, writeFileSync, existsSync, readFileSync } from 
 import { execFileSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { SessionStore, createSession, MockProvider, listSessionSummaries, setSessionPinned, projectSlug } from "@moh/core";
+import { SessionStore, createSession, MockProvider, listSessionSummaries, setSessionPinned, projectSlug, projectSessionsDir } from "@moh/core";
 import { Home } from "../src/Home";
 import { StrandedModal } from "../src/StrandedModal";
 
@@ -670,7 +670,7 @@ describe("stranded-data warning row (#1243)", () => {
 
   test("k acknowledges and the row is gone after a remount", async () => {
     const { cwd, home, live } = strandedFixture();
-    const i = render(<StrandedModal cwd={cwd} home={home} onClose={() => {}} />);
+    const i = render(<StrandedModal dir={projectSessionsDir(cwd, home)} home={home} onClose={() => {}} />);
     await sleep(60);
     i.stdin.write("k");
     await sleep(60);
@@ -686,7 +686,7 @@ describe("stranded-data warning row (#1243)", () => {
 
   test("d + y removes the directory, trashes the logs and the row", async () => {
     const { cwd, home, live, source } = strandedFixture();
-    const i = render(<StrandedModal cwd={cwd} home={home} onClose={() => {}} />);
+    const i = render(<StrandedModal dir={projectSessionsDir(cwd, home)} home={home} onClose={() => {}} />);
     await sleep(60);
     i.stdin.write("d");
     await sleep(30);

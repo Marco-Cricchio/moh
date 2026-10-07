@@ -84,7 +84,7 @@ import { ExtensionsRail, ExtensionOverlayView } from "./ExtensionsRail";
 import { LanesModal } from "./LanesModal";
 import { StrandedModal } from "./StrandedModal";
 import { TreePanel } from "./TreePanel";
-import { sessionTree, type TreeNode } from "@moh/core";
+import { sessionTree, projectSessionsDir, type TreeNode } from "@moh/core";
 import { contextWindowForLabel, mergePickCatalog } from "./model-picker";
 import { Frontier } from "./Frontier";
 import { SkillChooser } from "./SkillChooser";
@@ -148,7 +148,7 @@ export interface AppProps {
   session?: AgentSession;
 }
 
-type Overlay = null | "settings" | "commands" | "manual" | "notes" | "onboarding" |"handoff-onboarding" | "workflow-offer" | "frontier" | "skill-chooser" | "model" | "skill-updates" | "quota" | "rename" | "cold-wizard" | "tree" | "mpm" | "session" | "jev" | "browser" | "lanes" | "extensions" | "stranded";
+type Overlay = null | "settings" | "commands" | "manual" | "notes" | "onboarding" | "handoff-onboarding" | "workflow-offer" | "frontier" | "skill-chooser" | "model" | "skill-updates" | "quota" | "rename" | "cold-wizard" | "tree" | "mpm" | "session" | "jev" | "browser" | "lanes" | "extensions" | "stranded";
 
 /** #242: one-shot, non-blocking informed-consent copy. Exported so focused
  * tests can verify the full message even when narrow status chrome clips it. */
@@ -1936,7 +1936,7 @@ function AppShell({
         {overlay === "lanes" && <LanesModal cwd={process.cwd()} onClose={() => setOverlay(null)} />}
         {overlay === "stranded" && (
           <StrandedModal
-            cwd={sessionCwd}
+            dir={projectSessionsDir(sessionCwd, home)}
             home={home}
             onClose={() => {
               setOverlay(null);

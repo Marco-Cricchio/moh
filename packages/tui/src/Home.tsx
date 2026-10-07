@@ -248,9 +248,9 @@ export function Home({ cwd, home, mode, onOpen, onOpenSettings, onOpenCommands, 
   const strandedRow = stranded ? (handoffRow >= 0 ? 2 : 1) : -1;
   const pertinentRow = pertinent && !query ? (strandedRow >= 0 ? strandedRow + 1 : handoffRow >= 0 ? 2 : 1) : -1;
   const effectiveCursor = cursor ?? (pertinentRow >= 0 ? pertinentRow : 0);
-  // Row 0 is always "New session" (or "start <query>"); row 1 is the
-  // handoff offer when present (T3 #436); row 2 the pertinent banner
-  // (#470); rows after are the hits.
+  // Row 0 is always "New session" (or "start <query>"); row 1 the handoff
+  // offer when present (T3 #436); then the stranded warning row (#1243);
+  // then the pertinent banner (#470); rows after are the hits.
   const totalRows = 1 + (handoffRow >= 0 ? 1 : 0) + (strandedRow >= 0 ? 1 : 0) + (pertinentRow >= 0 ? 1 : 0) + hits.length;
   // A narrower filter can leave the cursor past the end: clamp in render.
   const cursorRow = Math.min(effectiveCursor, totalRows - 1);

@@ -549,6 +549,7 @@ import {
   deleteStrandedData,
   moveStrandedSessions,
   strandedDataSummary,
+  type StrandedDataSummary,
   readStrandedDataRecord,
   type StrandedDataRecord,
 } from "./project-identity";
@@ -919,6 +920,7 @@ export {
   deleteStrandedData,
   moveStrandedSessions,
   strandedDataSummary,
+  type StrandedDataSummary,
   readStrandedDataRecord,
   type StrandedDataRecord,
   splitCommandSegments,
