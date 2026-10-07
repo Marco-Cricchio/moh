@@ -60,7 +60,6 @@ import { listFiles } from "./file-index";
 import { detectPreviewMode } from "./image-preview";
 import { trackExitWork } from "./exit";
 import { useSidebarState, useTeamComposed } from "./session-bridge";
-import { railAvailableRows, RAIL_WIDTH } from "./rail-layout";
 import { PermissionModal } from "./PermissionModal";
 
 import { Onboarding } from "./OnboardingOverlay";
@@ -1534,17 +1533,7 @@ function AppShell({
   }, [teamComposed]);
   /** #1132: at or below the rail's narrow threshold the zone collapses to
    * a footer strip BELOW the conversation — never a column beside it. */
-  const railWide = viewport.columns > 80;
-  // #1218: the rail's available rows — viewport minus the composer frame
-  // and the footer (the subagent chips row costs one more). Below the
-  // rail's own minimum the rail collapses to the names strip.
-  const railRows = railAvailableRows(viewport.rows, useSubagentCount(session) > 0 ? 1 : 0);
-  // The band Chat reserves for the rail must equal what the rail will draw,
-  // or the composer's rows shift when the rail redraws. The rail reports its
-  // drawn height (allocation + borders + status lines) via onRailLayout;
-  // before the first report the band stays 0 — the rail rides beside the
-  // volatile region exactly once, then the reservation locks in.
-  const [railBandRows, setRailBandRows] = useState(0);
+  const [railWide, setRailWide] = useState(false);
   // #1218 focus mode: Ctrl+P hands the keys to the selected panel; any
   // modal or the esc/Ctrl+P exit returns them to the composer.
   const [railFocused, setRailFocused] = useState(false);
@@ -1566,19 +1555,18 @@ function AppShell({
     <Chat
       session={session}
       cwd={sessionCwd}
-      railContent={railVisible ? (
+      onRailWideChange={setRailWide}
+      railContent={railVisible ? ((space) => (
         <ExtensionsRail
           panels={session!.extensionPanels()}
           collapsed={collapsedPanels}
-          columns={viewport.columns}
-          rows={railRows}
+          columns={space.columns}
+          rows={space.rows}
           focused={railFocused && !overlayOpen}
           onFocusExit={() => setRailFocused(false)}
           onClamp={setPanelClamps}
-          onLayout={setRailBandRows}
         />
-      ) : null}
-      railBand={railVisible && railWide ? railBandRows : 0}
+      )) : null}
       toastRows={toasts.length}
       mode={mode}
       modelLabel={modelLabel}
