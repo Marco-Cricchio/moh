@@ -1,23 +1,23 @@
 {
   "schemaVersion": 1,
-  "version": "0.58.2",
-  "generatedAt": "2026-10-05T19:08:28.649Z",
+  "version": "0.59.0",
+  "generatedAt": "2026-10-07T17:01:11.428Z",
   "sources": [
     {
       "name": "models.dev",
       "url": "https://models.dev/api.json",
-      "fetchedAt": "2026-10-05T19:08:28.164Z"
+      "fetchedAt": "2026-10-07T17:01:10.996Z"
     },
     {
       "name": "openrouter",
       "url": "https://openrouter.ai/api/v1/models",
-      "fetchedAt": "2026-10-05T19:08:28.463Z"
+      "fetchedAt": "2026-10-07T17:01:11.272Z"
     }
   ],
   "totals": {
     "files": 25,
-    "rows": 557,
-    "exact": 506,
+    "rows": 556,
+    "exact": 505,
     "baseModel": 13,
     "ambiguous": 5,
     "absent": 33,
@@ -494,28 +494,28 @@
     },
     {
       "provider": "openrouter",
-      "rows": 361,
+      "rows": 360,
       "verdicts": {
-        "exact": 337,
+        "exact": 336,
         "base-model": 1,
         "ambiguous": 0,
         "absent": 23
       },
       "coverage": {
-        "rows": 361,
-        "pricing": 339,
-        "contextWindow": 361,
-        "maxTokens": 359,
+        "rows": 360,
+        "pricing": 338,
+        "contextWindow": 360,
+        "maxTokens": 358,
         "reasoning": 276,
-        "input": 359
+        "input": 358
       },
       "previous": {
         "rows": 361,
-        "pricing": 339,
-        "contextWindow": 361,
-        "maxTokens": 359,
+        "pricing": 338,
+        "contextWindow": 360,
+        "maxTokens": 358,
         "reasoning": 276,
-        "input": 359
+        "input": 358
       }
     },
     {
@@ -918,77 +918,7 @@
   ],
   "contextWindowShrinks": [],
   "changes": {
-    "pricing": [
-      {
-        "provider": "openrouter",
-        "id": "deepseek/deepseek-v3.1-terminus",
-        "from": {
-          "input": 0.27,
-          "output": 1
-        },
-        "to": {
-          "input": 0.3,
-          "output": 1,
-          "cacheRead": 0.135
-        }
-      },
-      {
-        "provider": "openrouter",
-        "id": "moonshotai/kimi-k3",
-        "from": {
-          "input": 0.99,
-          "output": 14,
-          "cacheRead": 0.33
-        },
-        "to": {
-          "input": 1.39,
-          "output": 14,
-          "cacheRead": 0.46
-        }
-      },
-      {
-        "provider": "openrouter",
-        "id": "z-ai/glm-5.2",
-        "from": {
-          "input": 0.0192,
-          "output": 16,
-          "cacheRead": 0.0192
-        },
-        "to": {
-          "input": 0.032,
-          "output": 12,
-          "cacheRead": 0.032
-        }
-      },
-      {
-        "provider": "openrouter",
-        "id": "z-ai/glm-5.3",
-        "from": {
-          "input": 0.05,
-          "output": 7,
-          "cacheRead": 0.045
-        },
-        "to": {
-          "input": 0.07,
-          "output": 7,
-          "cacheRead": 0.065
-        }
-      },
-      {
-        "provider": "openrouter",
-        "id": "~moonshotai/kimi-latest",
-        "from": {
-          "input": 0.66,
-          "output": 13,
-          "cacheRead": 0.45
-        },
-        "to": {
-          "input": 0.7717,
-          "output": 13,
-          "cacheRead": 0.45
-        }
-      }
-    ],
+    "pricing": [],
     "contextWindow": [],
     "reasoning": []
   },

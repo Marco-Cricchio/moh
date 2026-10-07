@@ -7,6 +7,71 @@ matching section here at tag time.
 
 ## [Unreleased]
 
+## [0.59.0] - 2026-10-07
+
+### Added
+
+- **The team extension** (ADR-0074, #1218, PRs #1220, #1221, #1222, #1233,
+  #1234, #1236, #1237, #1240): run several agents on one feature inside one
+  session. The bundled `team` extension mounts behind its own enable
+  consent — the question names the declared capabilities and the
+  spawn-subagent sentence explicitly — and ships a `team` tool the lead
+  model drives: it plans a feature into a task bag (plan, claim, complete
+  as chrome events — #1223, PR #1234), composes the squad by task
+  complexity (builder roles scoped with disjoint path globs, or a laneless
+  reviewer — #1224, PR #1236) and steers members by writing into their
+  sessions (PR #1233).
+  The orchestration chapter and the manual bundled pass ride along (PR
+  #1227). Members are real subagents under
+  the ADR-0055 envelope — 10 per extension per session, no grandchildren —
+  and the one stop aborts everything the composition started. The rail
+  gains the team panel: live roster, member detail with steering and the
+  team-scoped stop-all; composing a team auto-opens it (PRs #1238, #1240).
+  Bundled
+  out-of-the-box: no install, the consent is the only door.
+- **Per-extension rail panels** (ADR-0062, #1218, PRs #1225, #1229): the
+  rail distributes its panel slots dynamically across the extensions that
+  declare `contribute-panels`, with a composer floor — the chat column
+  shrinks beside the rail instead of the composer collapsing (the team
+  panel's live roster and member detail ride it, #1225). Opened
+  panels get an explicit focus model (`ctrl+p` toggles panel focus, `esc`
+  returns to the composer, a permission modal always steals focus back —
+  the ADR-0062 amendment).
+- **Native spawn concurrency rises 3 → 5** (#1219, PR #1230): the default
+  subagent concurrency matches the team composition's practical width; the
+  stale "default 3" JSDoc went with it.
+- **Team panel: steering from the member detail and a team-scoped
+  stop-all** (#1226): in the rail panel's detail view every letter
+  composes a steering draft and `enter` sends it to the member as its
+  next turn; `x` in the roster stops everything the team spawned in one
+  action — recorded as `orchestration_stopped` naming the team
+  extension, lanes and worktrees untouched, the extension stays
+  enabled. Panels that compose text may now consume the rail's scroll
+  keys (extension apiVersion 1.18).
+
+### Fixed
+
+- **A session migrating into a materialized-empty remote directory no
+  longer strands its data** (#1217, PR #1228): `moh serve` migration moved
+  uuid-named session data into a remote directory that only materializes
+  on first remote access, so the data vanished from every listing until
+  then. The migration now materializes the target directory first, and a
+  stranded-data scan surfaces anything the older code already lost.
+
+### Changed
+
+- **The model catalog was regenerated** (release step): 20 prices moved —
+  mostly down (`moonshotai/kimi-k3` 1.39 → 0.62, `moonshotai/kimi-k2.6`
+  0.95 → 0.47), with `z-ai/glm-5.2` input rising sharply (0.019 → 0.171)
+  and `deepseek/deepseek-v4-pro-0813` 0.4 → 0.66. No context windows or
+  reasoning flags moved. One OpenRouter row was retired:
+  `kwaipilot/kat-coder-pro-v2.5` left the listing with neither window nor
+  metered rate and no declared source covering the variant — dropped with
+  its audit trail on the #1005 precedent, the guard having refused the
+  build (`context-window-lost` + `pricing-coverage-drop`) until the sidecar
+  declared it. No issue and no context-window shrink.
+  `PRICING_SNAPSHOT.version` follows the manifest, which declares 0.59.0.
+
 ## [0.58.2] - 2026-10-05
 
 ### Fixed
@@ -2091,7 +2156,8 @@ matching section here at tag time.
   passed; a regression test pins the resolved path under
   `<home>/.moh/projects`.
 
-[Unreleased]: https://github.com/Marco-Cricchio/moh/compare/v0.58.2...develop
+[Unreleased]: https://github.com/Marco-Cricchio/moh/compare/v0.59.0...develop
+[0.59.0]: https://github.com/Marco-Cricchio/moh/compare/v0.58.2...v0.59.0
 [0.58.2]: https://github.com/Marco-Cricchio/moh/compare/v0.58.1...v0.58.2
 [0.58.1]: https://github.com/Marco-Cricchio/moh/compare/v0.58.0...v0.58.1
 [0.58.0]: https://github.com/Marco-Cricchio/moh/compare/v0.57.1...v0.58.0

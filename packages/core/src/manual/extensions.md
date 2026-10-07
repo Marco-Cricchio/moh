@@ -32,8 +32,12 @@ disagree about a tool call, the first one wins.
 An extension is arbitrary code running inside the moh process, so moh never
 enables one silently. A file that has not been allowed yet raises a prompt
 that names the file, a SHA-256 of its exact bytes, the capabilities its
-`moh.extension.json` manifest declares, and says plainly that there is no
-sandbox. Answer `y` to enable it, `n` to leave it alone.
+`moh.extension.json` manifest declares — each rendered as the concrete
+effect a yes grants (a `spawn-subagent` grant, for instance, reads as
+"may create up to 10 concurrent child sessions and steer or stop them") —
+the manifest's own `reasoning` statement when it declares one, and says
+plainly that there is no sandbox. Answer `y` to enable it, `n` to leave it
+alone.
 
 The question comes **before the file is loaded**, because loading a module
 runs it: a file you decline — or that nobody could ask you about — never
@@ -122,12 +126,23 @@ runs headless: `moh run "/deploy-status --env prod"` prints one
 same text the TUI shows, never a second behavior.
 
 An extension whose grant covers `contribute-panels` contributes one panel
-to the extensions rail (#1132, ADR-0062): a zone the user opens and
-closes, collapsing to the footer on narrow terminals. At most 4 panels
+to the extensions rail (#1132, ADR-0062): a zone that opens by itself
+when a team is composed and is otherwise opened and closed by the user
+(from `/extensions`, `r`), collapsing to the footer on narrow terminals. At most 4 panels
 are visible across all extensions — a fifth extension asking for a panel
 is refused visibly at load (`panel slot exhausted (4/4) — disable a panel
 in /extensions`), and there is no automatic eviction: collapsing and
-reopening a panel is manual, from `/extensions`. An extension whose grant
+reopening a panel is manual, from `/extensions`. With the rail focused
+(`ctrl+p`) the client hands the panel its keys (apiVersion 1.17): the
+team panel, for one, uses `n`/`p` to move between members and `enter`
+to open and close the member detail inside the panel. `j`/`k` and the
+arrows scroll the panel's window, unless the panel consumes them first
+(apiVersion 1.18) — in the team detail view every letter composes the
+steering draft, and `enter` sends it to the member as its next turn;
+in the roster, `x` stops everything the team spawned (one
+`orchestration_stopped` record; lanes and worktrees survive).
+`esc` always leaves the rail. An
+extension whose grant
 covers `contribute-overlays` contributes a full-screen overlay, opened by
 the extension's own command and closed with `Esc`. A headless client has
 no rail and no overlays: panels and overlays contribute nothing there —
@@ -144,9 +159,48 @@ refused loudly (`extension_failed`), never silently narrowed. No
 grandchildren, and the owner's one stop aborts everything the extension
 started. `ctx.subagentActivity(callId)` reads the bounded child-tail
 activity of a child the extension spawned; a session it did not spawn
-does not exist for it. The `extension_loaded` event carries the granted
+does not exist for it. `ctx.steerSubagent(callId, message)` (#1222)
+writes a follow-up message into a child it spawned — the member's next
+turn, context and route kept; the same ownership rule applies, so
+members can never address each other, and the write is recorded as
+`subagent_steer` chrome in the parent's log. The spawn spec also takes
+`pathScopes` (#1224) — project-root globs that restrict the child's
+writes through the permission spine (a logged `permission_denied`, even
+in yolo; an empty list is fully read-only) — and `model`, a route pin
+for the child's own provider (`endpoint/model-id`, ADR-0050). The
+`extension_loaded`
+event carries the granted
 capabilities — the startup announcement of what each enabled extension
 holds.
+
+## Bundled extensions
+
+Two extensions ship inside the binary — no install, no `moh.json` entry;
+the mount is decided by the client and the switch is, in both cases,
+something you are asked before anything runs.
+
+- **Jev (TypeSafe)** — inactive until you arm it: a `typesafe` block in
+  your config plus a stored credential turn it on (`moh jev status`
+  reports the state; the Jev page has the full picture). Not configured,
+  it contributes nothing and logs its one-line inactive note.
+- **Team** — always mounted where it can be enabled. The first session
+  that can ask shows the enable consent, which names the envelope: up to
+  10 concurrent child sessions with per-member write scopes, steering,
+  one team-scoped stop, and one panel in the extensions rail. After that
+  yes (stored like any extension consent), the model can delegate work to
+  a team: pass a task and it spawns a builder member; ask for something
+  bigger and it composes a roster — scoped builders, read-only reviewers,
+  an optional shared task bag — and drives it, all visible in the rail
+  panel (`ctrl+p` to focus it; `n`/`p` move between members, `enter`
+  opens a member's detail where typing composes a steering message,
+  `x` in the roster stops everything the team spawned — lanes and
+  worktrees survive). Members also appear in the ordinary subagent chips.
+  A headless run with no prior grant mounts nothing: it neither asks nor
+  fails — the team is simply absent from that session.
+
+Both appear in `/extensions` as `bundled`, with their declared
+capabilities; declining the team's consent is remembered and no session
+asks again until its bytes or manifest change.
 
 ## There is no sandbox
 

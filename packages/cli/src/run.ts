@@ -372,7 +372,7 @@ export async function runCommand(options: RunOptions): Promise<number> {
   const assembled = sessionFromConfig({
     cwd: laneCwd ?? cwd,
     // #826: the bundled first-party extensions this client ships.
-    bundledExtensions: bundledExtensionSources(options.home),
+    bundledExtensions: bundledExtensionSources(options.home, { consentSeamAvailable: false }),
     ...(options.home ? { home: options.home } : {}),
     ...(cassetteProvider ? { provider: cassetteProvider } : {}),
     ...(parsed.strings["provider"]

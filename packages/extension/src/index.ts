@@ -99,6 +99,37 @@
  * zone (panels) or full-screen (overlays, opened by the extension's
  * command and closed with `Esc`); the core carries them opaquely, and a
  * headless client contributes nothing — visible absence, never a mock.
+ *
+ * 1.13 (ADR-0053/0055 + ADR-0064/0065): `spawnSubagent` / `subagentActivity`
+ * on the `spawn-subagent` capability slot, and the `path:<glob>` /
+ * `tool:<name>` / `credential:<id>` host-performs seam. The spawn rides the
+ * enable consent's envelope (ten children per extension per session, each
+ * within the session's iteration ceiling); every request outside it is
+ * refused loudly and no child is created. `subagentActivity` reads only
+ * children the extension itself spawned, in the child-tail shape — a callId
+ * it did not spawn resolves to `null`. An older runtime leaves all of it
+ * absent: enforcement by absence, never an error.
+ *
+ * 1.14 (ADR-0067): `registerTool` — the `contribute-tool:<name>` capability
+ * slot. The registered name must be one the consent granted; the tool rides
+ * the same runner and permission gate as every session tool. An older
+ * runtime leaves the method absent and the tool never reaches the model.
+ *
+ * 1.15 (#1187): `registerCommand` arguments — what the user typed after the
+ * command name rides the command's execution context, so a command can act
+ * on it. An older runtime simply never supplies arguments.
+ *
+ * 1.16 (#1222, ADR-0055): `steerSubagent` — write-into-child on the
+ * `spawn-subagent` capability slot. A follow-up message to a child this
+ * extension spawned becomes its next turn; a callId the extension did
+ * not spawn resolves to `null`, so members can never address each other.
+ * Contributed tools are excluded from every child's toolset by the host.
+ *
+ * 1.17 (#1225, ADR-0062 as amended): the optional `onKey` on
+ * `ExtensionPanel` — the focused rail panel may answer the keys the
+ * client does not consume itself. Ownership stays with the client: the
+ * extension never receives keys outside focus mode and can never take
+ * the rail's `esc`/`tab`/scroll keys away.
  */
 
 /**
@@ -106,7 +137,7 @@
  * Minor bumps are additive (new optional hooks/fields); major bumps are
  * breaking and refuse to load older/newer extensions.
  */
-export const MOH_EXTENSION_API_VERSION = "1.15";
+export const MOH_EXTENSION_API_VERSION = "1.18";
 
 /** One spawn an orchestration extension requests (ADR-0055, apiVersion 1.13).
  * `preset` resolves against the host's subagent presets (built-ins and
@@ -124,9 +155,22 @@ export interface ExtensionSpawnSpec {
   /** Strict subset of the host session's tools; MCP tools are never
    * inherited and a name the session does not have refuses the spawn. */
   readonly allowedTools?: readonly string[];
+  /**
+   * #1224: write-path scopes for the child, as project-root globs.
+   * Restrict-only (ADR-0031): present, they deny every `write`/`edit`
+   * outside the union of the globs through the permission spine (a
+   * written runtime rule, logged as `permission_denied` — survives yolo);
+   * an empty array is fully read-only (the reviewer role). Absent, the
+   * child keeps the parent's own write posture untouched.
+   */
+  readonly pathScopes?: readonly string[];
   /** Per-turn iteration cap for the child; above the envelope's ceiling
    * the spawn is refused, never silently narrowed. */
   readonly maxIterations?: number;
+  /** #1224: model override for route-style refs (`endpoint/model-id`) —
+   * the member's own route pin (ADR-0050). Resolved before any child
+   * setup; a hallucinated ref fails the spawn fast, zero side effects. */
+  readonly model?: string;
 }
 
 /** The settled outcome of one extension spawn (apiVersion 1.13). */
@@ -495,7 +539,9 @@ export interface ExtensionCommand {
 /**
  * One panel in the extensions rail (ADR-0062, apiVersion 1.12). The
  * render returns arbitrary Ink elements — the client renders them inside
- * the rail zone untouched, never wrapping native components.
+ * the rail zone untouched, never wrapping native components. Since
+ * apiVersion 1.17 a panel may also answer focused keys through the
+ * optional `onKey` (see it for the ownership rule).
  */
 export interface ExtensionPanel {
   /** The panel name, letters/digits/hyphens; shown in `/extensions`. */
@@ -509,6 +555,36 @@ export interface ExtensionPanel {
    * every frame. Callbacks inside the returned elements reach the session
    * only through the existing gated seams — never a second path. */
   render(): unknown;
+  /** Optional key seam (apiVersion 1.17, ADR-0062 as amended by #1225):
+   * when the rail holds focus, the client forwards the keys it does not
+   * consume itself — `esc`/`tab` always stay the client's, `j`/`k` and
+   * the arrows keep scrolling the panel's window. Returning `true` marks
+   * the key consumed and asks the client for one re-render so the next
+   * `render()` draws the new state; `false`/`undefined` means ignored.
+   * The extension never receives keys outside focus mode, and a key it
+   * consumes never reaches any other consumer — the client keeps
+   * ownership of the rail, the extension only answers within it. */
+  onKey?(input: string, key: PanelKeyEvent): boolean;
+}
+
+/** The key shape `ExtensionPanel.onKey` receives (apiVersion 1.17):
+ * structural, core-independent — no Ink types cross the contract. */
+export interface PanelKeyEvent {
+  /** The printable input, as the client read it (may be empty). */
+  readonly input: string;
+  readonly name?: string;
+  readonly return?: boolean;
+  readonly escape?: boolean;
+  readonly tab?: boolean;
+  readonly backspace?: boolean;
+  readonly delete?: boolean;
+  readonly upArrow?: boolean;
+  readonly downArrow?: boolean;
+  readonly leftArrow?: boolean;
+  readonly rightArrow?: boolean;
+  readonly ctrl?: boolean;
+  readonly meta?: boolean;
+  readonly shift?: boolean;
 }
 
 /** One full-screen overlay (ADR-0062, apiVersion 1.12): opened by the
@@ -966,6 +1042,30 @@ export interface ExtensionSetupContext {
    * does not exist for it, and there is no API that reads or resumes one.
    */
   subagentActivity?(callId: string): Promise<ExtensionSubagentActivity | null>;
+  /**
+   * Write-into-child (ADR-0055, apiVersion 1.16): send a follow-up
+   * message to a child this extension spawned — it becomes the member's
+   * next turn, keeping its full context and its own route. **Present only
+   * when the `spawn-subagent` capability is granted.** A callId this
+   * extension did not spawn resolves to `null`: members can never write
+   * into each other, by construction — every child answers only to the
+   * extension that spawned it (star-shaped coordination). The write is
+   * recorded as `subagent_steer` chrome in the parent's log, so replay
+   * reconstructs who wrote what into whom; steering from inside a
+   * borrowed (child) session's dispatch is refused loudly, like spawning.
+   */
+  steerSubagent?(callId: string, message: string): Promise<ExtensionSpawnResult | null>;
+  /**
+   * Team-scoped one-stop (ADR-0055, apiVersion 1.18, #1226): abort every
+   * child this extension spawned — live ones now, settled ones lose their
+   * steering seat either way — and nothing else. One `orchestration_stopped`
+   * chrome event naming this extension records the stop when anything was
+   * stopped; the return is the stopped callIds. **Present only when the
+   * `spawn-subagent` capability is granted.** The session-level stop is
+   * unchanged and stays the owner's door, and a stop never disables or
+   * unloads the extension.
+   */
+  stopSubagents?(): string[];
   /**
    * Ask the core to run one turn with a synthetic user-side message
    * (ADR-0037, apiVersion 1.6). You supply the text — deterministic,

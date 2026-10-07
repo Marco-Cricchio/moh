@@ -1,10 +1,11 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdtempSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { defineExtension, type ExtensionDefinition, type ExtensionSetupContext } from "@moh/extension";
 import { ExtensionRuntime } from "../src/extensions";
-import { createSession, MockProvider, builtinTools, type AgentEvent, type Tool } from "../src/index";
+import { createSession, MockProvider, builtinTools, type AgentEvent, type Provider, type Tool } from "../src/index";
+import type { Message } from "../src/types";
 import {
   ExtensionProhibitionError,
   currentExtensionScope,
@@ -222,6 +223,254 @@ describe("spawn-subagent capability (#998 follow-up, ADR-0053/0055)", () => {
   });
 });
 
+describe("steer-subagent: write-into-child (ADR-0055, #1222)", () => {
+  /** A provider that captures the message lists it is called with. */
+  function capturingProvider(captured: unknown[][]): Provider {
+    return {
+      name: "mock",
+      async *stream(messages: Message[], _signal: unknown) {
+        void _signal;
+        captured.push([...messages]);
+        yield { type: "model_call_start", model: "mock" };
+        yield { type: "text_delta", text: `turn ${captured.length}` };
+        yield { type: "finish", reason: "stop" };
+      },
+    } as unknown as Provider;
+  }
+
+  test("granted: the API is present; refused: enforcement by absence", async () => {
+    const granted = await capturing({
+      name: "orch",
+      version: "1",
+      apiVersion: "1.13",
+      capabilities: ["spawn-subagent"],
+      setup: () => {},
+    });
+    await granted.rt.ready();
+    expect(typeof granted.ctx!.steerSubagent).toBe("function");
+
+    const refused = await capturing({ name: "plain", version: "1", apiVersion: "1.13", setup: () => {} });
+    await refused.rt.ready();
+    expect(refused.ctx!.steerSubagent).toBeUndefined();
+  });
+
+  test("a steering message reaches the member as its next turn; context and route are kept; the write is in the log", async () => {
+    const rt = runtime();
+    let api: { spawn: NonNullable<ExtensionSetupContext["spawnSubagent"]>; steer: NonNullable<ExtensionSetupContext["steerSubagent"]> } | null = null;
+    await rt.register(
+      defineExtension({
+        name: "orch",
+        version: "1",
+        apiVersion: "1.13",
+        capabilities: ["spawn-subagent"],
+        setup: (ctx) => {
+          api = { spawn: ctx.spawnSubagent!, steer: ctx.steerSubagent! };
+        },
+      }),
+    );
+    const childCalls: unknown[][] = [];
+    const session = createSession({
+      provider: MockProvider.scripted([{ deltas: ["ok"], finish: "stop" }]),
+      tools: { echo: echoTool },
+      extensions: rt,
+      subagents: { home: tempDir(), provider: capturingProvider(childCalls) },
+    });
+    const events = tap(session);
+    const spawned = await api!.spawn({ task: "build the widget" });
+    expect(spawned.status).toBe("done");
+
+    const steered = await api!.steer(spawned.callId, "rename the widget");
+    expect(steered).not.toBeNull();
+    expect(steered!.status).toBe("done");
+    expect(steered!.output).toBe("turn 2");
+
+    // The member kept its context: the steering turn saw the first
+    // exchange plus the steering message.
+    expect(childCalls.length).toBe(2);
+    const texts = (childCalls[1] as { role: string; content?: unknown; parts?: { kind: string; text?: string }[] }[]).map((m) => {
+      const text = typeof m.content === "string" ? m.content : (m.parts ?? []).map((p) => p.text ?? "").join(" ");
+      return `${m.role}:${text}`;
+    });
+    expect(texts.some((t) => t.startsWith("user:") && t.includes("build the widget"))).toBe(true);
+    expect(texts.some((t) => t.startsWith("assistant:"))).toBe(true);
+    expect(texts.some((t) => t.startsWith("user:") && t.includes("rename the widget"))).toBe(true);
+
+    // The write is recorded in the parent's log as chrome.
+    const steers = events.filter((e) => e.type === "subagent_steer") as Extract<AgentEvent, { type: "subagent_steer" }>[];
+    expect(steers.length).toBe(1);
+    expect(steers[0]!.callId).toBe(spawned.callId);
+    expect(steers[0]!.extension).toBe("orch");
+    // Ids and counts, never the words: the message lives in the child's
+    // own log (subagent_spawn's precedent for the task text).
+    expect(steers[0]!.messageChars).toBe("rename the widget".length);
+    expect(JSON.stringify(steers[0])).not.toContain("rename the widget");
+    await session.dispose();
+  });
+
+  test("a callId this extension did not spawn resolves to null — nothing is written, nothing runs", async () => {
+    const rt = runtime();
+    let steer: NonNullable<ExtensionSetupContext["steerSubagent"]> | null = null;
+    await rt.register(
+      defineExtension({
+        name: "orch",
+        version: "1",
+        apiVersion: "1.13",
+        capabilities: ["spawn-subagent"],
+        setup: (ctx) => {
+          steer = ctx.steerSubagent!;
+        },
+      }),
+    );
+    const session = createSession({
+      provider: MockProvider.scripted([{ deltas: ["ok"], finish: "stop" }]),
+      tools: { echo: echoTool },
+      extensions: rt,
+      subagents: { home: tempDir(), provider: MockProvider.scripted([{ deltas: ["c"], finish: "stop" }]) },
+    });
+    const events = tap(session);
+    const foreign = await steer!("subagent-not-mine", "hello");
+    expect(foreign).toBeNull();
+    expect(events.filter((e) => e.type === "subagent_steer").length).toBe(0);
+    await session.dispose();
+  });
+
+  test("no grandchildren: steering from a borrowed (child) dispatch is refused loudly", async () => {
+    const rt = runtime();
+    let api: { spawn: NonNullable<ExtensionSetupContext["spawnSubagent"]>; steer: NonNullable<ExtensionSetupContext["steerSubagent"]> } | null = null;
+    await rt.register(
+      defineExtension({
+        name: "orch",
+        version: "1",
+        apiVersion: "1.13",
+        capabilities: ["spawn-subagent"],
+        setup: (ctx) => {
+          api = { spawn: ctx.spawnSubagent!, steer: ctx.steerSubagent! };
+        },
+      }),
+    );
+    const session = createSession({
+      provider: MockProvider.scripted([{ deltas: ["ok"], finish: "stop" }]),
+      tools: { echo: echoTool },
+      extensions: rt,
+      subagents: { home: tempDir(), provider: MockProvider.scripted([{ deltas: ["c"], finish: "stop" }]) },
+    });
+    const { spawn, steer } = api!;
+    const child = await spawn!({ task: "child" });
+    expect(child.status).toBe("done");
+    const scoped = await new Promise<{ callId: string; status: string; error?: string } | null>((resolve, reject) => {
+      const scope = { id: "borrowed-child", write: () => {}, errors: [] as AgentEvent[] };
+      rt.withSession(scope, () => {
+        steer!(child.callId, "from the child").then(resolve, reject);
+      });
+    });
+    expect(scoped).not.toBeNull();
+    expect(scoped!.status).toBe("error");
+    expect(scoped!.error).toMatch(/grandchildren/);
+    await session.dispose();
+  });
+
+  test("the owner's one stop closes the steering seat: a stopped child cannot be steered", async () => {
+    const rt = runtime();
+    let api: { spawn: NonNullable<ExtensionSetupContext["spawnSubagent"]>; steer: NonNullable<ExtensionSetupContext["steerSubagent"]> } | null = null;
+    await rt.register(
+      defineExtension({
+        name: "orch",
+        version: "1",
+        apiVersion: "1.13",
+        capabilities: ["spawn-subagent"],
+        setup: (ctx) => {
+          api = { spawn: ctx.spawnSubagent!, steer: ctx.steerSubagent! };
+        },
+      }),
+    );
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const session = createSession({
+      provider: MockProvider.scripted([{ deltas: ["ok"], finish: "stop" }]),
+      tools: { echo: echoTool },
+      extensions: rt,
+      subagents: {
+        home: tempDir(),
+        provider: MockProvider.scripted([
+          { deltas: ["working", "still working"], finish: "stop", hold: { afterDeltas: 1, release: gate } },
+        ]),
+      },
+    });
+    const { spawn, steer } = api!;
+    const pending = spawn!({ task: "child" });
+    // Wait until the child is mid-turn, then exercise the owner's stop.
+    let stopped: string[] = [];
+    for (let i = 0; i < 40 && stopped.length === 0; i++) {
+      await Bun.sleep(25);
+      stopped = session.stopSubagents();
+    }
+    expect(stopped.length).toBe(1);
+    release();
+    const spawned = await pending;
+    expect(spawned.status).toBe("cancelled");
+    // The stop closed the seat: no new turn starts in an aborted child.
+    const after = await steer!(spawned.callId, "after the stop");
+    expect(after).toBeNull();
+    await session.dispose();
+  });
+
+  test("a member never sees the lead's contributed tools — star-shaped by construction", async () => {
+    const rt = runtime();
+    let spawn: NonNullable<ExtensionSetupContext["spawnSubagent"]> | null = null;
+    await rt.register(
+      defineExtension({
+        name: "orch",
+        version: "1",
+        apiVersion: "1.13",
+        capabilities: ["spawn-subagent", "contribute-tool:team"],
+        setup: (ctx) => {
+          spawn = ctx.spawnSubagent!;
+          ctx.registerTool!({
+            name: "team",
+            description: "the lead's team tool",
+            inputSchema: undefined,
+            execute: async () => "team!",
+          });
+        },
+      }),
+    );
+    const childToolNames: string[][] = [];
+    const childProvider: Provider = {
+      name: "mock",
+      async *stream(_messages: unknown, _signal: unknown, tools?: readonly { name: string }[]) {
+        childToolNames.push((tools ?? []).map((t) => t.name));
+        yield { type: "model_call_start", model: "mock" };
+        yield { type: "text_delta", text: "c" };
+        yield { type: "finish", reason: "stop" };
+      },
+    } as unknown as Provider;
+    const session = createSession({
+      provider: MockProvider.scripted([{ deltas: ["ok"], finish: "stop" }]),
+      tools: { echo: echoTool },
+      extensions: rt,
+      subagents: { home: tempDir(), provider: childProvider },
+    });
+    const events = tap(session);
+    await session.send("go"); // binds the held contributed tool to this session
+    const contributed = events.find((e) => e.type === "tool_contributed") as Extract<AgentEvent, { type: "tool_contributed" }> | undefined;
+    expect(contributed?.tool).toBe("team");
+
+    const spawned = await spawn!({ task: "t" });
+    expect(spawned.status).toBe("done");
+    // The member's provider saw the parent's own tools but never the
+    // contributed `team` tool — members cannot address each other, by
+    // construction rather than convention.
+    expect(childToolNames.length).toBeGreaterThan(0);
+    for (const names of childToolNames) {
+      expect(names).toContain("echo");
+      expect(names).not.toContain("team");
+    }
+    await session.dispose();
+  });
+});
+
 describe("ADR-0053 startup announcement", () => {
   test("extension_loaded carries the granted capabilities", async () => {
     const rt = runtime();
@@ -381,5 +630,205 @@ describe("ADR-0053 absolute prohibitions", () => {
     // No forged chrome in the log.
     expect(events.filter((e) => e.type === "user_message").length).toBe(1); // the real send only
     await session.dispose();
+  });
+});
+
+describe("member path scopes (#1224, ADR-0074 roles carry scopes)", () => {
+  async function scopedTeamFixture(pathScopes: readonly string[] | undefined) {
+    const rt = runtime();
+    let spawn: NonNullable<ExtensionSetupContext["spawnSubagent"]> | null = null;
+    await rt.register(
+      defineExtension({
+        name: "orch",
+        version: "1",
+        apiVersion: "1.13",
+        capabilities: ["spawn-subagent"],
+        setup: (ctx) => {
+          spawn = ctx.spawnSubagent!;
+        },
+      }),
+    );
+    const projectDir = tempDir();
+    const session = createSession({
+      provider: MockProvider.scripted([{ deltas: ["ok"], finish: "stop" }]),
+      tools: builtinTools(),
+      cwd: projectDir,
+      extensions: rt,
+      subagents: {
+        home: tempDir(),
+        provider: MockProvider.scripted([
+          { deltas: [], finish: "tool_calls", toolCalls: [{ name: "write", args: { path: "outside/leak.ts", content: "leak" } }] },
+          { deltas: [], finish: "tool_calls", toolCalls: [{ name: "write", args: { path: "client/app.ts", content: "real" } }] },
+          { deltas: ["done"], finish: "stop" },
+        ]),
+      },
+    });
+    const events = tap(session);
+    const result = await spawn!({ task: "work", ...(pathScopes !== undefined ? { pathScopes } : {}) });
+    const spawned = events.find((e) => e.type === "subagent_spawn") as Extract<AgentEvent, { type: "subagent_spawn" }>;
+    return { result, spawned, projectDir, session };
+  }
+
+  test("a scoped builder cannot write outside its scope; inside writes land; the scopes are recorded", async () => {
+    const { result, spawned, projectDir, session } = await scopedTeamFixture(["client/**"]);
+    await session.dispose();
+    expect(result.status).toBe("done");
+    expect(existsSync(join(projectDir, "client", "app.ts"))).toBe(true);
+    expect(existsSync(join(projectDir, "outside", "leak.ts"))).toBe(false);
+    // The denial is the spine's, logged in the child's own log — not prompt discipline.
+    const childLog = readFileSync(spawned.log!, "utf8");
+    expect(childLog).toContain('"permission_denied"');
+    expect(childLog).toContain("denied by permission rule");
+    expect(spawned.limits.pathScopes).toEqual(["client/**"]);
+  });
+
+  test("empty pathScopes is the read-only reviewer: every write is denied", async () => {
+    const { result, spawned, projectDir, session } = await scopedTeamFixture([]);
+    await session.dispose();
+    expect(result.status).toBe("done");
+    expect(existsSync(join(projectDir, "client", "app.ts"))).toBe(false);
+    expect(existsSync(join(projectDir, "outside", "leak.ts"))).toBe(false);
+    const childLog = readFileSync(spawned.log!, "utf8");
+    expect(childLog).toContain('"permission_denied"');
+    expect(spawned.limits.pathScopes).toEqual([]);
+  });
+
+  test("scopes survive yolo: the parent's mode does not lift a written deny", async () => {
+    const rt = runtime();
+    let spawn: NonNullable<ExtensionSetupContext["spawnSubagent"]> | null = null;
+    await rt.register(
+      defineExtension({
+        name: "orch",
+        version: "1",
+        apiVersion: "1.13",
+        capabilities: ["spawn-subagent"],
+        setup: (ctx) => {
+          spawn = ctx.spawnSubagent!;
+        },
+      }),
+    );
+    const projectDir = tempDir();
+    const session = createSession({
+      provider: MockProvider.scripted([{ deltas: ["ok"], finish: "stop" }]),
+      tools: builtinTools(),
+      cwd: projectDir,
+      permissions: { unrestrictedTools: true },
+      extensions: rt,
+      subagents: {
+        home: tempDir(),
+        provider: MockProvider.scripted([
+          { deltas: [], finish: "tool_calls", toolCalls: [{ name: "write", args: { path: "outside/leak.ts", content: "leak" } }] },
+          { deltas: ["done"], finish: "stop" },
+        ]),
+      },
+    });
+    const events = tap(session);
+    const result = await spawn!({ task: "work", pathScopes: ["client/**"] });
+    const spawned = events.find((e) => e.type === "subagent_spawn") as Extract<AgentEvent, { type: "subagent_spawn" }>;
+    await session.dispose();
+    expect(result.status).toBe("done");
+    expect(existsSync(join(projectDir, "outside", "leak.ts"))).toBe(false);
+    expect(readFileSync(spawned.log!, "utf8")).toContain('"permission_denied"');
+  });
+
+  test("an invalid scope is refused loudly; no child is created", async () => {
+    const { result, spawned, session } = await scopedTeamFixture(["/abs/**"]);
+    await session.dispose();
+    expect(result.status).toBe("error");
+    expect(result.error).toContain("absolute paths are not allowed");
+    expect(spawned).toBeUndefined();
+  });
+});
+
+describe("stopSubagents: the team-scoped one-stop (ADR-0055, #1226)", () => {
+  test("granted: the API is present; refused: enforcement by absence", async () => {
+    const granted = await capturing({
+      name: "orch",
+      version: "1",
+      apiVersion: "1.13",
+      capabilities: ["spawn-subagent"],
+      setup: () => {},
+    });
+    await granted.rt.ready();
+    expect(typeof granted.ctx!.stopSubagents).toBe("function");
+
+    const refused = await capturing({ name: "plain", version: "1", apiVersion: "1.13", setup: () => {} });
+    await refused.rt.ready();
+    expect(refused.ctx!.stopSubagents).toBeUndefined();
+  });
+
+  test("stopSubagents aborts only this extension's live child and records the stop with its name", async () => {
+    const rt = runtime();
+    let api: { spawn: NonNullable<ExtensionSetupContext["spawnSubagent"]>; stop: NonNullable<ExtensionSetupContext["stopSubagents"]> } | null = null;
+    await rt.register(
+      defineExtension({
+        name: "orch",
+        version: "1",
+        apiVersion: "1.13",
+        capabilities: ["spawn-subagent"],
+        setup: (ctx) => {
+          api = { spawn: ctx.spawnSubagent!, stop: ctx.stopSubagents! };
+        },
+      }),
+    );
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const session = createSession({
+      provider: MockProvider.scripted([{ deltas: ["ok"], finish: "stop" }]),
+      tools: { echo: echoTool },
+      extensions: rt,
+      subagents: {
+        home: tempDir(),
+        provider: MockProvider.scripted([
+          { deltas: ["working", "still working"], finish: "stop", hold: { afterDeltas: 1, release: gate } },
+        ]),
+      },
+    });
+    const events = tap(session);
+    const { spawn, stop } = api!;
+    const pending = spawn!({ task: "child" });
+    let live: ReturnType<typeof session.liveSubagents> = [];
+    for (let i = 0; i < 40 && live.length === 0; i++) {
+      await Bun.sleep(25);
+      live = session.liveSubagents();
+    }
+    expect(live).toHaveLength(1);
+    const stopped = stop();
+    expect(stopped).toEqual([live[0]!.callId]);
+    release();
+    const spawned = await pending;
+    expect(spawned.status).toBe("cancelled");
+    const record = events.find((e) => e.type === "orchestration_stopped") as Extract<AgentEvent, { type: "orchestration_stopped" }>;
+    expect(record.extension).toBe("orch");
+    expect(record.callIds).toEqual([live[0]!.callId]);
+    await session.dispose();
+  });
+
+  test("a stop with nothing of this extension's live records nothing and returns []", async () => {
+    const rt = runtime();
+    let stop: NonNullable<ExtensionSetupContext["stopSubagents"]> | null = null;
+    await rt.register(
+      defineExtension({
+        name: "orch",
+        version: "1",
+        apiVersion: "1.13",
+        capabilities: ["spawn-subagent"],
+        setup: (ctx) => {
+          stop = ctx.stopSubagents!;
+        },
+      }),
+    );
+    const session = createSession({
+      provider: MockProvider.scripted([{ deltas: ["ok"], finish: "stop" }]),
+      tools: { echo: echoTool },
+      extensions: rt,
+      subagents: { home: tempDir(), provider: MockProvider.scripted([{ deltas: ["ok"], finish: "stop" }]) },
+    });
+    const events = tap(session);
+    expect(stop!()).toEqual([]);
+    await session.dispose();
+    expect(events.some((e) => e.type === "orchestration_stopped")).toBe(false);
   });
 });

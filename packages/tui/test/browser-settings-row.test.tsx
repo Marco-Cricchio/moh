@@ -18,10 +18,10 @@ import { join } from "node:path";
 import { browserToolchainRoot, MockProvider } from "@moh/core";
 import { App } from "../src/App";
 import { readBrowserSetting, writeBrowserSetting } from "../src/browser-setup";
-import { COMPOSER_READY, stripAnsi, waitForFrame } from "./helpers";
+import { COMPOSER_READY, grantTeamExtension, stripAnsi, waitForFrame } from "./helpers";
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
-const tempHome = () => mkdtempSync(join(tmpdir(), "moh-browser-set-home-"));
+const tempHome = () => { const h = mkdtempSync(join(tmpdir(), "moh-browser-set-home-")); grantTeamExtension(h); return h; };
 
 describe("the Settings Browser row (#934)", () => {
   function appWith(project: Record<string, unknown>) {

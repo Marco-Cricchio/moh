@@ -1132,6 +1132,11 @@ export function projectTranscript(events: ReadonlyArray<AgentEvent>, options: { 
         // keep their own spawn/result blocks; the stop itself needs no
         // transcript block.
         break;
+      case "subagent_steer":
+        // ADR-0055 write-into-child (#1222): the steering record — the
+        // member's own log holds the turn it produced; the write needs
+        // no transcript block.
+        break;
       case "prompt_override":
         // ADR-0054: prompt-section composition change — section, author,
         // version and mode only, never the words. The transcript has no

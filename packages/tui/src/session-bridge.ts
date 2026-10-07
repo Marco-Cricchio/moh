@@ -45,6 +45,18 @@ export function useSidebarState(session: AgentSession | null): SidebarState {
   return useProjected(session, projectSidebar, () => (session ? projectSidebar(session.history()) : EMPTY_SIDEBAR));
 }
 
+/** Owner directive (pre-main): the extensions rail opens itself when a team
+ * is actually created — the `team_composed` chrome event in the log. This
+ * projection rides the same coalesced subscription as the sidebar, so the
+ * App re-evaluates the auto-open effect when the composition lands. */
+export function useTeamComposed(session: AgentSession | null): boolean {
+  return useProjected(
+    session,
+    (history) => history.some((event) => event.type === "extension_event" && (event as { name?: string }).name === "team_composed"),
+    () => (session ? session.history().some((event) => event.type === "extension_event" && (event as { name?: string }).name === "team_composed") : false),
+  );
+}
+
 function useProjected<T>(session: AgentSession | null, project: (history: AgentEvent[]) => T, initial: () => T): T {
   // React re-runs the useState initializer on every render; snapshot the
   // log once, or every render pays a full history() copy.

@@ -6,11 +6,11 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { listSessionSummaries, loadMohConfig, MockProvider, type Provider } from "@moh/core";
 import { App } from "../src/App";
-import { COMPOSER_READY, stripAnsi, waitForCondition, waitForFrame } from "./helpers";
+import { COMPOSER_READY, grantTeamExtension, stripAnsi, waitForCondition, waitForFrame } from "./helpers";
 import { installAiSdkWarningSink } from "../src/ai-sdk-warnings";
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
-const tempHome = () => mkdtempSync(join(tmpdir(), "moh-app-ov-"));
+const tempHome = () => { const h = mkdtempSync(join(tmpdir(), "moh-app-ov-")); grantTeamExtension(h); return h; };
 
 /** Push a toast through App's own channel with no keystroke involved (the
  * SDK warning sink), so the intro is still on screen when it lands. */

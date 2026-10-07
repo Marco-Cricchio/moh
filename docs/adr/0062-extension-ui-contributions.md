@@ -34,6 +34,32 @@ ADR-0061 scoped client surfaces v1 to read-only (`/extensions` + orchestration s
 - The interaction-through-gate rule is the security-critical property: the implementation must make the gated path the *only* path from a UI callback to a permission-gated action, and tests must pin it.
 - Deferred, not decided here: focus management between the permission modal and extension overlays competing for input, and whether extension overlays may nest. When a real case arrives, it gets its own decision.
 
+## Amendment (#1225, apiVersion 1.17): the focused-key seam
+
+The team panel (#1225) is the real case the panel-key question waited
+for: a roster whose members a user selects and opens inside the panel.
+The decision stays inside this ADR's commitments — the client owns the
+rail, the extension answers within it. `ExtensionPanel` gains an
+optional `onKey(input, key): boolean`: while the rail holds focus
+(`ctrl+p`), the client forwards the keys it does not consume itself —
+`esc` and `tab` always stay the client's, `j`/`k` and the arrows keep
+scrolling the panel's window — and a consumed key (`true`) costs one
+re-render. Outside focus mode a panel receives nothing; a panel without
+`onKey` is unchanged and purely read-only. Overlays keep their own
+`Esc`-owned modal focus; the modal-vs-overlay focus question above stays
+deferred.
+
+## Amendment (#1226, apiVersion 1.18): the scroll keys compose
+
+The team steering draft (#1226) is the case the 1.17 precedence waited
+for: a panel that composes text must be able to consume `j`/`k` — a
+message with a letter in it is not a scroll request. The fallback order
+flips; the ownership rule holds. While the rail holds focus the client
+hands each key to the focused panel's `onKey` first and scrolls only
+what the panel ignores; `esc` and `tab` never reach the panel. A panel
+without `onKey` sees no difference: its `j`/`k` still scroll, exactly
+as before.
+
 ## Considered Options
 
 - **Onion wrapping of native components** (the Claude-Mods `ui.render` model): maximum expressiveness — badges inside the status line, redecorated transcript — but it couples the extension to moh's internal component structure (every moh update potentially breaking), makes deactivation a chain re-linking problem, reintroduces authority by registration position, makes the UI non-reconstructible, and contradicts one-author-per-section and consent-only authority. Rejected after the owner weighed the trade-off explicitly; revisitable only with its own ADR if a real deep-integration use case materializes.

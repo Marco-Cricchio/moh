@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import { createSession, MockProvider, SessionStore } from "../src/index";
 import { legacyProjectSlug, listSessionSummaries, MIN_SUPPORTED_SCHEMA_VERSION, projectSlug, renameSession, setSessionPinned, replayMessages, deleteSession, restoreSession, listTrashedSessions, pruneTrash, resolveEventRef, isSessionOpen } from "../src/session-store";
-import { canonicalRemoteSlug } from "../src/project-identity";
+import { canonicalRemoteSlug, readStrandedDataRecord } from "../src/project-identity";
 import { runtimeRulesFromEvents } from "../src/permissions";
 import type { AgentEvent } from "../src/index";
 
@@ -205,6 +205,80 @@ describe("session store", () => {
     expect(existsSync(uuidDir)).toBe(false);
     expect(readFileSync(join(home, ".moh", "projects", first, "old.jsonl"), "utf8")).toBe("session");
     expect(readFileSync(join(home, ".moh", "projects", first, "migration.log"), "utf8").split("\n").filter(Boolean)).toHaveLength(1);
+  });
+
+  test("#1217: a materialized-but-empty remote directory does not block the migration", () => {
+    const home = tempHome();
+    const cwd = mkdtempSync(join(tmpdir(), "moh-mig1217-"));
+    // Born without git: uuid identity + data.
+    const uuidSlug = projectSlug(cwd, home);
+    const uuidDir = join(home, ".moh", "projects", uuidSlug);
+    mkdirSync(uuidDir, { recursive: true });
+    writeFileSync(join(uuidDir, "old.jsonl"), "session");
+    mkdirSync(join(uuidDir, "memory"), { recursive: true });
+    writeFileSync(join(uuidDir, "memory", "facts.md"), "fact");
+    // Gains origin; a second moh process materializes the empty remote
+    // directory before the next boot (the #1217 blocker).
+    execFileSync("git", ["init", "-q", cwd]);
+    execFileSync("git", ["-C", cwd, "remote", "add", "origin", "git@github.com:Owner/Repo.git"]);
+    mkdirSync(join(home, ".moh", "projects", "github.com/owner/repo"), { recursive: true });
+    const slug = projectSlug(cwd, home);
+    expect(slug).toBe("github.com/owner/repo");
+    const target = join(home, ".moh", "projects", slug);
+    // The empty shell was not data: the uuid contents moved in once.
+    expect(existsSync(uuidDir)).toBe(false);
+    expect(readFileSync(join(target, "old.jsonl"), "utf8")).toBe("session");
+    expect(readFileSync(join(target, "memory", "facts.md"), "utf8")).toBe("fact");
+    expect(readFileSync(join(target, "migration.log"), "utf8")).toContain(`Migrated project directory ${uuidSlug} to ${slug}`);
+    // Exactly once.
+    projectSlug(cwd, home);
+    expect(readFileSync(join(target, "migration.log"), "utf8").split("\n").filter((l) => l.startsWith("Migrated"))).toHaveLength(1);
+  });
+
+  test("#1217: a same-named survivor keeps the remote copy; the uuid copy is preserved and the note records it", () => {
+    const home = tempHome();
+    const cwd = mkdtempSync(join(tmpdir(), "moh-mig1217b-"));
+    const uuidSlug = projectSlug(cwd, home);
+    const uuidDir = join(home, ".moh", "projects", uuidSlug);
+    mkdirSync(uuidDir, { recursive: true });
+    writeFileSync(join(uuidDir, "old.jsonl"), "uuid-copy");
+    execFileSync("git", ["init", "-q", cwd]);
+    execFileSync("git", ["-C", cwd, "remote", "add", "origin", "git@github.com:Owner/Repo.git"]);
+    // Only a stale migration note: still an empty shell to the resolver.
+    const remote = join(home, ".moh", "projects", "github.com/owner/repo");
+    mkdirSync(remote, { recursive: true });
+    writeFileSync(join(remote, "migration.log"), "stale note from an older attempt\n");
+    expect(projectSlug(cwd, home)).toBe("github.com/owner/repo");
+    // No collision in this shape — the shell still counts as empty — but the
+    // note moved with the migration and the data landed beside it.
+    expect(readFileSync(join(remote, "old.jsonl"), "utf8")).toBe("uuid-copy");
+    expect(existsSync(uuidDir)).toBe(false);
+  });
+
+  test("#1217: both directories hold data — nothing moves, the stranded uuid data is recorded and readable", () => {
+    const home = tempHome();
+    const cwd = mkdtempSync(join(tmpdir(), "moh-mig1217c-"));
+    const uuidSlug = projectSlug(cwd, home);
+    const uuidDir = join(home, ".moh", "projects", uuidSlug);
+    mkdirSync(uuidDir, { recursive: true });
+    writeFileSync(join(uuidDir, "uuid-session.jsonl").replace("uuid-session", `20260101T000000000Z-deadbeef`), "uuid-session");
+    execFileSync("git", ["init", "-q", cwd]);
+    execFileSync("git", ["-C", cwd, "remote", "add", "origin", "git@github.com:Owner/Repo.git"]);
+    const remote = join(home, ".moh", "projects", "github.com/owner/repo");
+    mkdirSync(remote, { recursive: true });
+    writeFileSync(join(remote, "20260202T000000000Z-cafebab0.jsonl"), "remote-session");
+    const slug = projectSlug(cwd, home);
+    expect(slug).toBe("github.com/owner/repo");
+    // Nothing merged or moved: each side keeps its own session.
+    expect(existsSync(join(uuidDir, "20260101T000000000Z-deadbeef.jsonl"))).toBe(true);
+    expect(existsSync(join(remote, "20260202T000000000Z-cafebab0.jsonl"))).toBe(true);
+    // The stranded data is recorded durably and readable through the seam.
+    const record = readStrandedDataRecord(join(home, ".moh", "projects", slug));
+    expect(record?.source).toBe(uuidDir);
+    expect(record?.destination).toBe(remote);
+    // Idempotent: a second resolution does not duplicate or throw.
+    expect(projectSlug(cwd, home)).toBe(slug);
+    expect(readStrandedDataRecord(join(home, ".moh", "projects", slug))?.recordedAt).toBe(record?.recordedAt);
   });
 
   test("#591: canonicalRemoteSlug returns null for non-repo URLs and missing git", () => {

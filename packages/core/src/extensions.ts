@@ -58,7 +58,7 @@ import {
 } from "@moh/extension";
 import type { BeforeTurnResult } from "@moh/extension";
 import type { AgentEvent, ExtensionStatus, ThinkingLevel, TokenUsage } from "./types";
-import type { ExtensionSpawnSpec } from "@moh/extension";
+import type { ExtensionSpawnSpec, PanelKeyEvent } from "@moh/extension";
 import type { SubagentHost } from "./subagents";
 import { checkScope } from "./check-scope";
 import { ExtensionSpawnRefusedError } from "./extension-scope";
@@ -200,9 +200,10 @@ export interface ExtensionConsentRequest {
    * means no new powers. */
   addedCapabilities?: readonly string[];
   /**
-   * ADR-0066: the manifest's `reasoning` — the author's justification for
-   * a total network wildcard (`host:*`), which the consent question
-   * displays. Present only when the manifest declares one.
+   * ADR-0066: the manifest's `reasoning` — the author's justification the
+   * consent question displays (required for a total network wildcard
+   * (`host:*`), shown for any manifest that declares one). Present only
+   * when the manifest declares one.
    */
   reasoning?: string;
   /**
@@ -801,7 +802,14 @@ export class ExtensionRuntime {
   /** ADR-0062 (#1132): every registered panel, in extension order — one
    * per extension (a second registration from the same extension is
    * refused). Empty without the grant or without registrations. */
-  panels(): { extension: string; name: string; description: string; maxHeight?: number; render(): unknown }[] {
+  panels(): {
+    extension: string;
+    name: string;
+    description: string;
+    maxHeight?: number;
+    render(): unknown;
+    onKey?(input: string, key: PanelKeyEvent): boolean;
+  }[] {
     return this.#instances
       .filter((i) => i.panel !== null)
       .map((i) => ({
@@ -810,6 +818,9 @@ export class ExtensionRuntime {
         description: typeof i.panel!.description === "string" && i.panel!.description.length > 0 ? i.panel!.description : `panel by ${i.def.name}`,
         ...(typeof i.panel!.maxHeight === "number" && i.panel!.maxHeight > 0 ? { maxHeight: i.panel!.maxHeight } : {}),
         render: () => i.panel!.render(),
+        // apiVersion 1.17: the focused-key seam rides only when the panel
+        // declared it — absence keeps the panel purely read-only.
+        ...(typeof i.panel!.onKey === "function" ? { onKey: (input: string, key: PanelKeyEvent) => i.panel!.onKey!(input, key) } : {}),
       }));
   }
 
@@ -1404,6 +1415,14 @@ bindPathDeny(isDenied: (resolvedAbsPath: string) => boolean): void {
    */
   #toolContributor: ((registration: { extension: string; tool: unknown }) => void) | null = null;
   #pendingContributed: { extension: string; tool: unknown }[] = [];
+  /** ADR-0055 (#1222): names of accepted contributed tools — the set the
+   * subagent host excludes from every child's toolset. */
+  #contributedToolNames = new Set<string>();
+
+  /** ADR-0055 (#1222): the contributed tools this runtime holds. */
+  contributedToolNames(): readonly string[] {
+    return [...this.#contributedToolNames];
+  }
 
   bindToolContributor(contributor: (registration: { extension: string; tool: unknown }) => void): void {
     this.#toolContributor = contributor;
@@ -1441,6 +1460,7 @@ bindPathDeny(isDenied: (resolvedAbsPath: string) => boolean): void {
       return;
     }
     const registration = { extension, tool };
+    this.#contributedToolNames.add(name);
     if (this.#toolContributor) this.#toolContributor(registration);
     else this.#pendingContributed.push(registration);
     // The `tool_contributed` record is emitted by `bindToolContributor`
@@ -1786,6 +1806,13 @@ bindPathDeny(isDenied: (resolvedAbsPath: string) => boolean): void {
       };
     }
     const store = this.#readStore();
+    // ADR-0053/0062 vocabulary: one name, one instance per runtime. A
+    // second registration of an extension already loaded is refused loudly
+    // (`taken`) — like a panel or command name — never silently stacked;
+    // a hot-reload replaces and is exempt (it hands over its own slot).
+    if (!replacing && this.#instances.some((i) => i.def.name === name)) {
+      return { ok: false, name, reason: "taken", message: `an extension named "${name}" is already registered in this session` };
+    }
     // In-memory definitions have no source bytes: retain their historical
     // name identity. Loaded modules bind consent to resolved path + bytes.
     // Bundled first-party definitions (`register(def, { bundled: true })`)
@@ -1821,7 +1848,15 @@ bindPathDeny(isDenied: (resolvedAbsPath: string) => boolean): void {
         version: d.version,
         // Re-derives the manifest here too: a file swapped in between the
         // pre-import ask and this lookup is caught rather than trusted.
-        ...(recheck?.ok ? { capabilities: recheck.manifest.capabilities } : {}),
+        // An in-memory registration has no recheck — the authority the
+        // registration declared (ADR-0061's bundled-with-manifest shape)
+        // is what the question must name, or a yes would grant powers it
+        // never showed.
+        ...(recheck?.ok
+          ? { capabilities: recheck.manifest.capabilities }
+          : consentAuthority
+            ? { capabilities: consentAuthority.capabilities }
+            : {}),
       },
       bundled,
       consentAuthority,
@@ -1998,10 +2033,12 @@ bindPathDeny(isDenied: (resolvedAbsPath: string) => boolean): void {
     // Present only when granted (enforcement by absence); the envelope is
     // intersected at every call, and a refusal is a loud
     // `extension_failed` with the child never created.
-    const spawnSlot: Pick<ExtensionSetupContext, "spawnSubagent" | "subagentActivity"> = granted.includes("spawn-subagent")
+    const spawnSlot: Pick<ExtensionSetupContext, "spawnSubagent" | "subagentActivity" | "steerSubagent" | "stopSubagents"> = granted.includes("spawn-subagent")
       ? {
           spawnSubagent: (spec) => this.#spawnSubagentFor(instance, spec),
           subagentActivity: (callId) => this.#subagentActivityFor(instance, callId),
+          steerSubagent: (callId, message) => this.#steerSubagentFor(instance, callId, message),
+          stopSubagents: () => this.#stopSubagentsFor(instance),
         }
       : {};
     // ADR-0064 + ADR-0065: the host-performs seam. Present only when the
@@ -2368,6 +2405,57 @@ bindPathDeny(isDenied: (resolvedAbsPath: string) => boolean): void {
     const host = this.#subagentHost;
     if (!host) return null;
     return host.activityFor(instance.def.name, callId);
+  }
+
+  /**
+   * ADR-0055 write-into-child (#1222): the steering path. Same ownership
+   * rule as `subagentActivity` — only children this extension spawned
+   * exist for it, so members can never write into each other — plus the
+   * no-grandchildren guard: extension code running on a borrowed (child)
+   * session may not steer either.
+   */
+  async #steerSubagentFor(
+    instance: RuntimeExtension,
+    callId: string,
+    message: string,
+  ): Promise<{ callId: string; status: "done" | "error" | "cancelled"; output: string; error?: string } | null> {
+    const name = instance.def.name;
+    const refuse = (reason: string, message: string) => {
+      this.#emitFailed(name, reason, message);
+      return { callId, status: "error" as const, output: "", error: message };
+    };
+    if (this.#borrowedSessions.getStore() !== undefined) {
+      return refuse("no_grandchildren", `extension "${name}" attempted to steer from inside a subagent — grandchildren are refused`);
+    }
+    const host = this.#subagentHost;
+    if (!host) {
+      return refuse("steer_unavailable", `extension "${name}" holds the spawn-subagent capability but this session exposes no subagent host`);
+    }
+    try {
+      return await host.steerFor(name, callId, message);
+    } catch (err) {
+      return refuse("steer_failed", errMessage(err));
+    }
+  }
+
+  /**
+   * ADR-0055 "one stop", team-scoped (#1226): the extension stops only
+   * the children it spawned. One `orchestration_stopped` chrome event
+   * with the `extension` field records the stop; a session-level
+   * `stopSubagents()` is unchanged and stays the owner's door.
+   */
+  #stopSubagentsFor(instance: RuntimeExtension): string[] {
+    const name = instance.def.name;
+    const host = this.#subagentHost;
+    if (!host) {
+      this.#emitFailed(name, "stop_unavailable", `extension "${name}" holds the spawn-subagent capability but this session exposes no subagent host`);
+      return [];
+    }
+    const stopped = host.stopForExtension(name);
+    if (stopped.length > 0) {
+      this.#emit({ type: "orchestration_stopped", callIds: stopped, stoppedAt: new Date().toISOString(), extension: name });
+    }
+    return stopped;
   }
 
   /**

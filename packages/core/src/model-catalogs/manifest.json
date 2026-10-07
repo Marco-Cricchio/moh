@@ -1,17 +1,17 @@
 {
   "schemaVersion": 1,
-  "version": "0.58.2",
-  "generatedAt": "2026-10-05T19:08:28.649Z",
+  "version": "0.59.0",
+  "generatedAt": "2026-10-07T17:01:11.428Z",
   "sources": [
     {
       "name": "models.dev",
       "url": "https://models.dev/api.json",
-      "fetchedAt": "2026-10-05T19:08:28.164Z"
+      "fetchedAt": "2026-10-07T17:01:10.996Z"
     },
     {
       "name": "openrouter",
       "url": "https://openrouter.ai/api/v1/models",
-      "fetchedAt": "2026-10-05T19:08:28.463Z"
+      "fetchedAt": "2026-10-07T17:01:11.272Z"
     }
   ],
   "files": {
@@ -176,7 +176,7 @@
       }
     },
     "opencode-go": {
-      "sha256": "1d011bb88b4d2c41403693b3d9e793d1fdf4c4dc52de5e901d0019fa8e3941ed",
+      "sha256": "4a370896cf1a084390a798c3edf8efec936522c7ba251aceedc5eb69fe4f8c53",
       "rows": 28,
       "verdicts": {
         "exact": 26,
@@ -196,10 +196,10 @@
       }
     },
     "openrouter": {
-      "sha256": "eb8457c77df827b38648460f3fbacadf6e8a3d5c6ce98145b6259da29b6dac74",
-      "rows": 361,
+      "sha256": "e74f8b11bee515c4c44e99d89328177f22f410e60942564fa06ff07a30d03eec",
+      "rows": 360,
       "verdicts": {
-        "exact": 337,
+        "exact": 336,
         "base-model": 1,
         "ambiguous": 0,
         "absent": 23
@@ -4574,21 +4574,6 @@
         "reasoning",
         "input"
       ]
-    },
-    "openrouter/kwaipilot/kat-coder-pro-v2.5": {
-      "provider": "openrouter",
-      "id": "kwaipilot/kat-coder-pro-v2.5",
-      "verdict": "exact",
-      "source": "models.dev",
-      "namespace": "openrouter",
-      "supplied": [
-        "cost",
-        "contextWindow",
-        "maxTokens",
-        "reasoning",
-        "input"
-      ],
-      "overrides": []
     },
     "openrouter/liquid/lfm-2.5-2.6b:free": {
       "provider": "openrouter",
