@@ -176,7 +176,9 @@ export function isSessionOpen(file: string): boolean {
   return openSessionFiles.has(file);
 }
 
-function isSessionFile(name: string): boolean {
+/** Public for the #1243 stranded-data resolution (project-identity): the
+ * canonical session-log-name predicate. */
+export function isSessionFile(name: string): boolean {
   return (
     name.endsWith(".jsonl") &&
     SESSION_ID_RE.test(name.slice(0, name.length - ".jsonl".length))

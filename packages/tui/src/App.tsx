@@ -82,8 +82,9 @@ import { SessionModal } from "./SessionModal";
 import { ExtensionsModal } from "./ExtensionsModal";
 import { ExtensionsRail, ExtensionOverlayView } from "./ExtensionsRail";
 import { LanesModal } from "./LanesModal";
+import { StrandedModal } from "./StrandedModal";
 import { TreePanel } from "./TreePanel";
-import { sessionTree, type TreeNode } from "@moh/core";
+import { sessionTree, projectSessionsDir, type TreeNode } from "@moh/core";
 import { contextWindowForLabel, mergePickCatalog } from "./model-picker";
 import { Frontier } from "./Frontier";
 import { SkillChooser } from "./SkillChooser";
@@ -147,7 +148,7 @@ export interface AppProps {
   session?: AgentSession;
 }
 
-type Overlay = null | "settings" | "commands" | "manual" | "notes" | "onboarding" |"handoff-onboarding" | "workflow-offer" | "frontier" | "skill-chooser" | "model" | "skill-updates" | "quota" | "rename" | "cold-wizard" | "tree" | "mpm" | "session" | "jev" | "browser" | "lanes" | "extensions";
+type Overlay = null | "settings" | "commands" | "manual" | "notes" | "onboarding" | "handoff-onboarding" | "workflow-offer" | "frontier" | "skill-chooser" | "model" | "skill-updates" | "quota" | "rename" | "cold-wizard" | "tree" | "mpm" | "session" | "jev" | "browser" | "lanes" | "extensions" | "stranded";
 
 /** #242: one-shot, non-blocking informed-consent copy. Exported so focused
  * tests can verify the full message even when narrow status chrome clips it. */
@@ -381,6 +382,9 @@ function AppShell({
     }
   });
   const [overlay, setOverlay] = useState<Overlay>(needsOnboarding ? "onboarding" : handoffStartupOffer ? "handoff-onboarding" : null);
+  // #1243: bumped when the stranded-resolution overlay closes, so Home
+  // re-reads the record and a resolved warning row disappears live.
+  const [strandedRefresh, setStrandedRefresh] = useState(0);
   // #718: the quota modal's "last N sessions" rollup — computed on-open
   // only (same probe pattern as #499), no background scanning. A failed
   // aggregator read degrades to `null` (session-only view), never an error.
@@ -1784,6 +1788,8 @@ function AppShell({
               open(null, undefined, handoffSeedPrompt(offer), offer);
             }}
             onOpenColdWizard={startColdWizard}
+            onOpenStranded={() => setOverlay("stranded")}
+            strandedRefresh={strandedRefresh}
           />
         )}
         </Box>
@@ -1935,6 +1941,16 @@ function AppShell({
             <Text> session analysis unavailable: {sessionReport && "error" in sessionReport ? sessionReport.error : "session file unknown"}</Text>
           ))}
         {overlay === "lanes" && <LanesModal cwd={process.cwd()} onClose={() => setOverlay(null)} />}
+        {overlay === "stranded" && (
+          <StrandedModal
+            dir={projectSessionsDir(sessionCwd, home)}
+            home={home}
+            onClose={() => {
+              setOverlay(null);
+              setStrandedRefresh((n) => n + 1);
+            }}
+          />
+        )}
         {overlay === "extensions" &&
           (extensionsReport && !("error" in extensionsReport) ? (
             <ExtensionsModal
