@@ -785,7 +785,7 @@ describe("panel steering + team-scoped stop-all (#1226, ADR-0055)", () => {
     let working = false;
     for (let i = 0; i < 50 && !working; i++) {
       await Bun.sleep(20);
-      working = String(panel.render()).includes("● builder");
+      working = String(panel.render()).includes("◐ builder");
     }
     expect(working).toBe(true);
 
@@ -854,7 +854,7 @@ describe("panel steering + team-scoped stop-all (#1226, ADR-0055)", () => {
     let working = false;
     for (let i = 0; i < 50 && !working; i++) {
       await Bun.sleep(20);
-      working = String(panel.render()).includes("● builder-1");
+      working = String(panel.render()).includes("◐ builder-1");
     }
     expect(working).toBe(true);
     expect(panel.onKey!("x", { input: "x" })).toBe(true);
