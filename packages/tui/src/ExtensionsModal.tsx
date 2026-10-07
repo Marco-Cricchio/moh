@@ -36,10 +36,13 @@ export interface ExtensionsModalProps {
   /** #1132: the rail is user-toggled here; panels collapse/reopen
    * manually — there is no automatic eviction (ADR-0062). */
   rail?: { open: boolean; onToggleRail: () => void; collapsed: ReadonlySet<string>; onTogglePanel: (name: string) => void };
+  /** #1218: clamps the client applied to declared maxHeights, by panel
+   * name — the visible record that a declaration was cut to fit. */
+  panelClamps?: ReadonlyMap<string, { max: number; shown: number }>;
   onClose: () => void;
 }
 
-export function ExtensionsModal({ state, duplicates, rail, onClose }: ExtensionsModalProps) {
+export function ExtensionsModal({ state, duplicates, rail, panelClamps, onClose }: ExtensionsModalProps) {
   const theme = useTheme();
   useInput((input, key) => {
     if (key.escape || input === "q") return onClose();
@@ -141,6 +144,11 @@ export function ExtensionsModal({ state, duplicates, rail, onClose }: Extensions
                     {" "}
                     {name}
                     {max !== undefined ? <Dim> ·max {max}</Dim> : null} <Dim>· panel · {e.name}</Dim>
+                    {panelClamps?.has(name) ? (
+                      <Text color={theme.warn}>
+                        {" "}·max {panelClamps.get(name)!.max} → {panelClamps.get(name)!.shown} (clamped)
+                      </Text>
+                    ) : null}
                     {rail ? (
                       <Text color={theme.accent}> [{collapsed ? "collapsed" : "open"}]</Text>
                     ) : (

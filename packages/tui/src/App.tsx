@@ -60,6 +60,7 @@ import { listFiles } from "./file-index";
 import { detectPreviewMode } from "./image-preview";
 import { trackExitWork } from "./exit";
 import { useSidebarState } from "./session-bridge";
+import { railAvailableRows } from "./rail-layout";
 import { PermissionModal } from "./PermissionModal";
 
 import { Onboarding } from "./OnboardingOverlay";
@@ -1452,6 +1453,11 @@ function AppShell({
     if (key.ctrl && input === "y" && session) return cycleThinkingLevel();
     if (key.ctrl && input === "w" && session) return activateChip("workflow");
     if (overlay === null && key.ctrl && input === "s") return setOverlay("settings");
+    // #1218: Ctrl+P toggles the extensions-rail focus mode — the panel
+    // scrolls, esc/Ctrl+P hands the keys back to the composer.
+    if (overlay === null && key.ctrl && input === "p" && railVisible && railWide) {
+      return setRailFocused((v) => !v);
+    }
     if (overlay === null && key.ctrl && input === "k") return setOverlay("commands");
     // #457: the user manual, from chat and home alike (slash fallback: /help).
     // ctrl+h spike finding: terminals with extended-key encoding (kitty,
@@ -1504,6 +1510,19 @@ function AppShell({
   /** #1132: at or below the rail's narrow threshold the zone collapses to
    * a footer strip BELOW the conversation — never a column beside it. */
   const railWide = viewport.columns > 80;
+  // #1218: the rail's available rows — viewport minus the composer frame
+  // and the footer (the subagent chips row costs one more). Below the
+  // rail's own minimum the rail collapses to the names strip.
+  const railRows = railAvailableRows(viewport.rows, useSubagentCount(session) > 0 ? 1 : 0);
+  // #1218 focus mode: Ctrl+P hands the keys to the selected panel; any
+  // modal or the esc/Ctrl+P exit returns them to the composer.
+  const [railFocused, setRailFocused] = useState(false);
+  /** #1218: clamps the client applied to declared maxHeights, recorded in
+   * /extensions with the overlay advice past the threshold. */
+  const [panelClamps, setPanelClamps] = useState<ReadonlyMap<string, { max: number; shown: number }>>(new Map());
+  useEffect(() => {
+    if (!railVisible || !railWide) setRailFocused(false);
+  }, [railVisible, railWide]);
   const overlayOpen = overlay !== null || pending !== null || extensionOverlay !== null;
   // #330: a flip back to the main buffer is pending from the moment the
   // overlay closes (render-phase: covers the first post-close commit,
@@ -1522,6 +1541,7 @@ function AppShell({
       blocked={blocked}
       filePreview={config.filePreview}
       inputFocused={focusedChip === null}
+      composerDimmed={railFocused && !overlayOpen}
       composerHandle={composerRef}
       focusedChip={focusedChip}
       focusedSubagent={focusedChip === -1 ? focusedSubagent : null}
@@ -1732,6 +1752,10 @@ function AppShell({
             panels={session!.extensionPanels()}
             collapsed={collapsedPanels}
             columns={viewport.columns}
+            rows={railRows}
+            focused={railFocused && !overlayOpen}
+            onFocusExit={() => setRailFocused(false)}
+            onClamp={setPanelClamps}
           />
         )}
         </Box>
@@ -1887,6 +1911,7 @@ function AppShell({
             <ExtensionsModal
               state={extensionsReport.state}
               duplicates={extensionsReport.duplicates}
+              panelClamps={panelClamps}
               rail={{
                 open: railOpen,
                 onToggleRail: () => setRailOpen((v) => !v),

@@ -86,6 +86,8 @@ export interface ChatProps {
   onCommand?: (text: string) => boolean;
   width?: number;
   inputFocused?: boolean;
+  /** #1218: the rail's Ctrl+P focus mode holds the keys — the composer dims. */
+  composerDimmed?: boolean;
   focusedChip?: number | null;
   tokens?: SidebarTokens;
   /** Context-bar denominator (note 11): the active model's catalog window,
@@ -208,6 +210,7 @@ export function Chat({
   onCommand,
   width,
   inputFocused = true,
+  composerDimmed = false,
   focusedChip = null,
   tokens = EMPTY_TOKENS,
   contextLimit,
@@ -1186,6 +1189,7 @@ export function Chat({
         placeholder={composerHint}
         disabled={blocked}
         focused={inputFocused}
+        dimmed={composerDimmed}
         composerHandle={composerHandle}
         onAskCommands={onOpenCommands}
         commands={commands}
