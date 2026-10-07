@@ -152,7 +152,12 @@ does not exist for it. `ctx.steerSubagent(callId, message)` (#1222)
 writes a follow-up message into a child it spawned — the member's next
 turn, context and route kept; the same ownership rule applies, so
 members can never address each other, and the write is recorded as
-`subagent_steer` chrome in the parent's log. The `extension_loaded`
+`subagent_steer` chrome in the parent's log. The spawn spec also takes
+`pathScopes` (#1224) — project-root globs that restrict the child's
+writes through the permission spine (a logged `permission_denied`, even
+in yolo; an empty list is fully read-only) — and `model`, a route pin
+for the child's own provider (`endpoint/model-id`, ADR-0050). The
+`extension_loaded`
 event carries the granted
 capabilities — the startup announcement of what each enabled extension
 holds.

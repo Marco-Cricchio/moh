@@ -47,12 +47,17 @@ export type PathScopeValidity = { ok: true; glob: string } | { ok: false; reason
  * outside-the-project targets is exactly what consent must not hide.
  */
 export function validatePathScope(capability: string): PathScopeValidity {
-  const glob = pathScopeGlob(capability);
+  return validatePathGlob(pathScopeGlob(capability), capability);
+}
+
+/** Validates the glob half alone (#1224): a spawn-time scope arrives as a
+ * bare glob, which `pathScopeGlob`'s unconditional slice would corrupt. */
+export function validatePathGlob(glob: string, original = glob): PathScopeValidity {
   if (glob.trim() === "" || glob.includes("\0")) {
-    return { ok: false, reason: "malformed", message: `invalid path scope "${capability}": empty or malformed glob` };
+    return { ok: false, reason: "malformed", message: `invalid path scope "${original}": empty or malformed glob` };
   }
   if (isAbsolute(glob)) {
-    return { ok: false, reason: "absolute", message: `invalid path scope "${capability}": absolute paths are not allowed — scopes are project-root-relative` };
+    return { ok: false, reason: "absolute", message: `invalid path scope "${original}": absolute paths are not allowed — scopes are project-root-relative` };
   }
   return { ok: true, glob };
 }

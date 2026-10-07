@@ -1,33 +1,22 @@
 /**
  * `moh-extension-team`: the first-party team extension (ADR-0074, #1220).
  *
- * Scope of this layer (ticket #1221, slice 2b; #1222, slice 2c): the
- * one-member team, end to end, plus steering. The `team` tool is
- * contributed to the session's model (ADR-0067); when the user asks to
- * work on something with the team, the model calls it with the task and
- * the extension composes the single builder member through the ADR-0055
- * spawn API. The child runs as a real subagent session (own route,
- * ADR-0050), the extension reads its turn activity (child-tail shape,
- * never the provider reasoning) and the settled outcome returns to the
- * model as the tool result. A follow-up call with `member` + `message`
- * steers the member (ADR-0055 write-into-child): its next turn keeps the
- * member's context and route, and the new outcome returns to the lead.
- * The task bag is slice 3 (#1223, this file + `task-bag.ts`);
- * the roles (#1224) and the panel (#1225) arrive later.
+ * Scope of this layer (ticket #1224, slice 4): composition by complexity.
+ * The `team` tool grows a `compose` shape: the model judges the ask and
+ * names the members — builders with disjoint path scopes (enforced by the
+ * permission spine, `pathScopes` on the spawn), optional lane pins
+ * (ADR-0060: the member works its whole blocked-by chain inside its own
+ * worktree) and model routes (ADR-0050); reviewers are read-only by
+ * scope. A single unscoped builder composes one member — the hybrid keeps
+ * the plain `task` spawn for the ask that needs none of it. The
+ * composition lands in a `team_composed` chrome event (recorded, never
+ * silent), the roster then drives `work`'s self-serve loop round-robin.
  *
- * Scope of the task bag (#1223): the extension-owned coordination seam
- * (ADR-0074). The `team` tool grows two shapes: `plan` decomposes the
- * brief into bag tasks (whole or nothing, `blockedBy` refs validated up
- * front) and `work` runs a member through the bag — the extension claims
- * the next claimable task, hands the member only that task (spawn, then
- * steering for the follow-ups), and records every transition
- * (`team_task_created`/`_claimed`/`_completed`) as chrome events, so the
- * board reconstructs from the log alone (`replayBoard`).
- *
- * Boundary: the core never learns about teams — it knows only the generic
- * `spawn-subagent` capability (ADR-0053/0055) and the manifest authority
- * the consent signs. Roles and the panel belong to later tickets
- * (#1224, #1225).
+ * Scope of the earlier layers: the one-member team (#1221), steering
+ * (#1222), the task bag (#1223). Boundary: the core never learns about
+ * teams — roles live entirely in this extension; the envelope (10
+ * children, no grandchildren, restrict-only) is the ADR-0055 grant the
+ * enable consent signs. The panel is #1225.
  *
  * The default export is the factory below; the registration helper pairs it
  * with the manifest authority so a client enables the extension through the
@@ -74,11 +63,26 @@ export function teamManifestAuthority(): {
 }
 
 /**
+ * One member spec of a `compose` call (#1224): the role plus its
+ * optional envelope fields and, at dispatch time, its own task.
+ */
+export const memberSpecSchema = z.object({
+  role: z.enum(["builder", "reviewer"]),
+  name: z.string().min(1).optional(),
+  scope: z.string().min(1).optional(),
+  lane: z.string().min(1).optional(),
+  model: z.string().min(1).optional(),
+  task: z.string().min(1).optional(),
+});
+export type MemberSpec = z.infer<typeof memberSpecSchema>;
+
+/**
  * The `team` tool's argument shape, checked before anything happens: a
  * spawn supplies the `task`; a steering write-into-child (#1222) supplies
  * the `member` and the `message` — the two are exclusive; `plan` (#1223)
  * decomposes the brief into bag tasks and `work` runs a member through
- * the bag (self-serve).
+ * the bag (self-serve); `compose` (#1224) registers a team of scoped
+ * members and dispatches the ones that carry a task.
  */
 const teamArgsSchema = z.object({
   task: z.string().min(1).optional(),
@@ -86,20 +90,153 @@ const teamArgsSchema = z.object({
   message: z.string().min(1).optional(),
   plan: z.array(z.object({ title: z.string().min(1), blockedBy: z.array(z.string()).optional() })).min(1).optional(),
   work: z.string().min(1).optional(),
+  compose: z.array(memberSpecSchema).min(1).optional(),
+  brief: z.string().min(1).optional(),
 });
 
 /**
- * The self-serve loop (#1223): the member works through the bag — the
- * extension claims the next claimable task, spawns or steers the member
- * with that one task, records the transition, and hands it the next one
- * until nothing claimable remains. Each turn's task text names only that
+ * One composed member of the team (#1224): an envelope preset in the
+ * ADR-0055 shape — builders carry a write-path scope and may pin a lane
+ * (ADR-0060) and a model route (ADR-0050); the reviewer is read-only by
+ * scope (empty `pathScopes` on the spawn — `write`/`edit` are denied by
+ * the permission spine, not by prompt discipline; a bash write is
+ * outside the spine's path rules and is covered by the parent's own
+ * permission posture, as for any child). A pinned lane that does not
+ * exist degrades visibly (#1224 follow-up): the member works un-laned,
+ * `team_lane_skipped` records the skip, and the tool result names
+ * `/lanes` — never a hard error at the end of the chain.
+ */
+export interface TeamMember {
+  readonly name: string;
+  readonly role: "builder" | "reviewer";
+  readonly scope?: string;
+  readonly lane?: string;
+  readonly model?: string;
+}
+
+/** The chrome event the composition decision lands in — recorded, never silent. */
+export const TEAM_COMPOSED = "team_composed";
+/**
+ * The visible degradation of a pinned lane that does not exist (#1224
+ * follow-up): the member works un-laned, this event records `{ member,
+ * lane }`, and the tool result names the agent door (bash `moh lanes
+ * start`, consented per the session mode: ask in normal — once, then
+ * the "always" session rule covers the next lane command; auto-accept
+ * lifts it; yolo runs it) and `/lanes` as the human door — an error at
+ * the end of the chain is the one friction this never gives the user.
+ */
+export const TEAM_LANE_SKIPPED = "team_lane_skipped";
+
+/**
+ * Validates and names a composition (#1224). Refusals are loud: a
+ * reviewer carries no scope or lane (read-only is the role), two scoped
+ * builders must be disjoint, names must be unique. Default names count
+ * per role (`builder-1`, `reviewer-1`, …). The spec order is preserved —
+ * callers may index back into the original `compose` array.
+ */
+export function normalizeComposition(specs: readonly MemberSpec[]): TeamMember[] {
+  const counters = { builder: 0, reviewer: 0 };
+  const members: TeamMember[] = [];
+  const seen = new Set<string>();
+  for (const spec of specs) {
+    if (spec.role === "reviewer" && (spec.scope !== undefined || spec.lane !== undefined)) {
+      throw new Error(`member "${spec.name ?? "(unnamed)"}": a reviewer carries no scope or lane — read-only is the role itself`);
+    }
+    counters[spec.role] += 1;
+    const name = spec.name ?? `${spec.role}-${counters[spec.role]}`;
+    if (seen.has(name)) throw new Error(`duplicate member name: ${name}`);
+    seen.add(name);
+    members.push({
+      name,
+      role: spec.role,
+      ...(spec.scope !== undefined ? { scope: spec.scope } : {}),
+      ...(spec.lane !== undefined ? { lane: spec.lane } : {}),
+      ...(spec.model !== undefined ? { model: spec.model } : {}),
+    });
+  }
+  // Two scoped builders must not overlap: a file both could write is a
+  // conflict the composition, not the model at write time, must settle.
+  const scoped = members.filter((m) => m.scope !== undefined);
+  for (let i = 0; i < scoped.length; i++) {
+    for (let j = i + 1; j < scoped.length; j++) {
+      const a = scoped[i]!.scope!;
+      const b = scoped[j]!.scope!;
+      // Composition-time conflict check, not enforcement: glob-vs-glob
+      // matching is approximate (a pattern compared as a path), so an
+      // exotic pair could pass as disjoint here — the spine still denies
+      // any write at write time; this keeps the obvious collisions out.
+      if (a === b || new Bun.Glob(a).match(b) || new Bun.Glob(b).match(a)) {
+        throw new Error(`overlapping builder scopes: "${a}" (${scoped[i]!.name}) and "${b}" (${scoped[j]!.name}) — builders must be disjoint`);
+      }
+    }
+  }
+  return members;
+}
+
+/** The role prompts: restriction is enforced by the spine; the prompt orients. */
+const ROLE_PROMPTS: Record<TeamMember["role"], string> = {
+  builder: "You are a team builder member. Implement your assigned task precisely and summarize what you changed. Stay inside your assigned path scope; writes outside it are denied by the permission rules.",
+  reviewer: "You are a team reviewer member. You cannot modify anything: read the code in question and report findings, risks and a verdict. File writes and edits are denied by the permission rules.",
+};
+
+/**
+ * The lead's view of one settled member: the child-tail activity (never
+ * the provider reasoning) recorded once, so the log holds what the
+ * extension read. The task words ride the payload, not duplicated prose.
+ */
+function recordMemberDone(
+  ctx: import("@moh/extension").ExtensionSetupContext,
+  payload: { callId: string; member: string; role?: string; task: string; status: string; outputChars: number; activity?: unknown },
+): void {
+  ctx.appendEvent({ name: "team_member_done", payload: payload as Record<string, unknown> });
+}
+
+/**
+ * One member spawn with the visible-degradation guarantee (#1224
+ * follow-up): the pinned lane rides the first prompt, and when the core
+ * refuses it because no active lane matches, the member is spawned
+ * un-laned instead — one `team_lane_skipped` chrome event records the
+ * skip and the caller's report names `/lanes` as the fix. The failed
+ * probe burns nothing: the core refuses before any child exists.
+ */
+async function spawnMemberLaned(
+  ctx: import("@moh/extension").ExtensionSetupContext,
+  m: TeamMember,
+  prompt: string,
+): Promise<{ result: { callId: string; status: "done" | "error" | "cancelled"; output: string; error?: string }; laneSkipped: boolean }> {
+  const buildSpec = (task: string) => ({
+    name: m.name,
+    task,
+    systemPrompt: ROLE_PROMPTS[m.role],
+    // The reviewer is read-only by scope: an empty scope list denies
+    // write/edit through the permission spine.
+    ...(m.role === "reviewer" ? { pathScopes: [] as readonly string[] } : m.scope !== undefined ? { pathScopes: [m.scope] } : {}),
+    ...(m.model !== undefined ? { model: m.model } : {}),
+  });
+  const result = await ctx.spawnSubagent!(buildSpec(m.lane !== undefined ? `${prompt}\n\nlane: ${m.lane}` : prompt));
+  if (m.lane === undefined || !/no active lane for branch/.test(result.error ?? "")) {
+    return { result, laneSkipped: false };
+  }
+  ctx.appendEvent({ name: TEAM_LANE_SKIPPED, payload: { member: m.name, lane: m.lane } });
+  return { result: await ctx.spawnSubagent!(buildSpec(prompt)), laneSkipped: true };
+}
+
+/**
+ * The self-serve loop (#1223, #1224): the members work through the bag —
+ * the extension claims the next claimable task, spawns or steers a
+ * builder with that one task, records the transition, and hands it the
+ * next one until nothing claimable remains. Builders rotate through the
+ * composed roster (a member's lane rides its first spawn's prompt, so
+ * every spawn of a lane-bound member runs in that member's own worktree;
+ * with one lane builder the whole blocked-by chain lands there);
+ * reviewers never claim bag work. Each turn's task text names only that
  * task: the member sees its work, never the bag or another member.
  */
 async function selfServeLoop(
   ctx: import("@moh/extension").ExtensionSetupContext,
   members: Map<string, string>,
   bag: TaskBag,
-  member: string,
+  roster: readonly TeamMember[],
   work: string,
 ): Promise<string> {
   const reports: string[] = [];
@@ -108,14 +245,25 @@ async function selfServeLoop(
   // is attempted at most once per `work` call, so the loop terminates after
   // at most as many iterations as there are tasks.
   const skipped = new Set<string>();
+  // Lanes that failed to bind this call (#1224 follow-up): reported once,
+  // visibly, at the end — never a silent un-laned member.
+  const skippedLanes = new Map<string, string>();
+  const builders = roster.filter((m) => m.role === "builder");
+  let nextBuilder = 0;
   for (;;) {
     const next = [...bag.tasks.values()].find((task) => !skipped.has(task.id) && task.id === bag.claimable()?.id);
     if (!next) break;
+    // Round-robin over the roster's builders; a reviewer never claims.
+    const memberSpec = builders[nextBuilder % builders.length]!;
+    nextBuilder += 1;
+    const member = memberSpec.name;
     if (!bag.claim(next.id, member)) break;
     const callId = members.get(member);
     const prompt = `${work}\n\nTask ${next.id}: ${next.title}`;
     const steered = callId !== undefined ? await ctx.steerSubagent!(callId, prompt) : null;
-    const outcome = steered ?? (await ctx.spawnSubagent!({ name: member, task: prompt }));
+    const spawned = steered !== null ? { result: steered, laneSkipped: false } : await spawnMemberLaned(ctx, memberSpec, prompt);
+    const outcome = spawned.result;
+    if (spawned.laneSkipped) skippedLanes.set(member, memberSpec.lane!);
     if (outcome.callId) members.set(member, outcome.callId);
     bag.complete(next.id, outcome.status);
     if (outcome.status !== "done") skipped.add(next.id);
@@ -139,7 +287,8 @@ async function selfServeLoop(
         : `${next.id} (${next.title}): ${outcome.status}${outcome.error ? ` — ${outcome.error}` : ""}`,
     );
   }
-  return `${bag.summary()}\n${reports.join("\n")}`;
+  const laneNotes = [...skippedLanes].map(([m, lane]) => `${m} works without its lane "${lane}" — no active lane matched. To isolate it: create the lane (CLI door: moh lanes group <group> + moh lanes start <group> <branch>; in the TUI: /lanes) and re-run the dispatch for that member`);
+  return `${bag.summary()}\n${reports.join("\n")}${laneNotes.length > 0 ? `\n${laneNotes.join("\n")}` : ""}`;
 }
 
 /**
@@ -176,30 +325,97 @@ export function createTeamExtension(): ExtensionDefinition {
       ctx.registerTool({
         name: "team",
         description:
-          "Delegate work to the team or steer an existing member. " +
-          "Spawn: pass `task` — spawns a builder member as a child session that works on the task and returns its result. " +
-          "Plan: pass `plan` — decomposes the brief into bag tasks; then pass `work` (and optionally `member`) to run a member through the bag. " +
+          "Delegate work to the team, compose it by complexity, or steer an existing member. " +
+          "Spawn: pass `task` — spawns a builder member as a child session that works on the task and returns its result (the simple, one-member ask). " +
+          "Compose: pass `compose` — a list of members (`role: builder|reviewer`, optional `name`, `scope` path glob, `lane` branchRef, `model` route, `task`) plus an optional `brief`; builders are scoped to disjoint paths, reviewers are read-only, members with a task are dispatched in parallel, and the roster then drives `work`. A member whose lane does not exist yet works un-laned: to give it isolation, create the lane yourself (bash: moh lanes group <group> && moh lanes start <group> <branch> — it asks for consent per the session mode) and re-dispatch the member. " +
+          "Plan: pass `plan` — decomposes the brief into bag tasks; then pass `work` (and optionally `member`) to run the team through the bag. " +
           "Steer: pass `member` + `message` — relays a follow-up instruction to that member's next turn (it keeps its context) and returns the new outcome. " +
           "Use when the user asks to work on something with the team, or to correct or redirect one of its members.",
         inputSchema: teamArgsSchema,
         execute: async (args) => {
           const parsed = teamArgsSchema.safeParse(args);
           if (!parsed.success) return `team: refused — ${parsed.error.issues[0]?.message ?? "invalid arguments"}`;
-          const { task, member, message, plan, work } = parsed.data as {
+          const { task, member, message, plan, work, compose, brief } = parsed.data as {
             task?: string;
             member?: string;
             message?: string;
             plan?: { title: string; blockedBy?: string[] }[];
             work?: string;
+            compose?: { role: "builder" | "reviewer"; name?: string; scope?: string; lane?: string; model?: string; task?: string }[];
+            brief?: string;
           };
-          // The bag survives hot-reloads in the per-extension durable state;
-          // a fresh session starts empty.
-          const state = ctx.state as { bag?: TaskBag };
+          // The bag and the composed roster survive hot-reloads in the
+          // per-extension durable state; a fresh session starts empty.
+          const state = ctx.state as { bag?: TaskBag; roster?: TeamMember[] };
           if (!(state.bag instanceof TaskBag)) state.bag = new TaskBag();
           const bag = state.bag;
+          if (compose !== undefined) {
+            if (task !== undefined || member !== undefined || message !== undefined || plan !== undefined) {
+              return "team: refused — `compose` takes the member list, an optional `brief` and optionally `work`, not another team shape";
+            }
+            // #1224: composition by complexity. The model judges the ask and
+            // names the members; the extension validates the envelope
+            // (disjoint scopes, read-only reviewers), registers the roster,
+            // and records the decision — a composition is never silent.
+            let roster: TeamMember[];
+            try {
+              roster = normalizeComposition(compose);
+            } catch (error) {
+              return `team: refused — ${(error as Error).message}`;
+            }
+            state.roster = roster;
+            ctx.appendEvent({
+              name: TEAM_COMPOSED,
+              payload: {
+                members: roster.map((m) => ({
+                  name: m.name,
+                  role: m.role,
+                  ...(m.scope !== undefined ? { scope: m.scope } : {}),
+                  ...(m.lane !== undefined ? { lane: m.lane } : {}),
+                  ...(m.model !== undefined ? { model: m.model } : {}),
+                })),
+                dispatched: compose.filter((m) => m.task !== undefined).length,
+              },
+            });
+            const dispatched = roster
+              .map((m, i) => ({ m, memberTask: compose[i]!.task }))
+              .filter((entry): entry is { m: TeamMember; memberTask: string } => entry.memberTask !== undefined);
+            if (dispatched.length === 0 && work === undefined) {
+              return `team: composed ${roster.length} members — ${roster.map((m) => `${m.name} (${m.role}${m.scope !== undefined ? `, ${m.scope}` : ""}${m.lane !== undefined ? `, lane ${m.lane}` : ""})`).join(", ")}. Pass a task on a member to dispatch it, or work to run the bag.`;
+            }
+            if (dispatched.length > 0) {
+            const outcomes = await Promise.all(
+              dispatched.map(async ({ m, memberTask }) => {
+                const prompt = brief !== undefined ? `${brief}\n\n${memberTask}` : memberTask;
+                const { result, laneSkipped } = await spawnMemberLaned(ctx, m, prompt);
+                if (result.callId) members.set(m.name, result.callId);
+                const activity = await ctx.subagentActivity?.(result.callId);
+                recordMemberDone(ctx, {
+                  callId: result.callId,
+                  member: m.name,
+                  role: m.role,
+                  task: memberTask,
+                  status: result.status,
+                  outputChars: result.output.length,
+                  ...(activity ? { activity } : {}),
+                });
+                return { m, result, laneSkipped };
+              }),
+            );
+            const lines = outcomes.map(({ m, result, laneSkipped }) =>
+              (result.status === "done"
+                ? `${m.name} (${m.role}): ${result.output}`
+                : `${m.name} (${m.role}): ${result.status}${result.error ? ` — ${result.error}` : ""}`)
+                + (laneSkipped ? ` — works without its lane "${m.lane}" (no active lane matched). To isolate it: create the lane (moh lanes group <group> + moh lanes start <group> <branch>; TUI: /lanes) and re-dispatch this member` : ""),
+            );
+            if (work === undefined) return `team of ${roster.length} settled:\n${lines.join("\n")}`;
+            // `compose` + `work`: the roster is registered and immediately
+            // runs the bag — fall through to the self-serve loop below.
+            }
+          }
           if (plan !== undefined) {
-            if (task !== undefined || member !== undefined || message !== undefined) {
-              return "team: refused — pass either `plan` (decompose the brief into tasks) or `task`/`member` (spawn/steer), not both";
+            if (compose !== undefined || task !== undefined || member !== undefined || message !== undefined) {
+              return "team: refused — pass either `plan` (decompose the brief into tasks) or `task`/`member`/`compose`, not both";
             }
             // Whole or nothing: `create` validates every `blockedBy` ref
             // before any mutation and throws on a dangling one.
@@ -224,16 +440,22 @@ export function createTeamExtension(): ExtensionDefinition {
             if (bag.tasks.size === 0) {
               return "team: refused — the task bag is empty; pass `plan` first to decompose the brief into tasks";
             }
-            // #1223 self-serve loop: the member claims the next claimable
-            // task, works it, and the extension hands it the next one until
+            // The composed roster drives the loop when a `compose` named
+            // one; otherwise the single unnamed builder keeps #1223's shape.
+            const roster = state.roster ?? [{ name: member ?? "builder", role: "builder" as const }];
+            if (roster.every((m) => m.role !== "builder")) {
+              return "team: refused — the composed team has no builder members; reviewers cannot claim bag work";
+            }
+            // #1223 self-serve loop: the members claim the next claimable
+            // task, work it, and the extension hands the next one until
             // nothing claimable remains (dependencies or the bag's end).
-            // Star-shaped: the member's prompt names only its own task —
+            // Star-shaped: a member's prompt names only its own task —
             // never the bag, never another member.
-            return await selfServeLoop(ctx, members, bag, member ?? "builder", work);
+            return await selfServeLoop(ctx, members, bag, roster, work);
           }
           if (member !== undefined || message !== undefined) {
-            if (plan !== undefined || work !== undefined) {
-              return "team: refused — pass either `member` + `message` (steer) or `plan`/`work` (bag), not both";
+            if (compose !== undefined || plan !== undefined || work !== undefined) {
+              return "team: refused — pass either `member` + `message` (steer) or `plan`/`work`/`compose` (bag), not both";
             }
             if (task !== undefined) return "team: refused — pass either `task` (spawn) or `member` + `message` (steer), not both";
             if (member === undefined || message === undefined) return "team: refused — steering needs both `member` and `message`";
@@ -265,27 +487,24 @@ export function createTeamExtension(): ExtensionDefinition {
               : `team member ${member} steering ${result.status}${result.error ? `: ${result.error}` : ""}`;
           }
           if (task === undefined) {
-            return "team: refused — pass `task` to spawn a member, `plan` to decompose the brief, `work` to run the bag, or `member` + `message` to steer";
+            return "team: refused — pass `task` to spawn a member, `compose` to compose the team, `plan` to decompose the brief, `work` to run the bag, or `member` + `message` to steer";
+          }
+          if (compose !== undefined) {
+            return "team: refused — pass either `task` (spawn) or `compose` (the team), not both";
           }
           if (plan !== undefined) {
             return "team: refused — pass either `task` (spawn) or `plan` (decompose the brief), not both";
           }
           const result = await ctx.spawnSubagent!({ name: "builder", task });
           if (result.callId) members.set("builder", result.callId);
-          // The child-tail activity (never the provider reasoning),
-          // recorded once at settle so the log holds what the extension
-          // read; the parent reconstructs who worked on what.
           const activity = await ctx.subagentActivity?.(result.callId);
-          ctx.appendEvent({
-            name: "team_member_done",
-            payload: {
-              callId: result.callId,
-              member: "builder",
-              task,
-              status: result.status,
-              outputChars: result.output.length,
-              ...(activity ? { activity } : {}),
-            },
+          recordMemberDone(ctx, {
+            callId: result.callId,
+            member: "builder",
+            task,
+            status: result.status,
+            outputChars: result.output.length,
+            ...(activity ? { activity } : {}),
           });
           return result.status === "done"
             ? `team member builder finished:\n${result.output}`

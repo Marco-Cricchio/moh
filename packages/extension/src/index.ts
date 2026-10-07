@@ -149,9 +149,22 @@ export interface ExtensionSpawnSpec {
   /** Strict subset of the host session's tools; MCP tools are never
    * inherited and a name the session does not have refuses the spawn. */
   readonly allowedTools?: readonly string[];
+  /**
+   * #1224: write-path scopes for the child, as project-root globs.
+   * Restrict-only (ADR-0031): present, they deny every `write`/`edit`
+   * outside the union of the globs through the permission spine (a
+   * written runtime rule, logged as `permission_denied` — survives yolo);
+   * an empty array is fully read-only (the reviewer role). Absent, the
+   * child keeps the parent's own write posture untouched.
+   */
+  readonly pathScopes?: readonly string[];
   /** Per-turn iteration cap for the child; above the envelope's ceiling
    * the spawn is refused, never silently narrowed. */
   readonly maxIterations?: number;
+  /** #1224: model override for route-style refs (`endpoint/model-id`) —
+   * the member's own route pin (ADR-0050). Resolved before any child
+   * setup; a hallucinated ref fails the spawn fast, zero side effects. */
+  readonly model?: string;
 }
 
 /** The settled outcome of one extension spawn (apiVersion 1.13). */
