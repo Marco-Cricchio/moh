@@ -1535,6 +1535,12 @@ function AppShell({
   // and the footer (the subagent chips row costs one more). Below the
   // rail's own minimum the rail collapses to the names strip.
   const railRows = railAvailableRows(viewport.rows, useSubagentCount(session) > 0 ? 1 : 0);
+  // The band Chat reserves for the rail must equal what the rail will draw,
+  // or the composer's rows shift when the rail redraws. The rail reports its
+  // drawn height (allocation + borders + status lines) via onRailLayout;
+  // before the first report the band stays 0 — the rail rides beside the
+  // volatile region exactly once, then the reservation locks in.
+  const [railBandRows, setRailBandRows] = useState(0);
   // #1218 focus mode: Ctrl+P hands the keys to the selected panel; any
   // modal or the esc/Ctrl+P exit returns them to the composer.
   const [railFocused, setRailFocused] = useState(false);
@@ -1556,7 +1562,19 @@ function AppShell({
     <Chat
       session={session}
       cwd={sessionCwd}
-      width={railVisible && railWide ? Math.max(40, viewport.columns - (RAIL_WIDTH + 2)) : undefined}
+      railContent={railVisible ? (
+        <ExtensionsRail
+          panels={session!.extensionPanels()}
+          collapsed={collapsedPanels}
+          columns={viewport.columns}
+          rows={railRows}
+          focused={railFocused && !overlayOpen}
+          onFocusExit={() => setRailFocused(false)}
+          onClamp={setPanelClamps}
+          onLayout={setRailBandRows}
+        />
+      ) : null}
+      railBand={railVisible && railWide ? railBandRows : 0}
       toastRows={toasts.length}
       mode={mode}
       modelLabel={modelLabel}
@@ -1742,7 +1760,7 @@ function AppShell({
         key={themeTick}
       >
         <Box width="100%" flexDirection={railVisible && railWide ? "row" : "column"} alignItems="flex-start">
-        <Box flexDirection="column" flexGrow={1} width="100%" alignItems="center">
+        <Box flexDirection="column" flexGrow={1} flexShrink={1} minWidth={2} width="100%" alignItems="center">
         {showChat ? (
           <Box flexDirection="column" width="100%" alignItems="center">{chat}</Box>
         ) : (
@@ -1769,17 +1787,6 @@ function AppShell({
           />
         )}
         </Box>
-        {railVisible && (
-          <ExtensionsRail
-            panels={session!.extensionPanels()}
-            collapsed={collapsedPanels}
-            columns={viewport.columns}
-            rows={railRows}
-            focused={railFocused && !overlayOpen}
-            onFocusExit={() => setRailFocused(false)}
-            onClamp={setPanelClamps}
-          />
-        )}
         </Box>
         {overlayOpen && alternateScreen && <OverlayLayer>
         {extensionOverlay !== null && (
