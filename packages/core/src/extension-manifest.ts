@@ -26,10 +26,11 @@ export interface ExtensionManifest {
   readonly name: string;
   readonly version: string;
   /**
-   * ADR-0066: the author's justification for a total network wildcard
-   * (`host:*`). Required by the runtime when the manifest declares
-   * `host:*`; the consent question displays it. moh never verifies the
-   * text — the owner reads it and decides.
+   * ADR-0066: the manifest's `reasoning` — the author's justification for
+   * a total network wildcard (`host:*`, required then) or, as with the
+   * team extension, the grant's NOT-do list the consent question
+   * displays. moh never verifies the text — the owner reads it and
+   * decides.
    */
   readonly reasoning?: string;
   /** The entry point(s) this manifest speaks for, relative to the manifest

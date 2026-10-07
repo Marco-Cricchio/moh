@@ -200,9 +200,10 @@ export interface ExtensionConsentRequest {
    * means no new powers. */
   addedCapabilities?: readonly string[];
   /**
-   * ADR-0066: the manifest's `reasoning` — the author's justification for
-   * a total network wildcard (`host:*`), which the consent question
-   * displays. Present only when the manifest declares one.
+   * ADR-0066: the manifest's `reasoning` — the author's justification the
+   * consent question displays (required for a total network wildcard
+   * (`host:*`), shown for any manifest that declares one). Present only
+   * when the manifest declares one.
    */
   reasoning?: string;
   /**
@@ -1786,6 +1787,13 @@ bindPathDeny(isDenied: (resolvedAbsPath: string) => boolean): void {
       };
     }
     const store = this.#readStore();
+    // ADR-0053/0062 vocabulary: one name, one instance per runtime. A
+    // second registration of an extension already loaded is refused loudly
+    // (`taken`) — like a panel or command name — never silently stacked;
+    // a hot-reload replaces and is exempt (it hands over its own slot).
+    if (!replacing && this.#instances.some((i) => i.def.name === name)) {
+      return { ok: false, name, reason: "taken", message: `an extension named "${name}" is already registered in this session` };
+    }
     // In-memory definitions have no source bytes: retain their historical
     // name identity. Loaded modules bind consent to resolved path + bytes.
     // Bundled first-party definitions (`register(def, { bundled: true })`)
@@ -1821,7 +1829,15 @@ bindPathDeny(isDenied: (resolvedAbsPath: string) => boolean): void {
         version: d.version,
         // Re-derives the manifest here too: a file swapped in between the
         // pre-import ask and this lookup is caught rather than trusted.
-        ...(recheck?.ok ? { capabilities: recheck.manifest.capabilities } : {}),
+        // An in-memory registration has no recheck — the authority the
+        // registration declared (ADR-0061's bundled-with-manifest shape)
+        // is what the question must name, or a yes would grant powers it
+        // never showed.
+        ...(recheck?.ok
+          ? { capabilities: recheck.manifest.capabilities }
+          : consentAuthority
+            ? { capabilities: consentAuthority.capabilities }
+            : {}),
       },
       bundled,
       consentAuthority,

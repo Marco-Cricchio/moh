@@ -66,6 +66,21 @@ describe("extension enable consent (#834)", () => {
     expect(view.detail).toContain("new since last approval: contribute-panels");
   });
 
+  test("the manifest's reasoning is part of the question (ADR-0066 display)", () => {
+    const view = describePermissionRequest(
+      "extension",
+      {
+        name: "team",
+        version: "0.1.0",
+        capabilities: ["spawn-subagent"],
+        reasoning: "It does not add peer messaging between members.",
+      },
+      { source: "extension", extension: "team" },
+    );
+    expect(view.detail).toContain("capabilities: spawn-subagent — may create up to 10 concurrent child sessions and steer or stop them");
+    expect(view.detail).toContain("reasoning: It does not add peer messaging between members.");
+  });
+
   test("a first-time file is asked about with its path and bytes, before it runs", () => {
     const view = describePermissionRequest(
       "extension",

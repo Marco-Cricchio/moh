@@ -134,6 +134,9 @@ export function makeSession(options: OpenSessionOptions): MakeSessionResult {
                     // re-ask, the diff the question must name.
                     ...(request.capabilities?.length ? { capabilities: request.capabilities } : {}),
                     ...(request.addedCapabilities?.length ? { addedCapabilities: request.addedCapabilities } : {}),
+                    // ADR-0066: the manifest's reasoning — the author's own
+                    // statement the question displays — rides the ask.
+                    ...(request.reasoning ? { reasoning: request.reasoning } : {}),
                     // ADR-0070: a dependency authorization ask shows the
                     // deps by name and version — the bytes a yes installs.
                     ...(request.dependencies?.length ? { dependencies: request.dependencies } : {}),

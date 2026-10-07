@@ -150,6 +150,10 @@ function describeOwnRequest(tool: string, args: unknown): PermissionRequestView 
       detail.push(`dependencies: ${a.dependencies.map((d) => sanitizeForDisplay(String(d))).join(", ")}`);
       detail.push("exact-pinned install: no lifecycle script ever runs (ADR-0070)");
     }
+    // ADR-0066: the manifest's reasoning — the author's justification, for
+    // the team extension the envelope's NOT-do list — is part of the
+    // question, so a yes is an answer to what the author actually said.
+    if (typeof a.reasoning === "string") detail.push(`reasoning: ${sanitizeForDisplay(a.reasoning)}`);
     // #834 (security): a first-time file is asked about BEFORE it is imported
     // — the question has to come before the code runs — so it has made no
     // claims to show. Saying so is the honest prompt, not a defect.
