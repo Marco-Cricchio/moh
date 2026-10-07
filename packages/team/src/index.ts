@@ -101,11 +101,10 @@ const teamArgsSchema = z.object({
  * scope (empty `pathScopes` on the spawn — `write`/`edit` are denied by
  * the permission spine, not by prompt discipline; a bash write is
  * outside the spine's path rules and is covered by the parent's own
- * permission posture, as for any child). A pinned lane must already
- * exist — the lead session's lane tools create worktrees; the extension
- * only binds the member to one, and a spawn naming an unknown lane
- * fails loudly with zero side effects. A pinned `model` ref resolves the
- * same way at spawn time (#339 fast-fail), not at compose time.
+ * permission posture, as for any child). A pinned lane that does not
+ * exist degrades visibly (#1224 follow-up): the member works un-laned,
+ * `team_lane_skipped` records the skip, and the tool result names
+ * `/lanes` — never a hard error at the end of the chain.
  */
 export interface TeamMember {
   readonly name: string;
@@ -117,6 +116,13 @@ export interface TeamMember {
 
 /** The chrome event the composition decision lands in — recorded, never silent. */
 export const TEAM_COMPOSED = "team_composed";
+/**
+ * The visible degradation of a pinned lane that does not exist (#1224
+ * follow-up): the member works un-laned, this event records `{ member,
+ * lane }`, and the tool result names `/lanes` as the fix — an error at
+ * the end of the chain is the one friction this never gives the user.
+ */
+export const TEAM_LANE_SKIPPED = "team_lane_skipped";
 
 /**
  * Validates and names a composition (#1224). Refusals are loud: a
@@ -183,6 +189,36 @@ function recordMemberDone(
 }
 
 /**
+ * One member spawn with the visible-degradation guarantee (#1224
+ * follow-up): the pinned lane rides the first prompt, and when the core
+ * refuses it because no active lane matches, the member is spawned
+ * un-laned instead — one `team_lane_skipped` chrome event records the
+ * skip and the caller's report names `/lanes` as the fix. The failed
+ * probe burns nothing: the core refuses before any child exists.
+ */
+async function spawnMemberLaned(
+  ctx: import("@moh/extension").ExtensionSetupContext,
+  m: TeamMember,
+  prompt: string,
+): Promise<{ result: { callId: string; status: "done" | "error" | "cancelled"; output: string; error?: string }; laneSkipped: boolean }> {
+  const buildSpec = (task: string) => ({
+    name: m.name,
+    task,
+    systemPrompt: ROLE_PROMPTS[m.role],
+    // The reviewer is read-only by scope: an empty scope list denies
+    // write/edit through the permission spine.
+    ...(m.role === "reviewer" ? { pathScopes: [] as readonly string[] } : m.scope !== undefined ? { pathScopes: [m.scope] } : {}),
+    ...(m.model !== undefined ? { model: m.model } : {}),
+  });
+  const result = await ctx.spawnSubagent!(buildSpec(m.lane !== undefined ? `${prompt}\n\nlane: ${m.lane}` : prompt));
+  if (m.lane === undefined || !/no active lane for branch/.test(result.error ?? "")) {
+    return { result, laneSkipped: false };
+  }
+  ctx.appendEvent({ name: TEAM_LANE_SKIPPED, payload: { member: m.name, lane: m.lane } });
+  return { result: await ctx.spawnSubagent!(buildSpec(prompt)), laneSkipped: true };
+}
+
+/**
  * The self-serve loop (#1223, #1224): the members work through the bag —
  * the extension claims the next claimable task, spawns or steers a
  * builder with that one task, records the transition, and hands it the
@@ -206,6 +242,9 @@ async function selfServeLoop(
   // is attempted at most once per `work` call, so the loop terminates after
   // at most as many iterations as there are tasks.
   const skipped = new Set<string>();
+  // Lanes that failed to bind this call (#1224 follow-up): reported once,
+  // visibly, at the end — never a silent un-laned member.
+  const skippedLanes = new Map<string, string>();
   const builders = roster.filter((m) => m.role === "builder");
   let nextBuilder = 0;
   for (;;) {
@@ -217,15 +256,11 @@ async function selfServeLoop(
     const member = memberSpec.name;
     if (!bag.claim(next.id, member)) break;
     const callId = members.get(member);
-    const prompt = `${work}\n\nTask ${next.id}: ${next.title}${memberSpec.lane !== undefined ? `\n\nlane: ${memberSpec.lane}` : ""}`;
+    const prompt = `${work}\n\nTask ${next.id}: ${next.title}`;
     const steered = callId !== undefined ? await ctx.steerSubagent!(callId, prompt) : null;
-    const outcome = steered ?? (await ctx.spawnSubagent!({
-      name: member,
-      task: prompt,
-      systemPrompt: ROLE_PROMPTS[memberSpec.role],
-      ...(memberSpec.scope !== undefined ? { pathScopes: [memberSpec.scope] } : {}),
-      ...(memberSpec.model !== undefined ? { model: memberSpec.model } : {}),
-    }));
+    const spawned = steered !== null ? { result: steered, laneSkipped: false } : await spawnMemberLaned(ctx, memberSpec, prompt);
+    const outcome = spawned.result;
+    if (spawned.laneSkipped) skippedLanes.set(member, memberSpec.lane!);
     if (outcome.callId) members.set(member, outcome.callId);
     bag.complete(next.id, outcome.status);
     if (outcome.status !== "done") skipped.add(next.id);
@@ -249,7 +284,8 @@ async function selfServeLoop(
         : `${next.id} (${next.title}): ${outcome.status}${outcome.error ? ` — ${outcome.error}` : ""}`,
     );
   }
-  return `${bag.summary()}\n${reports.join("\n")}`;
+  const laneNotes = [...skippedLanes].map(([m, lane]) => `${m} works without its lane "${lane}" — no active lane matched; create it with /lanes and re-run for isolation`);
+  return `${bag.summary()}\n${reports.join("\n")}${laneNotes.length > 0 ? `\n${laneNotes.join("\n")}` : ""}`;
 }
 
 /**
@@ -348,15 +384,7 @@ export function createTeamExtension(): ExtensionDefinition {
             const outcomes = await Promise.all(
               dispatched.map(async ({ m, memberTask }) => {
                 const prompt = brief !== undefined ? `${brief}\n\n${memberTask}` : memberTask;
-                const result = await ctx.spawnSubagent!({
-                  name: m.name,
-                  task: prompt,
-                  systemPrompt: ROLE_PROMPTS[m.role],
-                  // The reviewer is read-only by scope: an empty scope list
-                  // denies write/edit through the permission spine.
-                  ...(m.role === "reviewer" ? { pathScopes: [] as readonly string[] } : m.scope !== undefined ? { pathScopes: [m.scope] } : {}),
-                  ...(m.model !== undefined ? { model: m.model } : {}),
-                });
+                const { result, laneSkipped } = await spawnMemberLaned(ctx, m, prompt);
                 if (result.callId) members.set(m.name, result.callId);
                 const activity = await ctx.subagentActivity?.(result.callId);
                 recordMemberDone(ctx, {
@@ -368,13 +396,14 @@ export function createTeamExtension(): ExtensionDefinition {
                   outputChars: result.output.length,
                   ...(activity ? { activity } : {}),
                 });
-                return { m, result };
+                return { m, result, laneSkipped };
               }),
             );
-            const lines = outcomes.map(({ m, result }) =>
-              result.status === "done"
+            const lines = outcomes.map(({ m, result, laneSkipped }) =>
+              (result.status === "done"
                 ? `${m.name} (${m.role}): ${result.output}`
-                : `${m.name} (${m.role}): ${result.status}${result.error ? ` — ${result.error}` : ""}`,
+                : `${m.name} (${m.role}): ${result.status}${result.error ? ` — ${result.error}` : ""}`)
+                + (laneSkipped ? ` — works without its lane "${m.lane}" (no active lane matched; create it with /lanes)` : ""),
             );
             if (work === undefined) return `team of ${roster.length} settled:\n${lines.join("\n")}`;
             // `compose` + `work`: the roster is registered and immediately

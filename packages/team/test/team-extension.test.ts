@@ -617,4 +617,51 @@ describe("composition by complexity — scoped roles + lanes (#1224, ADR-0074)",
     expect(childLog).toContain("lane: feat/team-ext-4-scratch-a");
     expect(events.find((e) => e.type === "lane_created")).toBeDefined();
   });
+
+  test("a pinned lane that does not exist degrades visibly: the member works un-laned, the skip is recorded (#1224 follow-up)", async () => {
+    // Lanes support is on (so the core judges the lane line) but no lane
+    // matches: this is the friction case the follow-up removes.
+    const rt = runtime();
+    void rt.register(createTeamExtension(), { manifest: teamManifestAuthority() });
+    const projectDir = tempDir();
+    const session = createSession({
+      cwd: projectDir,
+      provider: MockProvider.scripted([
+        { deltas: ["composing"], finish: "tool_calls", toolCalls: [{ name: "team", args: { compose: [{ role: "builder", name: "wisher", lane: "feat/never-created", task: "build the thing" }] } }] },
+        { deltas: ["done"], finish: "stop" },
+      ]),
+      extensions: rt,
+      subagents: {
+        home: tempDir(),
+        lanes: { cwd: projectDir },
+        provider: MockProvider.scripted([
+          { deltas: ["member work done"], finish: "stop" },
+          { deltas: ["member work done"], finish: "stop" },
+        ]),
+      },
+      permissions: { unrestrictedTools: true },
+    });
+    const events = tap(session);
+    await session.send("run it with the team");
+    await session.dispose();
+
+    // The skip is chrome in the log, reconstructable on replay.
+    const skipped = events.find((e) => e.type === "extension_event" && (e as { name?: string }).name === "team_lane_skipped") as
+      | { payload: { member: string; lane: string } }
+      | undefined;
+    expect(skipped).toBeDefined();
+    expect(skipped!.payload).toEqual({ member: "wisher", lane: "feat/never-created" });
+    // One un-laned spawn: the refused probe never created a child, so the
+    // retry is the only subagent_spawn in the log.
+    const spawns = events.filter((e) => e.type === "subagent_spawn") as Extract<AgentEvent, { type: "subagent_spawn" }>[];
+    expect(spawns).toHaveLength(1);
+    expect(spawns[0]!.name).toBe("wisher");
+    expect(spawns[0]!.limits.pathScopes).toBeUndefined();
+    // The tool result tells the model, so the model can tell the user —
+    // the degradation is never silent, and never a hard error.
+    const toolResult = events.filter((e) => e.type === "tool_result").map((e) => String((e as { output?: string }).output)).join("\n");
+    expect(toolResult).toContain("works without its lane");
+    expect(toolResult).toContain("/lanes");
+    expect(toolResult).toContain("member work done");
+  });
 });
