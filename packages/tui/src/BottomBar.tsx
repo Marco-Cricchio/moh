@@ -214,10 +214,12 @@ export const extensionStatusCap = (columns: number): number => Math.max(16, Math
  * Middle elision keeps both ends: the extension's marker opens the note and
  * its conclusion closes it. */
 export function extensionStatusText(status: ExtensionStatus, wide: boolean, cap: number): string {
-  // #1255: extension-controlled text — strip terminal controls before the
-  // chip renders it, same boundary the client applies to model text.
+  // #1255: extension-controlled text — strip terminal controls from both
+  // the name and the text before the chip renders them, same boundary the
+  // client applies to model text.
+  const extension = sanitizeForDisplay(status.extension);
   const text = sanitizeForDisplay(status.text);
-  const full = wide && !text.startsWith(status.extension) ? `${status.extension} ${text}` : text;
+  const full = wide && !text.startsWith(extension) ? `${extension} ${text}` : text;
   return middleElide(full, cap);
 }
 

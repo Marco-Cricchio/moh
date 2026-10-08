@@ -277,7 +277,8 @@ export function extensionEventLine(name: string, payload: unknown): string {
   return sanitizeForDisplay(extensionEventLineParts(name, payload));
 }
 
-function extensionEventLineParts(name: string, payload: unknown): string {  const record = asRecord(payload);
+function extensionEventLineParts(name: string, payload: unknown): string {
+  const record = asRecord(payload);
   if (record === undefined) return name;
   if (name === "jev_routing") return routingNoticeLine(record);
   if (name === "jev_usecase") return useCaseLine(record);

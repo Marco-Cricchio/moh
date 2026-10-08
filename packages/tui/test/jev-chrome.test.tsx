@@ -498,6 +498,18 @@ describe("footer status chip (ADR-0032)", () => {
     expect(text).toBe("evil-ext okSUDO REQUIRED tail");
     expect(text.includes("\x1B")).toBe(false);
   });
+
+  // #1255: the name leads the chip, so it is sanitized too — a hostile
+  // extension name must not reach the terminal.
+  test("#1255: a hostile extension name renders inert", () => {
+    const text = extensionStatusText(
+      { extension: "jev\x1B[1;31m-guard\x1B]0;pwned\x07", text: "offline" },
+      true,
+      80,
+    );
+    expect(text).toBe("jev-guard offline");
+    expect(text.includes("\x1B")).toBe(false);
+  });
 });
 
 describe("extension ask in the consent prompt (ADR-0031)", () => {
