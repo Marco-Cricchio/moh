@@ -1239,22 +1239,37 @@ const GIT_READ_SUBCOMMANDS = new Set([
   "describe",
   "config",
 ]);
-/** Global flags that would point git somewhere the session is not. */
+/**
+ * Global flags that would point git somewhere the session is not. The
+ * exact-match set covers the space-separated form (`-C /tmp`), the
+ * `=`-prefixed checks the attached form (`--git-dir=/tmp`); the `-C`
+ * attached form (`-C/tmp`) is caught by the /^-C./ test below, the same
+ * class as the fixed `-ckey=value` attached form (#1261).
+ */
 const GIT_RELOCATING_FLAGS = new Set(["-C", "--git-dir", "--work-tree"]);
 /** Leading global flags whose values execute commands or choose code (#1261). */
 const GIT_EXEC_FLAGS = new Set(["-c", "--config-env", "--exec-path", "--super-prefix"]);
-/** Options whose value is a file git writes out or reads in (#1257). */
-const GIT_PATH_FLAGS = new Set(["--output", "--file", "-f", "--blob"]);
+/**
+ * Options whose value is a file git writes out or reads in (#1257). The
+ * refusal is deliberately over-broad: `--file`/`-f`/`--blob` are config-only
+ * today, but they are rejected regardless of subcommand so a future
+ * allow-listed subcommand cannot quietly gain a file path. `--output` and
+ * `--output-indicator-*` (diff/log family) round out the write side.
+ */
+const GIT_PATH_FLAGS = new Set(["--output", "--output-indicator-new", "--output-indicator-old", "--output-indicator-context", "--file", "-f", "--blob"]);
 
 function gitRejects(option: string): string | undefined {
   if (GIT_RELOCATING_FLAGS.has(option) || option.startsWith("--git-dir=") || option.startsWith("--work-tree=")) {
     return `git: not allowed: "${option}" relocates the repository; this tool reads the session's project root only`;
   }
   const [name] = option.split("=", 1);
+  if (GIT_RELOCATING_FLAGS.has(name) || (!name.startsWith("--") && /^-C./.test(name))) {
+    return `git: not allowed: "${name}" relocates the repository; this tool reads the session's project root only`;
+  }
   if (GIT_EXEC_FLAGS.has(name) || (!name.startsWith("--") && /^-c./.test(name))) {
     return `git: not allowed: "${name}" sets transient config or redirects git's execution; this tool only runs plain repository reads`;
   }
-  if (GIT_PATH_FLAGS.has(name) || option.startsWith("--output-indicator-")) {
+  if (GIT_PATH_FLAGS.has(name)) {
     return `git: read-only tool: "${name}" writes to or reads an arbitrary file; this tool captures output and reads the repository only`;
   }
   return undefined;

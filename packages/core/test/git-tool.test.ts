@@ -121,6 +121,23 @@ describe("git tool transient-option and write-path filter (#1261, #1257)", () =>
     expect(() => execFileSync("test", ["-e", canary])).toThrow();
   });
 
+  test("upload-pack-class vectors are refused at the closest reachable seam", async () => {
+    // No allow-listed subcommand reaches upload-pack (fetch/pull/clone are
+    // refused as subcommands before any option matters), so the closest
+    // vectors are: a protocol-weakening transient config (the -c class the
+    // RCE rides) and the fetch subcommand itself.
+    expect(() => git.execute({ args: ["-c", "protocol.allow=never", "status"] }, ctx)).toThrow(/git: not allowed/);
+    expect(() => git.execute({ args: ["fetch", "--upload-pack=touch " + canary, "origin"] }, ctx)).toThrow(
+      /is not an allowed subcommand/,
+    );
+  });
+
+  test("attached relocation forms (-C/tmp, --git-dir=/x, --work-tree=/y) are refused", () => {
+    expect(() => git.execute({ args: ["-C/tmp", "status"] }, ctx)).toThrow(/relocates the repository/);
+    expect(() => git.execute({ args: ["--git-dir=/tmp", "status"] }, ctx)).toThrow(/relocates the repository/);
+    expect(() => git.execute({ args: ["--work-tree=/tmp", "status"] }, ctx)).toThrow(/relocates the repository/);
+  });
+
   test.each([
     ["--output= attached", ["diff", "--output=" + canary]],
     ["--output space form", ["diff", "--output", canary]],
