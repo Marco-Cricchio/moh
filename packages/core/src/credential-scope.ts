@@ -97,16 +97,31 @@ const KEYCHAIN_DIGEST_CHARS = 16;
 /** `security`'s exit code for "item not found" — a fine delete, a miss on get. */
 const SECURITY_NOT_FOUND = 44;
 
+/**
+ * Escape a token for a `security -i` command line (#1262): double-quoted,
+ * with the metacharacters the parser treats specially (`\`, `"`, `$`,
+ * backtick) backslash-escaped. `security`'s line parser is shell-like but
+ * not shell-strict; this form is verified live to round-trip quotes,
+ * backslashes, tabs, `$` and backtick byte-exact.
+ */
+function securityEscape(token: string): string {
+  return `"${token.replace(/[\\"$`]/g, "\\$&")}"`;
+}
+
 export function keychainAccount(home: string, ref: string): string {
   const digest = createHash("sha256").update(home).digest("hex").slice(0, KEYCHAIN_DIGEST_CHARS);
   return `${digest}:${ref}`;
 }
 
 type SecurityResult = { ok: boolean; out: string; err: string; exit: number | null };
-type SecurityRunner = (args: string[]) => SecurityResult;
+type SecurityRunner = (args: string[], input?: string) => SecurityResult;
 
-const defaultSecurityRunner: SecurityRunner = (args) => {
-  const proc = Bun.spawnSync(["security", ...args], { stdout: "pipe", stderr: "pipe", stdin: "ignore" });
+const defaultSecurityRunner: SecurityRunner = (args, input) => {
+  const proc = Bun.spawnSync(["security", ...args], {
+    stdout: "pipe",
+    stderr: "pipe",
+    stdin: input === undefined ? "ignore" : Buffer.from(input, "utf8"),
+  });
   return { ok: proc.exitCode === 0, out: proc.stdout.toString().trim(), err: proc.stderr.toString().trim(), exit: proc.exitCode };
 };
 
@@ -149,11 +164,24 @@ export function keychainCredentialStore(home: string, run: SecurityRunner = defa
       return undefined;
     },
     set: (ref, value) => {
-      // `-U` updates an existing item; one call covers create and replace.
-      // A failed write throws — the caller (CLI, TUI) shows it; a silent
-      // "stored" while nothing landed would be the one unforgivable lie
-      // on a credential surface.
-      const r = run(["add-generic-password", "-s", service, "-a", account(ref), "-w", value, "-U"]);
+      // The value never rides argv (`ps` reads argv for every local user,
+      // #1262): `security -i` reads the command from stdin, and the value
+      // goes in escaped via securityEscape. Three shapes cannot survive
+      // the line-based parser — a newline (it ends the command), a tab and
+      // a trailing backslash (the parser mangles both) — and `security`
+      // offers no argv-free
+      // encoding that dodges them (`-X` stores hex literally, never
+      // decoded). A value with either shape is refused loudly rather than
+      // stored wrong: a silent mis-store on a credential surface is the
+      // one unforgivable lie. `-U` covers create and replace in one call.
+      // A failed write throws — the caller (CLI, TUI) shows it.
+      if (/[\n\r\t]/.test(value) || value.endsWith("\\")) {
+        throw new Error(
+          `keychain write for "${ref}" refused: the value contains a newline, a tab or a trailing backslash, which the keychain CLI cannot store without exposing it in process argv`,
+        );
+      }
+      const command = `add-generic-password -s ${securityEscape(service)} -a ${securityEscape(account(ref))} -w ${securityEscape(value)} -U\n`;
+      const r = run(["-i"], command);
       if (!r.ok) throw new Error(`keychain write failed (security exit ${r.exit}): ${r.err}`);
       names.set(ref, "");
     },
