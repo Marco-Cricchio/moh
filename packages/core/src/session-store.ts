@@ -494,6 +494,13 @@ function chainHeadFor(file: string): string {
   return head;
 }
 
+// Principle #1 (no global state) note: this is a per-file cache of the
+// last chain hash written through the seam, not agent or session state —
+// it exists so an append need not re-read the whole log, is seeded from
+// disk on first touch, and is process-lifetime only: it carries nothing
+// across sessions and changes no behavior, only where the next line's
+// prevHash starts. Losing it (restart) re-derives the same value from
+// the file.
 const chainHeads = new Map<string, string>();
 
 /**
@@ -566,6 +573,9 @@ function verifyIntegrity(store: SessionStore, events: AgentEvent[]): void {
       ...(parentId !== undefined ? { parentId } : {}),
     };
     store.append(warning);
+    // Intentional side effect (no re-plumb of load()'s signature): the
+    // warning must both persist (appended to the log, so every later
+    // resume sees it) and return (this load's caller reacts immediately).
     // The caller sees the warning on THIS load too — the appended copy
     // makes it visible to every later resume.
     events.push(warning);
