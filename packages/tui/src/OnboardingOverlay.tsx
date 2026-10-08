@@ -11,6 +11,7 @@ import {
   providerEndpointChoices,
   providerRequiresBaseUrlInput,
   saveStoredApiKey,
+  bindStoredApiKeyOrigin,
   TOS_WARNING,
   minimalConnectionTest,
   readAuthSection,
@@ -25,6 +26,7 @@ import {
   type ProviderTestFailure,
   type ConnectionTester,
   type EndpointProfile,
+  type StoredApiKeyOrigin,
   subscriptionModelCatalog,
   OPENCODE_AUTH_URL,
   OPENCODE_ENDPOINTS,
@@ -424,7 +426,7 @@ export function Onboarding({ cwd, home, env, tester = defaultTester(home), force
       case "wizard-text": {
         if (key.escape) return applyPhase({ kind: "wizard-type", cursor: 0 });
         if (key.backspace || key.delete) return patchPhase((p) => (p.kind === "wizard-text" ? { ...p, value: p.value.slice(0, -1) } : p));
-        if (key.return || input === "\n") return submitField(phase, wizard, applyWizard, applyPhase, authKind, (name, apiKey) => saveStoredApiKey(userFile, name, apiKey));
+        if (key.return || input === "\n") return submitField(phase, wizard, applyWizard, applyPhase, authKind, (name, apiKey, origin) => saveStoredApiKey(userFile, name, apiKey, {}, origin), (name, origin) => bindStoredApiKeyOrigin(userFile, name, origin));
         if (input && !key.ctrl && !key.meta)
           patchPhase((p) => (p.kind === "wizard-text" ? { ...p, value: p.value + input } : p));
         return;
@@ -728,7 +730,8 @@ function submitField(
   applyWizard: (w: Partial<EndpointProfile>) => void,
   applyPhase: (p: Phase) => void,
   authKind: "api-key" | "subscription",
-  saveApiKey: (name: string, apiKey: string) => void,
+  saveApiKey: (name: string, apiKey: string, origin?: StoredApiKeyOrigin) => void,
+  bindApiKeyOrigin: (name: string, origin: StoredApiKeyOrigin) => void,
 ): void {
   const value = phase.value.trim();
   if (phase.field === "model") {
@@ -757,7 +760,7 @@ function submitField(
       const products = both ? ["zen", "go"] as const : [wizard.name === "opencode-go" ? "go" : "zen"] as const;
       const profiles = products.map((product) => {
         const endpoint = OPENCODE_ENDPOINTS[product];
-        saveApiKey(endpoint.name, value);
+        saveApiKey(endpoint.name, value, { type: "opencode", baseUrl: endpoint.baseUrl });
         return { name: endpoint.name, type: "opencode", baseUrl: endpoint.baseUrl, defaultModel: endpoint.defaultModel } as EndpointProfile;
       });
       return applyPhase({ kind: "test", profile: profiles[0]!, profiles });
@@ -770,16 +773,22 @@ function submitField(
     if (wizard.type === "openai-compat" || providerEndpointChoices(wizard.type ?? "").length > 1) return applyPhase({ kind: "wizard-endpoint-list", cursor: 0 });
     if (providerRequiresBaseUrlInput(wizard.type ?? "")) return applyPhase({ kind: "wizard-text", field: "baseUrl", value: providerProfile(wizard.type ?? "")?.baseUrl ?? "" });
     const profile = providerProfile(wizard.type ?? "");
-    if (profile) return submitField({ kind: "wizard-text", field: "baseUrl", value: profile.baseUrl }, wizard, applyWizard, applyPhase, authKind, saveApiKey);
+    if (profile) return submitField({ kind: "wizard-text", field: "baseUrl", value: profile.baseUrl }, wizard, applyWizard, applyPhase, authKind, saveApiKey, bindApiKeyOrigin);
     return applyPhase({ kind: "wizard-text", field: "baseUrl", value: wizard.baseUrl ?? "" });
   }
   // baseUrl
   if (wizard.type === "openai-compat" && !value) return; // required for compat
   const metadata = wizard.type === "openai-compat" ? knownCompatEndpointMetadata(value) : undefined;
   const capabilities = metadata ? { thinking: metadata.thinking } : undefined;
+  const name = wizard.name || wizard.type || "endpoint";
+  const type = (wizard.type ?? "anthropic") as string;
+  // #1256: the api-key step stored the key before the base URL was known —
+  // bind it now that the endpoint identity is confirmed (no-op when no key
+  // was stored, e.g. the env-var path).
+  if (authKind === "api-key") bindApiKeyOrigin(name, { type, baseUrl: value || undefined });
   const profile: EndpointProfile = {
-    name: wizard.name || wizard.type || "endpoint",
-    type: (wizard.type ?? "anthropic") as string,
+    name,
+    type,
     ...(authKind === "subscription" ? { auth: { kind: "subscription" } } : {}),
     ...(wizard.apiKey ? { apiKey: wizard.apiKey } : {}),
     ...(value ? { baseUrl: value } : {}),

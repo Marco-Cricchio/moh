@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { createHash } from "node:crypto";
 import { mkdtempSync, mkdirSync, appendFileSync, existsSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { tmpdir } from "node:os";
@@ -14,6 +15,12 @@ function tempHome(): string {
 }
 
 const SORTABLE_ID = /^\d{8}T\d{6}\d{3}Z-[0-9a-f]{8}$/;
+
+/** #1259: strips the integrity fields a written line carries. */
+function withoutIntegrity<T extends AgentEvent>(e: T): T {
+  const { prevHash: _p, hash: _h, ...rest } = e as T & { prevHash?: string; hash?: string };
+  return rest as T;
+}
 
 describe("session store", () => {
   test("create() writes a new JSONL under <home>/.moh/projects/<slug>/ with a sortable id", () => {
@@ -472,8 +479,10 @@ describe("session store", () => {
       const e = JSON.parse(l);
       delete e.id;
       delete e.parentId;
+      delete e.prevHash;
+      delete e.hash;
       return e;
-    })).toEqual(session.history().map((e) => ({ ...e, id: undefined, parentId: undefined })));
+    })).toEqual(session.history().map((e) => ({ ...e, id: undefined, parentId: undefined, prevHash: undefined, hash: undefined })));
 
     // Append-only: existing bytes unchanged after more events.
     const before = raw;
@@ -481,7 +490,7 @@ describe("session store", () => {
     const after = readFileSync(store.file, "utf8");
     expect(after.startsWith(before)).toBe(true);
 
-    expect(store.load()).toEqual(session.history());
+    expect(store.load().map(withoutIntegrity)).toEqual(session.history());
   });
 
   test("ids are strictly increasing within a process and latest() finds the newest", async () => {
@@ -558,8 +567,8 @@ describe("session store", () => {
     expect(latest.file).toBe(store.file);
     const loaded = latest.load();
     // #575: direct store appends are identity-stamped on the tail.
-    expect(loaded.map((e) => ({ ...e, id: undefined, parentId: undefined }))).toEqual(
-      events.map((e) => ({ ...e, id: undefined, parentId: undefined })),
+    expect(loaded.map((e) => ({ ...e, id: undefined, parentId: undefined, prevHash: undefined, hash: undefined }))).toEqual(
+      events.map((e) => ({ ...e, id: undefined, parentId: undefined, prevHash: undefined, hash: undefined })),
     );
     // The legacy first line had no id to chain to: parentId is absent
     // (degenerate linear tree); later events chain by ULID.
@@ -584,8 +593,8 @@ describe("session store", () => {
     const full = latest.load();
     // The resumed session re-appends session_start/session_mode plus the turn events.
     expect(full.length).toBe(events.length + 6); // session_start, session_mode, user_message, assistant_delta, model_call, done
-    expect(full.slice(0, events.length).map((e) => ({ ...e, id: undefined, parentId: undefined }))).toEqual(
-      events.map((e) => ({ ...e, id: undefined, parentId: undefined })),
+    expect(full.slice(0, events.length).map((e) => ({ ...e, id: undefined, parentId: undefined, prevHash: undefined, hash: undefined }))).toEqual(
+      events.map((e) => ({ ...e, id: undefined, parentId: undefined, prevHash: undefined, hash: undefined })),
     );
   });
 
@@ -607,7 +616,7 @@ describe("session store", () => {
     const store = SessionStore.create(process.cwd(), home);
     store.append({ type: "session_start", schemaVersion: 1, promptVersion: "abc123def456abc1" });
     appendFileSync(store.file, "\n");
-    expect(store.load().map((e) => ({ ...e, id: undefined, parentId: undefined }))).toEqual([
+    expect(store.load().map(withoutIntegrity).map((e) => ({ ...e, id: undefined, parentId: undefined }))).toEqual([
       { type: "session_start", schemaVersion: 1, promptVersion: "abc123def456abc1", id: undefined, parentId: undefined },
     ]);
   });
@@ -1244,7 +1253,7 @@ describe("scoped fork (#768)", () => {
     const home = tempHome();
     const store = SessionStore.create(mkdtempSync(join(tmpdir(), "moh-proj-")), home);
     // A purely legacy tail: identity-less lines, written directly.
-    const lines = [
+    const lines: AgentEvent[] = [
       { type: "session_start", schemaVersion: 1, promptVersion: "abc" },
       { type: "user_message", text: "hello" },
       { type: "done", usage: { inputTokens: 1, outputTokens: 1 }, models: [] },
@@ -1252,7 +1261,14 @@ describe("scoped fork (#768)", () => {
     writeFileSync(store.file, lines.map((e) => JSON.stringify(e) + "\n").join(""), { flag: "w", mode: 0o600 });
     const originalBytes = readFileSync(store.file, "utf8");
     const fork = store.fork("branch");
-    expect(readFileSync(fork.file, "utf8").startsWith(originalBytes)).toBe(true);
+    // #1259: the copy re-seals the hash chain over the same events — the
+    // content matches the source, the bytes gain the integrity fields.
+    // The trailing `session_resumed` is the fork's own (ADR-0021) tail.
+    const projected = fork.load().map(withoutIntegrity);
+    expect(projected.at(-1)!.type).toBe("session_resumed");
+    expect(projected.slice(0, -1)).toEqual(lines);
+    expect(readFileSync(fork.file, "utf8")).not.toBe(originalBytes);
+    expect(fork.load().some((e) => e.type === "log_integrity_warning")).toBe(false);
   });
 
   test('fork("branch") of a session with a dangling compaction line pointer drops the pointer visibly, never mis-remaps', () => {
@@ -1266,5 +1282,113 @@ describe("scoped fork (#768)", () => {
     // `line:99` does not exist in the source: keeping it would silently
     // resolve to a different position in the short copy.
     expect(marker.upToId).toBeUndefined();
+  });
+});
+
+describe("session-log integrity (#1259)", () => {
+  function newStore() {
+    const home = tempHome();
+    const cwd = mkdtempSync(join(tmpdir(), "moh-proj-"));
+    return SessionStore.create(cwd, home);
+  }
+
+  function parsedLines(file: string): (AgentEvent & { prevHash?: string; hash?: string })[] {
+    return readFileSync(file, "utf8")
+      .split("\n")
+      .filter((l) => l.trim() !== "")
+      .map((l) => JSON.parse(l));
+  }
+
+  function expectedHash(event: { prevHash?: string; hash?: string } & object): string {
+    const { prevHash, hash, ...rest } = event;
+    return createHash("sha256").update(prevHash ?? "").update("\n").update(JSON.stringify(rest)).digest("hex");
+  }
+
+  test("every written line carries a verified prevHash/hash pair chaining through the log", () => {
+    const store = newStore();
+    store.append({ type: "session_start", schemaVersion: 1, promptVersion: "v" });
+    store.append({ type: "user_message", text: "hi" });
+    store.append({ type: "done" });
+    const lines = parsedLines(store.file);
+    expect(lines[0]!.prevHash).toBe("");
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i]!;
+      expect(typeof line.hash).toBe("string");
+      expect(expectedHash(line as AgentEvent & { prevHash?: string; hash?: string })).toBe(line.hash!);
+      if (i > 0) expect(line.prevHash).toBe(lines[i - 1]!.hash);
+    }
+  });
+
+  test("untampered logs load with no warnings and no extra writes", () => {
+    const store = newStore();
+    store.append({ type: "session_start", schemaVersion: 1, promptVersion: "v" });
+    store.append({ type: "user_message", text: "hi" });
+    const before = readFileSync(store.file, "utf8");
+    const events = store.load();
+    expect(events.some((e) => e.type === "log_integrity_warning")).toBe(false);
+    expect(readFileSync(store.file, "utf8")).toBe(before);
+  });
+
+  test("rewriting a line's content surfaces a log_integrity_warning naming the position", () => {
+    const store = newStore();
+    store.append({ type: "session_start", schemaVersion: 1, promptVersion: "v" });
+    store.append({ type: "user_message", text: "original" });
+    const raw = readFileSync(store.file, "utf8").split("\n");
+    const tampered = JSON.parse(raw[1]!) as Record<string, unknown>;
+    tampered.text = "tampered";
+    raw[1] = JSON.stringify(tampered);
+    writeFileSync(store.file, raw.join("\n"));
+
+    const events = store.load();
+    const warnings = events.filter((e) => e.type === "log_integrity_warning");
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]).toMatchObject({ type: "log_integrity_warning", line: 2, reason: "hash_mismatch" });
+    // The warning is chrome in the log itself, so a resume shows it.
+    expect(parsedLines(store.file).at(-1)!.type).toBe("log_integrity_warning");
+
+    // In-file dedupe: a second load never stacks a duplicate warning.
+    store.load();
+    expect(parsedLines(store.file).filter((e) => e.type === "log_integrity_warning")).toHaveLength(1);
+  });
+
+  test("a rewritten chain pointer is a chain_break; one tamper does not cascade", () => {
+    const store = newStore();
+    store.append({ type: "session_start", schemaVersion: 1, promptVersion: "v" });
+    store.append({ type: "user_message", text: "a" });
+    store.append({ type: "user_message", text: "b" });
+    const raw = readFileSync(store.file, "utf8").split("\n");
+    const tampered = JSON.parse(raw[1]!) as Record<string, string>;
+    tampered.prevHash = "0".repeat(64);
+    raw[1] = JSON.stringify(tampered);
+    writeFileSync(store.file, raw.join("\n"));
+    const events = store.load();
+    const warnings = events.filter((e) => e.type === "log_integrity_warning");
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]).toMatchObject({ line: 2, reason: "chain_break" });
+    // Line 3 still verifies against its recorded prev: exactly one mismatch.
+    expect(warnings.every((w) => w.line === 2)).toBe(true);
+  });
+
+  test("legacy hash-less logs resume unchanged; the chain starts where hashes begin", () => {
+    const store = newStore();
+    appendFileSync(store.file, '{"type":"session_start","schemaVersion":1,"promptVersion":"v"}\n');
+    appendFileSync(store.file, '{"type":"user_message","text":"legacy"}\n');
+    store.append({ type: "done" });
+    const lines = parsedLines(store.file);
+    expect(lines[0]!.hash).toBeUndefined();
+    expect(lines[1]!.hash).toBeUndefined();
+    expect(lines[2]!.prevHash).toBe("");
+    expect(expectedHash(lines[2]! as AgentEvent & { prevHash?: string; hash?: string })).toBe(lines[2]!.hash!);
+    expect(store.load().some((e) => e.type === "log_integrity_warning")).toBe(false);
+  });
+
+  test("stamping onto a corrupt log is loud, never a silent parentless append", () => {
+    const store = newStore();
+    store.append({ type: "session_start", schemaVersion: 1, promptVersion: "v" });
+    store.append({ type: "user_message", text: "keep" });
+    const raw = readFileSync(store.file, "utf8").split("\n");
+    raw[1] = "{not json";
+    writeFileSync(store.file, raw.join("\n"));
+    expect(() => renameSession(store.file, "x")).toThrow(/failed to load/);
   });
 });

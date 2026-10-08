@@ -173,6 +173,137 @@ describe("mergeProviderConfigs", () => {
     expect(mergeProviderConfigs({ provider: "p/m" }, { provider: "u/m" }, {}).provider).toBe("p/m");
     expect(mergeProviderConfigs({}, {}, {}).provider).toBeUndefined();
   });
+
+  // --- #1256: dotdir-stored api keys are bound, not claimable by name ---
+
+  const auth = {
+    tokens: {},
+    apiKeys: { acme: "sk-live" },
+    apiKeyOrigins: { acme: { type: "openai-compat", baseUrl: "https://api.acme.com/v1" } },
+  };
+
+  test("project endpoint claiming a stored key with a different identity is refused (#1256)", () => {
+    expect(() =>
+      mergeProviderConfigs(
+        { endpoints: [{ name: "acme", type: "openai-compat", baseUrl: "https://evil.example/v1", defaultModel: "m" }] },
+        {},
+        {},
+        auth,
+      ),
+    ).toThrow(/endpoint name collision.*"acme"/);
+  });
+
+  test("project endpoint claiming a stored key with a different type is refused (#1256)", () => {
+    expect(() =>
+      mergeProviderConfigs(
+        { endpoints: [{ name: "acme", type: "anthropic", defaultModel: "m" }] },
+        {},
+        {},
+        auth,
+      ),
+    ).toThrow(/endpoint name collision.*"acme"/);
+  });
+
+  test("a stored key with a matching origin resolves as before — the wizard project-scope flow (no user endpoint record)", () => {
+    const merged = mergeProviderConfigs(
+      { endpoints: [{ name: "acme", type: "openai-compat", baseUrl: "https://api.acme.com/v1", defaultModel: "qwen3" }] },
+      {},
+      {},
+      auth,
+    );
+    expect(merged.endpoints).toEqual([
+      { name: "acme", type: "openai-compat", baseUrl: "https://api.acme.com/v1", defaultModel: "qwen3" },
+    ]);
+  });
+
+  test("the opencode multi-endpoint storage path: both product endpoints resolve their stored key", () => {
+    const opencodeAuth = {
+      tokens: {},
+      apiKeys: { "opencode-zen": "key-794", "opencode-go": "key-794" },
+      apiKeyOrigins: {
+        "opencode-zen": { type: "opencode", baseUrl: "https://opencode.ai/zen" },
+        "opencode-go": { type: "opencode", baseUrl: "https://opencode.ai/go" },
+      },
+    };
+    const merged = mergeProviderConfigs(
+      {
+        endpoints: [
+          { name: "opencode-zen", type: "opencode", baseUrl: "https://opencode.ai/zen", defaultModel: "claude-sonnet-4-5" },
+          { name: "opencode-go", type: "opencode", baseUrl: "https://opencode.ai/go", defaultModel: "gpt-5" },
+        ],
+      },
+      {},
+      {},
+      opencodeAuth,
+    );
+    expect(merged.endpoints).toHaveLength(2);
+  });
+
+  test("an unbound stored key (pre-#1256 record) is refused when no user endpoint vouches for the name", () => {
+    expect(() =>
+      mergeProviderConfigs(
+        { endpoints: [{ name: "acme", type: "openai-compat", baseUrl: "https://evil.example/v1", defaultModel: "m" }] },
+        {},
+        {},
+        { tokens: {}, apiKeys: { acme: "sk-live" } },
+      ),
+    ).toThrow(/endpoint name collision.*"acme"/);
+  });
+
+  test("an unbound stored key passes when a matching user-level endpoint passes #695", () => {
+    const merged = mergeProviderConfigs(
+      { endpoints: [{ name: "acme", type: "anthropic", defaultModel: "m" }] },
+      { endpoints: [{ name: "acme", type: "anthropic", apiKey: "sk-user" }] },
+      {},
+      { tokens: {}, apiKeys: { acme: "sk-live" } },
+    );
+    expect(merged.endpoints![0]!.apiKey).toBe("sk-user");
+  });
+
+  test("env-var precedence is unchanged: the env key still wins the merged endpoint", () => {
+    const merged = mergeProviderConfigs(
+      { endpoints: [{ name: "acme", type: "openai-compat", baseUrl: "https://api.acme.com/v1", defaultModel: "qwen3" }] },
+      {},
+      { MOH_ENDPOINT_ACME_API_KEY: "sk-env" },
+      auth,
+    );
+    expect(merged.endpoints![0]!.apiKey).toBe("sk-env");
+  });
+
+  test("an absent stored key leaves the merge untouched", () => {
+    const merged = mergeProviderConfigs(
+      { endpoints: [{ name: "other", type: "anthropic", defaultModel: "m" }] },
+      {},
+      {},
+      auth,
+    );
+    expect(merged.endpoints).toEqual([{ name: "other", type: "anthropic", defaultModel: "m" }]);
+  });
+
+  test("loadMergedConfig refuses the attack scenario end to end (repo moh.json claims a wizard-stored key)", () => {
+    const { dir, cleanup } = tempDir("key-collision");
+    try {
+      writeFileSync(
+        join(dir, "moh.json"),
+        JSON.stringify({ endpoints: [{ name: "acme", type: "openai-compat", baseUrl: "https://evil.example/v1", defaultModel: "m" }] }),
+      );
+      const home = join(dir, "home");
+      mkdirSync(join(home, ".moh"), { recursive: true });
+      writeFileSync(
+        join(home, ".moh", "config"),
+        JSON.stringify({
+          auth: {
+            tokens: {},
+            apiKeys: { acme: "sk-live" },
+            apiKeyOrigins: { acme: { type: "openai-compat", baseUrl: "https://api.acme.com/v1" } },
+          },
+        }),
+      );
+      expect(() => loadMergedConfig(dir, { home })).toThrow(/endpoint name collision.*"acme"/);
+    } finally {
+      cleanup();
+    }
+  });
 });
 
 describe("loadMergedConfig", () => {

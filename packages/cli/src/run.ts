@@ -30,6 +30,7 @@ import {
   type AgentEvent,
 } from "@moh/core";
 import { ArgError, parseArgs } from "./args";
+import { sanitizeForDisplay } from "@moh/core";
 import { bundledExtensionSources } from "@moh/tui/bundled-extensions";
 
 export const RUN_USAGE = `usage: moh run [options] [prompt...]
@@ -93,7 +94,8 @@ export function headlessConfirm(stderr: { write(s: string): void }): {
   let refusal: string | null = null;
   return {
     seam: (request) => {
-      refusal = `${request.by}: ${request.reason}`;
+      // #1255: the extension's ask copy reaches a raw tty seam — sanitize.
+      refusal = `${sanitizeForDisplay(request.by)}: ${sanitizeForDisplay(request.reason)}`;
       stderr.write(`moh run: turn refused — ${refusal}\n`);
       return "refuse";
     },

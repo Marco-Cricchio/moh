@@ -243,11 +243,11 @@ describe("credential scope: fetch end to end", () => {
 });
 
 describe("#1178 keychain accounts are home-scoped", () => {
-  type SecCall = { args: string[]; out: string; ok: boolean; exit: number | null };
+  type SecCall = { args: string[]; input?: string; out: string; ok: boolean; exit: number | null };
   /** A fake `security` runner: a scripted map of account -> value. */
   function fakeSecurity(items: Record<string, string>) {
     const calls: SecCall[] = [];
-    const run = (args: string[]): { ok: boolean; out: string; err: string; exit: number | null } => {
+    const run = (args: string[], input?: string): { ok: boolean; out: string; err: string; exit: number | null } => {
       calls.push({ args, out: "", ok: false, exit: 44 });
       if (args[0] === "find-generic-password") {
         const acc = args[args.indexOf("-a") + 1];
@@ -255,9 +255,12 @@ describe("#1178 keychain accounts are home-scoped", () => {
         if (v !== undefined) return { ok: true, out: v, err: "", exit: 0 };
         return { ok: false, out: "", err: "not found", exit: 44 };
       }
-      if (args[0] === "add-generic-password") {
-        const acc = args[args.indexOf("-a") + 1];
-        items[acc] = args[args.indexOf("-w") + 1];
+      if (args[0] === "-i") {
+        // #1262: the write arrives as one stdin command line; the value is
+        // double-quoted with `\`, `"`, `$`, backtick backslash-escaped.
+        const grab = (name: string): string =>
+          new RegExp(`${name} "((?:[^\\\\"]|\\\\.)*)"`, "g").exec(input!)![1].replace(/\\([\\\"$`])/g, "$1");
+        items[grab("-a")] = grab("-w");
         return { ok: true, out: "", err: "", exit: 0 };
       }
       if (args[0] === "delete-generic-password") {
@@ -310,5 +313,28 @@ describe("#1178 keychain accounts are home-scoped", () => {
     store!.set("typesafe", "v");
     store!.delete("typesafe");
     expect(shared).toEqual({ typesafe: "legacy" });
+  });
+
+  test("#1262 the secret never appears in process argv and round-trips byte-exact", () => {
+    const secret = 's3cret with "quotes" and \\backslash\\ and $dollar and `tick`';
+    const fake = fakeSecurity({});
+    const store = keychainCredentialStore("/tmp/moh-argv-home", fake.run);
+    store!.set("typesafe", secret);
+    for (const call of fake.calls) {
+      expect(call.args.join(" ")).not.toContain(secret);
+      expect(call.args.join(" ")).not.toContain("-w");
+    }
+    // The value lands byte-exact: the fake runner decodes the escaped stdin
+    // command, so read-back through the same store proves the round-trip.
+    expect(store!.get("typesafe")).toBe(secret);
+  });
+
+  test("#1262 a value with a newline or trailing backslash is refused, never stored wrong", () => {
+    const fake = fakeSecurity({});
+    const store = keychainCredentialStore("/tmp/moh-argv-home", fake.run);
+    expect(() => store!.set("typesafe", "two\nlines")).toThrow();
+    expect(() => store!.set("typesafe", "tab\tseparated")).toThrow();
+    expect(() => store!.set("typesafe", "trailing\\")).toThrow();
+    expect(fake.items).toEqual({});
   });
 });

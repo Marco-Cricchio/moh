@@ -271,7 +271,14 @@ export function compactionCannotHelpNow(events: ReadonlyArray<AgentEvent>): bool
   return markerIndex === -1 && events.some((e) => e.type === "compaction_skipped");
 }
 
-export function extensionEventLine(name: string, payload: unknown): string {  const record = asRecord(payload);
+export function extensionEventLine(name: string, payload: unknown): string {
+  // #1255: the payload is extension-controlled — strip terminal controls
+  // from the composed line, same boundary the client applies to model text.
+  return sanitizeForDisplay(extensionEventLineParts(name, payload));
+}
+
+function extensionEventLineParts(name: string, payload: unknown): string {
+  const record = asRecord(payload);
   if (record === undefined) return name;
   if (name === "jev_routing") return routingNoticeLine(record);
   if (name === "jev_usecase") return useCaseLine(record);
@@ -996,7 +1003,7 @@ export function projectTranscript(events: ReadonlyArray<AgentEvent>, options: { 
           key,
           kind: "chrome",
           glyph: "◈",
-          type: `${event.extension} · ${controlCommandLine(event.payload)}`,
+          type: sanitizeForDisplay(`${event.extension} · ${controlCommandLine(event.payload)}`),
           lines: [],
         });
         break;
@@ -1147,6 +1154,18 @@ export function projectTranscript(events: ReadonlyArray<AgentEvent>, options: { 
         // ADR-0064/0065: host-performed operations and their refusals.
         // Chrome — audit only; the transcript has no projection today,
         // the log carries the record.
+        break;
+      case "log_integrity_warning":
+        // #1259: tamper evidence — the load already surfaced this in-file
+        // once; chrome records that it happened, the log carries the event.
+        blocks.push({
+          key,
+          kind: "chrome",
+          glyph: "◈",
+          type: "log integrity",
+          detail: `line ${event.line}: ${event.reason === "hash_mismatch" ? "content changed" : "chain broken"} — the session log was modified outside moh`,
+          lines: [],
+        });
         break;
       case "tool_contributed":
         // ADR-0067: a contributed tool's registration record — the

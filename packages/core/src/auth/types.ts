@@ -116,6 +116,18 @@ export const githubCopilotAuthOverridesSchema = z.object({
 });
 export type GithubCopilotAuthOverrides = z.infer<typeof githubCopilotAuthOverridesSchema>;
 
+/**
+ * #1256: the endpoint identity a stored api key was saved for — the same
+ * two fields the #695 collision guard compares (type + baseUrl). An unset
+ * `baseUrl` means the endpoint's provider default (the guard treats it as
+ * "unset", matching an endpoint that also declares no baseUrl).
+ */
+export const storedApiKeyOriginSchema = z.object({
+  type: z.string(),
+  baseUrl: z.string().optional(),
+});
+export type StoredApiKeyOrigin = z.infer<typeof storedApiKeyOriginSchema>;
+
 export const authOverridesSchema = z.object({
   anthropic: anthropicAuthOverridesSchema.optional(),
   openai: openaiAuthOverridesSchema.optional(),
@@ -138,6 +150,10 @@ export const authSectionSchema = z.object({
   tokens: z.record(z.string(), authTokenSchema),
   /** SEC-06: api keys keyed by endpoint name (wizard-stored, 0600). */
   apiKeys: z.record(z.string(), z.string()).optional(),
+  /** #1256: the endpoint identity each stored key was saved for — the
+   * binding that stops a repo-supplied endpoint from claiming the key by
+   * name alone. Keys stored before this field existed are unbound. */
+  apiKeyOrigins: z.record(z.string(), storedApiKeyOriginSchema).optional(),
   overrides: authOverridesSchema.optional(),
 });
 export type AuthSection = z.infer<typeof authSectionSchema>;

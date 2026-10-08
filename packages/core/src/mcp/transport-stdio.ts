@@ -1,6 +1,11 @@
 import { McpError } from "./errors";
 import { JsonRpcConnection, type ServerHandlers } from "./json-rpc";
 
+/** #1254: an unconsumed partial line (a server that never emits a newline)
+ * is capped here — the connection ends crashed rather than growing the
+ * buffer unboundedly. Same philosophy as the HTTP response cap. */
+export const MCP_MAX_LINE_BYTES = 10 * 1024 * 1024;
+
 /**
  * Environment deliberately exposed to a stdio MCP server. Do not inherit the
  * launching process: it commonly holds provider credentials unrelated to MCP.
@@ -52,6 +57,14 @@ export class StdioConnection extends JsonRpcConnection {
         const { done, value } = await reader.read();
         if (done) break;
         buf += decoder.decode(value, { stream: true });
+        if (buf.length > MCP_MAX_LINE_BYTES) {
+          // #1254: kill the server so a hostile peer cannot keep feeding
+          // bytes, fail pending requests with the typed reason, then land
+          // in the ordinary crashed state.
+          this.#proc.kill();
+          this.failPending(new McpError("crashed", `MCP stdio partial line exceeded the ${Math.round(MCP_MAX_LINE_BYTES / (1024 * 1024))} MB buffer cap`));
+          break;
+        }
         let nl: number;
         while ((nl = buf.indexOf("\n")) >= 0) {
           const line = buf.slice(0, nl);

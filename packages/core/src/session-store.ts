@@ -13,7 +13,7 @@ import {
 } from "node:fs";
 import { homedir } from "node:os";
 import { basename, dirname, isAbsolute, join } from "node:path";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { declaredId, identitySlug, legacyProjectSlug, resolveProjectIdentity, identityFileFor } from "./project-identity";
 import { readUserConfigFile, userConfigFile } from "./user-config";
 import { redactValue, noteRedactionResult } from "./redact";
@@ -80,8 +80,42 @@ function stampEvent(event: AgentEvent, file: string): AgentEvent {
     // never unregister the caller's own live registration (#478).
     store = SessionStore.open(file, { register: false });
     head = resolveHead(store.load()).head;
-  } catch {
-    // unreadable log: stamp with no parent rather than refusing to write
+  } catch (err) {
+    // #1259: an empty (or absent) log simply has no head — stamp with no
+    // parent, as before. Any OTHER load failure (invalid JSON, missing
+    // session_start head, bad schema) is surfaced: stamping a parentless
+    // append onto a known-bad log silently forks the topology, so the
+    // write refuses loudly instead.
+    // #1259: an empty (or absent) log simply has no head — stamp with no
+    // parent, as before. A file whose lines parse but has no session_start
+    // head is the direct-append/legacy shape (SessionStore.create writes
+    // an empty file; direct test harnesses append user events first): it
+    // loads clean on the legacy path, so stamping parentless stays legal.
+    // Any OTHER load failure (invalid JSON, bad schema) is surfaced:
+    // stamping a parentless append onto a known-bad log silently forks
+    // the topology, so the write refuses loudly instead.
+    const raw = !existsSync(file) ? "" : readWholeFile(file).trim();
+    const legacyLines = (() => {
+      if (raw === "") return true;
+      try {
+        return raw.split("\n").every((l) => {
+          try {
+            return typeof JSON.parse(l).type === "string";
+          } catch {
+            return false;
+          }
+        });
+      } catch {
+        return false;
+      }
+    })();
+    if (legacyLines) {
+      head = undefined;
+    } else {
+      throw new Error(
+        `cannot stamp event onto ${basename(file)}: the log failed to load (${err instanceof Error ? err.message : String(err)}) — refusing a silent parentless append onto a corrupt log`,
+      );
+    }
   } finally {
     store?.dispose();
   }
@@ -308,13 +342,21 @@ export class SessionStore {
   fork(scope: "tree" | "branch" = "tree"): SessionStore {
     const target = join(dirname(this.#file), `${newSessionId()}.jsonl`);
     if (scope === "branch") {
-      writeFileSync(
-        target,
-        branchProjection(this.load())
-          .map((e) => JSON.stringify(e) + "\n")
-          .join(""),
-        { flag: "wx", mode: 0o600 },
-      );
+      // #1259: the projection reorders and drops lines, so copied hash
+      // fields would break at the first load — the copy is re-sealed into
+      // a fresh chain in write order instead.
+      let prev = "";
+      const body = branchProjection(this.load())
+        .map((e) => {
+          const { prevHash: _prev, hash: _hash, ...rest } = e as HashedEvent;
+          const hash = lineHash(prev, integrityPayload(rest as HashedEvent));
+          const line = JSON.stringify({ ...rest, prevHash: prev, hash }) + "\n";
+          prev = hash;
+          return line;
+        })
+        .join("");
+      writeFileSync(target, body, { flag: "wx", mode: 0o600 });
+
     } else {
       copyFileSync(this.#file, target);
     }
@@ -410,6 +452,10 @@ export class SessionStore {
         `session schema is newer than this build (v${v} > v${SCHEMA_VERSION}): upgrade moh to resume it`,
       );
     }
+    // #1259: hash-chain verification — mismatches surface as appended
+    // `log_integrity_warning` chrome events (visible, deduplicated),
+    // never a throw and never a silent replay of tampered bytes.
+    verifyIntegrity(this, events);
     return events;
   }
 }
@@ -417,6 +463,66 @@ export class SessionStore {
 function readWholeFile(file: string): string {
   return readFileSync(file, "utf8");
 }
+
+// ---------------------------------------------------------------------------
+// #1259: the session-log hash chain. Every line written through the single
+// seam carries `prevHash`/`hash` — sha256 over the previous line's hash and
+// the line's own serialized event content — so any in-place modification of
+// existing bytes breaks verification at the next load. Legacy hash-less
+// lines (logs written before #1259, or a corrupted line whose hash fields
+// were stripped) are tolerated: the chain simply starts where hashes begin.
+// ---------------------------------------------------------------------------
+
+type HashedEvent = AgentEvent & { prevHash?: string; hash?: string };
+
+/** The event content the hash covers: the parsed line minus the two
+ * integrity fields themselves. Key order is preserved by JSON.parse, so
+ * this reproduces the exact write-time payload string. */
+function integrityPayload(event: HashedEvent): string {
+  const { prevHash: _prev, hash: _hash, ...rest } = event;
+  return JSON.stringify(rest);
+}
+
+function lineHash(prevHash: string, payload: string): string {
+  return createHash("sha256").update(prevHash).update("\n").update(payload).digest("hex");
+}
+
+/**
+ * The last chain hash written to `file` in this process, seeded from disk
+ * on first touch (a fresh process must chain onto the existing log). The
+ * cache is updated when a line is serialized — before the physical append.
+ * If the append itself fails, the cache points at a line not on disk and
+ * the next load flags the break: fail-visible, never silently absorbed.
+ */
+function chainHeadFor(file: string): string {
+  const cached = chainHeads.get(file);
+  if (cached !== undefined) return cached;
+  let head = "";
+  try {
+    for (const line of readWholeFile(file).split("\n")) {
+      if (line.trim() === "") continue;
+      try {
+        const hash = (JSON.parse(line) as HashedEvent).hash;
+        if (typeof hash === "string") head = hash;
+      } catch {
+        break; // corrupt tail: chain to the last parseable hashed line
+      }
+    }
+  } catch {
+    // unreadable/absent file: an empty chain start
+  }
+  chainHeads.set(file, head);
+  return head;
+}
+
+// Principle #1 (no global state) note: this is a per-file cache of the
+// last chain hash written through the seam, not agent or session state —
+// it exists so an append need not re-read the whole log, is seeded from
+// disk on first touch, and is process-lifetime only: it carries nothing
+// across sessions and changes no behavior, only where the next line's
+// prevHash starts. Losing it (restart) re-derives the same value from
+// the file.
+const chainHeads = new Map<string, string>();
 
 /**
  * ADR-0058: the single serialization point every session-file writer
@@ -431,7 +537,70 @@ function redactedLine(event: AgentEvent, file: string): string {
   const stamped = event.id === undefined ? stampEvent(event, file) : event;
   const result = redactValue(stamped);
   if (result.misses.length > 0 || result.depthCut) noteRedactionResult(mohHomeFor(file), result);
-  return JSON.stringify(result.value) + "\n";
+  // #1259: the hash chain is stamped at this same single seam, after
+  // redaction, so every writer path is covered and no secret ever feeds
+  // the digest.
+  const prevHash = chainHeadFor(file);
+  const value = result.value as AgentEvent;
+  const hash = lineHash(prevHash, integrityPayload(value as HashedEvent));
+  chainHeads.set(file, hash);
+  return JSON.stringify({ ...value, prevHash, hash }) + "\n";
+}
+
+/**
+ * #1259: verifies the hash chain over the loaded events. Every hashed line
+ * must hash to its recorded `hash` (content intact) and chain onto the
+ * previous hashed line (`prevHash`; the chain's first line starts from
+ * ""). Unhashed lines are legacy tolerance, not mismatches. Each mismatch
+ * position is surfaced ONCE by appending a `log_integrity_warning` chrome
+ * event to the log tail — in-file deduplication, so repeated resumes never
+ * stack duplicate warnings. The append carries an explicit id/parent, so
+ * it re-enters the seam without re-stamping (no recursion through
+ * `stampEvent`'s own load probe).
+ */
+function verifyIntegrity(store: SessionStore, events: AgentEvent[]): void {
+  let expectedPrev: string | null = null;
+  let started = false;
+  const mismatches: { line: number; reason: "hash_mismatch" | "chain_break" }[] = [];
+  for (let i = 0; i < events.length; i += 1) {
+    const event = events[i] as HashedEvent;
+    if (typeof event.hash !== "string") continue;
+    const prevHash = typeof event.prevHash === "string" ? event.prevHash : null;
+    const chains = started ? prevHash === expectedPrev : prevHash === "";
+    if (!chains || lineHash(prevHash ?? "", integrityPayload(event)) !== event.hash) {
+      mismatches.push({ line: i + 1, reason: chains ? "hash_mismatch" : "chain_break" });
+    }
+    expectedPrev = event.hash;
+    started = true;
+  }
+  if (mismatches.length === 0) return;
+  const warned = new Set(
+    events.flatMap((e) => (e.type === "log_integrity_warning" ? [e.line] : [])),
+  );
+  let parentId: string | undefined;
+  for (let i = events.length - 1; i >= 0; i -= 1) {
+    if (events[i]!.id !== undefined) {
+      parentId = events[i]!.id;
+      break;
+    }
+  }
+  for (const m of mismatches) {
+    if (warned.has(m.line)) continue;
+    const warning: AgentEvent = {
+      type: "log_integrity_warning",
+      line: m.line,
+      reason: m.reason,
+      id: newUlid(),
+      ...(parentId !== undefined ? { parentId } : {}),
+    };
+    store.append(warning);
+    // Intentional side effect (no re-plumb of load()'s signature): the
+    // warning must both persist (appended to the log, so every later
+    // resume sees it) and return (this load's caller reacts immediately).
+    // The caller sees the warning on THIS load too — the appended copy
+    // makes it visible to every later resume.
+    events.push(warning);
+  }
 }
 
 /**

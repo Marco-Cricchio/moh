@@ -17,7 +17,12 @@
  *   naming the conflicting endpoint — otherwise the user's stored
  *   credentials would resolve onto the project-supplied endpoint and be
  *   sent to its baseUrl. A collision with a matching identity merges as
- *   before.
+ *   before. Issue #1256 extends the guard to the wizard-stored `auth.apiKeys`
+ *   records (which carry no endpoint record for #695 to see): a stored key
+ *   is bound to the endpoint identity it was saved for, and a project
+ *   endpoint claiming that name with a different identity is refused; an
+ *   unbound key is refused outright unless a user-level endpoint of the
+ *   same name passes the #695 check.
  * - precedence for an endpoint key: env var (`MOH_ENDPOINT_<NAME>_API_KEY`)
  *   > project moh.json > user config; same order for the default
  *   `provider` reference (default "mock" stays the zero-config floor);
@@ -29,6 +34,8 @@ import { join } from "node:path";
 import { readFileSync } from "node:fs";
 import { endpointProfileSchema, loadMohConfig, upsertEndpoint, type EndpointProfile, type MohConfig } from "./config";
 import { envApiKey } from "./route";
+import { readAuthSection } from "./auth/store";
+import type { AuthSection } from "./auth/types";
 import { readUserConfigFile, updateUserConfigFile, userConfigFile, type UserConfigData, type UserConfigIo } from "./user-config";
 import { z } from "zod";
 
@@ -99,6 +106,7 @@ export function mergeProviderConfigs(
   project: MohConfig,
   user: UserProviderConfig,
   env: Record<string, string | undefined> = process.env,
+  auth?: AuthSection,
 ): MohConfig {
   const byName = new Map((user.endpoints ?? []).map((e) => [e.name, e]));
   const projectEndpoints = project.endpoints ?? [];
@@ -110,6 +118,29 @@ export function mergeProviderConfigs(
           `conflicts with the user-level endpoint of the same name (type "${userEndpoint.type}", baseUrl ${userEndpoint.baseUrl ? `"${userEndpoint.baseUrl}"` : "unset"}); ` +
           `refusing to merge because user-stored credentials resolve by name — rename one of the two endpoints`,
       );
+    }
+    // #1256: a dotdir-stored api key must not be claimable by name alone.
+    // A key bound to an endpoint identity (#1256 origin) is refused for any
+    // other identity; an unbound key (stored before origins existed) is
+    // refused outright unless a user-level endpoint of the same name
+    // already passed the #695 identity check above.
+    if (auth?.apiKeys?.[e.name] !== undefined) {
+      const origin = auth.apiKeyOrigins?.[e.name];
+      if (origin) {
+        if (origin.type !== e.type || (origin.baseUrl ?? undefined) !== (e.baseUrl ?? undefined)) {
+          throw new Error(
+            `endpoint name collision: project moh.json endpoint "${e.name}" (type "${e.type}", baseUrl ${e.baseUrl ? `"${e.baseUrl}"` : "unset"}) ` +
+              `conflicts with the endpoint the api key stored in the auth store was saved for (type "${origin.type}", baseUrl ${origin.baseUrl ? `"${origin.baseUrl}"` : "unset"}); ` +
+              `refusing to merge because the stored key would be sent to a different endpoint — rename one of the two endpoints or re-run \`moh provider add ${e.name}\``,
+          );
+        }
+      } else if (!userEndpoint) {
+        throw new Error(
+          `endpoint name collision: project moh.json endpoint "${e.name}" (type "${e.type}", baseUrl ${e.baseUrl ? `"${e.baseUrl}"` : "unset"}) ` +
+            `claims an api key stored in the auth store with no endpoint record to confirm where it belongs; ` +
+            `refusing to merge — re-run \`moh provider add ${e.name}\` to bind the key, or rename one of the two endpoints`,
+        );
+      }
     }
   }
   const merged = projectEndpoints.map((e) => {
@@ -140,7 +171,8 @@ export interface MergedConfigOptions {
 export function loadMergedConfig(cwd: string, options: MergedConfigOptions = {}): MohConfig {
   const project = loadMohConfig(join(cwd, "moh.json"), options.read);
   const user = readUserProviderConfig(userConfigFile(options.home), options.read);
-  return mergeProviderConfigs(project, user, options.env ?? process.env);
+  const auth = readAuthSection(userConfigFile(options.home), options.read);
+  return mergeProviderConfigs(project, user, options.env ?? process.env, auth);
 }
 
 /**

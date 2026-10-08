@@ -28,6 +28,7 @@
  * the evidence the next pattern is written from, never its content.
  */
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { randomBytes } from "node:crypto";
 import { dirname, join } from "node:path";
 
 /** The fixed placeholder every masked value becomes (ADR-0058). */
@@ -217,11 +218,19 @@ const SECRET_PATTERNS: SecretPattern[] = [
       `\\b[A-Za-z0-9_-]*?(?:${CREDENTIAL_KEYS})\\b(\\s*[:=]\\s*|\\s+)(["']?)[A-Za-z0-9._~+/=-]{12,}\\2`,
       "gi",
     ),
-    replace: (m) =>
-      m.replace(
-        /([:=]\s*|\s+)(["']?)[A-Za-z0-9._~+/=-]{12,}(["']?)$/,
-        (_full, sep: string, q1: string, q2: string) => `${sep}${q1}${REDACTED}${q2}`,
-      ),
+    replace: replaceCredentialAssignment,
+  },
+  // `password=short1!` and the like: when the key name itself is a
+  // credential key, an explicit `key=value` assignment masks down to a
+  // small floor. The whitespace-separated form keeps the 12-char floor —
+  // prose like "refresh the token store" must not light up.
+  {
+    category: "credential-assignment-short",
+    re: new RegExp(
+      `\\b[A-Za-z0-9_-]*?(?:${CREDENTIAL_KEYS})\\b(\\s*[:=]\\s*)(["']?)[A-Za-z0-9._~+/=-]{4,}\\2`,
+      "gi",
+    ),
+    replace: replaceCredentialAssignment,
   },
   // Credentials embedded in URLs: scheme://user:password@host — the
   // scheme and user survive, the password half is masked.
@@ -237,6 +246,13 @@ const SECRET_PATTERNS: SecretPattern[] = [
     replace: () => REDACTED,
   },
 ];
+
+function replaceCredentialAssignment(m: string): string {
+  return m.replace(
+    /([:=]\s*|\s+)(["']?)[A-Za-z0-9._~+/=-]+(["']?)$/,
+    (_full, sep: string, q1: string, q2: string) => `${sep}${q1}${REDACTED}${q2}`,
+  );
+}
 
 /**
  * Masks high-confidence secret shapes in one string. Never mutates.
@@ -398,12 +414,31 @@ export function noteSecretRedactionMiss(input: {
         : entries;
     const dir = dirname(file);
     mkdirSync(dir, { recursive: true, mode: 0o700 });
-    const tmp = `${file}.tmp-${process.pid}`;
-    writeFileSync(tmp, kept.map((e) => JSON.stringify(e)).join("\n") + "\n", { mode: 0o600 });
-    renameSync(tmp, file);
+    // Random name + exclusive create: a predictable `${file}.tmp-${pid}`
+    // is a symlink-clobber target for local users (#1262). A collision is
+    // retried with a fresh name; a hostile pre-created file at some path
+    // fails `wx` instead of being overwritten.
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const tmp = missReportTempPath(file);
+      try {
+        writeFileSync(tmp, kept.map((e) => JSON.stringify(e)).join("\n") + "\n", {
+          flag: "wx",
+          mode: 0o600,
+        });
+        renameSync(tmp, file);
+        break;
+      } catch {
+        if (attempt === 2) throw new Error("miss-report temp write failed");
+      }
+    }
   } catch {
     // Diagnostics never block.
   }
+}
+
+/** Random, unguessable temp path for one miss-report write (#1262). */
+export function missReportTempPath(file: string): string {
+  return `${file}.tmp-${randomBytes(16).toString("hex")}`;
 }
 
 /**
