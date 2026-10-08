@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { createSession, McpRuntime, MockProvider, sessionFromConfig, type AgentEvent, type DeclaredMcpServer } from "../src/index";
 import { projectSlug } from "../src/session-store";
 import { McpError, mcpServerEntrySchema } from "../src/mcp";
-import { HttpConnection, MCP_MAX_RESPONSE_BYTES } from "../src/mcp/transport-http";
+import { HttpConnection, MCP_MAX_RESPONSE_BYTES, type McpLookup } from "../src/mcp/transport-http";
 
 const SERVER = join(import.meta.dir, "fixtures", "mcp-stdio-server.ts");
 
@@ -410,6 +410,31 @@ describe("#1254: http transport redirect pinning + per-request timeout", () => {
     } finally {
       s.stop(true);
       evil.stop(true);
+    }
+  });
+
+  test("a redirect whose hostname re-resolves to a different address is refused (#697 pattern)", async () => {
+    let calls = 0;
+    const lookup: McpLookup = async () => {
+      calls += 1;
+      return calls === 1 ? [{ address: "127.0.0.1", family: 4 }] : [{ address: "127.0.0.2", family: 4 }];
+    };
+    const s = Bun.serve({
+      port: 0,
+      fetch: () => new Response(null, { status: 302, headers: { location: "/" } }),
+    });
+    try {
+      const conn = new HttpConnection({ url: `http://localhost:${s.port}/mcp`, lookup, onRequest: () => {}, onCrash: () => {} });
+      try {
+        // First dial resolves to 127.0.0.1; the redirect hop re-resolves
+        // to 127.0.0.2 and must be refused before it is dialed.
+        await expect(conn.request("ping", {}, 30_000)).rejects.toThrow(/re-resolved to a different address/);
+        expect(calls).toBe(2);
+      } finally {
+        await conn.close();
+      }
+    } finally {
+      s.stop(true);
     }
   });
 

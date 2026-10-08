@@ -12,15 +12,32 @@ export const MCP_MAX_RESPONSE_BYTES = 10 * 1024 * 1024;
  * only initialize; a slow endpoint must not hold a send() open forever). */
 export const MCP_REQUEST_TIMEOUT_MS = 10_000;
 
+/** Injectable DNS resolution (the fetch tool's FetchLookup seam, #697):
+ * tests drive the rebinding scenario deterministically; production uses
+ * `node:dns/promises.lookup({ all: true })`. */
+export type McpLookup = (hostname: string) => Promise<{ address: string; family: number }[]>;
+
+function isNumericHost(hostname: string): boolean {
+  const h = hostname.replace(/^\[|\]$/g, "");
+  return /^\d{1,3}(\.\d{1,3}){3}$/.test(h) || h.includes(":");
+}
+
+const defaultLookup: McpLookup = async (hostname) => {
+  const { lookup } = await import("node:dns/promises");
+  return lookup(hostname, { all: true });
+};
+
 export class HttpConnection extends JsonRpcConnection {
   readonly #url: string;
   readonly #headers: Record<string, string>;
+  readonly #lookup: McpLookup;
   #sessionId: string | null = null;
 
   constructor(
     opts: {
       url: string;
       headers?: Record<string, string>;
+      lookup?: McpLookup;
     } & ServerHandlers,
   ) {
     super(opts);
@@ -31,6 +48,21 @@ export class HttpConnection extends JsonRpcConnection {
     }
     this.#url = opts.url;
     this.#headers = opts.headers ?? {};
+    this.#lookup = opts.lookup ?? defaultLookup;
+  }
+
+  /** The resolved address set of one hop's host (numeric literals need no
+   * DNS). A failed lookup refuses the hop — never a silent unpinned dial. */
+  async #addressSet(url: URL): Promise<string[]> {
+    if (isNumericHost(url.hostname)) return [url.hostname.replace(/^\[|\]$/g, "")];
+    let addresses: { address: string; family: number }[];
+    try {
+      addresses = await this.#lookup(url.hostname);
+    } catch (err) {
+      throw new McpError("protocol", `MCP endpoint hostname "${url.hostname}" does not resolve: ${err instanceof Error ? err.message : String(err)}`);
+    }
+    if (addresses.length === 0) throw new McpError("protocol", `MCP endpoint hostname "${url.hostname}" resolves to no addresses`);
+    return addresses.map((a) => a.address).sort();
   }
 
   protected async send(text: string): Promise<void> {
@@ -46,9 +78,23 @@ export class HttpConnection extends JsonRpcConnection {
     try {
       // Redirects are followed by hand so every hop is pinned to the
       // configured origin: a cross-origin redirect is refused loudly and
-      // session headers are never replayed to another host.
+      // session headers are never replayed to another host. Layer two
+      // (#1254 remediation, after the fetch tool's #697 pattern): the
+      // chain's first hop resolves once and every subsequent hop must
+      // re-resolve to the SAME address set before it is dialed — a
+      // rebinding hostname keeping its URL is refused. Residual: fetch's
+      // socket still re-resolves internally, so the pin is verify-per-hop,
+      // not the fetch tool's socket-level lookup hook — a hop could
+      // theoretically re-resolve again between its verification and its
+      // dial; the window is per-hop, not per-chain.
       let current = this.#url;
+      let anchor: string[] | null = null;
       for (let hop = 0; hop < 10; hop += 1) {
+        const resolved = await this.#addressSet(new URL(current));
+        if (anchor === null) anchor = resolved;
+        else if (resolved.join(",") !== anchor.join(",")) {
+          throw new McpError("protocol", `MCP endpoint hostname re-resolved to a different address (${anchor.join(", ")} -> ${resolved.join(", ")}); redirect refused`);
+        }
         const step = await fetch(current, { method: "POST", headers, body: text, redirect: "manual", signal: AbortSignal.timeout(MCP_REQUEST_TIMEOUT_MS) });
         if (step.status >= 300 && step.status < 400 && step.headers.get("location")) {
           const next = new URL(step.headers.get("location")!, current);
