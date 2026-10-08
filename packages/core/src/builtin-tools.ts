@@ -1233,6 +1233,10 @@ const GIT_READ_SUBCOMMANDS = new Set([
 ]);
 /** Global flags that would point git somewhere the session is not. */
 const GIT_RELOCATING_FLAGS = new Set(["-C", "--git-dir", "--work-tree"]);
+/** #1254: transient options that can execute a command from a read-only tool
+ * (`git -c diff.external=<cmd> diff` runs `<cmd>`; `pager.<x>` and
+ * `core.fsmonitor` likewise). Refused before spawn, name and all. */
+const GIT_EXEC_FLAGS = new Set(["--exec-path"]);
 
 const gitSchema = z.object({
   args: z.array(z.string()).min(1).describe("Git arguments; the subcommand must be a read-only one."),
@@ -1260,6 +1264,12 @@ const gitTool: Tool<z.infer<typeof gitSchema>> = {
     let i = 0;
     while (i < a.length && (a[i]!.startsWith("-") || a[i]!.includes("="))) {
       const option = a[i]!;
+      if (option === "-c" || option.startsWith("-c")) {
+        throw new Error(`git: not allowed: "${option}" sets a transient config value, which can execute commands (e.g. diff.external); this tool is read-only`);
+      }
+      if (GIT_EXEC_FLAGS.has(option) || option.startsWith("--exec-path=")) {
+        throw new Error(`git: not allowed: "${option}" can redirect git to a different executable path; this tool is read-only`);
+      }
       if (GIT_RELOCATING_FLAGS.has(option) || option.startsWith("--git-dir=") || option.startsWith("--work-tree=")) {
         throw new Error(`git: not allowed: "${option}" relocates the repository; this tool reads the session's project root only`);
       }

@@ -18,7 +18,7 @@
  */
 import { describe, expect, test } from "bun:test";
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { builtinTools } from "../src/builtin-tools";
@@ -95,6 +95,33 @@ describe("read-only git tool (#1165)", () => {
     const email = await git.execute({ args: ["config", "--get", "user.email"] }, ctx);
     expect(email.trim()).toBe("t@t");
     expect(() => git.execute({ args: ["config", "user.email", "x@x"] }, ctx)).toThrow(/read-only/i);
+  });
+
+  test("transient -c config options that can execute commands are refused (#1254)", () => {
+    for (const args of [
+      ["-c", "diff.external=touch /tmp/pwned", "diff"],
+      ["-cdiff.external=touch /tmp/pwned", "diff"],
+      ["-c", "core.fsmonitor=touch /tmp/pwned", "status"],
+      ["-c", "pager.log=touch /tmp/pwned", "log"],
+    ]) {
+      expect(() => git.execute({ args }, ctx)).toThrow(/-c/);
+    }
+    // the transient command never ran
+    const marker = join(repo, ".pwned-marker");
+    expect(() => git.execute({ args: ["-c", `diff.external=touch ${marker}`, "diff"] }, ctx)).toThrow();
+    expect(existsSync(marker)).toBe(false);
+  });
+
+  test("--exec-path is refused (#1254)", () => {
+    expect(() => git.execute({ args: ["--exec-path", "status"] }, ctx)).toThrow(/--exec-path/);
+    expect(() => git.execute({ args: ["--exec-path=/tmp/x", "status"] }, ctx)).toThrow(/--exec-path/);
+  });
+
+  test("legitimate reads without transient options still succeed (#1254)", async () => {
+    const log = await git.execute({ args: ["log", "--oneline", "-5"] }, ctx);
+    expect(log).toContain("init");
+    const name = await git.execute({ args: ["config", "--get", "user.name"] }, ctx);
+    expect(name.trim()).toBe("t");
   });
 
   test("an optional per-call cwd works inside the root and refuses outside it (#1165)", async () => {
