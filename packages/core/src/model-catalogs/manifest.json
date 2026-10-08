@@ -1,22 +1,22 @@
 {
   "schemaVersion": 1,
   "version": "0.59.3",
-  "generatedAt": "2026-10-08T19:26:37.773Z",
+  "generatedAt": "2026-10-08T19:35:04.872Z",
   "sources": [
     {
       "name": "models.dev",
       "url": "https://models.dev/api.json",
-      "fetchedAt": "2026-10-08T19:26:37.306Z"
+      "fetchedAt": "2026-10-08T19:35:04.355Z"
     },
     {
       "name": "openrouter",
       "url": "https://openrouter.ai/api/v1/models",
-      "fetchedAt": "2026-10-08T19:26:37.570Z"
+      "fetchedAt": "2026-10-08T19:35:04.587Z"
     }
   ],
   "files": {
     "anthropic": {
-      "sha256": "fff5ed6c085a4a68193466bb16af0b47ad3c99866ef8ffb70fa3226a3e6b7194",
+      "sha256": "bfb80de5d2c596aee291cbb8b6ba9442936c57f5b999e03df81133d6563deaa1",
       "rows": 14,
       "verdicts": {
         "exact": 14,
@@ -196,7 +196,7 @@
       }
     },
     "openrouter": {
-      "sha256": "ff91cfcb3819204ae53630ff7b5d66b5803c7fc2b3d0be0f7c44cfb43ecd1165",
+      "sha256": "45c154562953b913358281c69f90ee6a8170ea209c4c571eef2d48110b4234c9",
       "rows": 361,
       "verdicts": {
         "exact": 336,
@@ -430,7 +430,9 @@
         "reasoning",
         "input"
       ],
-      "overrides": []
+      "overrides": [
+        "contextWindow"
+      ]
     },
     "anthropic/claude-sonnet-4-5-20250929": {
       "provider": "anthropic",
@@ -445,7 +447,9 @@
         "reasoning",
         "input"
       ],
-      "overrides": []
+      "overrides": [
+        "contextWindow"
+      ]
     },
     "anthropic/claude-sonnet-4-6": {
       "provider": "anthropic",

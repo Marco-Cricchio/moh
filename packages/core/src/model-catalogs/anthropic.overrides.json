@@ -164,7 +164,9 @@
     "claude-sonnet-4-5": {
       "author": "moh migration (#959)",
       "date": "2026-09-24",
-      "reason": "labels and row identity are moh-owned (ADR-0046): never aggregator-supplied",
+      "reason": "labels and row identity are moh-owned (ADR-0046): never aggregator-supplied; 2026-10-08 upstream listed the window as 200k against the taught 1M — declared windows are monotonic (ADR-0049), keep 1M and accept the upstream shrink",
+      "contextWindow": 1000000,
+      "acceptContextShrink": true,
       "name": "Claude Sonnet 4.5 (latest)",
       "compat": {
         "supportsStrictTools": true
@@ -173,7 +175,9 @@
     "claude-sonnet-4-5-20250929": {
       "author": "moh migration (#959)",
       "date": "2026-09-24",
-      "reason": "labels and row identity are moh-owned (ADR-0046): never aggregator-supplied",
+      "reason": "labels and row identity are moh-owned (ADR-0046): never aggregator-supplied; 2026-10-08 upstream listed the window as 200k against the taught 1M — declared windows are monotonic (ADR-0049), keep 1M and accept the upstream shrink",
+      "contextWindow": 1000000,
+      "acceptContextShrink": true,
       "name": "Claude Sonnet 4.5",
       "compat": {
         "supportsStrictTools": true

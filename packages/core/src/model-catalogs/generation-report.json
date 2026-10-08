@@ -1,17 +1,17 @@
 {
   "schemaVersion": 1,
   "version": "0.59.3",
-  "generatedAt": "2026-10-08T19:26:37.773Z",
+  "generatedAt": "2026-10-08T19:35:04.872Z",
   "sources": [
     {
       "name": "models.dev",
       "url": "https://models.dev/api.json",
-      "fetchedAt": "2026-10-08T19:26:37.306Z"
+      "fetchedAt": "2026-10-08T19:35:04.355Z"
     },
     {
       "name": "openrouter",
       "url": "https://openrouter.ai/api/v1/models",
-      "fetchedAt": "2026-10-08T19:26:37.570Z"
+      "fetchedAt": "2026-10-08T19:35:04.587Z"
     }
   ],
   "totals": {
@@ -21,7 +21,7 @@
     "baseModel": 13,
     "ambiguous": 5,
     "absent": 34,
-    "rowsWithOverrides": 124
+    "rowsWithOverrides": 126
   },
   "files": [
     {
@@ -920,7 +920,14 @@
   "contextWindowShrinks": [],
   "changes": {
     "pricing": [],
-    "contextWindow": [],
+    "contextWindow": [
+      {
+        "provider": "anthropic",
+        "id": "claude-sonnet-4-5",
+        "from": 200000,
+        "to": 1000000
+      }
+    ],
     "reasoning": []
   },
   "issues": []
