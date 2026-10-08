@@ -52,7 +52,7 @@ describe("describePermissionRequest", () => {
     });
     expect(view.extensionAsk?.extension).toBe("evil-ext");
     expect(view.extensionAsk?.reason).toBe("verifyYES ONLY");
-    expect(view.extensionAsk?.reason.includes("\x1B")).toBe(false);
+    expect(view.extensionAsk?.reason?.includes("\x1B")).toBe(false);
   });
 });
 
