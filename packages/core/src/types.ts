@@ -396,6 +396,18 @@ type AgentEventBase =
    */
   | { type: "branch_dangling"; to: string }
   /**
+   * #1259: a line in the session log failed hash-chain verification at
+   * load — the bytes were modified after writing (`hash_mismatch`) or the
+   * chain start was rewritten (`chain_break`). Appended at the log tail
+   * by `SessionStore.load()` (visible chrome, never a throw, never a
+   * silent replay); deduplicated per line position in-file. Chrome only.
+   */
+  | {
+      type: "log_integrity_warning";
+      line: number;
+      reason: "hash_mismatch" | "chain_break";
+    }
+  /**
    * #579 (spec §4): a bookmark names a node for humans and filters.
    * Appended by `bookmarkNode()` (store-level, file-based) and
    * `session.bookmarkNode(to, name?)` (live). Chrome only — never

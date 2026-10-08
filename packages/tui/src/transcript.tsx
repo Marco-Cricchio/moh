@@ -1155,6 +1155,18 @@ export function projectTranscript(events: ReadonlyArray<AgentEvent>, options: { 
         // Chrome — audit only; the transcript has no projection today,
         // the log carries the record.
         break;
+      case "log_integrity_warning":
+        // #1259: tamper evidence — the load already surfaced this in-file
+        // once; chrome records that it happened, the log carries the event.
+        blocks.push({
+          key,
+          kind: "chrome",
+          glyph: "◈",
+          type: "log integrity",
+          detail: `line ${event.line}: ${event.reason === "hash_mismatch" ? "content changed" : "chain broken"} — the session log was modified outside moh`,
+          lines: [],
+        });
+        break;
       case "tool_contributed":
         // ADR-0067: a contributed tool's registration record — the
         // contributor is visible here; the model's calls of the tool are

@@ -590,6 +590,7 @@ const RESERVED_EVENT_NAMES: ReadonlySet<string> = new Set([
   "finish",
   "lane_created",
   "lane_transitioned",
+  "log_integrity_warning",
   "mcp_refused",
   "mcp_server_failed",
   "mcp_server_started",
