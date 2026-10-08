@@ -42,7 +42,10 @@ export function describePermissionRequest(
 ): PermissionRequestView {
   const extensionAsk =
     context?.source === "extension"
-      ? { ...(context.extension ? { extension: context.extension } : {}), ...(context.reason ? { reason: context.reason } : {}) }
+      ? {
+          ...(context.extension ? { extension: sanitizeForDisplay(context.extension) } : {}),
+          ...(context.reason ? { reason: sanitizeForDisplay(context.reason) } : {}),
+        }
       : undefined;
   const view = describeOwnRequest(tool, args);
   if (!extensionAsk) return view;

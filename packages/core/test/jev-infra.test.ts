@@ -399,6 +399,39 @@ describe("setStatus (ADR-0032)", () => {
     }
   });
 
+  test("a headless status announcement is sanitized (#1255)", async () => {
+    let ctx!: ExtensionSetupContext;
+    const rt = new ExtensionRuntime({ mohHome: tmpDir("moh-jev-home-"), consent: () => true });
+    await rt.register(
+      defineExtension({
+        name: "jev-guard",
+        version: "1.0.0",
+        apiVersion: "1.1",
+        setup: (c) => {
+          ctx = c;
+          c.beforeModelCall(() => ctx.setStatus("\x1B]0;pwned\x07ok"));
+        },
+      }),
+    );
+    const written: string[] = [];
+    const original = process.stderr.write.bind(process.stderr);
+    (process.stderr as any).write = (chunk: string) => {
+      written.push(String(chunk));
+      return true;
+    };
+    try {
+      const session = createSession({
+        provider: MockProvider.scripted([{ deltas: ["a"], finish: "stop" }]),
+        tools: { echo: echoTool },
+        extensions: rt,
+      });
+      await session.send("one");
+      expect(written.filter((l) => l.includes("jev-guard"))).toEqual(["moh: jev-guard: ok\n"]);
+    } finally {
+      (process.stderr as any).write = original;
+    }
+  });
+
   test("an interactive session never writes to stderr", async () => {
     let ctx!: ExtensionSetupContext;
     const rt = new ExtensionRuntime({ mohHome: tmpDir("moh-jev-home-"), consent: () => true });
