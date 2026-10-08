@@ -1,27 +1,27 @@
 {
   "schemaVersion": 1,
-  "version": "0.59.2",
-  "generatedAt": "2026-10-07T21:19:50.961Z",
+  "version": "0.59.3",
+  "generatedAt": "2026-10-08T19:35:04.872Z",
   "sources": [
     {
       "name": "models.dev",
       "url": "https://models.dev/api.json",
-      "fetchedAt": "2026-10-07T21:19:50.294Z"
+      "fetchedAt": "2026-10-08T19:35:04.355Z"
     },
     {
       "name": "openrouter",
       "url": "https://openrouter.ai/api/v1/models",
-      "fetchedAt": "2026-10-07T21:19:50.703Z"
+      "fetchedAt": "2026-10-08T19:35:04.587Z"
     }
   ],
   "totals": {
     "files": 25,
-    "rows": 556,
+    "rows": 557,
     "exact": 505,
     "baseModel": 13,
     "ambiguous": 5,
-    "absent": 33,
-    "rowsWithOverrides": 122
+    "absent": 34,
+    "rowsWithOverrides": 126
   },
   "files": [
     {
@@ -494,25 +494,25 @@
     },
     {
       "provider": "openrouter",
-      "rows": 360,
+      "rows": 361,
       "verdicts": {
         "exact": 336,
         "base-model": 1,
         "ambiguous": 0,
-        "absent": 23
+        "absent": 24
       },
       "coverage": {
-        "rows": 360,
+        "rows": 361,
         "pricing": 338,
-        "contextWindow": 360,
+        "contextWindow": 361,
         "maxTokens": 358,
         "reasoning": 276,
         "input": 358
       },
       "previous": {
-        "rows": 360,
+        "rows": 361,
         "pricing": 338,
-        "contextWindow": 360,
+        "contextWindow": 361,
         "maxTokens": 358,
         "reasoning": 276,
         "input": 358
@@ -684,6 +684,7 @@
     "moonshot/moonshot-v1-128k",
     "openai-codex/gpt-5.3-codex-spark",
     "openrouter/anthropic/claude-opus-4",
+    "openrouter/anthropic/claude-sonnet-4-5-20250929",
     "openrouter/deepseek/deepseek-v4-flash-0731:batch",
     "openrouter/deepseek/deepseek-v4-pro-0813:batch",
     "openrouter/google/gemini-2.5-pro-preview-05-06",
@@ -919,7 +920,14 @@
   "contextWindowShrinks": [],
   "changes": {
     "pricing": [],
-    "contextWindow": [],
+    "contextWindow": [
+      {
+        "provider": "anthropic",
+        "id": "claude-sonnet-4-5",
+        "from": 200000,
+        "to": 1000000
+      }
+    ],
     "reasoning": []
   },
   "issues": []

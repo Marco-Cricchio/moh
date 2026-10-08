@@ -177,8 +177,17 @@
     "anthropic/claude-sonnet-4.5": {
       "author": "moh migration (#959)",
       "date": "2026-09-24",
-      "reason": "labels and row identity are moh-owned (ADR-0046): never aggregator-supplied",
+      "reason": "labels and row identity are moh-owned (ADR-0046): never aggregator-supplied; 2026-10-08 upstream listed the window as 200k against the taught 1M — declared windows are monotonic (ADR-0049), keep 1M and accept the upstream shrink",
+      "contextWindow": 1000000,
+      "acceptContextShrink": true,
       "name": "Anthropic: Claude Sonnet 4.5"
+    },
+    "anthropic/claude-sonnet-4-5-20250929": {
+      "author": "moh (v0.59.3, #1005)",
+      "date": "2026-10-08",
+      "reason": "upstream listing regressed the window 1M → 200k; declared windows are monotonic (ADR-0049) — keep the taught 1M, do not shrink",
+      "contextWindow": 1000000,
+      "acceptContextShrink": true
     },
     "anthropic/claude-sonnet-4.6": {
       "author": "moh migration (#959)",
