@@ -7,6 +7,43 @@ matching section here at tag time.
 
 ## [Unreleased]
 
+## [0.59.3] - 2026-10-08
+
+### Security
+
+This is a security-hardening release: the nine findings from the October
+security audit, each fixed behind its own PR.
+
+- **MCP/network hardening** (#1254, PR #1263): stdio transport output buffer
+  cap, HTTP timeouts, and redirect/address pinning so a redirecting MCP
+  endpoint cannot pivot the connection.
+- **git tool** (#1261 + #1257, PR #1264): transient-config options (`-c`) and
+  write-path options (`--output`, `--file`) are refused — the tool can no
+  longer be turned into a config or file-write primitive.
+- **Chrome sanitization** (#1255, PR #1265): extension-controlled text is
+  render-sanitized at every terminal chrome seam, not only at the main ones.
+- **API key identity binding** (#1256, PR #1266): dotdir-stored API keys are
+  bound to their endpoint identity, so a key collision across endpoints is
+  detected instead of silently reused.
+- **Tamper-evident session log** (#1259, PR #1267): every persisted event
+  carries a hash chained to the previous entry (prevHash/hash), making
+  post-hoc log edits detectable.
+- **pathScopes bash deny** (#1260, PR #1268): bash joins the subagent
+  pathScopes bare deny set — per-command containment is not soundly
+  provable, so members under path scopes cannot run bash at all.
+- **Credential/secret hygiene** (#1262, PRs #1269, #1270, #1271): keychain
+  writes no longer pass the secret in process argv; short credential values
+  are masked and miss-report temp files are unpredictable; model-supplied
+  grep regexes are bounded (ReDoS) and the write/edit containment TOCTOU is
+  closed.
+
+### Changed
+
+- **Model catalog refresh**: 19 metered prices updated; the two
+  `claude-sonnet-4.5` context windows hold at the taught 1M after an
+  upstream regression to 200k (declared windows are monotonic — ADR-0049,
+  accepted via `acceptContextShrink`, see #1005 for the standing default).
+
 ## [0.59.2] - 2026-10-07
 
 ### Fixed
@@ -2223,7 +2260,8 @@ matching section here at tag time.
   passed; a regression test pins the resolved path under
   `<home>/.moh/projects`.
 
-[Unreleased]: https://github.com/Marco-Cricchio/moh/compare/v0.59.1...develop
+[Unreleased]: https://github.com/Marco-Cricchio/moh/compare/v0.59.3...develop
+[0.59.3]: https://github.com/Marco-Cricchio/moh/compare/v0.59.2...v0.59.3
 [0.59.2]: https://github.com/Marco-Cricchio/moh/compare/v0.59.1...v0.59.2
 [0.59.1]: https://github.com/Marco-Cricchio/moh/compare/v0.59.0...v0.59.1
 [0.59.0]: https://github.com/Marco-Cricchio/moh/compare/v0.58.2...v0.59.0
