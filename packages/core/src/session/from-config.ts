@@ -25,6 +25,7 @@ import type { MpmFileRecord } from "../mpm/types";
 import { builtinTools } from "../builtin-tools";
 import { declaredMcpServers, loadMohConfig, type MohConfig } from "../config";
 import { mergeProviderConfigs, readUserProviderConfig } from "../provider-config";
+import { readAuthSection } from "../auth/store";
 import { declaredUserMcpServers, isProjectServerTrusted, type McpConsentAnswer } from "../mcp";
 import { declaredWindowsByEndpoint, liveModelCacheFile, loadLiveModelCacheSync } from "../live-model-catalog";
 import { defaultRegistry, resolveProvider, resolveProviderRef } from "../provider-registry";
@@ -274,7 +275,10 @@ export function sessionFromConfig(options: SessionFromConfigOptions): SessionFro
     // User-level provider layering (#129): strict when the sections are
     // present — a broken user config fails loudly like a broken moh.json.
     const user = readUserProviderConfig(userConfigFile(home));
-    config = mergeProviderConfigs(project, user);
+    // #1256: the stored api keys ride the merge so a repo-supplied endpoint
+    // cannot claim one by name; a broken auth section fails loudly too.
+    const auth = readAuthSection(userConfigFile(home));
+    config = mergeProviderConfigs(project, user, process.env, auth);
   } catch (e) {
     return assemblyError("config", e);
   }

@@ -6,7 +6,7 @@
  * provider merge reads only `provider`/`endpoints` and must never see it.
  */
 import { readFileSync } from "node:fs";
-import { authSectionSchema, type AuthSection, type AuthToken } from "./types";
+import { authSectionSchema, type AuthSection, type AuthToken, type StoredApiKeyOrigin } from "./types";
 import { readUserConfigFile, updateUserConfigFile, type UserConfigIo } from "../user-config";
 
 /**
@@ -94,34 +94,79 @@ export function getStoredApiKey(
   return readAuthSection(file, read).apiKeys?.[endpoint];
 }
 
-/** SEC-06: stores/replaces one endpoint's api key in the auth store. */
+/** #1256: the endpoint identity a stored key was saved for, or undefined
+ * when the key is absent or was stored before origins existed (unbound). */
+export function getStoredApiKeyOrigin(
+  file: string,
+  endpoint: string,
+  read: (file: string) => string = (f) => readFileSync(file, "utf8"),
+): StoredApiKeyOrigin | undefined {
+  return readAuthSection(file, read).apiKeyOrigins?.[endpoint];
+}
+
+/** SEC-06: stores/replaces one endpoint's api key in the auth store. When
+ * `origin` is given the key is bound to that endpoint identity (#1256);
+ * replacing a key without an origin drops any stale binding — a key must
+ * never keep pointing at an endpoint it was not saved for. */
 export function saveStoredApiKey(
   file: string,
   endpoint: string,
   key: string,
   io: UserConfigIo = {},
+  origin?: StoredApiKeyOrigin,
 ): void {
   updateUserConfigFile(
     file,
     (data) => {
       if (data.auth === undefined || typeof data.auth !== "object") data.auth = { tokens: {} };
-      const auth = data.auth as { tokens?: unknown; apiKeys?: Record<string, string> };
-      data.auth = { ...auth, apiKeys: { ...(auth.apiKeys ?? {}), [endpoint]: key } };
+      const auth = data.auth as { tokens?: unknown; apiKeys?: Record<string, string>; apiKeyOrigins?: Record<string, StoredApiKeyOrigin> };
+      const origins = { ...(auth.apiKeyOrigins ?? {}) };
+      if (origin) origins[endpoint] = origin;
+      else delete origins[endpoint];
+      data.auth = {
+        ...auth,
+        apiKeys: { ...(auth.apiKeys ?? {}), [endpoint]: key },
+        apiKeyOrigins: origins,
+      };
     },
     io,
   );
 }
 
-/** SEC-06: drops one endpoint's stored api key through the guardian. */
+/** #1256: binds an already-stored key to the endpoint identity the flow
+ * just confirmed (the wizard learns the base URL after storing the key).
+ * No-op when no key is stored for the endpoint — binding nothing is
+ * meaningless. */
+export function bindStoredApiKeyOrigin(
+  file: string,
+  endpoint: string,
+  origin: StoredApiKeyOrigin,
+  io: UserConfigIo = {},
+): void {
+  updateUserConfigFile(
+    file,
+    (data) => {
+      const auth = data.auth as { apiKeys?: Record<string, string>; apiKeyOrigins?: Record<string, StoredApiKeyOrigin> } | undefined;
+      if (auth?.apiKeys?.[endpoint] === undefined) return;
+      data.auth = { ...auth, apiKeyOrigins: { ...(auth.apiKeyOrigins ?? {}), [endpoint]: origin } };
+    },
+    io,
+  );
+}
+
+/** SEC-06: drops one endpoint's stored api key — and its #1256 origin
+ * binding — through the guardian. No-op when absent. */
 export function clearStoredApiKey(file: string, endpoint: string, io: UserConfigIo = {}): void {
   updateUserConfigFile(
     file,
     (data) => {
       if (data.auth === undefined || typeof data.auth !== "object") return;
-      const auth = data.auth as { apiKeys?: Record<string, string> };
+      const auth = data.auth as { apiKeys?: Record<string, string>; apiKeyOrigins?: Record<string, StoredApiKeyOrigin> };
       const apiKeys = { ...(auth.apiKeys ?? {}) };
       delete apiKeys[endpoint];
-      data.auth = { ...(data.auth as Record<string, unknown>), apiKeys };
+      const origins = { ...(auth.apiKeyOrigins ?? {}) };
+      delete origins[endpoint];
+      data.auth = { ...(data.auth as Record<string, unknown>), apiKeys, apiKeyOrigins: origins };
     },
     io,
   );

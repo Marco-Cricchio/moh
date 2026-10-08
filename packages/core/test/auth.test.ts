@@ -3,7 +3,7 @@ import { mkdtempSync, readFileSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { authSectionSchema, authMethodKindSchema, authTokenSchema, endpointAuthSchema } from "../src/auth/types";
-import { clearStoredApiKey, clearTokens, getStoredApiKey, getStoredToken, readStoredTokens, saveStoredApiKey, saveTokens } from "../src/auth/store";
+import { bindStoredApiKeyOrigin, clearStoredApiKey, clearTokens, getStoredApiKey, getStoredApiKeyOrigin, getStoredToken, readStoredTokens, saveStoredApiKey, saveTokens } from "../src/auth/store";
 import { loadMergedConfig, upsertUserEndpoint } from "../src/provider-config";
 import { updateUserConfigFile, userConfigFile } from "../src/user-config";
 
@@ -73,6 +73,40 @@ describe("auth store", () => {
     expect(getStoredApiKey(file, "openai")).toBeUndefined();
     expect(getStoredToken(file, "claude")).toEqual(token);
     expect(statSync(file).mode & 0o777).toBe(0o600);
+  });
+
+  test("api key origin binding: save with origin persists it (#1256)", () => {
+    const file = tmpFile();
+    saveStoredApiKey(file, "acme", "sk-live", {}, { type: "openai-compat", baseUrl: "https://api.acme.com/v1" });
+    expect(getStoredApiKey(file, "acme")).toBe("sk-live");
+    expect(getStoredApiKeyOrigin(file, "acme")).toEqual({ type: "openai-compat", baseUrl: "https://api.acme.com/v1" });
+  });
+
+  test("api key origin binding: origin optional; replacing a key without one drops the stale binding (#1256)", () => {
+    const file = tmpFile();
+    saveStoredApiKey(file, "acme", "sk-live");
+    expect(getStoredApiKeyOrigin(file, "acme")).toBeUndefined();
+    saveStoredApiKey(file, "acme", "sk-live", {}, { type: "openai-compat", baseUrl: "https://api.acme.com/v1" });
+    saveStoredApiKey(file, "acme", "sk-rotated");
+    expect(getStoredApiKey(file, "acme")).toBe("sk-rotated");
+    expect(getStoredApiKeyOrigin(file, "acme")).toBeUndefined();
+  });
+
+  test("bindStoredApiKeyOrigin binds an existing key; no-op when no key is stored (#1256)", () => {
+    const file = tmpFile();
+    bindStoredApiKeyOrigin(file, "acme", { type: "anthropic" });
+    expect(getStoredApiKey(file, "acme")).toBeUndefined();
+    saveStoredApiKey(file, "acme", "sk-live");
+    bindStoredApiKeyOrigin(file, "acme", { type: "anthropic", baseUrl: "https://api.acme.com" });
+    expect(getStoredApiKeyOrigin(file, "acme")).toEqual({ type: "anthropic", baseUrl: "https://api.acme.com" });
+  });
+
+  test("clearStoredApiKey removes the key and its origin binding (#1256)", () => {
+    const file = tmpFile();
+    saveStoredApiKey(file, "acme", "sk-live", {}, { type: "anthropic" });
+    clearStoredApiKey(file, "acme");
+    expect(getStoredApiKey(file, "acme")).toBeUndefined();
+    expect(getStoredApiKeyOrigin(file, "acme")).toBeUndefined();
   });
 
   test("save replaces per-endpoint tokens without touching others", () => {
