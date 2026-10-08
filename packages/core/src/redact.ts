@@ -28,6 +28,7 @@
  * the evidence the next pattern is written from, never its content.
  */
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { randomBytes } from "node:crypto";
 import { dirname, join } from "node:path";
 
 /** The fixed placeholder every masked value becomes (ADR-0058). */
@@ -413,12 +414,31 @@ export function noteSecretRedactionMiss(input: {
         : entries;
     const dir = dirname(file);
     mkdirSync(dir, { recursive: true, mode: 0o700 });
-    const tmp = `${file}.tmp-${process.pid}`;
-    writeFileSync(tmp, kept.map((e) => JSON.stringify(e)).join("\n") + "\n", { mode: 0o600 });
-    renameSync(tmp, file);
+    // Random name + exclusive create: a predictable `${file}.tmp-${pid}`
+    // is a symlink-clobber target for local users (#1262). A collision is
+    // retried with a fresh name; a hostile pre-created file at some path
+    // fails `wx` instead of being overwritten.
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const tmp = missReportTempPath(file);
+      try {
+        writeFileSync(tmp, kept.map((e) => JSON.stringify(e)).join("\n") + "\n", {
+          flag: "wx",
+          mode: 0o600,
+        });
+        renameSync(tmp, file);
+        break;
+      } catch {
+        if (attempt === 2) throw new Error("miss-report temp write failed");
+      }
+    }
   } catch {
     // Diagnostics never block.
   }
+}
+
+/** Random, unguessable temp path for one miss-report write (#1262). */
+export function missReportTempPath(file: string): string {
+  return `${file}.tmp-${randomBytes(16).toString("hex")}`;
 }
 
 /**
