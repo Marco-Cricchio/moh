@@ -11,7 +11,7 @@ import { endpointEnvVarName, resolveApiKey } from "./route";
 import { PROVIDER_PROFILES, isProviderProfile, providerEndpointChoices, providerProfile, providerRequiresBaseUrlInput } from "./provider-profiles";
 import { userConfigFile } from "./user-config";
 import { runSubscriptionLogin, isSubscriptionKind } from "./auth/lifecycle";
-import { getStoredToken, getStoredApiKey, readAuthSection, saveStoredApiKey, saveTokens } from "./auth/store";
+import { getStoredToken, getStoredApiKey, readAuthSection, bindStoredApiKeyOrigin, saveStoredApiKey, saveTokens } from "./auth/store";
 import type { SubscriptionKind } from "./auth/lifecycle";
 import { ANTHROPIC_OAUTH_BETA } from "./auth/anthropic";
 import { openaiNativeAuthContext } from "./auth/resolve";
@@ -246,6 +246,9 @@ export async function runProviderAdd(
     const result = await tester(profile);
     if (result.ok) {
       await io.info(`✓ Connected (${result.modelId} responded)`);
+      // #1256: the base URL is known only now (asked after the key) — bind
+      // the stored key to the endpoint identity it was just tested against.
+      bindStoredApiKeyOrigin(options.authFile ?? userConfigFile(), name, { type, baseUrl: baseUrl || undefined });
       return profile;
     }
     await io.info(`✗ Connection test failed: ${result.error}`);
@@ -268,7 +271,7 @@ async function runOpenCodeAdd(io: OnboardingIo, tester: ConnectionTester, option
   const selected: readonly (keyof typeof OPENCODE_ENDPOINTS)[] = selection === "both" ? ["zen", "go"] : [selection as keyof typeof OPENCODE_ENDPOINTS];
   const profiles = selected.map((product) => {
     const endpoint = OPENCODE_ENDPOINTS[product];
-    saveStoredApiKey(options.authFile ?? userConfigFile(), endpoint.name, apiKey);
+    saveStoredApiKey(options.authFile ?? userConfigFile(), endpoint.name, apiKey, {}, { type: "opencode", baseUrl: endpoint.baseUrl });
     return { name: endpoint.name, type: "opencode", baseUrl: endpoint.baseUrl, defaultModel: endpoint.defaultModel } satisfies EndpointProfile;
   });
   await io.info(`OpenCode API key stored securely in ${options.authFile ?? userConfigFile()} (not moh.json)`);
