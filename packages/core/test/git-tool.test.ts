@@ -131,3 +131,62 @@ describe("read-only git tool (#1165)", () => {
     expect(() => git.execute({ args: ["status"], cwd: "/etc" }, ctx)).toThrow(/outside project root/i);
   });
 });
+
+describe("git tool transient-option and write-path filter (#1261, #1257)", () => {
+  const canary = join(tmpdir(), "moh-git-canary");
+
+  test.each([
+    ["-c space form", ["-c", "core.fsmonitor=touch " + canary, "status"]],
+    ["-c attached form", ["-ccore.fsmonitor=touch " + canary, "status"]],
+    ["-c alias vector", ["-c", "alias.status=!touch " + canary, "status"]],
+    ["--config-env", ["--config-env", "core.fsmonitor=POC_VAR", "status"]],
+    ["--exec-path", ["--exec-path=" + tmpdir(), "status"]],
+    ["--super-prefix", ["--super-prefix=" + tmpdir(), "status"]],
+  ])("leading %s is refused before any spawn", async (_label, args) => {
+    rmSync(canary, { force: true });
+    expect(() => git.execute({ args }, ctx)).toThrow(/git: not allowed/);
+    expect(() => execFileSync("test", ["-e", canary])).toThrow();
+  });
+
+  test("upload-pack-class vectors are refused at the closest reachable seam", async () => {
+    // No allow-listed subcommand reaches upload-pack (fetch/pull/clone are
+    // refused as subcommands before any option matters), so the closest
+    // vectors are: a protocol-weakening transient config (the -c class the
+    // RCE rides) and the fetch subcommand itself.
+    expect(() => git.execute({ args: ["-c", "protocol.allow=never", "status"] }, ctx)).toThrow(/git: not allowed/);
+    expect(() => git.execute({ args: ["fetch", "--upload-pack=touch " + canary, "origin"] }, ctx)).toThrow(
+      /is not an allowed subcommand/,
+    );
+  });
+
+  test("attached relocation forms (-C/tmp, --git-dir=/x, --work-tree=/y) are refused", () => {
+    expect(() => git.execute({ args: ["-C/tmp", "status"] }, ctx)).toThrow(/relocates the repository/);
+    expect(() => git.execute({ args: ["--git-dir=/tmp", "status"] }, ctx)).toThrow(/relocates the repository/);
+    expect(() => git.execute({ args: ["--work-tree=/tmp", "status"] }, ctx)).toThrow(/relocates the repository/);
+  });
+
+  test.each([
+    ["--output= attached", ["diff", "--output=" + canary]],
+    ["--output space form", ["diff", "--output", canary]],
+    ["--output on log", ["log", "-1", "--output=" + canary]],
+    ["--output-indicator-new", ["diff", "--output-indicator-new=<X>"]],
+    ["--output-indicator-old", ["diff", "--output-indicator-old=<X>"]],
+    ["--output-indicator-context", ["diff", "--output-indicator-context=<X>"]],
+    ["config --file= attached", ["config", "--file=" + canary, "--list"]],
+    ["config --file space form", ["config", "--file", canary, "--list"]],
+    ["config -f short form", ["config", "-f", canary, "--list"]],
+    ["config --blob", ["config", "--blob=HEAD:a.txt", "--list"]],
+  ])("post-subcommand %s is refused before any spawn", async (_label, args) => {
+    rmSync(canary, { force: true });
+    expect(() => git.execute({ args }, ctx)).toThrow(/git: (not allowed|read-only tool)/);
+    expect(() => execFileSync("test", ["-e", canary])).toThrow();
+  });
+
+  test("plain read-only invocations still pass", async () => {
+    await git.execute({ args: ["config", "--list"] }, ctx);
+    await git.execute({ args: ["config", "--get", "user.name"] }, ctx);
+    await git.execute({ args: ["diff", "--stat"] }, ctx);
+    await git.execute({ args: ["log", "-1", "--oneline"] }, ctx);
+    await git.execute({ args: ["status", "--short"] }, ctx);
+  });
+});
