@@ -217,11 +217,19 @@ const SECRET_PATTERNS: SecretPattern[] = [
       `\\b[A-Za-z0-9_-]*?(?:${CREDENTIAL_KEYS})\\b(\\s*[:=]\\s*|\\s+)(["']?)[A-Za-z0-9._~+/=-]{12,}\\2`,
       "gi",
     ),
-    replace: (m) =>
-      m.replace(
-        /([:=]\s*|\s+)(["']?)[A-Za-z0-9._~+/=-]{12,}(["']?)$/,
-        (_full, sep: string, q1: string, q2: string) => `${sep}${q1}${REDACTED}${q2}`,
-      ),
+    replace: replaceCredentialAssignment,
+  },
+  // `password=short1!` and the like: when the key name itself is a
+  // credential key, an explicit `key=value` assignment masks down to a
+  // small floor. The whitespace-separated form keeps the 12-char floor —
+  // prose like "refresh the token store" must not light up.
+  {
+    category: "credential-assignment-short",
+    re: new RegExp(
+      `\\b[A-Za-z0-9_-]*?(?:${CREDENTIAL_KEYS})\\b(\\s*[:=]\\s*)(["']?)[A-Za-z0-9._~+/=-]{4,}\\2`,
+      "gi",
+    ),
+    replace: replaceCredentialAssignment,
   },
   // Credentials embedded in URLs: scheme://user:password@host — the
   // scheme and user survive, the password half is masked.
@@ -237,6 +245,13 @@ const SECRET_PATTERNS: SecretPattern[] = [
     replace: () => REDACTED,
   },
 ];
+
+function replaceCredentialAssignment(m: string): string {
+  return m.replace(
+    /([:=]\s*|\s+)(["']?)[A-Za-z0-9._~+/=-]+(["']?)$/,
+    (_full, sep: string, q1: string, q2: string) => `${sep}${q1}${REDACTED}${q2}`,
+  );
+}
 
 /**
  * Masks high-confidence secret shapes in one string. Never mutates.

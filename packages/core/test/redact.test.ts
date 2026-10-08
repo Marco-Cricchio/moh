@@ -80,6 +80,22 @@ describe("pattern-based redaction (free text)", () => {
     expect(redactString(`apiToken: 'abcdefgh12345678'`)).toBe(`apiToken: '[redacted]'`);
   });
 
+  test("masks short values under credential keys (#1262)", () => {
+    // `!` is outside the value charset and survives, as with the 12+ floor.
+    expect(redactString(`password=short1!`)).toBe(`password=[redacted]!`);
+    expect(redactString(`password=ab12!`)).toBe(`password=[redacted]!`);
+    expect(redactString(`token: 'ab12'`)).toBe(`token: '[redacted]'`);
+    expect(redactString(`db_password = "abc123"`)).toBe(`db_password = "[redacted]"`);
+  });
+
+  test("does not mask sub-floor or whitespace-separated short values", () => {
+    // 1-3 char values are almost never secrets, and prose ("the token
+    // store") must not light up: short values need an explicit key=value.
+    expect(redactString("password = ab")).toBe("password = ab");
+    expect(redactString("token = x")).toBe("token = x");
+    expect(redactString("refresh the token store")).toBe("refresh the token store");
+  });
+
   test("does not corrupt legitimate code — precision over recall", () => {
     const code = `const tokens = count; // todo: refresh the session token store\nfetch("/api/sk-list")\nconst apiKeySchema = z.string();`;
     expect(redactString(code)).toBe(code);
