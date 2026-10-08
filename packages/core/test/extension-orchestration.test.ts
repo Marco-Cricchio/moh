@@ -738,6 +738,124 @@ describe("member path scopes (#1224, ADR-0074 roles carry scopes)", () => {
     expect(result.error).toContain("absolute paths are not allowed");
     expect(spawned).toBeUndefined();
   });
+
+  // #1260: bash joins the bare deny set — a shell command's touched paths
+  // cannot be proven soundly, so a scoped member's bash is denied outright
+  // (fail closed) in every mode.
+  test("a scoped member's bash is denied: no file lands, the denial is logged", async () => {
+    const rt = runtime();
+    let spawn: NonNullable<ExtensionSetupContext["spawnSubagent"]> | null = null;
+    await rt.register(
+      defineExtension({
+        name: "orch",
+        version: "1",
+        apiVersion: "1.13",
+        capabilities: ["spawn-subagent"],
+        setup: (ctx) => {
+          spawn = ctx.spawnSubagent!;
+        },
+      }),
+    );
+    const projectDir = tempDir();
+    const session = createSession({
+      provider: MockProvider.scripted([{ deltas: ["ok"], finish: "stop" }]),
+      tools: builtinTools(),
+      cwd: projectDir,
+      extensions: rt,
+      subagents: {
+        home: tempDir(),
+        provider: MockProvider.scripted([
+          { deltas: [], finish: "tool_calls", toolCalls: [{ name: "bash", args: { command: "echo leak > outside/leak.txt" } }] },
+          { deltas: ["done"], finish: "stop" },
+        ]),
+      },
+    });
+    const events = tap(session);
+    const result = await spawn!({ task: "work", pathScopes: ["client/**"] });
+    const spawned = events.find((e) => e.type === "subagent_spawn") as Extract<AgentEvent, { type: "subagent_spawn" }>;
+    await session.dispose();
+    expect(result.status).toBe("done");
+    expect(existsSync(join(projectDir, "outside", "leak.txt"))).toBe(false);
+    const childLog = readFileSync(spawned.log!, "utf8");
+    expect(childLog).toContain('"permission_denied"');
+    expect(childLog).toContain("denied by permission rule");
+  });
+
+  test("a scoped member's bash is denied even under a yolo parent", async () => {
+    const rt = runtime();
+    let spawn: NonNullable<ExtensionSetupContext["spawnSubagent"]> | null = null;
+    await rt.register(
+      defineExtension({
+        name: "orch",
+        version: "1",
+        apiVersion: "1.13",
+        capabilities: ["spawn-subagent"],
+        setup: (ctx) => {
+          spawn = ctx.spawnSubagent!;
+        },
+      }),
+    );
+    const projectDir = tempDir();
+    const session = createSession({
+      provider: MockProvider.scripted([{ deltas: ["ok"], finish: "stop" }]),
+      tools: builtinTools(),
+      cwd: projectDir,
+      permissions: { unrestrictedTools: true },
+      extensions: rt,
+      subagents: {
+        home: tempDir(),
+        provider: MockProvider.scripted([
+          { deltas: [], finish: "tool_calls", toolCalls: [{ name: "bash", args: { command: "echo leak > outside/leak.txt" } }] },
+          { deltas: ["done"], finish: "stop" },
+        ]),
+      },
+    });
+    const events = tap(session);
+    const result = await spawn!({ task: "work", pathScopes: ["client/**"] });
+    const spawned = events.find((e) => e.type === "subagent_spawn") as Extract<AgentEvent, { type: "subagent_spawn" }>;
+    await session.dispose();
+    expect(result.status).toBe("done");
+    expect(existsSync(join(projectDir, "outside", "leak.txt"))).toBe(false);
+    expect(readFileSync(spawned.log!, "utf8")).toContain('"permission_denied"');
+  });
+
+  test("an unscoped member's bash is untouched by the scoping (yolo parent)", async () => {
+    const rt = runtime();
+    let spawn: NonNullable<ExtensionSetupContext["spawnSubagent"]> | null = null;
+    await rt.register(
+      defineExtension({
+        name: "orch",
+        version: "1",
+        apiVersion: "1.13",
+        capabilities: ["spawn-subagent"],
+        setup: (ctx) => {
+          spawn = ctx.spawnSubagent!;
+        },
+      }),
+    );
+    const projectDir = tempDir();
+    const session = createSession({
+      provider: MockProvider.scripted([{ deltas: ["ok"], finish: "stop" }]),
+      tools: builtinTools(),
+      cwd: projectDir,
+      permissions: { unrestrictedTools: true },
+      extensions: rt,
+      subagents: {
+        home: tempDir(),
+        provider: MockProvider.scripted([
+          { deltas: [], finish: "tool_calls", toolCalls: [{ name: "bash", args: { command: "echo ok > made.txt" } }] },
+          { deltas: ["done"], finish: "stop" },
+        ]),
+      },
+    });
+    const events = tap(session);
+    const result = await spawn!({ task: "work" });
+    await session.dispose();
+    expect(result.status).toBe("done");
+    expect(existsSync(join(projectDir, "made.txt"))).toBe(true);
+    const spawned = events.find((e) => e.type === "subagent_spawn") as Extract<AgentEvent, { type: "subagent_spawn" }>;
+    expect(readFileSync(spawned.log!, "utf8")).not.toContain('"permission_denied"');
+  });
 });
 
 describe("stopSubagents: the team-scoped one-stop (ADR-0055, #1226)", () => {

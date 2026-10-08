@@ -86,12 +86,19 @@ export const BUILTIN_AGENT_PRESETS: Record<string, SubagentSpec> = {
 export const DEFAULT_SUBAGENT_CONCURRENCY = 5;
 
 /**
- * #1224: the write tools a member's `pathScopes` gate. Present scopes deny
- * every one of these outside the union of the globs (bare runtime deny)
- * and allow inside (a more specific path rule beats the bare deny within
- * the runtime tier); an empty scope list is the read-only reviewer.
+ * #1224: the tools a member's `pathScopes` gate. Present scopes deny every
+ * one of these outside the union of the globs (bare runtime deny) and allow
+ * inside for the path-arg tools (a more specific path rule beats the bare
+ * deny within the runtime tier); an empty scope list is the read-only
+ * reviewer. #1260: `bash` joins the bare deny set with NO allow rule — a
+ * shell command's touched paths cannot be proven soundly (SEC-04's
+ * metacharacters smuggle side effects past any token-prefix analysis), so
+ * a scoped member's bash is denied outright rather than contained
+ * per-command: fail closed, logged as `permission_denied`, effective in
+ * every mode including yolo.
  */
 const WRITE_PATH_TOOLS = ["write", "edit"] as const;
+const BARE_DENY_TOOLS = [...WRITE_PATH_TOOLS, "bash"] as const;
 
 /** Accepts either the bare glob (`client/**`) or the scope grammar
  * (`path:client/**`). Deliberately not `pathScopeGlob`, whose
@@ -103,7 +110,7 @@ function toWriteScopeGlob(scope: string): string {
 
 function pathScopeRules(scopes: readonly string[]): PermissionRule[] {
   const rules: PermissionRule[] = [];
-  for (const tool of WRITE_PATH_TOOLS) rules.push({ tier: "runtime", tool, effect: "deny" });
+  for (const tool of BARE_DENY_TOOLS) rules.push({ tier: "runtime", tool, effect: "deny" });
   for (const scope of scopes) {
     for (const tool of WRITE_PATH_TOOLS) rules.push({ tier: "runtime", tool, effect: "allow", path: scope });
   }
