@@ -22,6 +22,7 @@ import { McpRuntime } from "../mcp";
 import { PromptComposer, type AssembledPrompt, type SkillIndexEntry } from "../prompt-composer";
 import { discoverSkills } from "../skills";
 import { ExtensionRuntime, type ExtensionUIRefusal, type ActiveExtensionOverlay } from "../extensions";
+import { sanitizeForDisplay } from "../display-sanitize";
 import type { PanelKeyEvent } from "@moh/extension";
 import { EventLog } from "./event-log";
 import { commercialDeclarationEvent, observationsFromQuotaReport } from "../quota/telemetry";
@@ -2063,7 +2064,9 @@ export class AgentSession {
     }
     if (this.#hasConsentSeam || this.#announcedStatus === text) return;
     this.#announcedStatus = text;
-    process.stderr.write(`moh: ${extension}: ${text}\n`);
+    // #1255: extension-controlled text reaches a raw tty seam — sanitize
+    // here so headless/CLI clients get the same boundary as the TUI.
+    process.stderr.write(`moh: ${extension}: ${sanitizeForDisplay(text)}\n`);
   }
 
   /**

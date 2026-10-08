@@ -3,6 +3,7 @@ import type { AskUserAnswer, AskUserQuestion, AskUserSetResult, Tool } from "./t
 import type { FilesystemScope } from "./permissions";
 import { resolve, isAbsolute, relative, join, dirname } from "node:path";
 import { chmodSync, mkdirSync, mkdtempSync, readdirSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { boundedTest, compileSearchRegex, statIdentity, writeGuarded } from "./tool-guards.js";
 import { tmpdir } from "node:os";
 import { request as httpRequest } from "node:http";
 import { request as httpsRequest } from "node:https";
@@ -515,7 +516,9 @@ const write: Tool<z.infer<typeof writeSchema>> = {
   inputSchema: writeSchema,
   async execute(args, ctx) {
     const abs = inRoot(args.path, ctx.cwd, ctx.filesystemScope);
-    await Bun.write(abs, args.content);
+    // #1262: the containment check realpaths, but this open used to
+    // follow a symlink swapped in afterwards. Write through a guarded fd.
+    writeGuarded(abs, statIdentity(abs), args.content);
     return `wrote ${args.content.length} bytes to ${args.path}`;
   },
 };
@@ -537,7 +540,9 @@ const edit: Tool<z.infer<typeof editSchema>> = {
     const count = text.split(args.oldText).length - 1;
     if (count === 0) throw new Error(`oldText not found in ${args.path}`);
     if (count > 1) throw new Error(`oldText is not unique (${count} occurrences) in ${args.path}`);
-    await Bun.write(abs, text.replace(args.oldText, args.newText));
+    // #1262: same guarded-fd write as the write tool — the check above
+    // must not be separable from the write by a symlink swap.
+    writeGuarded(abs, statIdentity(abs), text.replace(args.oldText, args.newText));
     return `edited ${args.path}`;
   },
 };
@@ -640,7 +645,9 @@ const grep: Tool<z.infer<typeof grepSchema>> = {
   inputSchema: grepSchema,
   async execute(args, ctx) {
     const target = args.path ? inRoot(args.path, ctx.cwd, ctx.filesystemScope) : ctx.cwd;
-    const re = new RegExp(args.pattern);
+    // #1262: model-supplied pattern, bounded length and bounded subject
+    // per test — a catastrophic backtracking pattern cannot park the turn.
+    const re = compileSearchRegex(args.pattern);
     // #731: a file `path` is searched directly — scanning with a file as
     // cwd throws ENOTDIR, which accounted for ~40% of all observed tool
     // failures (the model legitimately points grep at single files).
@@ -649,7 +656,7 @@ const grep: Tool<z.infer<typeof grepSchema>> = {
       const out: string[] = [];
       const lines = text.split("\n");
       for (let i = 0; i < lines.length; i++) {
-        if (re.test(lines[i]!)) out.push(`${args.path}:${i + 1}:${lines[i]}`);
+        if (boundedTest(re, lines[i]!)) out.push(`${args.path}:${i + 1}:${lines[i]}`);
         if (out.length >= 500) break;
       }
       return truncate(out.join("\n"));
@@ -678,7 +685,7 @@ const grep: Tool<z.infer<typeof grepSchema>> = {
       const text = await file.text();
       const lines = text.split("\n");
       for (let i = 0; i < lines.length; i++) {
-        if (re.test(lines[i]!)) out.push(`${rel}:${i + 1}:${lines[i]}`);
+        if (boundedTest(re, lines[i]!)) out.push(`${rel}:${i + 1}:${lines[i]}`);
         if (out.length >= 500) break outer;
       }
     }
@@ -1218,6 +1225,14 @@ const todo: Tool<z.infer<typeof todoSchema>> = {
  * the tool itself is where read-only is enforced. Non-zero exit is a failed
  * tool_result carrying stderr; outside a repository git's own wording is
  * the failure — callers treat an off-repo read as a no-op, never a crash.
+ *
+ * The filter scans the full argv, not just the pre-subcommand segment
+ * (#1257): options whose value is a file git writes (`--output[=]`,
+ * `--output-indicator-*`) or reads (`config --file[=]`, `--blob[=]`) are
+ * refused anywhere they appear, and transient-config / exec options in the
+ * leading global-flag segment (`-c`, `--config-env*`, `--exec-path`,
+ * `--super-prefix`) are refused because their values can execute commands
+ * or point git at attacker-chosen code (#1261).
  */
 const GIT_READ_SUBCOMMANDS = new Set([
   "status",
@@ -1231,8 +1246,41 @@ const GIT_READ_SUBCOMMANDS = new Set([
   "describe",
   "config",
 ]);
-/** Global flags that would point git somewhere the session is not. */
+/**
+ * Global flags that would point git somewhere the session is not. The
+ * exact-match set covers the space-separated form (`-C /tmp`), the
+ * `=`-prefixed checks the attached form (`--git-dir=/tmp`); the `-C`
+ * attached form (`-C/tmp`) is caught by the /^-C./ test below, the same
+ * class as the fixed `-ckey=value` attached form (#1261).
+ */
 const GIT_RELOCATING_FLAGS = new Set(["-C", "--git-dir", "--work-tree"]);
+/** Leading global flags whose values execute commands or choose code (#1261). */
+const GIT_EXEC_FLAGS = new Set(["-c", "--config-env", "--exec-path", "--super-prefix"]);
+/**
+ * Options whose value is a file git writes out or reads in (#1257). The
+ * refusal is deliberately over-broad: `--file`/`-f`/`--blob` are config-only
+ * today, but they are rejected regardless of subcommand so a future
+ * allow-listed subcommand cannot quietly gain a file path. `--output` and
+ * `--output-indicator-*` (diff/log family) round out the write side.
+ */
+const GIT_PATH_FLAGS = new Set(["--output", "--output-indicator-new", "--output-indicator-old", "--output-indicator-context", "--file", "-f", "--blob"]);
+
+function gitRejects(option: string): string | undefined {
+  if (GIT_RELOCATING_FLAGS.has(option) || option.startsWith("--git-dir=") || option.startsWith("--work-tree=")) {
+    return `git: not allowed: "${option}" relocates the repository; this tool reads the session's project root only`;
+  }
+  const [name] = option.split("=", 1);
+  if (GIT_RELOCATING_FLAGS.has(name) || (!name.startsWith("--") && /^-C./.test(name))) {
+    return `git: not allowed: "${name}" relocates the repository; this tool reads the session's project root only`;
+  }
+  if (GIT_EXEC_FLAGS.has(name) || (!name.startsWith("--") && /^-c./.test(name))) {
+    return `git: not allowed: "${name}" sets transient config or redirects git's execution; this tool only runs plain repository reads`;
+  }
+  if (GIT_PATH_FLAGS.has(name)) {
+    return `git: read-only tool: "${name}" writes to or reads an arbitrary file; this tool captures output and reads the repository only`;
+  }
+  return undefined;
+}
 
 const gitSchema = z.object({
   args: z.array(z.string()).min(1).describe("Git arguments; the subcommand must be a read-only one."),
@@ -1245,7 +1293,8 @@ const gitTool: Tool<z.infer<typeof gitSchema>> = {
   description:
     "Run a read-only git command in the project root and capture its output. " +
     "Inspection subcommands only (status, diff, log, show, rev-parse, ls-files, branch, remote, describe, config reads); " +
-    "mutating commands (add, commit, push, checkout, reset, clean, …) are refused.",
+    "mutating commands (add, commit, push, checkout, reset, clean, …) are refused. " +
+    "Options that execute commands (-c, --exec-path, --super-prefix) or write/read files (--output=, config --file=) are refused wherever they appear.",
   inputSchema: gitSchema,
   execute(args, toolCtx) {
     const a = args.args;
@@ -1259,15 +1308,19 @@ const gitTool: Tool<z.infer<typeof gitSchema>> = {
     }
     let i = 0;
     while (i < a.length && (a[i]!.startsWith("-") || a[i]!.includes("="))) {
-      const option = a[i]!;
-      if (GIT_RELOCATING_FLAGS.has(option) || option.startsWith("--git-dir=") || option.startsWith("--work-tree=")) {
-        throw new Error(`git: not allowed: "${option}" relocates the repository; this tool reads the session's project root only`);
-      }
+      const refusal = gitRejects(a[i]!);
+      if (refusal !== undefined) throw new Error(refusal);
       i += 1;
     }
     const sub = a[i];
     if (sub === undefined || !GIT_READ_SUBCOMMANDS.has(sub)) {
       throw new Error(`git: read-only tool: "${sub ?? ""}" is not an allowed subcommand (${[...GIT_READ_SUBCOMMANDS].sort().join(", ")})`);
+    }
+    // #1257: the scan covers the whole argv — write/read-path options are
+    // refused after the subcommand too, before any spawn.
+    for (let j = i + 1; j < a.length; j += 1) {
+      const refusal = gitRejects(a[j]!);
+      if (refusal !== undefined) throw new Error(refusal);
     }
     if (sub === "config") {
       // `config --get/--list <key>` reads; any bare `key value` tail writes.

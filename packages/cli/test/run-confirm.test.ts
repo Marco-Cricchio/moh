@@ -24,6 +24,16 @@ describe("headless confirmation refusal (#791)", () => {
     expect(confirm.refused()).toBe("jev-guard: possible injection (0.97)");
   });
 
+  test("the refusal line is sanitized for the terminal (#1255)", () => {
+    const lines: string[] = [];
+    const confirm = headlessConfirm({ write: (s) => lines.push(s) });
+
+    confirm.seam({ reason: "\x1B]0;pwned\x07leak", by: "jev\x1B[2J-guard", text: "x" });
+
+    expect(lines).toEqual(["moh run: turn refused — jev-guard: leak\n"]);
+    expect(confirm.refused()).toBe("jev-guard: leak");
+  });
+
   test("the usage notes state the behaviour a user sees", () => {
     expect(RUN_USAGE).toContain("a turn an extension asks to confirm is refused here");
   });

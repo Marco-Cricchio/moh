@@ -1,17 +1,17 @@
 {
   "schemaVersion": 1,
-  "version": "0.59.2",
-  "generatedAt": "2026-10-07T21:19:50.961Z",
+  "version": "0.59.3",
+  "generatedAt": "2026-10-08T19:35:04.872Z",
   "sources": [
     {
       "name": "models.dev",
       "url": "https://models.dev/api.json",
-      "fetchedAt": "2026-10-07T21:19:50.294Z"
+      "fetchedAt": "2026-10-08T19:35:04.355Z"
     },
     {
       "name": "openrouter",
       "url": "https://openrouter.ai/api/v1/models",
-      "fetchedAt": "2026-10-07T21:19:50.703Z"
+      "fetchedAt": "2026-10-08T19:35:04.587Z"
     }
   ],
   "files": {
@@ -196,13 +196,13 @@
       }
     },
     "openrouter": {
-      "sha256": "a20bba71f84baabf617abb9d0e9b9d805baacc9d6bc5d2eedbdbdcbe37dbb124",
-      "rows": 360,
+      "sha256": "45c154562953b913358281c69f90ee6a8170ea209c4c571eef2d48110b4234c9",
+      "rows": 361,
       "verdicts": {
         "exact": 336,
         "base-model": 1,
         "ambiguous": 0,
-        "absent": 23
+        "absent": 24
       }
     },
     "qwen": {
@@ -430,7 +430,9 @@
         "reasoning",
         "input"
       ],
-      "overrides": []
+      "overrides": [
+        "contextWindow"
+      ]
     },
     "anthropic/claude-sonnet-4-5-20250929": {
       "provider": "anthropic",
@@ -445,7 +447,9 @@
         "reasoning",
         "input"
       ],
-      "overrides": []
+      "overrides": [
+        "contextWindow"
+      ]
     },
     "anthropic/claude-sonnet-4-6": {
       "provider": "anthropic",
@@ -3203,7 +3207,18 @@
         "reasoning",
         "input"
       ],
-      "overrides": []
+      "overrides": [
+        "contextWindow"
+      ]
+    },
+    "openrouter/anthropic/claude-sonnet-4-5-20250929": {
+      "provider": "openrouter",
+      "id": "anthropic/claude-sonnet-4-5-20250929",
+      "verdict": "absent",
+      "supplied": [],
+      "overrides": [
+        "contextWindow"
+      ]
     },
     "openrouter/anthropic/claude-sonnet-4.6": {
       "provider": "openrouter",

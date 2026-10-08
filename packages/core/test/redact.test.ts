@@ -7,7 +7,13 @@ import {
   redactString,
   redactValue,
   detectSecretLookalikes,
+  missReportTempPath,
+  noteSecretRedactionMiss,
+  secretRedactionMissesFile,
 } from "../src/redact";
+import { mkdtempSync, writeFileSync, statSync, readFileSync, existsSync, readdirSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 describe("key-based redaction", () => {
   test("masks secret-shaped keys wherever they appear in the structure", () => {
@@ -78,6 +84,22 @@ describe("pattern-based redaction (free text)", () => {
   test("masks quoted password/token/secret assignments", () => {
     expect(redactString(`PASSWORD="hunter2hunter2"`)).toBe(`PASSWORD="[redacted]"`);
     expect(redactString(`apiToken: 'abcdefgh12345678'`)).toBe(`apiToken: '[redacted]'`);
+  });
+
+  test("masks short values under credential keys (#1262)", () => {
+    // `!` is outside the value charset and survives, as with the 12+ floor.
+    expect(redactString(`password=short1!`)).toBe(`password=[redacted]!`);
+    expect(redactString(`password=ab12!`)).toBe(`password=[redacted]!`);
+    expect(redactString(`token: 'ab12'`)).toBe(`token: '[redacted]'`);
+    expect(redactString(`db_password = "abc123"`)).toBe(`db_password = "[redacted]"`);
+  });
+
+  test("does not mask sub-floor or whitespace-separated short values", () => {
+    // 1-3 char values are almost never secrets, and prose ("the token
+    // store") must not light up: short values need an explicit key=value.
+    expect(redactString("password = ab")).toBe("password = ab");
+    expect(redactString("token = x")).toBe("token = x");
+    expect(redactString("refresh the token store")).toBe("refresh the token store");
   });
 
   test("does not corrupt legitimate code — precision over recall", () => {
@@ -213,6 +235,41 @@ describe("detectSecretLookalikes", () => {
     expect(detectSecretLookalikes("cwd=/tmp/x key=abc").length).toBe(0);
     expect(detectSecretLookalikes("key=abcdef0123456789abcdef012345").length).toBeGreaterThan(0);
     expect(detectSecretLookalikes("checksum a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2").length).toBeGreaterThan(0);
+  });
+});
+
+describe("miss-report temp file (#1262)", () => {
+  function tempHome(): string {
+    return mkdtempSync(join(tmpdir(), "moh-miss-"));
+  }
+
+  test("temp names are unpredictable — two calls differ, no pid pattern", () => {
+    const file = secretRedactionMissesFile(tempHome());
+    const a = missReportTempPath(file);
+    const b = missReportTempPath(file);
+    expect(a).not.toBe(b);
+    expect(a).not.toContain(`tmp-${process.pid}`);
+  });
+
+  test("a pre-created file at the old predictable path is not overwritten", () => {
+    const home = tempHome();
+    const file = secretRedactionMissesFile(home);
+    const predictable = `${file}.tmp-${process.pid}`;
+    writeFileSync(predictable, "sentinel", { mode: 0o600 });
+    noteSecretRedactionMiss({ home, shape: "opaque-word:64" });
+    expect(readFileSync(predictable, "utf8")).toBe("sentinel");
+    expect(readFileSync(file, "utf8")).toContain("opaque-word:64");
+  });
+
+  test("writes remain 0600 and dedup still collapses repeats", () => {
+    const home = tempHome();
+    noteSecretRedactionMiss({ home, shape: "opaque-word:64" });
+    noteSecretRedactionMiss({ home, shape: "opaque-word:64" });
+    const file = secretRedactionMissesFile(home);
+    const body = readFileSync(file, "utf8").trim().split("\n");
+    expect(body).toHaveLength(1);
+    expect(JSON.parse(body[0]!).count).toBe(2);
+    expect(statSync(file).mode & 0o777).toBe(0o600);
   });
 });
 

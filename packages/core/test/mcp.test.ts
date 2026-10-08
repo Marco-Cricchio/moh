@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { createSession, McpRuntime, MockProvider, sessionFromConfig, type AgentEvent, type DeclaredMcpServer } from "../src/index";
 import { projectSlug } from "../src/session-store";
 import { McpError, mcpServerEntrySchema } from "../src/mcp";
-import { MCP_MAX_RESPONSE_BYTES } from "../src/mcp/transport-http";
+import { HttpConnection, MCP_MAX_RESPONSE_BYTES, type McpLookup } from "../src/mcp/transport-http";
 
 const SERVER = join(import.meta.dir, "fixtures", "mcp-stdio-server.ts");
 
@@ -351,6 +351,104 @@ describe("audit-v3 MCP-1: http transport hardening", () => {
       const failure = events.find((e) => e.type === "mcp_server_failed") as Extract<AgentEvent, { type: "mcp_server_failed" }>;
       expect(failure?.message).toContain("cap");
       expect(runtime.status()[0]!.state).toBe("failed");
+    } finally {
+      s.stop(true);
+    }
+  }, 20_000);
+
+  test("a stdio server that never emits a newline is capped and crashes (#1254)", async () => {
+    // 11 MB in one chunk, no newline: past the MCP_MAX_LINE_BYTES cap the
+    // connection must end crashed, not keep buffering.
+    const oversized: DeclaredMcpServer = {
+      name: "firehose",
+      scope: "user",
+      transport: {
+        type: "stdio",
+        command: process.execPath,
+        args: ["-e", "process.stdout.write(Buffer.alloc(11 * 1024 * 1024).fill(0x78).toString())"],
+      },
+    };
+    const events: AgentEvent[] = [];
+    const runtime = makeRuntime([oversized], events);
+    await runtime.ensureStarted();
+    // The flood rejects the pending initialize, so start() lands "failed"
+    // with the typed cap reason (crash bookkeeping is then a no-op — the
+    // same state, not a silent skip). The subprocess itself was killed.
+    for (let i = 0; i < 50; i += 1) {
+      const state = runtime.status()[0]!.state;
+      if (state === "crashed" || state === "failed") break;
+      await Bun.sleep(100);
+    }
+    const failure = events.find((e) => e.type === "mcp_server_failed") as Extract<AgentEvent, { type: "mcp_server_failed" }>;
+    expect(failure?.message).toContain("buffer cap");
+    await runtime.shutdown();
+  }, 20_000);
+});
+
+describe("#1254: http transport redirect pinning + per-request timeout", () => {
+  test("a cross-origin redirect is refused and the session id is never replayed", async () => {
+    const hits: string[] = [];
+    const evil = Bun.serve({
+      port: 0,
+      fetch: (req) => {
+        hits.push(req.headers.get("mcp-session-id") ?? "");
+        return Response.json({ jsonrpc: "2.0", id: 1, result: {} });
+      },
+    });
+    const s = Bun.serve({
+      port: 0,
+      fetch: () => new Response(null, { status: 302, headers: { location: `http://localhost:${evil.port}/mcp` } }),
+    });
+    try {
+      const events: AgentEvent[] = [];
+      const runtime = makeRuntime([{ name: "swivel", scope: "user", transport: { type: "http", url: `http://localhost:${s.port}/mcp` } }], events);
+      await runtime.ensureStarted();
+      const failure = events.find((e) => e.type === "mcp_server_failed") as Extract<AgentEvent, { type: "mcp_server_failed" }>;
+      expect(failure?.message).toContain("cross-origin");
+      expect(hits).toHaveLength(0);
+      await runtime.shutdown();
+    } finally {
+      s.stop(true);
+      evil.stop(true);
+    }
+  });
+
+  test("a redirect whose hostname re-resolves to a different address is refused (#697 pattern)", async () => {
+    let calls = 0;
+    const lookup: McpLookup = async () => {
+      calls += 1;
+      return calls === 1 ? [{ address: "127.0.0.1", family: 4 }] : [{ address: "127.0.0.2", family: 4 }];
+    };
+    const s = Bun.serve({
+      port: 0,
+      fetch: () => new Response(null, { status: 302, headers: { location: "/" } }),
+    });
+    try {
+      const conn = new HttpConnection({ url: `http://localhost:${s.port}/mcp`, lookup, onRequest: () => {}, onCrash: () => {} });
+      try {
+        // First dial resolves to 127.0.0.1; the redirect hop re-resolves
+        // to 127.0.0.2 and must be refused before it is dialed.
+        await expect(conn.request("ping", {}, 30_000)).rejects.toThrow(/re-resolved to a different address/);
+        expect(calls).toBe(2);
+      } finally {
+        await conn.close();
+      }
+    } finally {
+      s.stop(true);
+    }
+  });
+
+  test("an endpoint slower than the per-request budget fails as a typed timeout", async () => {
+    const s = Bun.serve({ port: 0, fetch: () => Bun.sleep(60_000).then(() => new Response()) });
+    try {
+      // Direct transport: the runtime's own request budgets are shorter,
+      // so the per-request abort is observable only at the seam itself.
+      const conn = new HttpConnection({ url: `http://localhost:${s.port}/mcp`, onRequest: () => {}, onCrash: () => {} });
+      try {
+        await expect(conn.request("ping", {}, 30_000)).rejects.toMatchObject({ kind: "timeout" });
+      } finally {
+        await conn.close();
+      }
     } finally {
       s.stop(true);
     }

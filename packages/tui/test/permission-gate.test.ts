@@ -40,6 +40,20 @@ describe("describePermissionRequest", () => {
     expect(view.detail).toContain("exact-pinned install: no lifecycle script ever runs (ADR-0070)");
     expect(view.rulePreview).toBeNull();
   });
+
+  // #1255: the reason and name come from an extension and may launder
+  // model-controlled text into the consent dialog — sanitize in the pure
+  // formatter so the prompt can never carry terminal controls.
+  test("#1255: an extension ask sanitizes ESC/CSI/OSC in the reason and name", () => {
+    const view = describePermissionRequest("bash", { command: "ls" }, {
+      source: "extension",
+      extension: "evil\x1B]0;pwned\x07-ext",
+      reason: "verify\x1B[2J\x1B[1;31mYES ONLY\x1B[0m",
+    });
+    expect(view.extensionAsk?.extension).toBe("evil-ext");
+    expect(view.extensionAsk?.reason).toBe("verifyYES ONLY");
+    expect(view.extensionAsk?.reason?.includes("\x1B")).toBe(false);
+  });
 });
 
 describe("PermissionGate", () => {
