@@ -3,6 +3,7 @@ import type { AskUserAnswer, AskUserQuestion, AskUserSetResult, Tool } from "./t
 import type { FilesystemScope } from "./permissions";
 import { resolve, isAbsolute, relative, join, dirname } from "node:path";
 import { chmodSync, mkdirSync, mkdtempSync, readdirSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { boundedTest, compileSearchRegex, statIdentity, writeGuarded } from "./tool-guards.js";
 import { tmpdir } from "node:os";
 import { request as httpRequest } from "node:http";
 import { request as httpsRequest } from "node:https";
@@ -515,7 +516,9 @@ const write: Tool<z.infer<typeof writeSchema>> = {
   inputSchema: writeSchema,
   async execute(args, ctx) {
     const abs = inRoot(args.path, ctx.cwd, ctx.filesystemScope);
-    await Bun.write(abs, args.content);
+    // #1262: the containment check realpaths, but this open used to
+    // follow a symlink swapped in afterwards. Write through a guarded fd.
+    writeGuarded(abs, statIdentity(abs), args.content);
     return `wrote ${args.content.length} bytes to ${args.path}`;
   },
 };
@@ -537,7 +540,9 @@ const edit: Tool<z.infer<typeof editSchema>> = {
     const count = text.split(args.oldText).length - 1;
     if (count === 0) throw new Error(`oldText not found in ${args.path}`);
     if (count > 1) throw new Error(`oldText is not unique (${count} occurrences) in ${args.path}`);
-    await Bun.write(abs, text.replace(args.oldText, args.newText));
+    // #1262: same guarded-fd write as the write tool — the check above
+    // must not be separable from the write by a symlink swap.
+    writeGuarded(abs, statIdentity(abs), text.replace(args.oldText, args.newText));
     return `edited ${args.path}`;
   },
 };
@@ -640,7 +645,9 @@ const grep: Tool<z.infer<typeof grepSchema>> = {
   inputSchema: grepSchema,
   async execute(args, ctx) {
     const target = args.path ? inRoot(args.path, ctx.cwd, ctx.filesystemScope) : ctx.cwd;
-    const re = new RegExp(args.pattern);
+    // #1262: model-supplied pattern, bounded length and bounded subject
+    // per test — a catastrophic backtracking pattern cannot park the turn.
+    const re = compileSearchRegex(args.pattern);
     // #731: a file `path` is searched directly — scanning with a file as
     // cwd throws ENOTDIR, which accounted for ~40% of all observed tool
     // failures (the model legitimately points grep at single files).
@@ -649,7 +656,7 @@ const grep: Tool<z.infer<typeof grepSchema>> = {
       const out: string[] = [];
       const lines = text.split("\n");
       for (let i = 0; i < lines.length; i++) {
-        if (re.test(lines[i]!)) out.push(`${args.path}:${i + 1}:${lines[i]}`);
+        if (boundedTest(re, lines[i]!)) out.push(`${args.path}:${i + 1}:${lines[i]}`);
         if (out.length >= 500) break;
       }
       return truncate(out.join("\n"));
@@ -678,7 +685,7 @@ const grep: Tool<z.infer<typeof grepSchema>> = {
       const text = await file.text();
       const lines = text.split("\n");
       for (let i = 0; i < lines.length; i++) {
-        if (re.test(lines[i]!)) out.push(`${rel}:${i + 1}:${lines[i]}`);
+        if (boundedTest(re, lines[i]!)) out.push(`${rel}:${i + 1}:${lines[i]}`);
         if (out.length >= 500) break outer;
       }
     }
