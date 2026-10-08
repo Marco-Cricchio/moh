@@ -265,6 +265,9 @@ export {
   type VerificationCategory,
   type TaskOutcome,
 } from "./task/telemetry";
+// #1255: the display-sanitize boundary — extension-controlled text reaching
+// raw terminal seams (headless stderr, CLI chrome) must strip controls.
+export { sanitizeForDisplay } from "./display-sanitize";
 export {
   performanceByModel,
   performanceSamples,
