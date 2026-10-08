@@ -13,7 +13,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { AgentEvent } from "@moh/core";
 import { projectTranscript, extensionEventLine } from "../src/transcript";
-import { BottomBar, ExtensionStatusChip } from "../src/BottomBar";
+import { BottomBar, ExtensionStatusChip, extensionStatusText } from "../src/BottomBar";
 import { PermissionModal } from "../src/PermissionModal";
 import { PermissionGate } from "../src/permission-gate";
 import { ThemeProvider, THEMES, DEFAULT_THEME } from "../src/themes";
@@ -409,6 +409,19 @@ describe("the uniform control line (#832)", () => {
     expect(rendered).toContain("jev-guard · injection off");
     expect(rendered).toContain("jev-guard · off");
   });
+
+  // #1255: the payload and the extension name are extension-controlled —
+  // escape sequences in either must render inert, never reach the terminal.
+  test("#1255: extension_event and extension_control heads sanitize ESC/CSI/OSC", () => {
+    expect(extensionEventLine("jev_judgment", { useCase: "guardrail\x1B[2J", decision: "ask\x1B]0;pwned\x07" })).toBe(
+      "jev · guardrail · ask",
+    );
+    const control = [
+      { type: "extension_control", extension: "jev\x1B[1;31m-guard", payload: { cmd: "off\x07" } },
+    ] as unknown as AgentEvent[];
+    const rendered = projectTranscript(control, {}).map((b) => (b.kind === "chrome" ? b.type : b.kind));
+    expect(rendered).toEqual(["jev-guard · off"]);
+  });
 });
 
 describe("footer status chip (ADR-0032)", () => {
@@ -471,6 +484,19 @@ describe("footer status chip (ADR-0032)", () => {
     const frame = stripAnsi(i.lastFrame() ?? "");
     expect(frame.indexOf("a-ext first")).toBeLessThan(frame.indexOf("b-ext second"));
     i.unmount();
+  });
+
+  // #1255: the text is extension-controlled — escape sequences must render
+  // inert, never reach the terminal. The frame is already ANSI-stripped by
+  // the helper, so the pure formatter carries the real assertion.
+  test("#1255: status text with ESC/CSI/OSC renders inert", () => {
+    const text = extensionStatusText(
+      { extension: "evil-ext", text: "ok\x1B[2J\x1B[1;31mSUDO REQUIRED\x1B[0m\x1B]0;pwned\x07 tail" },
+      true,
+      80,
+    );
+    expect(text).toBe("evil-ext okSUDO REQUIRED tail");
+    expect(text.includes("\x1B")).toBe(false);
   });
 });
 

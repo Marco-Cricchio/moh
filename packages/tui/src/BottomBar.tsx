@@ -8,6 +8,7 @@ import { fitRow, type WidthClass } from "./viewport";
 import type { ExtensionStatus, SessionMode, ThinkingLevel } from "@moh/core";
 import type { JevStatusSummary } from "./jev-control";
 import { scannerPaint, scannerStripSplit } from "./scanner";
+import { sanitizeForDisplay } from "./render-sanitize";
 
 /** TUI chrome also names the absence of an explicit canonical request. */
 export type DisplayThinkingLevel = ThinkingLevel | "default";
@@ -213,7 +214,10 @@ export const extensionStatusCap = (columns: number): number => Math.max(16, Math
  * Middle elision keeps both ends: the extension's marker opens the note and
  * its conclusion closes it. */
 export function extensionStatusText(status: ExtensionStatus, wide: boolean, cap: number): string {
-  const full = wide && !status.text.startsWith(status.extension) ? `${status.extension} ${status.text}` : status.text;
+  // #1255: extension-controlled text — strip terminal controls before the
+  // chip renders it, same boundary the client applies to model text.
+  const text = sanitizeForDisplay(status.text);
+  const full = wide && !text.startsWith(status.extension) ? `${status.extension} ${text}` : text;
   return middleElide(full, cap);
 }
 

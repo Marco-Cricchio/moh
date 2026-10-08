@@ -271,7 +271,13 @@ export function compactionCannotHelpNow(events: ReadonlyArray<AgentEvent>): bool
   return markerIndex === -1 && events.some((e) => e.type === "compaction_skipped");
 }
 
-export function extensionEventLine(name: string, payload: unknown): string {  const record = asRecord(payload);
+export function extensionEventLine(name: string, payload: unknown): string {
+  // #1255: the payload is extension-controlled — strip terminal controls
+  // from the composed line, same boundary the client applies to model text.
+  return sanitizeForDisplay(extensionEventLineParts(name, payload));
+}
+
+function extensionEventLineParts(name: string, payload: unknown): string {  const record = asRecord(payload);
   if (record === undefined) return name;
   if (name === "jev_routing") return routingNoticeLine(record);
   if (name === "jev_usecase") return useCaseLine(record);
@@ -996,7 +1002,7 @@ export function projectTranscript(events: ReadonlyArray<AgentEvent>, options: { 
           key,
           kind: "chrome",
           glyph: "◈",
-          type: `${event.extension} · ${controlCommandLine(event.payload)}`,
+          type: sanitizeForDisplay(`${event.extension} · ${controlCommandLine(event.payload)}`),
           lines: [],
         });
         break;
