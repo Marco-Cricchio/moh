@@ -86,9 +86,30 @@ function stampEvent(event: AgentEvent, file: string): AgentEvent {
     // session_start head, bad schema) is surfaced: stamping a parentless
     // append onto a known-bad log silently forks the topology, so the
     // write refuses loudly instead.
-    const empty =
-      !existsSync(file) || readWholeFile(file).trim() === "";
-    if (empty) {
+    // #1259: an empty (or absent) log simply has no head — stamp with no
+    // parent, as before. A file whose lines parse but has no session_start
+    // head is the direct-append/legacy shape (SessionStore.create writes
+    // an empty file; direct test harnesses append user events first): it
+    // loads clean on the legacy path, so stamping parentless stays legal.
+    // Any OTHER load failure (invalid JSON, bad schema) is surfaced:
+    // stamping a parentless append onto a known-bad log silently forks
+    // the topology, so the write refuses loudly instead.
+    const raw = !existsSync(file) ? "" : readWholeFile(file).trim();
+    const legacyLines = (() => {
+      if (raw === "") return true;
+      try {
+        return raw.split("\n").every((l) => {
+          try {
+            return typeof JSON.parse(l).type === "string";
+          } catch {
+            return false;
+          }
+        });
+      } catch {
+        return false;
+      }
+    })();
+    if (legacyLines) {
       head = undefined;
     } else {
       throw new Error(
