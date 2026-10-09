@@ -2,7 +2,7 @@ import React, { useCallback, useMemo, useState } from "react";
 import { Text, useInput } from "ink";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
-import { DevelopmentLaneService, DevelopmentLaneStore, type DevelopmentLane, type FeatureGroup } from "@moh/core";
+import { DevelopmentLaneService, DevelopmentLaneStore, laneInstallLine, type DevelopmentLane, type FeatureGroup } from "@moh/core";
 import { homedir } from "node:os";
 import { useTheme } from "./themes";
 import { Dialog, Dim, truncate } from "./ui";
@@ -25,6 +25,10 @@ import { useViewport } from "./viewport";
  * inside a windowed list instead of growing the dialog past the viewport.
  * Every row is exactly one visual line (long lines truncate, never wrap),
  * a lane weighs two lines, and the window follows the cursor (↑↓/j/k).
+ *
+ * Amendment 5: each lane's dependency-install state is part of its detail
+ * line, and a drifted CHECKOUT install is reported read-only in one line
+ * (the repair is the CLI door: `moh lanes repair --apply`).
  */
 
 const STATUS_COLOR: Record<string, "ok" | "warn" | "dim"> = {
@@ -97,9 +101,11 @@ export function LanesModal({ cwd, home, onClose }: LanesModalProps) {
   let groups: FeatureGroup[] = [];
   let lanes: DevelopmentLane[] = [];
   let error: string | null = null;
+  let drifted = false;
   try {
     groups = service.store.listFeatureGroups();
     lanes = service.store.listLanes();
+    drifted = service.checkoutInstallDrift().drifted;
   } catch (e) {
     error = e instanceof Error ? e.message : String(e);
   }
@@ -132,8 +138,9 @@ export function LanesModal({ cwd, home, onClose }: LanesModalProps) {
   };
 
   // Height-aware list (#64): the rows scroll inside the dialog. The budget
-  // subtracts the fixed chrome (title, blank, blank, footer, indicators).
-  const budget = Math.max(3, viewport.rows - 8);
+  // subtracts the fixed chrome (title, blank, blank, footer, indicators)
+  // plus the drift line when it is shown.
+  const budget = Math.max(3, viewport.rows - (drifted ? 9 : 8));
   const win = windowFor(
     rows.map((row) => row.weight),
     cursor,
@@ -230,6 +237,11 @@ export function LanesModal({ cwd, home, onClose }: LanesModalProps) {
       {!error && groups.length === 0 && (
         <Dim>no feature groups yet — start one with: moh lanes group {"<name>"}</Dim>
       )}
+      {!error && drifted && (
+        <Text color={theme.warn}>
+          {truncate("checkout install drifted — moh lanes repair --apply", lineBudget)}
+        </Text>
+      )}
       {win.start > 0 && <Dim>{` ↑ ${win.start} more`}</Dim>}
       {!error &&
         rows.slice(win.start, win.start + win.count).map((row, i) => {
@@ -249,12 +261,13 @@ export function LanesModal({ cwd, home, onClose }: LanesModalProps) {
           const lane = row.lane;
           const color = themeColor(theme, lane.status);
           const missing = worktreeStatus(lane);
+          const install = laneInstallLine(lane.install);
           const head = truncate(
             `● ${lane.status} ${lane.label ? `"${lane.label}"` : lane.branchRef}${lane.parentLaneId ? ` ← ${shortId(lane.parentLaneId)}` : ""} · ${ageDays(lane)}d`,
             lineBudget,
           );
           const detail = truncate(
-            `  ${lane.label ? lane.branchRef : lane.relation}${missing ? ` · ${missing}` : ""} · base ${lane.baseRef} @ ${lane.baseRevision.slice(0, 8)}`,
+            `  ${lane.label ? lane.branchRef : lane.relation}${missing ? ` · ${missing}` : ""} · base ${lane.baseRef} @ ${lane.baseRevision.slice(0, 8)}${install ? ` · ${install}` : ""}`,
             lineBudget,
           );
           return (

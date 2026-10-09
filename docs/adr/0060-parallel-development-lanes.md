@@ -165,6 +165,69 @@ live there. Consequences, stated:
   truth); only *new* lanes land under the home root. A stale
   `.moh-lanes` directory beside an old checkout is inert user data.
 
+## Amendment 5: a lane owns its dependency install (2026-10-09)
+
+The provisioning path symlinked the checkout's `node_modules` into every
+fresh worktree (`#shareNodeModules`) — fail-silent, and with no architecture
+record. Inside that one shared install bun writes the `@moh/*` workspace
+links **relative to the physical install directory** while pointing them at
+*the installing lane's* packages; a relative path resolves identically for
+every consumer, so one `bun install` inside one lane silently repointed the
+checkout and every other lane at that lane's sources. A missing share was
+invisible too (a lane with no `node_modules` at all, observed 2026-10-08).
+The "Consequences / Positive" line above — *concurrent sessions cannot
+corrupt one another through shared uncommitted files* — was therefore false
+as written: the shared install was exactly such a channel.
+
+**Decision: no lane shares the checkout's install.** The symlink mechanism
+is removed entirely; a lane resolves its own packages, or none. The cost
+already accepted above ("multiple worktrees may duplicate dependency
+installations") applies as written.
+
+**The install command belongs to the project**, resolved from the lane's
+own files in this order — a lane installs what its branch declares:
+
+1. the `lanes.setup` user-config key (`string | false`) — the last word;
+   `false` declares that a project has nothing to install (the user's own
+   statement: recorded, never reported);
+2. `packageManager` in `package.json`;
+3. the lockfile table, for ecosystems whose store is the project directory
+   (`bun.lock`/`bun.lockb`, `package-lock.json`, `yarn.lock`,
+   `pnpm-lock.yaml`, `uv.lock`, `composer.lock`, `mix.lock`, `poetry.lock`,
+   `Gemfile.lock`);
+4. a user-level store (`Cargo.lock`, `go.sum`, `packages.lock.json`,
+   `pom.xml`, `build.gradle`/`.kts`) is not a lane-scoped install —
+   nothing to run, nothing to report;
+5. nothing recognized **with** a manifest present (`package.json`,
+   `pyproject.toml`, …): the lane is created without its own dependencies
+   and the reason is visible once. moh never invents a command. No
+   manifest at all is silent.
+
+**The install runs at provisioning**, as the last step before the lane is
+reported ready — lanes stay lazy, so the cost is paid only once parallelism
+already exists. It is **free, not frozen** on the lockfile (a frozen install
+fails exactly when a lane is adding a dependency), so it may update the
+lane's own lockfile. **Failure creates the lane and is visible**: the lane
+exists with no or a partial install, the reason is reported like every other
+provisioning result, and the next open retries. A `node_modules` that is not
+a real directory the lane owns — the old symlink, foreign links, a missing
+store — is replaced by the lane's own install on the next open; the runtime
+check refuses to use a foreign store rather than trusting it.
+
+**The registry row records the outcome** (command used, nothing-to-install
+with its once-only reason, or failure with its reason) and the lockfile
+fingerprint the install was made from — **never a marker file inside the
+worktree** (an untracked file there is one `git add -A` away from the #1223
+accident class). `lanes.setup` is read where `lanes.auto` is read today
+(clients), and passed to the lane service.
+
+**The checkout is never mutated automatically.** A read-only check surfaces
+its drift in the lane-facing surfaces (`moh lanes list`, `/lanes`); the
+repair runs only on request, through a door shaped like `moh lanes cleanup`
+— dry run by default, applying on request — and it states the correct
+method (remove the workspace links, then reinstall; a plain install does not
+repair a satisfied foreign link).
+
 ## Follow-up
 
 Implementation starts with the isolated lane lifecycle, then adds feature-group metadata and explicit relationships, followed by integration and resumable conflict state. A later decision may add a shared-runtime mode only if real workloads demonstrate that isolated worktrees are insufficient.

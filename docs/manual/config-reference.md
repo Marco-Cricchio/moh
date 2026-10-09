@@ -200,6 +200,7 @@ preserved verbatim):
 | `auth` | core (ADR-0006) | subscription tokens keyed by endpoint name, plus `auth.overrides` for captured client_ids/issuers; never in moh.json, never logged |
 | `mcpTrust` | core (`mcp/types.ts`) | recorded "always" consent for project MCP servers, keyed by project slug → server names (the repo's own `trusted` field is ignored) |
 | `liveModels` | core (`live-model-catalog.ts`) | `enabled` (default `true`; `false` restores the fully static model catalog), `ttlHours` (default 24) for the `~/.moh/live-models.json` picker cache |
+| `lanes` | clients (TUI `tui/src/App.tsx`, CLI `cli/src/run.ts`, `cli/src/lanes.ts`), consumed by core's lane service | `auto` (default `true`; `false` disables automatic lane provisioning), `setup` — the last word on what a new lane installs (ADR-0060 amendment 5): a shell command, or `false` for a project that has nothing to install. Anything else is ignored and the project's own declaration takes over |
 | `mpm` | core (`mpm/config.ts`) | the user default for the Moh Project Map: `enabled` (default `false` — MPM is opt-in; `true` enables it everywhere unless a project opts out), `quota` (`maxFiles`, `maxTotalBytes`), `exclude` (gitignore-style patterns) |
 | `typesafe` | the Jev extension (`@moh/jev-guard`) | the bundled Jev (TypeSafe) integration (#784): `apiKey` (legacy (#1162): a pre-migration plaintext key, read once to migrate into the credential store — the store, not this file, is where the key lives; a plaintext that differs from the stored credential is left in place until reconciled from the Settings entry — a migration never deletes a key it did not save), `timeoutMs` (per-call hook timeout in ms, default `2500`, configuration only), `guardrail` (the bash guardrail, default `true` — a stored key arms it, so only the explicit `false` disarms it; written by the Settings entry's `Guardrail` row and by `moh jev guardrail on\|off`, and read when a session starts — `/jev` moves it for an open session only), `routing` (per-turn model-routing opt-in, default `false`; changed from the same Settings entry and read when a session starts — the session command `/routing off|on` pauses and enables it for that session without touching this file), `tiers` (explicit tier labels for routing: `"<endpoint>/<model-id>"` → `economico` \| `bilanciato` \| `potente`; an unlabeled model is ranked by catalog price — see the Jev page), `injection` (anti-injection opt-in, default `false`: judges your message and every web result against prompt injection, sending the message text to TypeSafe — same Settings entry), `classification` (prompt classification, default `true` — turn it off with `false` to stop the per-turn task-type hints and the project-map gate; see the Jev page), `rerank` (MPM seed-rerank opt-in, default `false`: ranks over-threshold orientation candidates instead of discarding the plan — see the Jev page), `lint` (end-of-task quality-gate opt-in, default `false`: sends the changed code's diff plus the project's convention docs to TypeSafe — same Settings entry), `skills` (per-turn skill-suggestion opt-in, default `false`: ranks the skill roster and suggests at most one skill per turn, sending your message plus the roster to TypeSafe twice per judged turn — see the Jev page). User config only — a cloned project must not be able to activate an account |
 
@@ -213,6 +214,23 @@ entered from the TUI Settings panel (`Jev (TypeSafe)`), where it is validated
 and stored; the presence of the key *is* the activation state, and
 `timeoutMs` and `tiers` have no UI field (the use-case opt-ins,
 `routing`, `injection`, `rerank`, `lint` and `skills`, have one each). See the Jev page.
+
+The `lanes` block tunes the lane surface. Each lane owns its worktree, its
+branch and **its own dependency install**: a new lane runs the install its
+project declares, in its own worktree, and never reuses another lane's or
+the checkout's `node_modules` (ADR-0060 amendment 5). The command is
+resolved from the lane's own files — `lanes.setup` first, then
+`package.json`'s `packageManager`, then the lockfile table (`bun.lock`,
+`package-lock.json`, `yarn.lock`, `pnpm-lock.yaml`, `uv.lock`,
+`composer.lock`, `mix.lock`, `poetry.lock`, `Gemfile.lock`). A user-level
+store (Cargo, Go, Maven/Gradle, NuGet) runs nothing and reports nothing; a
+manifest moh does not recognize creates the lane without dependencies and
+says so once. moh never invents a command — `lanes.setup` is the door for
+anything else. A new lane's install outcome is recorded on the lane (never
+a marker file inside the worktree), and the checkout's own install is never
+mutated automatically: `moh lanes list` reports its drift, and
+`moh lanes repair --apply` repairs it (remove `node_modules/@moh`, then
+reinstall — a plain install does not repair a satisfied foreign link).
 
 The file is always written through the guardian: read-modify-write of
 the whole JSON, temp file + rename, 0600 file / 0700 dir.
