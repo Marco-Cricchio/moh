@@ -100,7 +100,7 @@ describe("composer bang commands (ADR-0076)", () => {
     term.write("\\!literal");
     await sleep(20);
     term.write("\r");
-    await waitFor(term, "\\!literal", 10_000);
+    await waitFor(term, "!literal", 10_000);
     term.unmount();
   });
 });

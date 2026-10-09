@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { bangActiveTurnRefusal, parseBangCommand } from "../src/bang-command";
+import { bangActiveTurnRefusal, parseBangCommand, stripBangEscape } from "../src/bang-command";
 
 describe("parseBangCommand (ADR-0076)", () => {
   test("plain ! executes without auto-send", () => {
@@ -16,6 +16,8 @@ describe("parseBangCommand (ADR-0076)", () => {
 
   test("\\! escapes a literal leading bang", () => {
     expect(parseBangCommand("\\!important")).toBeNull();
+    expect(stripBangEscape("\\!important")).toBe("!important");
+    expect(stripBangEscape("hello")).toBe("hello");
   });
 
   test("a bare ! or !! is not a command", () => {

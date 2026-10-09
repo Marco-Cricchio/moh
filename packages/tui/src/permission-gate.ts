@@ -40,7 +40,8 @@ export interface PermissionRequestView {
 }
 
 /** Formats one request for display. Pure — unit-testable.
- * `context` is present only for an extension ask (ADR-0031). */
+ * `context` is present for an extension ask (ADR-0031) or a
+ * client-initiated ask (ADR-0076). */
 export function describePermissionRequest(
   tool: string,
   args: unknown,
@@ -53,11 +54,16 @@ export function describePermissionRequest(
           ...(context.reason ? { reason: sanitizeForDisplay(context.reason) } : {}),
         }
       : undefined;
+  // ADR-0076: a user-initiated ask keeps the full command detail (the user
+  // typed it) but never a rule — the reduced y/n prompt is the design.
+  const userAsk =
+    context?.source === "user"
+      ? { ...(context.reason ? { reason: sanitizeForDisplay(context.reason) } : {}) }
+      : undefined;
   const view = describeOwnRequest(tool, args);
-  if (!extensionAsk) return view;
-  // An extension ask never writes a rule: the prompt must offer no
-  // "always" at all, so there is no rule preview to render either.
-  return { ...view, rulePreview: null, extensionAsk };
+  if (extensionAsk) return { ...view, rulePreview: null, extensionAsk };
+  if (userAsk) return { ...view, rulePreview: null, userAsk };
+  return view;
 }
 
 /** The tool's own ask (rules/mode): what the "always" answer would write. */

@@ -26,6 +26,13 @@ export function parseBangCommand(text: string): BangCommand | null {
   return null;
 }
 
+/** ADR-0076: the escape's payload — a `\!` draft sends the text with the
+ * backslash consumed, so the user gets the literal leading `!` they asked
+ * for. Anything else passes through untouched. */
+export function stripBangEscape(text: string): string {
+  return text.startsWith("\\!") ? text.slice(1) : text;
+}
+
 /** The active-turn refusal line: the grammar exists, the moment is wrong. */
 export function bangActiveTurnRefusal(): string {
   return "! is unavailable while a turn runs — press esc to interrupt, or wait for it to finish.";
