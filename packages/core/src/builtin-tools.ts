@@ -1091,7 +1091,29 @@ async function doFetch(
   return {
     status: response.status,
     headers: response.headers,
-    readBody: () => response.text(),
+    // Same byte budget as the pinned transport (#1262): `response.text()`
+    // would buffer the whole decompressed body before anyone truncates it.
+    readBody: async () => {
+      const reader = response.body?.getReader();
+      if (!reader) return "";
+      const chunks: Buffer[] = [];
+      let received = 0;
+      let truncated = false;
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        const remaining = FETCH_MAX_BODY_BYTES - received;
+        if (value.byteLength > remaining) {
+          if (remaining > 0) chunks.push(Buffer.from(value.subarray(0, remaining)));
+          truncated = true;
+          await reader.cancel().catch(() => {});
+          break;
+        }
+        chunks.push(Buffer.from(value));
+        received += value.byteLength;
+      }
+      return Buffer.concat(chunks).toString("utf8") + (truncated ? `\n… [truncated after ${FETCH_MAX_BODY_BYTES} bytes]` : "");
+    },
     discard: () => {
       response.body?.cancel().catch(() => {});
     },
@@ -1179,7 +1201,6 @@ export async function fetchUrlText(
     // #1262 (redirect downgrade): an https origin never follows a hop to
     // plain http — the redirect must not walk the traffic out of TLS.
     if (url.protocol === "https:" && next.startsWith("http:")) {
-      res.discard();
       throw new Error(`fetch: refusing https to http redirect downgrade: ${next}`);
     }
     pin = await resolveUrl(next);
