@@ -67,10 +67,17 @@ export const RETRO_MAX_FINDINGS = 200;
 export const RETRO_EVIDENCE_CHARS = 300;
 /** Digest cadence (ADR-0075): at most one per 48 hours. */
 export const RETRO_DIGEST_INTERVAL_MS = 48 * 60 * 60 * 1000;
+/** Repeated dismissals raise a category's bar (ADR-0075): each dismissal
+ * adds this to the minimum confidence that category must clear. */
+export const RETRO_THRESHOLD_STEP = 0.05;
+/** The bar a category can never exceed — beyond it extraction would be
+ * silent rather than selective. */
+export const RETRO_THRESHOLD_CAP = 0.9;
 
 const FINDINGS_FILE = "findings.jsonl";
 const DISMISSED_FILE = "dismissed.json";
 const DIGEST_FILE = "digest.json";
+const JUDGMENT_FILE = "judgment.json";
 
 /** The stable identity: category plus an observation fingerprint. */
 export function retroSignature(category: string, observation: string): string {
@@ -84,6 +91,13 @@ function cleanEvidence(evidence: string): string {
 
 interface DigestState {
   lastDigest: string;
+}
+
+/** The judgement pipeline's threshold state (ADR-0075): closed sessions
+ * counted since the last batch run, plus when that run happened. */
+interface JudgmentState {
+  closedSinceBatch: number;
+  lastRunAt?: string;
 }
 
 export interface RetroDismissal {
@@ -162,11 +176,20 @@ export class RetroStore {
     if (candidates.length === 0) return 0;
     try {
       const existing = this.read();
-      const dismissed = this.dismissed();
+      const records = this.dismissalRecords();
+      const dismissed = new Set(records.map((record) => record.signature));
+      const thresholds = new Map<string, number>();
+      for (const record of records) {
+        thresholds.set(record.category, (thresholds.get(record.category) ?? 0) + RETRO_THRESHOLD_STEP);
+      }
       const seen = new Set(existing.map((f) => f.signature));
       const appended: RetroFinding[] = [];
       for (const c of candidates) {
         if (!c.category.trim() || seen.has(c.signature) || dismissed.has(c.signature)) continue;
+        // ADR-0075: repeated dismissals make extraction stricter instead
+        // of re-proposing the same shape of finding.
+        const bar = Math.min(RETRO_THRESHOLD_CAP, thresholds.get(c.category.trim()) ?? 0);
+        if (c.confidence < bar) continue;
         seen.add(c.signature);
         appended.push({
           category: c.category.trim(),
@@ -225,17 +248,34 @@ export class RetroStore {
     return { findings, dismissed };
   }
 
-  dismiss(signature: string, now = new Date()): void {
+  /**
+   * ADR-0075: repeated dismissals of a category raise the confidence bar
+   * that category must clear — `RETRO_THRESHOLD_STEP` per dismissal,
+   * capped at `RETRO_THRESHOLD_CAP`. Stricter extraction, never a silent
+   * re-proposal. Derived from the durable dismissals, so it survives
+   * eviction of the dismissed finding itself.
+   */
+  thresholdFor(category: string): number {
+    const dismissals = this.dismissalRecords().filter((record) => record.category === category).length;
+    return Math.min(RETRO_THRESHOLD_CAP, dismissals * RETRO_THRESHOLD_STEP);
+  }
+
+  dismiss(signature: string, now = new Date(), category?: string): void {
     try {
       mkdirSync(this.dir, { recursive: true, mode: 0o700 });
       const file = join(this.dir, DISMISSED_FILE);
-      let signatures: Record<string, string> = {};
+      let signatures: Record<string, string | { category?: string; dismissedAt?: string }> = {};
       try {
-        signatures = (JSON.parse(readFileSync(file, "utf8")) as { signatures?: Record<string, string> }).signatures ?? {};
+        signatures = (JSON.parse(readFileSync(file, "utf8")) as { signatures?: Record<string, string | { category?: string; dismissedAt?: string }> }).signatures ?? {};
       } catch {
         // fresh set
       }
-      signatures[signature] = now.toISOString();
+      // The category rides the record so a dismissal keeps its lineage
+      // and its threshold after the finding itself is evicted.
+      const known = category ?? this.read().find((finding) => finding.signature === signature)?.category;
+      signatures[signature] = known
+        ? { category: known, dismissedAt: now.toISOString() }
+        : now.toISOString();
       this.#writeAtomic(file, `${JSON.stringify({ version: 1, signatures }, null, 2)}\n`);
     } catch {
       // fail-silent
@@ -277,6 +317,58 @@ export class RetroStore {
       return { count, line };
     } catch {
       return null;
+    }
+  }
+
+  /**
+   * ADR-0075 judgement threshold: one closed session counted toward the
+   * next batch. Returns the running count. Never throws.
+   */
+  noteClosedSession(now = new Date()): number {
+    try {
+      const state = this.#readJudgment();
+      const closedSinceBatch = state.closedSinceBatch + 1;
+      this.#writeAtomic(
+        join(this.dir, JUDGMENT_FILE),
+        `${JSON.stringify({ version: 1, closedSinceBatch, lastSeenAt: now.toISOString(), ...(state.lastRunAt ? { lastRunAt: state.lastRunAt } : {}) }, null, 2)}\n`,
+      );
+      return closedSinceBatch;
+    } catch {
+      return 0;
+    }
+  }
+
+  /** Closed sessions counted since the last judgement batch run. */
+  closedSinceBatch(): number {
+    return this.#readJudgment().closedSinceBatch;
+  }
+
+  /** True when the batch threshold is reached. */
+  judgmentDue(batch: number): boolean {
+    return this.closedSinceBatch() >= batch;
+  }
+
+  /** Records a completed batch run: the counter restarts at zero. */
+  markJudgmentRun(now = new Date()): void {
+    try {
+      this.#writeAtomic(
+        join(this.dir, JUDGMENT_FILE),
+        `${JSON.stringify({ version: 1, closedSinceBatch: 0, lastRunAt: now.toISOString() }, null, 2)}\n`,
+      );
+    } catch {
+      // fail-silent
+    }
+  }
+
+  #readJudgment(): JudgmentState {
+    try {
+      const parsed = JSON.parse(readFileSync(join(this.dir, JUDGMENT_FILE), "utf8")) as JudgmentState;
+      return {
+        closedSinceBatch: typeof parsed.closedSinceBatch === "number" && parsed.closedSinceBatch >= 0 ? parsed.closedSinceBatch : 0,
+        ...(typeof parsed.lastRunAt === "string" ? { lastRunAt: parsed.lastRunAt } : {}),
+      };
+    } catch {
+      return { closedSinceBatch: 0 };
     }
   }
 

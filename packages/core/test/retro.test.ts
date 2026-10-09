@@ -6,7 +6,7 @@ import { mkdtempSync, mkdirSync, rmSync, writeFileSync, chmodSync } from "node:f
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, test } from "bun:test";
-import { RetroStore, extractRetroFindings, retroSignature, RETRO_MAX_FINDINGS } from "../src/retro";
+import { RetroStore, extractRetroFindings, retroSignature, RETRO_MAX_FINDINGS, RETRO_THRESHOLD_CAP } from "../src/retro";
 import type { AgentEvent } from "../src/types";
 
 const dirs: string[] = [];
@@ -265,5 +265,42 @@ describe("retro report", () => {
     expect(report.findings[0]?.priorDismissals).toHaveLength(1);
     expect(report.findings[0]?.lineage).toBe("2026-01-02T00:00:00.000Z");
     expect(report.dismissed[0]?.signature).toBe(first.signature);
+  });
+});
+
+describe("adaptive threshold (ADR-0075)", () => {
+  test("each dismissal raises the category bar; a finding below it is not re-proposed", () => {
+    const dir = tempDir();
+    const store = new RetroStore(dir);
+    const low = { ...candidate({ category: "navigation", evidence: "pointer A", session: "s1", signature: retroSignature("navigation", "pointer A") }), confidence: 0.4 };
+    store.append([low]);
+    expect(store.read()).toHaveLength(1);
+    // Nine dismissals of the category put the bar at 0.45 — above the
+    // 0.4 finding and below the 0.6 one.
+    for (let i = 0; i < 9; i++) {
+      store.dismiss(`navigation-sig-${i}`, new Date("2026-01-02T00:00:00Z"), "navigation");
+    }
+    expect(store.thresholdFor("navigation")).toBeCloseTo(0.45);
+    const stillLow = { ...candidate({ category: "navigation", evidence: "pointer B", session: "s2", signature: retroSignature("navigation", "pointer B") }), confidence: 0.4 };
+    store.append([stillLow]);
+    expect(store.read().map((f) => f.evidence)).toEqual(["pointer A"]);
+    const high = { ...candidate({ category: "navigation", evidence: "pointer C", session: "s3", signature: retroSignature("navigation", "pointer C") }), confidence: 0.6 };
+    store.append([high]);
+    expect(store.read().map((f) => f.evidence)).toEqual(["pointer A", "pointer C"]);
+  });
+
+  test("the bar is capped and survives eviction of the dismissed finding", () => {
+    const dir = tempDir();
+    const store = new RetroStore(dir);
+    for (let i = 0; i < 40; i++) {
+      store.dismiss(`sig-${i}`, new Date("2026-01-02T00:00:00Z"), "coding-standards");
+    }
+    expect(store.thresholdFor("coding-standards")).toBe(RETRO_THRESHOLD_CAP);
+    const candidateLow = { ...candidate({ category: "coding-standards", evidence: "rule X", session: "s", signature: retroSignature("coding-standards", "rule X") }), confidence: 0.85 };
+    store.append([candidateLow]);
+    expect(store.read()).toEqual([]);
+    const candidateHigh = { ...candidate({ category: "coding-standards", evidence: "rule Y", session: "s", signature: retroSignature("coding-standards", "rule Y") }), confidence: 0.95 };
+    store.append([candidateHigh]);
+    expect(store.read().map((f) => f.evidence)).toEqual(["rule Y"]);
   });
 });
