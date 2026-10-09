@@ -106,6 +106,10 @@ export interface SlashContext {
   /** #767: opens the session analysis modal (/session). Absent
    * (headless): the command explains it needs the TUI. */
   onOpenSession?: () => void;
+  /** ADR-0075 (#1275): opens the retro report modal (/retro) — the
+   * pull-based consumption door. Absent (headless): the command points at
+   * `moh retro` instead of pretending a session command exists. */
+  onOpenRetro?: () => void;
   /** #833: opens the Jev use-case modal (/jev) — the session-warm control
    * surface. Absent (headless): the command points at the persistent
    * switches instead of pretending a session command exists. */
@@ -589,6 +593,22 @@ const sessionCommand: SlashCommand = {
   },
 };
 
+/** ADR-0075 (#1275): opens the retro report — the pull-based door where
+ * accumulated findings are reviewed, dismissed or applied. The digest
+ * only ever points here; nothing is applied without confirmation. */
+const retroCommand: SlashCommand = {
+  name: "retro",
+  description: "retro findings report (review, dismiss, apply)",
+  usage: "/retro",
+  run(ctx) {
+    if (!ctx.session) return ctx.notify("/retro needs an open session");
+    if (!ctx.onOpenRetro) return ctx.notify("/retro needs the TUI session shell — run `moh retro` instead");
+    // ADR-0075: the report replaces the digest for this session.
+    ctx.session.suppressRetroDigest();
+    ctx.onOpenRetro();
+  },
+};
+
 /** ADR-0060: opens the lanes modal — the parallel-development feature
  * groups with each lane's status, branch, base freshness and worktree
  * health. Writes stay on the CLI door (`moh lanes …`). */
@@ -809,6 +829,7 @@ export const BASE_COMMANDS: SlashCommand[] = [
   mpmCommand,
   reloadCommand,
   renameCommand,
+  retroCommand,
   routingCommand,
   sessionCommand,
   settingsCommand,

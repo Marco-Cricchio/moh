@@ -514,7 +514,7 @@ does with your answer:
 | an explicit user `deny` rule | the ask never prompts: the call is refused |
 | an explicit user `allow` rule | does not suppress the ask (judging what the rules already allow is the point) |
 | mode `auto-accept` | the ask still prompts — it is the only filter in that mode |
-| mode `yolo` | the ask is ignored and the call proceeds; use `veto` for anything lethal |
+| mode `yolo` | the ask becomes an explicit denial, recorded in the log with `permission_denied { reason: "extension" }` (#1258) — yolo lifts only moh's own prompts, never your question |
 | headless (no consent seam) | the ask degrades to a denial, like any other ask |
 | several extensions or hooks | the first decision wins, in registration order |
 

@@ -908,6 +908,16 @@ export function projectTranscript(events: ReadonlyArray<AgentEvent>, options: { 
         if (vibe) break;
         blocks.push({ key, kind: "chrome", glyph: "◈", type: "memory updated", detail: event.topics.join(", "), lines: [] });
         break;
+      case "retro_updated":
+        // ADR-0075: count-only indicator, never content, never mid-turn.
+        if (vibe) break;
+        blocks.push({ key, kind: "chrome", glyph: "◈", type: "retro findings", detail: `${event.findings} new`, lines: [] });
+        break;
+      case "retro_digest":
+        // ADR-0075: the one sanctioned proactive surface — one line at
+        // session start pointing at the report.
+        blocks.push({ key, kind: "chrome", glyph: "◈", type: "retro digest", lines: [event.line] });
+        break;
       case "compaction":
         if (vibe) break;
         blocks.push({ key, kind: "chrome", glyph: "▣", type: "context compacted", lines: [event.summary.split("\n").slice(0, 3).join("\n")] });

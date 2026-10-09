@@ -122,6 +122,7 @@ TUI manual (ctrl+h / /help) and docs/manual/.`,
     { heading: "moh usage", body: extractUsage("USAGE_USAGE", "usage.ts") },
     { heading: "moh jev", body: extractUsage("JEV_USAGE", "jev.ts") },
     { heading: "moh browser", body: extractUsage("BROWSER_USAGE", "browser.ts") },
+    { heading: "moh retro", body: extractUsage("RETRO_USAGE", "retro.ts") },
     { heading: "moh secret", body: extractUsage("SECRET_USAGE", "secret.ts") },
   ];
   const lines: string[] = [

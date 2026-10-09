@@ -31,6 +31,7 @@ commands:
   secret   user-owned extension secrets (see: moh secret --help)
   handoff  publish a session handoff (see: moh handoff --help)
   browser  browser tool status and setup (see: moh browser --help)
+  retro    review accumulated retro findings (see: moh retro --help)
 
 options:
   --yolo     unrestricted tools: no permission prompts, no filesystem
@@ -313,10 +314,11 @@ usage: moh lanes group <name> [--target <ref>] [--cwd <dir>]
        moh lanes remove <lane-id> [--force] [--cwd <dir>]
        moh lanes delete <lane-id> [--keep-worktree] [--cwd <dir>]
        moh lanes cleanup [--min-age-days <n>] [--apply] [--cwd <dir>]
+       moh lanes repair [--apply] [--cwd <dir>]
 
 Parallel development lanes (feature groups + isolated worktrees): each
-lane owns one worktree and one ordinary git branch, so concurrent sessions
-never share uncommitted state. Metadata and worktrees live under
+lane owns one worktree, one ordinary git branch and its own dependency
+install. Metadata and worktrees live under
 ~/.moh/projects/<slug>/ (development-lanes.json and lanes/<branch>) —
 never in the repository.
 
@@ -326,9 +328,11 @@ never in the repository.
                             ref's exact revision. --base defaults to the
                             group's target. The session id binds the lane
                             to one session; a duplicate active worktree or
-                            session is refused.
+                            session is refused. The project's declared
+                            dependency install runs in the new worktree
+                            (see install below).
   list [--group]            lanes (and groups) with status, branch, base
-                            freshness and worktree health
+                            freshness, worktree health and install state
   show <lane-id>            one lane's full record
   integrate <lane-id>       merge the lane branch into the group's target.
                             On conflict the target merge is aborted and the
@@ -353,8 +357,22 @@ never in the repository.
                             branch + registry row). Dirty lanes are
                             reported but never touched. Without --apply it
                             is a dry run.
+  repair [--apply]          repair the CHECKOUT's own install when it
+                            drifted (its workspace links resolve outside
+                            it). Without --apply it only reports: the
+                            method is remove \`node_modules/@moh\` and
+                            reinstall — a plain install does not repair a
+                            satisfied foreign link.
 
-  --cwd     project root the lanes belong to (default: process.cwd())
+  install       a lane installs what its project declares, in its own
+                worktree: the lanes.setup user-config key (a command, or
+                false for nothing), then package.json's packageManager,
+                then the lockfile table (bun/npm/yarn/pnpm/uv/composer/
+                mix/poetry/bundler). A user-level store (Cargo, Go,
+                Maven/Gradle, NuGet) runs nothing and reports nothing; a
+                manifest with no recognized command is reported once.
+                moh never invents a command.
+  --cwd         project root the lanes belong to (default: process.cwd())
 ```
 
 ## moh usage
@@ -443,6 +461,31 @@ options:
                    password
   --cwd <dir>      project root (default: process.cwd())
   --help           show this help
+```
+
+## moh retro
+
+```
+usage: moh retro [--json] [--dismiss <signature>] [--apply <signature> [--yes]] [--cwd <dir>]
+
+Reviews the retro findings accumulated for this project (ADR-0075).
+Findings are ordered by confidence and each shows its category, evidence
+and signature; prior dismissals of the same category are shown as
+lineage, never hidden.
+
+  --json              emit the report as JSON
+  --dismiss <sig>     record a durable dismissal: that observation is
+                      never proposed again, and repeated dismissals of a
+                      category raise the bar its extraction must clear
+  --apply <sig>       show the concrete change the finding proposes
+                      (a rule, a check, a navigation pointer); with --yes
+                      the change is written, appended under a
+                      "## Retro findings" heading — existing prose is
+                      never edited, and nothing is written without --yes
+  --cwd <dir>         the project root (default: process.cwd())
+
+Findings never reach the system prompt or a steering file on their own.
+In the TUI, /retro opens the same report in-session.
 ```
 
 ## moh secret

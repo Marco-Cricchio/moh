@@ -25,6 +25,7 @@ page is the same content in manual form, plus the manual's own entries
 | ctrl+r | rename the current session |
 | ctrl+g | keep my branch (while the external-growth warning is up): move the head back to your local tip |
 | ctrl+b | browser setup (while the browser-toolchain warning is up): enable, headless/headful, install |
+| ctrl+l | model picker (ctrl+m as well, where the terminal reports it distinctly — kitty-protocol terminals) |
 | ctrl+k / ? | this command list |
 | tab | focus chips: subagent chips first (when running), then action chips |
 | shift+tab | rotate permission mode: normal → auto-accept → yolo → normal (leaves yolo) |
@@ -54,6 +55,7 @@ page is the same content in manual form, plus the manual's own entries
 | /model | model picker (r refreshes live model lists) |
 | /reload | hot-reload moh.json + user config |
 | /rename `<name>` | rename the current session |
+| /retro | retro findings report (review, dismiss, apply) |
 | /routing | model routing: state, pause/resume, release the override |
 | /session | session analysis report (usage, tools, shape — snapshot at open) |
 | /settings | settings panel |

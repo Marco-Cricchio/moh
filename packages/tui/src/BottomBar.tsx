@@ -17,7 +17,7 @@ export interface ChipSpec { key: string; label: ChipAction; color?: "purple" }
 
 const ALL_CHIPS: ChipSpec[] = [
   { key: "⏎", label: "send" }, { key: "esc", label: "stop" },
-  { key: "^m", label: "model" }, { key: "^o", label: "mode" },
+  { key: "^l", label: "model" }, { key: "^o", label: "mode" },
   { key: "^k", label: "commands" },
   { key: "^s", label: "settings" }, { key: "^w", label: "workflow", color: "purple" },
   { key: "^f", label: "frontier", color: "purple" },

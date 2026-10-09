@@ -644,6 +644,18 @@ type AgentEventBase =
    */
   | { type: "memory_updated"; entries: number; topics: string[] }
   /**
+   * Retro findings (ADR-0075, #1274): the close-of-session mechanical
+   * pass appended new findings. Discreet by design — a count, never
+   * content, never mid-turn; clients may show an indicator.
+   */
+  | { type: "retro_updated"; findings: number }
+  /**
+   * Retro digest (ADR-0075, #1274): the one sanctioned proactive
+   * surface — one line at session start when findings accumulated since
+   * the last digest (48h rate limit). Points at `moh retro` (#1275).
+   */
+  | { type: "retro_digest"; count: number; line: string }
+  /**
    * #400 single-writer guard: the session JSONL grew beyond what this
    * writer last appended (another machine over a sync channel, or a second
    * process). Chrome only: never provider context. Clients surface a

@@ -1,8 +1,20 @@
-import { existsSync, mkdirSync, readFileSync, statSync, symlinkSync } from "node:fs";
+import { existsSync, lstatSync, readFileSync, rmSync, statSync } from "node:fs";
 import { dirname, isAbsolute, join, resolve, sep } from "node:path";
 import { homedir } from "node:os";
 import { projectSessionsDir } from "./session-store";
+import { readUserConfigFile, userConfigFile } from "./user-config";
 import { DevelopmentLaneStore, type DevelopmentLane, type LaneRelation, type LaneStatus } from "./development-lanes";
+import {
+  detectLaneSetup,
+  foreignStore,
+  foreignWorkspaceLinks,
+  installLaneDependencies,
+  laneOwnsInstall,
+  removeForeignStore,
+  sameInstallOutcome,
+  type LaneInstallOutcome,
+  type LaneInstallRunner,
+} from "./lane-install";
 
 
 /** One Git invocation result, normalized for the lane lifecycle. */
@@ -38,6 +50,13 @@ export interface LaneServiceOptions {
   home?: string;
   /** Injectable Git runner (tests); default spawns the `git` CLI. */
   git?: LaneGitRunner;
+  /** The `lanes.setup` user-config key (ADR-0060 amendment 5): the last
+   * word on what a lane installs — a command, or `false` for a project
+   * that has nothing to install. Undefined falls back to the project's
+   * own declaration. */
+  setup?: string | false;
+  /** Injectable dependency installer (tests); default spawns a shell. */
+  install?: LaneInstallRunner;
 }
 
 export interface CreateWorktreeLaneInput {
@@ -59,6 +78,7 @@ export type LaneOperationError =
   | { kind: "worktree-exists"; message: string }
   | { kind: "conflict"; message: string }
   | { kind: "registry"; message: string }
+  | { kind: "install"; message: string }
   | { kind: "git"; message: string };
 
 export type LaneOperationResult<T> = { ok: true; value: T } | { ok: false; error: LaneOperationError };
@@ -81,6 +101,9 @@ export class DevelopmentLaneService {
   /** Where the session actually runs (a lane worktree or the checkout). */
   readonly #sessionCwd: string;
   readonly #git: LaneGitRunner;
+  /** The `lanes.setup` last word, resolved by the client. */
+  readonly #setup: string | false | undefined;
+  readonly #install: LaneInstallRunner | undefined;
 
   constructor(options: LaneServiceOptions) {
     // A service constructed inside a lane worktree is remapped to the main
@@ -93,6 +116,8 @@ export class DevelopmentLaneService {
     this.#sessionCwd = options.cwd;
     this.#store = new DevelopmentLaneStore({ cwd: this.#cwd, home: options.home });
     this.#git = options.git ?? defaultLaneGitRunner;
+    this.#setup = options.setup;
+    this.#install = options.install;
   }
 
   get store(): DevelopmentLaneStore {
@@ -173,7 +198,46 @@ export class DevelopmentLaneService {
       // it visibly — the worktree exists and the caller can abandon it.
       return fail("registry", error instanceof Error ? error.message : String(error));
     }
-    return { ok: true, value: created };
+    // The install is the last step before the lane is usable (ADR-0060
+    // amendment 5): the lane exists either way, its outcome is on the row.
+    const ensured = await this.#ensureLaneInstall(created);
+    return { ok: true, value: ensured.lane };
+  }
+
+  /**
+   * Ensures a lane owns its dependency install: the install the project
+   * declares, run in the lane's own worktree (ADR-0060 amendment 5). A
+   * store that is not the lane's own — the removed checkout symlink,
+   * foreign workspace links, a missing install, a previous failure — is
+   * discarded before that install: installing *through* a foreign store
+   * would write into the checkout (or another lane), which is the very
+   * failure this replaced. The outcome is recorded on the lane row and
+   * returned when it is news: a failure, or a first visible
+   * nothing-to-install reason (reported once, not on every open).
+   */
+  async #ensureLaneInstall(lane: DevelopmentLane): Promise<{ lane: DevelopmentLane; install?: LaneInstallOutcome }> {
+    const detection = detectLaneSetup(lane.worktreePath, this.#setup);
+    if (detection.kind === "nothing") {
+      // Nothing to run, nothing to report unless a manifest is present and
+      // unrecognized — and even then only the first time.
+      if (!detection.reason) return { lane };
+      const outcome: LaneInstallOutcome = { kind: "nothing", at: new Date().toISOString(), reason: detection.reason };
+      if (sameInstallOutcome(lane.install, outcome)) return { lane };
+      const recorded = this.#store.setInstall(lane.id, outcome);
+      return { lane: recorded, install: outcome };
+    }
+    // Already this lane's own, from a successful install: nothing pending.
+    if (laneOwnsInstall(lane.worktreePath) && lane.install?.kind === "installed") return { lane };
+    // A store that is not the lane's own is never installed through: the
+    // foreign directory (a symlink to the checkout's install, a worktree
+    // a previous lane lay under) goes first, so the install lands here.
+    removeForeignStore(lane.worktreePath);
+    const outcome = await installLaneDependencies({
+      worktreePath: lane.worktreePath,
+      setup: this.#setup,
+      ...(this.#install ? { runner: this.#install } : {}),
+    });
+    return { lane: this.#store.setInstall(lane.id, outcome), install: outcome };
   }
 
   /** The feature group's declared target ref; "develop" when unknown. */
@@ -316,11 +380,14 @@ export class DevelopmentLaneService {
    *   dependency — the user can stack later via `moh lanes`);
    * - `task` names the lane (issue id / task slug) so a stale lane is
    *   identifiable weeks later;
-   * - `node_modules` is symlinked from the checkout when present so the
-   *   lane reuses the shared install instead of paying a fresh one.
+   * - the lane installs its own dependencies (ADR-0060 amendment 5): the
+   *   project's declared install runs in the lane's worktree as the last
+   *   provisioning step, and a lane whose `node_modules` is not its own
+   *   converts to one. Nothing is shared with the checkout.
    *
    * Failure is non-fatal by design: a lane problem degrades to a plain
-   * session and the reason is returned for one visible notice.
+   * session and the reason is returned for one visible notice. A failed
+   * install keeps the lane and is reported through `install`.
    */
   async ensureSessionLane(options: {
     /** Stable session correlation for the lane record and branch name. */
@@ -335,7 +402,7 @@ export class DevelopmentLaneService {
      * about (its open-session count minus itself). Evidence of parallelism
      * for the lazy check, without registry state. */
     liveSiblingSessions?: number;
-  }): Promise<{ lane: DevelopmentLane | null; reason?: string }> {
+  }): Promise<{ lane: DevelopmentLane | null; reason?: string; install?: LaneInstallOutcome }> {
     if (options.auto === false) return { lane: null };
     // Inside an existing lane worktree: reuse it — never nest lanes.
     // (Checked against the SESSION cwd — the constructor remaps #cwd to the
@@ -349,7 +416,8 @@ export class DevelopmentLaneService {
       // A session that opens with a task in hand names its lane — the
       // label is what makes a stale lane identifiable later.
       if (options.task) this.#store.setLabel(existing.id, options.task);
-      return { lane: existing };
+      const ensured = await this.#ensureLaneInstall(existing);
+      return { lane: ensured.lane, ...(ensured.install ? { install: ensured.install } : {}) };
     }
     if (!existsSync(join(this.#cwd, ".git"))) {
       return { lane: null, reason: "not a git repository" };
@@ -386,7 +454,11 @@ export class DevelopmentLaneService {
     const mine = this.#store.listLanes().find(
       (candidate) => candidate.sessionId === sessionId && !["landed", "abandoned"].includes(candidate.status),
     );
-    if (mine && this.worktreeExists(mine)) return { lane: mine };
+    if (mine && this.worktreeExists(mine)) {
+      const current = options.task ? this.#store.setLabel(mine.id, options.task) : mine;
+      const ensured = await this.#ensureLaneInstall(current);
+      return { lane: ensured.lane, ...(ensured.install ? { install: ensured.install } : {}) };
+    }
     const result = await this.createWorktreeLane({
       featureGroupId: group.id,
       sessionId,
@@ -401,15 +473,15 @@ export class DevelopmentLaneService {
       );
       if (registered && this.worktreeExists(registered)) {
         if (options.task) this.#store.setLabel(registered.id, options.task);
-        return { lane: registered };
+        const ensured = await this.#ensureLaneInstall(registered);
+        return { lane: ensured.lane, ...(ensured.install ? { install: ensured.install } : {}) };
       }
       return { lane: null, reason: result.error.message };
     }
     // Name the lane after the work: the issue id / task slug is what an
     // old lane is recognized by weeks later.
     const labeled = options.task ? this.#store.setLabel(result.value.id, options.task) : result.value;
-    this.#shareNodeModules(labeled.worktreePath);
-    return { lane: labeled };
+    return { lane: labeled, ...(labeled.install ? { install: labeled.install } : {}) };
   }
 
   /**
@@ -452,22 +524,54 @@ export class DevelopmentLaneService {
     return { ok: true, value: report };
   }
 
-  /** Shares the checkout's node_modules with a fresh worktree (fail-silent). */
-  #shareNodeModules(worktreePath: string): void {
-    try {
-      const source = join(this.#cwd, "node_modules");
-      const target = join(worktreePath, "node_modules");
-      if (existsSync(source) && !existsSync(target)) {
-        // The worktree directory may be missing in degraded flows; creating
-        // it is harmless (git materializes it in the normal path).
-        mkdirSync(worktreePath, { recursive: true });
-        symlinkSync(source, target, process.platform === "win32" ? "junction" : "dir");
-      }
-    } catch {
-      // A failed share is invisible; the lane still works (its own install).
-    }
+  /**
+   * Read-only drift check on the checkout's own install (ADR-0060
+   * amendment 5, never a mutation): the checkout and every lane used to
+   * resolve `@moh/*` to whichever lane ran the last `bun install`. A
+   * satisfied foreign link is not repaired by reinstalling, so the check
+   * names the method the repair door runs.
+   */
+  checkoutInstallDrift(): LaneInstallDrift {
+    const store = join(this.#cwd, "node_modules");
+    if (!existsSync(store)) return { checkoutPath: this.#cwd, drifted: false, symlinked: false, foreign: [] };
+    const symlinked = foreignStore(this.#cwd);
+    const foreign = foreignWorkspaceLinks(this.#cwd);
+    return { checkoutPath: this.#cwd, drifted: symlinked || foreign.length > 0, symlinked: lstatSync(store).isSymbolicLink(), foreign };
   }
 
+  /**
+   * The repair door for a drifted checkout: dry run by default, applying
+   * only on request. The method is the one that works — remove the
+   * workspace links and reinstall; a plain `bun install` does not repair a
+   * satisfied foreign link.
+   */
+  async repairCheckoutInstall(options: { apply?: boolean } = {}): Promise<LaneOperationResult<LaneInstallRepair>> {
+    const drift = this.checkoutInstallDrift();
+    const detection = detectLaneSetup(this.#cwd, this.#setup);
+    const repair: LaneInstallRepair = {
+      ...drift,
+      command: detection.kind === "install" ? detection.command : null,
+      applied: false,
+    };
+    if (!drift.drifted || options.apply !== true) return { ok: true, value: repair };
+    const links = join(this.#cwd, "node_modules", "@moh");
+    try {
+      if (existsSync(links)) rmSync(links, { recursive: true, force: true });
+    } catch (error) {
+      return fail("install", `cannot remove the workspace links: ${error instanceof Error ? error.message : String(error)}`);
+    }
+    if (detection.kind === "install") {
+      const outcome = await installLaneDependencies({
+        worktreePath: this.#cwd,
+        setup: this.#setup,
+        ...(this.#install ? { runner: this.#install } : {}),
+      });
+      if (outcome.kind === "failed") {
+        return fail("install", `reinstall failed: ${outcome.reason}`);
+      }
+    }
+    return { ok: true, value: { ...repair, applied: true } };
+  }
 
   /**
    * The branch the lane's worktree actually has checked out. Agents create
@@ -566,6 +670,25 @@ export interface LaneConflict {
   laneRevision: string;
 }
 
+/** Read-only verdict on the checkout's own dependency install (ADR-0060
+ * amendment 5): drifted when `node_modules` is a symlink or a workspace
+ * link under it resolves outside the checkout. */
+export interface LaneInstallDrift {
+  checkoutPath: string;
+  drifted: boolean;
+  /** `node_modules` itself is a symlink — the removed sharing shape. */
+  symlinked: boolean;
+  /** Workspace links escaping the checkout, as `name → target`. */
+  foreign: string[];
+}
+
+/** What the repair door found, and (when applied) did. `command` is the
+ * install the checkout declares, or null when it declares none. */
+export interface LaneInstallRepair extends LaneInstallDrift {
+  command: string | null;
+  applied: boolean;
+}
+
 /** Lane worktree root for a project: `<home>/.moh/projects/<slug>/lanes/`
  * (ADR-0060 amendment 4). Worktrees live under the user's moh home, next
  * to the project's session store and lane registry — never inside or
@@ -622,6 +745,27 @@ export function mainCheckoutFor(cwd: string): string | null {
 export function resolveWorktreePath(cwd: string, branchRef: string, home = homedir()): string {
   if (!isAbsolute(cwd)) throw new Error("cwd must be absolute");
   return resolve(laneWorktreeRootFor(cwd, home), laneWorktreeDirName(branchRef));
+}
+
+/**
+ * The `lanes.setup` user-config key (ADR-0060 amendment 5): a command a
+ * lane runs to install its dependencies, or `false` for a project that has
+ * nothing to install. Read where `lanes.auto` is read — the client owns
+ * the config file, the service takes the resolved value; this is the one
+ * place the key's shape is parsed, so no client invents a second rule.
+ * Anything else (a non-string, an empty string) is ignored: the project's
+ * own declaration takes over. A missing or unreadable config is unset.
+ */
+export function readLaneSetup(home?: string): string | false | undefined {
+  try {
+    const config = readUserConfigFile(userConfigFile(home)) as { lanes?: { setup?: unknown } };
+    const value = config.lanes?.setup;
+    if (value === false) return false;
+    if (typeof value === "string" && value.trim()) return value.trim();
+    return undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 export interface CleanupCandidate {
