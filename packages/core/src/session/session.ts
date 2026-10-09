@@ -6,6 +6,10 @@ import { SCHEMA_VERSION } from "../types";
 import type { ExtensionLiveInfo } from "../extensions-screen";
 import { normalizeTaskId, taskDeclaredEvent, taskOutcomeEvent, taskVerificationEvent } from "../task/telemetry";
 import { newUlid } from "./ulid";
+
+/** ADR-0076: the composer `!` door's fixed timeout, independent of the bash
+ * tool's own timeout config (its default stays the model path's 30s). */
+const COMPOSER_BASH_TIMEOUT_MS = 120_000;
 import { substituteSkillArgs } from "../skill-args";
 import { localTipAt, fileTailId, resolveEventRef } from "../session-store";
 import { activePath, pathTo, resolveHead } from "./event-log";
@@ -1638,6 +1642,39 @@ export class AgentSession {
   /** Tools registered on this session, including connected MCP tools. */
   get tools(): Record<string, Tool> {
     return this.#allTools();
+  }
+
+  /**
+   * ADR-0076: the composer's `!` command door — one user-invoked bash call
+   * through the same ToolRunner the model uses (same rule grammar, same
+   * extension veto, same pathScopes), with a fixed 120s timeout independent
+   * of the bash tool's own timeout config. The call is a real participant
+   * in the log: one `tool_call`/`tool_result` pair under a fresh callId,
+   * so the transcript renders it and the agent sees it next turn. The ask
+   * context is `source: "user"` — the client renders its reduced y/n
+   * prompt; yolo and auto-accept lift it exactly like a model call.
+   */
+  async runBash(command: string, options: { signal?: AbortSignal } = {}): Promise<{ ok: boolean; output: string }> {
+    const callId = newUlid();
+    const args = { command, timeoutMs: COMPOSER_BASH_TIMEOUT_MS };
+    this.#append({ type: "tool_call", callId, name: "bash", args, timeoutMs: COMPOSER_BASH_TIMEOUT_MS });
+    const outcome = await this.#toolRunner.runSeamCall(
+      "bash",
+      args,
+      callId,
+      options.signal ?? new AbortController().signal,
+      undefined,
+      { source: "user", reason: "composer ! command" },
+    );
+    this.#append({
+      type: "tool_result",
+      callId,
+      ok: outcome.ok,
+      output: outcome.output,
+      ...(outcome.errorKind ? { errorKind: outcome.errorKind } : {}),
+      ...(outcome.image ? { image: outcome.image } : {}),
+    });
+    return { ok: outcome.ok, output: outcome.output };
   }
 
   /** Path of the JSONL session file this session appends to (via the

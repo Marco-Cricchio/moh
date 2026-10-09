@@ -1619,6 +1619,7 @@ function AppShell({
       onFirstSend={handleFirstSend}
       branchFrom={branchFrom}
       onBranchFromDismiss={() => setBranchFrom(null)}
+      onNotify={(text) => push(text, "warn")}
       notice={toasts.at(-1)?.text}
       updateMessage={statusRowUpdateText(updateNotice ? updateNoticeText(updateNotice) : null, skillUpdateCount)}
       submitSignal={submitSignal}
