@@ -1,8 +1,9 @@
 import { describe, expect, test } from "bun:test";
-import { existsSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { existsSync, lstatSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { DevelopmentLaneService, mainCheckoutFor, resolveWorktreePath, type LaneGitRunner, type LaneGitResult } from "../src/index";
+import { join, dirname } from "node:path";
+import { DevelopmentLaneService, mainCheckoutFor, readLaneSetup, resolveWorktreePath, type LaneGitRunner, type LaneGitResult } from "../src/index";
+import { laneOwnsInstall } from "../src/lane-install";
 
 function project(): { cwd: string; home: string } {
   const cwd = mkdtempSync(join(tmpdir(), "moh-lane-svc-"));
@@ -18,6 +19,34 @@ function fakeGit(respond: (args: string[]) => LaneGitResult | undefined): { runn
     return respond(args) ?? { code: 0, stdout: "", stderr: "" };
   };
   return { runner, calls };
+}
+
+/**
+ * A git runner whose `worktree add` materializes the tree the branch
+ * declares — the files the lane's own detection reads. The other calls
+ * answer like a repository on `develop`.
+ */
+function laneRunner(files: Record<string, string>): { runner: LaneGitRunner; calls: string[][] } {
+  const base = fakeGit((args) => {
+    if (args[0] === "rev-parse" && args[1] === "--abbrev-ref") return { code: 0, stdout: "develop\n", stderr: "" };
+    if (args[0] === "rev-parse" && args[2]!.startsWith("refs/heads/")) return { code: 1, stdout: "", stderr: "" };
+    if (args[0] === "rev-parse") return { code: 0, stdout: "base000\n", stderr: "" };
+    return { code: 0, stdout: "", stderr: "" };
+  });
+  const runner: LaneGitRunner = async (args, options) => {
+    if (args[0] === "worktree" && args[1] === "add") {
+      const path = args[4]!;
+      for (const [name, body] of Object.entries(files)) {
+        const target = join(path, name);
+        mkdirSync(dirname(target), { recursive: true });
+        writeFileSync(target, body);
+      }
+      mkdirSync(path, { recursive: true });
+      writeFileSync(join(path, ".git"), `gitdir: ${join(options.cwd, ".git", "worktrees", "w")}\n`);
+    }
+    return base.runner(args, options);
+  };
+  return { runner, calls: base.calls };
 }
 
 describe("development lane service", () => {
@@ -473,19 +502,192 @@ describe("ensureSessionLane (auto-lane, ADR-0060)", () => {
     expect(reason).toBe("detached HEAD");
   });
 
-  test("shares the checkout's node_modules into the fresh worktree", async () => {
+  test("a fresh lane installs its own dependencies — never a link to the checkout's store", async () => {
     const cwd = gitRepo();
-    mkdirSync(join(cwd, "node_modules"));
+    // The checkout's own store: what the lane must NOT reuse.
+    mkdirSync(join(cwd, "node_modules"), { recursive: true });
     const home = mkdtempSync(join(tmpdir(), "h-"));
-    const { runner } = fakeGit((args) => {
-      if (args[0] === "rev-parse" && args[1] === "--abbrev-ref") return { code: 0, stdout: "develop\n", stderr: "" };
-      if (args[0] === "rev-parse" && args[2]!.startsWith("refs/heads/")) return { code: 1, stdout: "", stderr: "" };
-      if (args[0] === "rev-parse") return { code: 0, stdout: "b3\n", stderr: "" };
-      return { code: 0, stdout: "", stderr: "" };
+    const { runner } = laneRunner({ "package.json": JSON.stringify({ name: "proj", packageManager: "bun@1.2.19" }), "bun.lock": "lock-v1" });
+    // The installer stands in for bun: it writes the lane's OWN store, with
+    // the workspace links inside the worktree, exactly as bun does for a
+    // real (non-symlinked) install.
+    const installs: { command: string; cwd: string }[] = [];
+    const service = new DevelopmentLaneService({
+      cwd,
+      home,
+      git: runner,
+      install: async ({ command, cwd: installCwd }) => {
+        installs.push({ command, cwd: installCwd });
+        mkdirSync(join(installCwd, "node_modules", "@moh"), { recursive: true });
+        mkdirSync(join(installCwd, "packages", "core"), { recursive: true });
+        symlinkSync(join(installCwd, "packages", "core"), join(installCwd, "node_modules", "@moh", "core"));
+        return { ok: true, output: "" };
+      },
     });
-    const service = new DevelopmentLaneService({ cwd, home, git: runner });
-    const { lane } = await service.ensureSessionLane({ sessionId: "nm1", force: true });
-    expect(existsSync(join(lane!.worktreePath, "node_modules"))).toBe(true);
+    const { lane, install } = await service.ensureSessionLane({ sessionId: "nm1", force: true });
+    expect(installs.map((i) => i.command)).toEqual(["bun install"]);
+    expect(installs[0]!.cwd).toBe(lane!.worktreePath);
+    expect(install).toEqual({ kind: "installed", command: "bun install", fingerprint: expect.any(String), at: expect.any(String) });
+    // The lane owns a real directory — not the removed symlink to the
+    // checkout's install — and nothing inside it escapes the lane.
+    expect(lstatSync(join(lane!.worktreePath, "node_modules")).isSymbolicLink()).toBe(false);
+    expect(laneOwnsInstall(lane!.worktreePath)).toBe(true);
+    expect(service.listLanes()[0]!.install!.kind).toBe("installed");
+  });
+
+  test("a lane opened with a shared node_modules converts to its own install", async () => {
+    const cwd = gitRepo();
+    mkdirSync(join(cwd, "node_modules"), { recursive: true });
+    const home = mkdtempSync(join(tmpdir(), "h-"));
+    const { runner } = laneRunner({ "package.json": JSON.stringify({ name: "proj", packageManager: "bun@1.2.19" }) });
+    const installs: { cwd: string; foreign: boolean }[] = [];
+    const install = async ({ cwd: installCwd }: { command: string; cwd: string }) => {
+      // What the installer sees is the point: the foreign store is already
+      // gone, so the install cannot write through it into the checkout.
+      installs.push({ cwd: installCwd, foreign: existsSync(join(installCwd, "node_modules")) });
+      mkdirSync(join(installCwd, "node_modules"), { recursive: true });
+      return { ok: true, output: "" };
+    };
+    const service = new DevelopmentLaneService({ cwd, home, git: runner, install });
+    const { lane } = await service.ensureSessionLane({ sessionId: "conv", force: true });
+    expect(installs).toEqual([{ cwd: lane!.worktreePath, foreign: false }]);
+    // Reintroduce the removed sharing by hand: the lane's store IS the
+    // checkout's install (a symlink), so resolution would be the checkout's.
+    rmSync(join(lane!.worktreePath, "node_modules"), { recursive: true, force: true });
+    symlinkSync(join(cwd, "node_modules"), join(lane!.worktreePath, "node_modules"));
+    // A session opening inside the lane refuses that store, discards it, and
+    // installs its own — it never installs through the link.
+    const nested = new DevelopmentLaneService({ cwd: lane!.worktreePath, home, git: runner, install });
+    const again = await nested.ensureSessionLane({ sessionId: "conv2" });
+    expect(again.lane!.id).toBe(lane!.id);
+    expect(installs).toEqual([
+      { cwd: lane!.worktreePath, foreign: false },
+      { cwd: lane!.worktreePath, foreign: false },
+    ]);
+    expect(lstatSync(join(lane!.worktreePath, "node_modules")).isSymbolicLink()).toBe(false);
+    // The checkout is untouched: the sharing did not move, it disappeared.
+    expect(lstatSync(join(cwd, "node_modules")).isSymbolicLink()).toBe(false);
+  });
+
+  test("a failed install keeps the lane and reports the reason; the next open retries", async () => {
+    const cwd = gitRepo();
+    const home = mkdtempSync(join(tmpdir(), "h-"));
+    const { runner } = laneRunner({ "package.json": JSON.stringify({ name: "proj", packageManager: "bun@1.2.19" }) });
+    let attempts = 0;
+    const service = new DevelopmentLaneService({
+      cwd, home, git: runner,
+      install: async () => {
+        attempts += 1;
+        return { ok: false, output: "error: no such package\nsecond line" };
+      },
+    });
+    const first = await service.ensureSessionLane({ sessionId: "f1", force: true });
+    expect(first.lane).toBeDefined();
+    expect(first.install).toEqual({ kind: "failed", command: "bun install", reason: "error: no such package", at: expect.any(String) });
+    expect(service.listLanes()[0]!.install!.kind).toBe("failed");
+    // The lane is real and reusable; the failure is not sticky.
+    const second = await service.ensureSessionLane({ sessionId: "f1" });
+    expect(second.lane!.id).toBe(first.lane!.id);
+    expect(attempts).toBe(2);
+  });
+
+  test("nothing to install stays silent, and an unrecognized project is reported once", async () => {
+    const cwd = gitRepo();
+    const home = mkdtempSync(join(tmpdir(), "h-"));
+    const installs: string[] = [];
+    // A user-level store (Rust): nothing to run, nothing to report.
+    const rust = new DevelopmentLaneService({
+      cwd, home,
+      git: laneRunner({ "Cargo.toml": "[package]\nname = \"x\"", "Cargo.lock": "lock" }).runner,
+      install: async ({ command }) => {
+        installs.push(command);
+        return { ok: true, output: "" };
+      },
+    });
+    const rustLane = await rust.ensureSessionLane({ sessionId: "rust", force: true });
+    expect(rustLane.install).toBeUndefined();
+    expect(rustLane.lane!.install).toBeUndefined();
+    expect(installs).toEqual([]);
+    // A manifest with no recognized command: a visible reason, once —
+    // never a command moh invented, and never repeated on the next open.
+    const unknown = new DevelopmentLaneService({
+      cwd, home: mkdtempSync(join(tmpdir(), "h-")),
+      git: laneRunner({ "pyproject.toml": "[project]\nname = \"x\"" }).runner,
+      install: async ({ command }) => {
+        installs.push(command);
+        return { ok: true, output: "" };
+      },
+    });
+    const first = await unknown.ensureSessionLane({ sessionId: "py", force: true });
+    expect(first.install).toEqual({ kind: "nothing", reason: expect.stringContaining("lanes.setup"), at: expect.any(String) });
+    expect(installs).toEqual([]);
+    const second = await unknown.ensureSessionLane({ sessionId: "py" });
+    expect(second.install).toBeUndefined();
+    expect(second.lane!.install!.kind).toBe("nothing");
+  });
+
+  test("lanes.setup is the last word, and false records nothing to install", async () => {
+    const cwd = gitRepo();
+    const home = mkdtempSync(join(tmpdir(), "h-"));
+    const files = { "package.json": JSON.stringify({ name: "proj", packageManager: "bun@1.2.19" }) };
+    const installs: string[] = [];
+    const custom = new DevelopmentLaneService({
+      cwd, home, git: laneRunner(files).runner, setup: "make deps",
+      install: async ({ command }) => {
+        installs.push(command);
+        return { ok: true, output: "" };
+      },
+    });
+    const configured = await custom.ensureSessionLane({ sessionId: "cfg", force: true });
+    expect(installs).toEqual(["make deps"]);
+    expect(configured.install).toEqual({ kind: "installed", command: "make deps", fingerprint: "", at: expect.any(String) });
+    const none = new DevelopmentLaneService({
+      cwd, home: mkdtempSync(join(tmpdir(), "h-")), git: laneRunner(files).runner, setup: false,
+      install: async ({ command }) => {
+        installs.push(command);
+        return { ok: true, output: "" };
+      },
+    });
+    const bare = await none.ensureSessionLane({ sessionId: "off", force: true });
+    expect(bare.install).toBeUndefined();
+    expect(bare.lane!.install).toBeUndefined();
+    expect(installs).toEqual(["make deps"]);
+  });
+
+  test("the checkout's drift is reported read-only, and repair is the only door", async () => {
+    const cwd = gitRepo();
+    const home = mkdtempSync(join(tmpdir(), "h-"));
+    const service = new DevelopmentLaneService({ cwd, home, git: fakeGit(() => ({ code: 0, stdout: "", stderr: "" })).runner });
+    expect(service.checkoutInstallDrift().drifted).toBe(false);
+    // A foreign workspace link: the checkout resolves @moh/* elsewhere.
+    const elsewhere = join(mkdtempSync(join(tmpdir(), "moh-elsewhere-")), "core");
+    mkdirSync(elsewhere, { recursive: true });
+    mkdirSync(join(cwd, "node_modules", "@moh"), { recursive: true });
+    symlinkSync(elsewhere, join(cwd, "node_modules", "@moh", "core"));
+    const drift = service.checkoutInstallDrift();
+    expect(drift.drifted).toBe(true);
+    expect(drift.foreign[0]).toContain("core →");
+    // A read-only check mutates nothing.
+    expect(lstatSync(join(cwd, "node_modules", "@moh", "core")).isSymbolicLink()).toBe(true);
+    // Dry run: reports the method, changes nothing.
+    const dry = await service.repairCheckoutInstall();
+    expect(dry.ok && dry.value.applied).toBe(false);
+    expect(existsSync(join(cwd, "node_modules", "@moh"))).toBe(true);
+    // Apply: the workspace links are removed and the project reinstalls.
+    writeFileSync(join(cwd, "package.json"), JSON.stringify({ name: "proj", packageManager: "bun@1.2.19" }));
+    const installs: string[] = [];
+    const repairer = new DevelopmentLaneService({
+      cwd, home,
+      install: async ({ command }) => {
+        installs.push(command);
+        return { ok: true, output: "" };
+      },
+    });
+    const applied = await repairer.repairCheckoutInstall({ apply: true });
+    expect(applied.ok && applied.value.applied).toBe(true);
+    if (applied.ok) expect(applied.value.command).toBe("bun install");
+    expect(existsSync(join(cwd, "node_modules", "@moh"))).toBe(false);
+    expect(installs).toEqual(["bun install"]);
   });
 });
 
@@ -627,5 +829,31 @@ describe("service.remove (registry-only single-lane removal)", () => {
     expect(removed.ok).toBe(true);
     expect(service.listLanes()).toEqual([]);
     expect(calls.length).toBe(gitCalls);
+  });
+});
+
+describe("readLaneSetup (ADR-0060 amendment 5)", () => {
+  function homeWith(config: unknown): string {
+    const home = mkdtempSync(join(tmpdir(), "moh-lane-setup-home-"));
+    mkdirSync(join(home, ".moh"), { recursive: true });
+    writeFileSync(join(home, ".moh", "config"), typeof config === "string" ? config : JSON.stringify(config));
+    return home;
+  }
+
+  test("resolves the last word: a command, false, or nothing at all", () => {
+    expect(readLaneSetup(homeWith({ lanes: { setup: "make deps" } }))).toBe("make deps");
+    expect(readLaneSetup(homeWith({ lanes: { setup: "  make deps  " } }))).toBe("make deps");
+    expect(readLaneSetup(homeWith({ lanes: { setup: false } }))).toBe(false);
+    expect(readLaneSetup(homeWith({ lanes: { auto: false } }))).toBeUndefined();
+    expect(readLaneSetup(homeWith({}))).toBeUndefined();
+  });
+
+  test("a malformed value is ignored, and an unreadable config is unset — never a command", () => {
+    // Never a command moh would run: the project's own declaration takes over.
+    expect(readLaneSetup(homeWith({ lanes: { setup: "" } }))).toBeUndefined();
+    expect(readLaneSetup(homeWith({ lanes: { setup: true } }))).toBeUndefined();
+    expect(readLaneSetup(homeWith({ lanes: { setup: ["bun", "install"] } }))).toBeUndefined();
+    expect(readLaneSetup(homeWith("not json"))).toBeUndefined();
+    expect(readLaneSetup(mkdtempSync(join(tmpdir(), "moh-lane-setup-empty-")))).toBeUndefined();
   });
 });

@@ -182,6 +182,7 @@ export {
   laneWorktreeDirName,
   laneWorktreeRootFor,
   mainCheckoutFor,
+  readLaneSetup,
   resolveWorktreePath,
   type CleanupCandidate,
   type CleanupOptions,
@@ -190,10 +191,18 @@ export {
   type LaneConflict,
   type LaneGitResult,
   type LaneGitRunner,
+  type LaneInstallDrift,
+  type LaneInstallRepair,
   type LaneOperationError,
   type LaneOperationResult,
   type LaneServiceOptions,
 } from "./development-lane-service";
+// ADR-0060 amendment 5: the install outcome rides the lane record, and
+// `laneInstallLine` is the one sentence the lane surfaces render for it
+// (CLI `moh lanes`, the TUI /lanes detail row and the provisioning
+// notice). The detection table, the ownership predicate and the installer
+// are internal — tests import them from ./lane-install directly (ADR-0004).
+export { laneInstallLine, type LaneInstallOutcome } from "./lane-install";
 // #497: child-log tail seam — the ADR-0004 reopening that lets clients
 // (TUI subagent chips + live panel) tail a running child session's log
 // without full replay and without holding the child AgentSession.
@@ -1155,3 +1164,16 @@ export {
   type TreeView,
   type TreeNode,
 };
+
+export {
+  RetroStore,
+  type RetroFinding,
+  type RetroReport,
+  type RetroReportFinding,
+} from "./retro";
+
+export { proposeRetroApplication, applyRetroApplication } from "./retro-apply";
+
+// ADR-0075 (#1275): the judgement pipeline's injectable seam — the type
+// `SessionConfig.retroJudgment` references, so clients and tests can name it.
+export type { RetroJudgmentExtractor, RetroJudgmentInput } from "./retro-judgment";

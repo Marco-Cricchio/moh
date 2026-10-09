@@ -7,6 +7,54 @@ matching section here at tag time.
 
 ## [Unreleased]
 
+## [0.60.0] - 2026-10-09
+
+### Added
+
+- **Retro findings** (#1274, #1275): sessions accumulate retro findings
+  automatically — deterministic checks at close, judgement categories
+  (navigation, standards) from a maintenance subagent over batches of 10
+  closed sessions. `moh retro` / `/retro` opens the report: findings
+  ordered by confidence with their category, evidence, dismissal lineage
+  and a concrete proposed application; `d` records a durable dismissal
+  (repeated dismissals raise the category's extraction bar) and applying
+  a change needs explicit per-application confirmation, appended under a
+  `## Retro findings` heading. The only unprompted surface is one
+  digest line per 48 hours. Nothing reaches the system prompt.
+  (ADR-0075, PRs #1279, #1285.)
+
+### Fixed
+
+- **Lanes own their dependency install** (#1280, ADR-0060 amendment 5). A
+  lane's `node_modules` is no longer a symlink to the checkout's install:
+  one `bun install` inside a lane used to repoint `@moh/*` for every lane
+  and the main checkout, so every worktree compiled and tested one arbitrary
+  lane's sources. Each lane now runs the install its own project declares
+  (`lanes.setup` in `~/.moh/config`, then `package.json`'s `packageManager`,
+  then the lockfile table), records the outcome and the lockfile fingerprint
+  on the lane, and converts a store it does not own — including the old
+  shared one — on its next open. A failed install leaves the lane usable,
+  says so, and is retried on the next open. The checkout is never mutated
+  automatically: `moh lanes list` reports a drifted checkout read-only, and
+  the new `moh lanes repair [--apply]` removes the workspace links and
+  reinstalls.
+- **Yolo denies and records extension asks** (#1276, ADR-0031): in yolo mode
+  an extension `ask` is no longer silently granted — the call is denied
+  explicitly and a `permission_denied` record names the extension and the
+  reason. Yolo lifts moh's own prompts; it never turns an extension
+  question into an implicit grant.
+- **#1262 low-severity audit backlog completed** (#1277): both fetch
+  transports enforce a streaming 2 MB decompressed body budget and refuse
+  HTTPS→HTTP redirect downgrades; `git config --list` / `--get` output is
+  redacted of credential-shaped values; ignored-file changes invalidate the
+  bash re-run ledger fingerprint.
+- **Model picker on ctrl+l** (#1281): the picker opens on `ctrl+l` — the
+  ctrl key every terminal actually delivers.
+
+### Changed
+
+- **Model catalog refresh**: 23 metered prices updated (routine drift).
+
 ## [0.59.3] - 2026-10-08
 
 ### Security
@@ -2261,6 +2309,7 @@ security audit, each fixed behind its own PR.
   `<home>/.moh/projects`.
 
 [Unreleased]: https://github.com/Marco-Cricchio/moh/compare/v0.59.3...develop
+[0.60.0]: https://github.com/Marco-Cricchio/moh/compare/v0.59.3...v0.60.0
 [0.59.3]: https://github.com/Marco-Cricchio/moh/compare/v0.59.2...v0.59.3
 [0.59.2]: https://github.com/Marco-Cricchio/moh/compare/v0.59.1...v0.59.2
 [0.59.1]: https://github.com/Marco-Cricchio/moh/compare/v0.59.0...v0.59.1

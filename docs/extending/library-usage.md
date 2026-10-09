@@ -812,6 +812,32 @@ with `kind: "busy"` instead of racing. `BROWSER_SETUP_HINT`,
 `FULL_CHROMIUM_DOWNLOAD_SIZE` are the copy clients render, so every surface
 says the same thing.
 
+## Lanes: dependency install (ADR-0060 amendment 5)
+
+A lane — a git worktree a session works in — owns its **own** dependency
+install. A library user that provisions one passes the resolved
+`lanes.setup` user-config key, and reads the outcome off the lane:
+
+```ts
+const service = new DevelopmentLaneService({ cwd, home, setup: readLaneSetup(home) });
+const { lane, install } = await service.ensureSessionLane({ sessionId, force: true });
+// lane.install — { kind: "installed" | "nothing" | "failed", … } — is the
+// same record the lane registry keeps.
+```
+
+`readLaneSetup(home)` resolves the user's last word (`setup`): a shell
+command, or `false` for a project that has nothing to install. Otherwise the
+lane runs what its own files declare — `package.json`'s `packageManager`,
+then the lockfile table (`bun`/`npm`/`yarn`/`pnpm`/`uv`/`composer`/`mix`/
+`poetry`/`bundler`). A user-level store (Cargo, Go, Maven/Gradle, NuGet)
+runs nothing and reports nothing; a manifest moh does not recognize creates
+the lane without dependencies and says so once. `@moh/core` never invents an
+install command — `lanes.setup` is the door for anything else.
+
+The core **never mutates the checkout**: `checkoutInstallDrift()` reports a
+checkout whose workspace links resolve elsewhere (read-only), and the repair
+is the `moh lanes repair --apply` door.
+
 ## What's intentionally not here
 
 `@moh/core` exports a curated surface (ADR-0004): the session entrance,

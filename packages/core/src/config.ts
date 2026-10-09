@@ -15,6 +15,7 @@ import { endpointAuthSchema } from "./auth/types";
 import { mcpServerEntrySchema, type McpServerEntry } from "./mcp";
 import { subagentSpecSchema } from "./subagents";
 import { memoryConfigSchema } from "./memory";
+import { retroConfigSchema } from "./retro";
 import { handoffConfigSchema } from "./handoff";
 import { isThinkingLevel, THINKING_FORMATS } from "./types";
 import type { SkillRoutingConfig } from "./skill-routing";
@@ -140,6 +141,8 @@ export const mohConfigSchema = z.object({
   agents: z.record(z.string(), subagentSpecSchema).optional(),
   /** Cross-session memory (#38); `enabled: false` disables everything. */
   memory: memoryConfigSchema.optional(),
+  /** Retro findings (ADR-0075, #1274); `enabled: false` disables accumulation. */
+  retro: retroConfigSchema.optional(),
   /**
    * #766 (ADR-0051): compaction tuning. `summarizer` selects the
    * summary strategy: "llm" (default — the compaction subagent) or

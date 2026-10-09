@@ -79,9 +79,50 @@ the judged text always survives, and if Jev is unreachable compaction is
 exactly as it is described above. Nothing is deleted from the session
 log.
 
+## Retro findings (what to improve next time)
+
+A third background pass watches how the work went, not what was learned:
+**retro findings** — environment improvements a reviewer would notice.
+
+Accumulation is automatic and costs no model call: as a session closes,
+deterministic checks over its log append structured findings (a check
+`package.json` defines but no pre-commit hook or CI job runs; the same
+expensive command re-issued several times in one session) to
+`~/.moh/projects/<slug>/retro/`. A second pipeline reads the *judgement*
+categories — navigation and coding standards — with a maintenance
+subagent, on a threshold: one batch of 10 closed sessions at a time,
+never after every session.
+
+Nothing is applied by itself. Findings are consumed only when you ask:
+
+- `/retro` in the TUI, or `moh retro` on the command line, opens the
+  report — ordered by confidence, each finding showing its category,
+  evidence and any prior dismissal of the same category.
+- `d` / `--dismiss <signature>` records a **durable dismissal**: that
+  observation is never proposed again, and repeated dismissals of a
+  category raise the confidence bar extraction must clear before that
+  category is proposed at all. A materially new observation is a new
+  finding, shown with its lineage.
+- `a` / `--apply <signature>` shows the concrete change the finding
+  proposes: a rule for `CODING_STANDARDS.md`, a navigation pointer in
+  `AGENTS.md`, or the check that exists but nothing runs. Writing it needs
+  your explicit confirmation, per application, and lands as an appended
+  bullet under a `## Retro findings` heading — existing prose is never
+  edited, and a change that is not a prose append (a workflow job, a hook)
+  is proposed for you to make, never applied. Findings are never injected
+  into the system prompt.
+
+The only unprompted surface is a **digest**: one line at session start
+when findings accumulated since the last digest, rate-limited to one per
+48 hours, suppressed when the report is open in that session. Set
+`"retro": { "enabled": false }` in `moh.json` to turn the whole thing
+off.
+
 ## Why two mechanisms
 
 Compaction answers "what happened earlier *in this conversation*";
 memory answers "what do we know about *this project*, period". A fact
 that matters beyond the session belongs in memory; session detail stays
-in the log, compacted when needed.
+in the log, compacted when needed. Retro findings are a third thing
+again: not context the model reads, but changes to your environment that
+only you can approve.

@@ -24,11 +24,13 @@ import {
   DevelopmentLaneStore,
   mainCheckoutFor,
   readUserConfigFile,
+  readLaneSetup,
   type AgentSession,
   type AssemblyError,
   type DevelopmentLane,
   type ExtensionStatus,
   type HandoffOffer,
+  laneInstallLine,
   type Provider,
   type SessionMode,
   type TrackerBackend,
@@ -78,6 +80,7 @@ import { JevModal } from "./JevModal";
 import { JEV_EXTENSION_NAME, readJevSummary, resolveJevChip, setJevUseCase, type JevStatusSummary } from "./jev-control";
 import { SessionRenameModal } from "./SessionRenameModal";
 import { SessionModal } from "./SessionModal";
+import { RetroModal } from "./RetroModal";
 import { ExtensionsModal } from "./ExtensionsModal";
 import { ExtensionsRail, ExtensionOverlayView } from "./ExtensionsRail";
 import { LanesModal } from "./LanesModal";
@@ -147,7 +150,7 @@ export interface AppProps {
   session?: AgentSession;
 }
 
-type Overlay = null | "settings" | "commands" | "manual" | "notes" | "onboarding" | "handoff-onboarding" | "workflow-offer" | "frontier" | "skill-chooser" | "model" | "skill-updates" | "quota" | "rename" | "cold-wizard" | "tree" | "mpm" | "session" | "jev" | "browser" | "lanes" | "extensions" | "stranded";
+type Overlay = null | "settings" | "commands" | "manual" | "notes" | "onboarding" | "handoff-onboarding" | "workflow-offer" | "frontier" | "skill-chooser" | "model" | "skill-updates" | "quota" | "rename" | "cold-wizard" | "tree" | "mpm" | "session" | "retro" | "jev" | "browser" | "lanes" | "extensions" | "stranded";
 
 /** #242: one-shot, non-blocking informed-consent copy. Exported so focused
  * tests can verify the full message even when narrow status chrome clips it. */
@@ -991,14 +994,26 @@ function AppShell({
         const recentSibling = listSessionSummaries(cwd, home).some(
           (summary) => Date.now() - summary.mtimeMs < 10 * 60 * 1000,
         );
-        const provisioned = await new DevelopmentLaneService({ cwd, home }).ensureSessionLane({
+        const setup = readLaneSetup(home);
+        const provisioned = await new DevelopmentLaneService({
+          cwd,
+          home,
+          ...(setup !== undefined ? { setup } : {}),
+        }).ensureSessionLane({
           sessionId: `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
           auto: userCfg.lanes?.auto !== false,
           task: initialPrompt,
           ...(recentSibling ? { liveSiblingSessions: 1 } : {}),
         });
         if (provisioned.lane) {
-          finishOpen(provisioned.lane.worktreePath, `lane: ${provisioned.lane.branchRef} — isolated worktree`);
+          // The install outcome is part of the provisioning result (ADR-0060
+          // amendment 5): a failure is never silent — the lane is real and
+          // usable, its dependencies are not.
+          const install = laneInstallLine(provisioned.install);
+          finishOpen(
+            provisioned.lane.worktreePath,
+            `lane: ${provisioned.lane.branchRef} — isolated worktree${install ? ` · ${install}` : ""}`,
+          );
         } else {
           finishOpen();
         }
@@ -1464,6 +1479,11 @@ function AppShell({
     if (key.ctrl && input === "y" && session) return cycleThinkingLevel();
     if (key.ctrl && input === "w" && session) return activateChip("workflow");
     if (overlay === null && key.ctrl && input === "s") return setOverlay("settings");
+    // The model picker is ctrl+l, not ctrl+m: a legacy terminal encodes
+    // ctrl+m as 0x0d, byte-identical to Enter, so the key cannot be told
+    // apart from a submit anywhere except under the kitty keyboard
+    // protocol (CSI-u), where ctrl+m additionally opens the picker.
+    if (overlay === null && key.ctrl && (input === "l" || input === "m")) return setOverlay("model");
     // #1218: Ctrl+P toggles the extensions-rail focus mode — the panel
     // scrolls, esc/Ctrl+P hands the keys back to the composer.
     if (overlay === null && key.ctrl && input === "p" && railVisible && railWide) {
@@ -1666,6 +1686,7 @@ function AppShell({
         onOpenTree: () => setOverlay("tree"),
         onOpenMpm: () => setOverlay("mpm"),
         onOpenSession: () => setOverlay("session"),
+        onOpenRetro: () => setOverlay("retro"),
         onOpenExtensions: () => setOverlay("extensions"),
         onOpenLanes: () => setOverlay("lanes"),
         onOpenJev: () => setOverlay("jev"),
@@ -1928,6 +1949,14 @@ function AppShell({
           ) : (
             <Text> session analysis unavailable: {sessionReport && "error" in sessionReport ? sessionReport.error : "session file unknown"}</Text>
           ))}
+        {overlay === "retro" && session && (
+          <RetroModal
+            cwd={sessionCwd}
+            readReport={() => session.retroReport()}
+            dismiss={(signature, category) => session.retroDismiss(signature, category)}
+            onClose={() => setOverlay(null)}
+          />
+        )}
         {overlay === "lanes" && <LanesModal cwd={process.cwd()} onClose={() => setOverlay(null)} />}
         {overlay === "stranded" && (
           <StrandedModal

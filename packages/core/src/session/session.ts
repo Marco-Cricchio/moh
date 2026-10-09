@@ -34,6 +34,8 @@ import { AgentLoop } from "./agent-loop";
 import { SubagentHost, type SubagentSpawnRequester, type SubagentSpawnLimits } from "../subagents";
 import { replayMessages, replayWarnings } from "../session-store";
 import { MemoryRunner, MemoryStore, createMaintenanceExtractor } from "../memory";
+import { RetroStore, extractRetroFindings, type RetroReport } from "../retro";
+import { RETRO_JUDGMENT_BATCH, closedSessions, createRetroJudgmentExtractor, selectJudgmentBatch, type RetroJudgmentExtractor } from "../retro-judgment";
 import type { CompactionHookContext } from "@moh/extension";
 import type { ContributedToolSchema } from "@moh/extension";
 
@@ -178,6 +180,14 @@ export class AgentSession {
   /** Memory (#38): the post-turn trigger collaborator (see memory.ts). */
   readonly #sessionId = `session-${randomUUID().slice(0, 8)}`;
   #memory: MemoryRunner | null = null;
+  /** Retro findings (ADR-0075, #1274): the close-of-session pass collaborator. */
+  #retro: RetroStore | null = null;
+  /** ADR-0075 judgement pipeline (#1275): the batch extractor and its
+   * in-flight run, awaited by dispose like the memory flush. */
+  #retroJudgment: RetroJudgmentExtractor | null = null;
+  #retroJudgmentRun: Promise<void> | null = null;
+  /** The report opened in this session replaces the digest (ADR-0075). */
+  #retroDigestSuppressed = false;
   /** Compaction (#466): the post-turn marker producer collaborator. */
   #compaction: CompactionRunner | null = null;
   /**
@@ -695,6 +705,15 @@ export class AgentSession {
         onUpdated: () => this.#assemblePrompt(),
       });
     }
+    // Retro findings (ADR-0075, #1274): enabled by default; `retro.enabled:
+    // false` means no store, no extraction, no digest.
+    const retro = config.retro;
+    if (retro && (retro.enabled ?? true)) {
+      this.#retro = new RetroStore(retro.dir ?? RetroStore.forProject(this.#cwd, this.#mohHome).dir);
+      // ADR-0075 (#1275): the judgement pipeline's extractor — the batch
+      // pass is triggered on threshold, never per session.
+      this.#retroJudgment = config.retroJudgment ?? createRetroJudgmentExtractor(this.#provider, this.#cwd);
+    }
     // Compaction (#466): on by default when the option is present
     // (from-config passes it unconditionally); `enabled: false` turns it off.
     const comp = config.compaction;
@@ -1048,6 +1067,14 @@ export class AgentSession {
     }
     this.#assemblePrompt();
     this.#append({ type: "session_start", schemaVersion: SCHEMA_VERSION, promptVersion: this.#promptVersion });
+    // ADR-0075: the one sanctioned proactive surface — one line when
+    // findings accumulated since the last digest (48h rate limit).
+    const digest = this.#retro?.maybeDigest(undefined, { reportOpen: this.#retroDigestSuppressed });
+    if (digest) this.#append({ type: "retro_digest", count: digest.count, line: digest.line });
+    // ADR-0075 (#1275): the judgement batch, on threshold — a batch of
+    // closed sessions, never the open one. Background: it never blocks
+    // the session, and dispose awaits it like the memory flush.
+    this.#maybeJudgmentBatch();
     this.#append({ type: "session_mode", mode: this.#permissions.mode });
     this.#declareInheritedRoute();
     this.#appendStartupChrome(true);
@@ -2281,6 +2308,63 @@ export class AgentSession {
     return { ok: true };
   }
 
+  /**
+   * ADR-0075 (#1275): the judgement batch. Fires when the store has
+   * counted a full batch of closed sessions since the last run; the
+   * counter resets before the run so a failure cannot replay the same
+   * batch. Fail-silent — a failed batch contributes nothing, and never
+   * fails a session (ADR-0056: a non-answer is absence, never
+   * authority).
+   */
+  #maybeJudgmentBatch(): void {
+    const store = this.#retro;
+    const extractor = this.#retroJudgment;
+    if (!store || !extractor || this.#retroJudgmentRun) return;
+    if (!store.judgmentDue(RETRO_JUDGMENT_BATCH)) return;
+    const sessions = selectJudgmentBatch(closedSessions(this.#cwd, this.#mohHome), { exclude: this.#sessionId });
+    if (sessions.length === 0) return;
+    store.markJudgmentRun();
+    this.#retroJudgmentRun = (async () => {
+      try {
+        const candidates = await extractor({ sessions });
+        const appended = store.append(candidates);
+        if (appended > 0) this.#append({ type: "retro_updated", findings: appended });
+      } catch {
+        // a failed batch is absence, never authority
+      }
+    })();
+  }
+
+  /**
+   * ADR-0075 (#1275): the report opened in this session replaces the
+   * digest. The reviewed batch must not be re-digested by the next
+   * session either, so the digest timestamp moves now — the store's own
+   * `reportOpen` path, which emits nothing and only advances the clock.
+   */
+  suppressRetroDigest(): void {
+    this.#retroDigestSuppressed = true;
+    this.#retro?.maybeDigest(undefined, { reportOpen: true });
+  }
+
+  /**
+   * ADR-0075 (#1275): the retro report for this project — the surface the
+   * in-session door renders (`/retro`). Null when retro is disabled for
+   * this session (`retro.enabled: false`), so a client never invents a
+   * store the session did not configure.
+   */
+  retroReport(): RetroReport | null {
+    return this.#retro?.report() ?? null;
+  }
+
+  /**
+   * ADR-0075 (#1275): records a durable dismissal through the session's
+   * own store (the same store the report read), so a client cannot write
+   * to a store the session is not using.
+   */
+  retroDismiss(signature: string, category: string): void {
+    this.#retro?.dismiss(signature, { category });
+  }
+
   /** Ends the session: flushes a pending memory run, shuts down MCP servers, dispatches onSessionEnd hooks. Idempotent.
    * `timeoutMs` budgets the memory flush only (vision note 14): a slow
    * extraction is aborted — the log is append-only and safe, and the
@@ -2309,6 +2393,36 @@ export class AgentSession {
     }
     await this.#mcp?.shutdown();
     this.#mpmLifecycle?.dispose();
+    // Retro findings (ADR-0075, #1274): the deterministic mechanical pass
+    // over the closed session's log. Fail-silent, no model call; a
+    // count-only indicator is the only surface when something appended.
+    if (this.#retro) {
+      try {
+        const appended = this.#retro.append(
+          extractRetroFindings(this.#eventLog.live(), { cwd: this.#cwd, session: this.#sessionId }),
+        );
+        if (appended > 0) this.#append({ type: "retro_updated", findings: appended });
+      } catch { /* accumulation never fails a dispose */ }
+      // ADR-0075 (#1275): this close counts toward the next judgement
+      // batch. The count is durable, so a batch fires across sessions.
+      this.#retro.noteClosedSession();
+    }
+    // ADR-0075 (#1275): a judgement batch started at session start is
+    // awaited here under the same budget as the memory flush — a slow
+    // subagent never holds the process open past the UI's exit.
+    if (this.#retroJudgmentRun) {
+      const run = this.#retroJudgmentRun.catch(() => {});
+      if (options.timeoutMs === undefined) {
+        await run;
+      } else {
+        await Promise.race([
+          run,
+          new Promise<void>((resolve) => {
+            setTimeout(resolve, options.timeoutMs).unref?.();
+          }),
+        ]);
+      }
+    }
     // ADR-0055 (#1222): the extension-spawned children kept alive for
     // steering die with the session that spawned them — no orphans at exit.
     await this.#subagentHost?.disposeSteerableChildren();

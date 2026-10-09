@@ -4,7 +4,7 @@ import { gzipSync } from "node:zlib";
 import { createServer as createNetServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { builtinTools, fetchUrlText, requestPinnedUrl, resolveVerifiedUrl, type PinnedResponse } from "../src/builtin-tools";
+import { builtinTools, fetchUrlText, requestPinnedUrl, resolveVerifiedUrl, FETCH_MAX_BODY_BYTES, type PinnedResponse } from "../src/builtin-tools";
 // #304: classification unit-tested directly.
 import { isSuiteLike } from "../src/builtin-tools";
 import type { ToolContext } from "../src/types";
@@ -503,6 +503,31 @@ describe("built-in tools", () => {
       expect(text).toContain("not found");
     });
 
+    // #1262 (redirect downgrade): an https origin must never hand the
+    // traffic to an http hop — the Location authority does not widen what
+    // the user asked for.
+    test("an https to http redirect is refused before dialling the downgrade", async () => {
+      let dials = 0;
+      const text = await failureOf(fetchUrlText(
+        { url: "https://secure.test/start" },
+        ctx.signal,
+        {
+          lookup: async () => [{ address: "203.0.113.7", family: 4 }],
+          requestPinned: async (url: URL): Promise<PinnedResponse> => {
+            dials++;
+            return {
+              status: 302,
+              headers: new Headers({ location: `http://plain.test/moved${url.pathname === "/moved" ? "-again" : ""}` }),
+              readBody: async () => "hop",
+              discard: () => {},
+            };
+          },
+        },
+      ));
+      expect(text).toMatch(/downgrade|http:/);
+      expect(dials).toBe(1); // the http hop is never dialled
+    });
+
     test("a chain of ten redirects is followed and an eleventh hop is refused", async () => {
       const chain = (status: number | null) => async (url: URL): Promise<PinnedResponse> => {
         const hop = Number(new URL(url).pathname.slice(1));
@@ -594,6 +619,53 @@ describe("built-in tools", () => {
       server.stop(true);
     }
   });
+
+  // #1262 (decompression bomb): the byte budget is enforced while
+  // streaming — memory stays bounded even when the decompressed body is
+  // far larger than the budget, and the read settles with the bounded
+  // head plus a truncation marker instead of buffering the whole body.
+  test("a body over the byte budget settles bounded, without reading it all", async () => {
+    const bomb = gzipSync(Buffer.alloc(FETCH_MAX_BODY_BYTES + 1_000_000, 0x61));
+    expect(bomb.byteLength).toBeLessThan(100_000); // genuinely bomb-shaped
+    const server = Bun.serve({
+      port: 0,
+      hostname: "127.0.0.1",
+      fetch: () => new Response(new Uint8Array(bomb), { headers: { "content-encoding": "gzip" } }),
+    });
+    try {
+      const response = await requestPinnedUrl(
+        new URL(`http://verified.invalid:${server.port}/bomb`),
+        { address: "127.0.0.1", family: 4 },
+        ctx.signal,
+      );
+      const body = await response.readBody();
+      expect(body).toContain("[truncated");
+      expect(Buffer.byteLength(body)).toBeLessThan(FETCH_MAX_BODY_BYTES + 100);
+    } finally {
+      server.stop(true);
+    }
+  }, 10_000);
+
+  test("a body at the byte budget arrives complete, untruncated", async () => {
+    const exact = Buffer.alloc(FETCH_MAX_BODY_BYTES, 0x62);
+    const server = Bun.serve({
+      port: 0,
+      hostname: "127.0.0.1",
+      fetch: () => new Response(new Uint8Array(exact)),
+    });
+    try {
+      const response = await requestPinnedUrl(
+        new URL(`http://verified.invalid:${server.port}/exact`),
+        { address: "127.0.0.1", family: 4 },
+        ctx.signal,
+      );
+      const body = await response.readBody();
+      expect(Buffer.byteLength(body)).toBe(FETCH_MAX_BODY_BYTES);
+      expect(body).not.toContain("[truncated");
+    } finally {
+      server.stop(true);
+    }
+  }, 10_000);
 
   test("abort after headers rejects a pinned body read promptly (#922)", async () => {
     const server = createNetServer((socket) => {
@@ -941,6 +1013,22 @@ describe("bash re-run guard (#304)", () => {
     writeFileSync(join(repo, "c.txt"), "uncommitted change");
     const out = await guardTools.bash.execute({ command: "make tree" }, repoCtx);
     expect(out).toContain("tree-green");
+    expect(out).not.toContain("not re-executed");
+  }, 10_000);
+
+  // #1262 (stale ledger hit): `status --porcelain` hides ignored files, so
+  // a build artifact the suite reads could change while the fingerprint
+  // held still. Ignored files are part of the fingerprint now.
+  test("an ignored-file change defeats interception too", async () => {
+    writeFileSync(join(repo, ".gitignore"), "ignored.log\n");
+    Bun.spawnSync(["git", "add", ".gitignore"], { cwd: repo });
+    Bun.spawnSync(["git", "commit", "-qm", "ignore"], { cwd: repo });
+    fakeSuite("ignored", "sleep 0.2 && cat ignored.log");
+    writeFileSync(join(repo, "ignored.log"), "stale-content");
+    await guardTools.bash.execute({ command: "make ignored" }, repoCtx);
+    writeFileSync(join(repo, "ignored.log"), "fresh-content");
+    const out = await guardTools.bash.execute({ command: "make ignored" }, repoCtx);
+    expect(out).toContain("fresh-content");
     expect(out).not.toContain("not re-executed");
   }, 10_000);
 });

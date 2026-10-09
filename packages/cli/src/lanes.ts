@@ -9,6 +9,8 @@ import { homedir } from "node:os";
 import { resolve } from "node:path";
 import {
   DevelopmentLaneService,
+  readLaneSetup,
+  laneInstallLine,
   type LaneOperationError,
 } from "@moh/core";
 import { ArgError, parseArgs } from "./args";
@@ -24,10 +26,11 @@ export const LANES_USAGE = `usage: moh lanes group <name> [--target <ref>] [--cw
        moh lanes remove <lane-id> [--force] [--cwd <dir>]
        moh lanes delete <lane-id> [--keep-worktree] [--cwd <dir>]
        moh lanes cleanup [--min-age-days <n>] [--apply] [--cwd <dir>]
+       moh lanes repair [--apply] [--cwd <dir>]
 
 Parallel development lanes (feature groups + isolated worktrees): each
-lane owns one worktree and one ordinary git branch, so concurrent sessions
-never share uncommitted state. Metadata and worktrees live under
+lane owns one worktree, one ordinary git branch and its own dependency
+install. Metadata and worktrees live under
 ~/.moh/projects/<slug>/ (development-lanes.json and lanes/<branch>) —
 never in the repository.
 
@@ -37,9 +40,11 @@ never in the repository.
                             ref's exact revision. --base defaults to the
                             group's target. The session id binds the lane
                             to one session; a duplicate active worktree or
-                            session is refused.
+                            session is refused. The project's declared
+                            dependency install runs in the new worktree
+                            (see install below).
   list [--group]            lanes (and groups) with status, branch, base
-                            freshness and worktree health
+                            freshness, worktree health and install state
   show <lane-id>            one lane's full record
   integrate <lane-id>       merge the lane branch into the group's target.
                             On conflict the target merge is aborted and the
@@ -64,8 +69,22 @@ never in the repository.
                             branch + registry row). Dirty lanes are
                             reported but never touched. Without --apply it
                             is a dry run.
+  repair [--apply]          repair the CHECKOUT's own install when it
+                            drifted (its workspace links resolve outside
+                            it). Without --apply it only reports: the
+                            method is remove \`node_modules/@moh\` and
+                            reinstall — a plain install does not repair a
+                            satisfied foreign link.
 
-  --cwd     project root the lanes belong to (default: process.cwd())`;
+  install       a lane installs what its project declares, in its own
+                worktree: the lanes.setup user-config key (a command, or
+                false for nothing), then package.json's packageManager,
+                then the lockfile table (bun/npm/yarn/pnpm/uv/composer/
+                mix/poetry/bundler). A user-level store (Cargo, Go,
+                Maven/Gradle, NuGet) runs nothing and reports nothing; a
+                manifest with no recognized command is reported once.
+                moh never invents a command.
+  --cwd         project root the lanes belong to (default: process.cwd())`;
 
 function printError(err: { write(s: string): void }, context: string, error: LaneOperationError): number {
   const hint =
@@ -97,7 +116,7 @@ export async function lanesCommand({
     err.write(LANES_USAGE + "\n");
     return sub ? 0 : 2;
   }
-  if (!["group", "start", "list", "show", "integrate", "resolve", "status", "abandon", "cleanup"].includes(sub)) {
+  if (!["group", "start", "list", "show", "integrate", "resolve", "status", "abandon", "cleanup", "repair"].includes(sub)) {
     err.write(`moh lanes: unknown command "${sub}"\n\n${LANES_USAGE}\n`);
     return 2;
   }
@@ -113,7 +132,14 @@ export async function lanesCommand({
   }
   const positional = parsed.positionals;
   const cwd = parsed.strings["cwd"] ? resolve(parsed.strings["cwd"]) : process.cwd();
-  const service = new DevelopmentLaneService({ cwd, home: home ?? homedir() });
+  const resolvedHome = home ?? homedir();
+  // ADR-0060 amendment 5: the last word on what a lane installs.
+  const setup = readLaneSetup(resolvedHome);
+  const service = new DevelopmentLaneService({
+    cwd,
+    home: resolvedHome,
+    ...(setup !== undefined ? { setup } : {}),
+  });
 
   if (sub === "group") {
     if (positional.length < 1) {
@@ -145,8 +171,9 @@ export async function lanesCommand({
     });
     if (!result.ok) return printError(err, "start", result.error);
     const lane = result.value;
-    out.write(`lane ${lane.id}\n  branch    ${lane.branchRef}\n  worktree  ${lane.worktreePath}\n  base      ${lane.baseRef} @ ${lane.baseRevision.slice(0, 12)}\n  target    ${lane.targetRef}\n  session   ${lane.sessionId}\n`);
-    return 0;
+    const install = laneInstallLine(lane.install);
+    out.write(`lane ${lane.id}\n  branch    ${lane.branchRef}\n  worktree  ${lane.worktreePath}\n  base      ${lane.baseRef} @ ${lane.baseRevision.slice(0, 12)}\n  target    ${lane.targetRef}\n  session   ${lane.sessionId}\n${install ? `  ${install}\n` : ""}`);
+    return lane.install?.kind === "failed" ? 1 : 0;
   }
 
   if (sub === "list") {
@@ -156,6 +183,15 @@ export async function lanesCommand({
     if (groupName && selected.length === 0) {
       err.write(`moh lanes list: no feature group "${groupName}"\n`);
       return 2;
+    }
+    // The checkout's own install is a lane-facing fact (ADR-0060 amendment
+    // 5) — reported even before any lane exists, never mutated here.
+    const drift = service.checkoutInstallDrift();
+    if (drift.drifted) {
+      out.write(`checkout install DRIFTED: its workspace links resolve outside ${drift.checkoutPath}\n`);
+      for (const link of drift.foreign) out.write(`  @moh/${link}\n`);
+      if (drift.symlinked) out.write("  node_modules is a symlink (the removed lane sharing)\n");
+      out.write("  repair: moh lanes repair --apply (remove node_modules/@moh, then reinstall)\n\n");
     }
     if (groups.length === 0) {
       out.write("no feature groups yet (start one with: moh lanes group <name>)\n");
@@ -179,7 +215,8 @@ export async function lanesCommand({
         const parent = lane.parentLaneId ? ` ← ${lane.parentLaneId}` : "";
         const ageDays = Math.max(0, Math.floor((Date.now() - Date.parse(lane.updatedAt)) / 86_400_000));
         const label = lane.label ? `  "${lane.label}"` : "";
-        out.write(`  ${statusLabel(lane.status)} ${lane.id}${label}\n    branch ${lane.branchRef}${parent} · ${ageDays}d\n    ${health}\n`);
+        const install = laneInstallLine(lane.install);
+        out.write(`  ${statusLabel(lane.status)} ${lane.id}${label}\n    branch ${lane.branchRef}${parent} · ${ageDays}d\n    ${health}${install ? `\n    ${install}` : ""}\n`);
       }
     }
     return 0;
@@ -196,7 +233,27 @@ export async function lanesCommand({
       return 2;
     }
     const inspect = await service.inspect(lane.id);
-    out.write(`lane       ${lane.id}\nstatus     ${lane.status}\nrelation   ${lane.relation}${lane.parentLaneId ? ` (parent ${lane.parentLaneId})` : ""}\nbranch     ${lane.branchRef}\nworktree   ${lane.worktreePath}${inspect.ok && !inspect.value.worktreePresent ? "  (MISSING)" : ""}\nbase       ${lane.baseRef} @ ${lane.baseRevision.slice(0, 12)}${inspect.ok && inspect.value.stale ? `  (STALE — ${lane.baseRef} now at ${inspect.value.currentBaseRevision?.slice(0, 12) ?? "?"})` : ""}\ntarget     ${lane.targetRef}\nsession    ${lane.sessionId}\ncreated    ${lane.createdAt}\n`);
+    out.write(`lane       ${lane.id}\nstatus     ${lane.status}\nrelation   ${lane.relation}${lane.parentLaneId ? ` (parent ${lane.parentLaneId})` : ""}\nbranch     ${lane.branchRef}\nworktree   ${lane.worktreePath}${inspect.ok && !inspect.value.worktreePresent ? "  (MISSING)" : ""}\nbase       ${lane.baseRef} @ ${lane.baseRevision.slice(0, 12)}${inspect.ok && inspect.value.stale ? `  (STALE — ${lane.baseRef} now at ${inspect.value.currentBaseRevision?.slice(0, 12) ?? "?"})` : ""}\ntarget     ${lane.targetRef}\nsession    ${lane.sessionId}\n${laneInstallLine(lane.install) ?? "install none declared"}\ncreated    ${lane.createdAt}\n`);
+    return 0;
+  }
+
+  if (sub === "repair") {
+    const result = await service.repairCheckoutInstall({ apply: parsed.booleans["apply"] === true });
+    if (!result.ok) return printError(err, "repair", result.error);
+    const repair = result.value;
+    if (!repair.drifted) {
+      out.write(`checkout install is clean (${repair.checkoutPath})\n`);
+      return 0;
+    }
+    for (const link of repair.foreign) out.write(`drifted link: @moh/${link}\n`);
+    if (repair.symlinked) out.write("drifted: node_modules is a symlink (the removed lane sharing)\n");
+    if (!repair.applied) {
+      out.write(`checkout install drifted (${repair.checkoutPath})\n`);
+      out.write(repair.command ? `repair: remove node_modules/@moh, then: ${repair.command}\n` : "repair: remove node_modules/@moh (the project declares no install)\n");
+      out.write("dry run — re-run with --apply to repair\n");
+      return 0;
+    }
+    out.write(repair.command ? `repaired: removed node_modules/@moh and reinstalled (${repair.command})\n` : "repaired: removed node_modules/@moh (the project declares no install)\n");
     return 0;
   }
 

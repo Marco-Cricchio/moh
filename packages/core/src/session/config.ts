@@ -8,6 +8,8 @@
 import type { TurnConfirmOutcome } from "@moh/extension";
 import type { ExtensionRuntime } from "../extensions";
 import type { MemoryOptions } from "../memory";
+import type { RetroOptions } from "../retro";
+import type { RetroJudgmentExtractor } from "../retro-judgment";
 import type { CompactionOptions } from "../compaction";
 import type { HandoffOptions } from "../handoff";
 import type { McpRuntimeOptions } from "../mcp";
@@ -193,6 +195,15 @@ export interface SessionConfig {
    * disables everything (no writes, no section, no subagent runs).
    */
   memory?: MemoryOptions;
+  /** Retro findings (ADR-0075, #1274): accumulation is on by default;
+   * `retro.enabled: false` turns the store, the extraction and the digest off. */
+  retro?: RetroOptions;
+  /**
+   * ADR-0075 judgement pipeline (#1275): the extractor seam for the
+   * batch-of-closed-sessions pass (tests, clients). Default: the
+   * maintenance subagent. Absent while `retro` is off.
+   */
+  retroJudgment?: RetroJudgmentExtractor;
   /**
    * MPM targeted orientation (#616): when present, relevant codebase tasks
    * get a small, source-cited, advisory orientation plan in the prompt's
