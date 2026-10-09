@@ -7,6 +7,28 @@ matching section here at tag time.
 
 ## [Unreleased]
 
+## [0.61.0] - 2026-10-09
+
+### Added
+
+- **Composer bang commands** (#1288, PR #1289, ADR-0076): `!cmd` in the chat
+  composer runs a real bash tool call through the session's own ToolRunner —
+  no second shell channel, no loop change. `!cmd` is execute-only; `!!cmd`
+  executes and auto-sends the truncated output as the next user message;
+  `\!` escapes a literal leading `!`. The same permission rule grammar,
+  extension veto and pathScopes apply — bash denied ⇒ `!` denied — with a
+  reduced y/n-only consent (the `source: "user"` ask variant, the
+  client-side twin of ADR-0031's extension-ask reduction); yolo and
+  auto-accept lift the prompt exactly like a model call. The timeout is
+  fixed at 120s on the `!` path and real `tool_call` + `tool_result` events
+  land in the transcript, so the agent sees what ran. Public surface
+  (ADR-0004): one new `AgentSession.runBash` method; everything else is
+  TUI-owned.
+
+### Changed
+
+- **Model catalog refresh**: 9 metered prices updated (routine drift).
+
 ## [0.60.0] - 2026-10-09
 
 ### Added
@@ -2308,7 +2330,8 @@ security audit, each fixed behind its own PR.
   passed; a regression test pins the resolved path under
   `<home>/.moh/projects`.
 
-[Unreleased]: https://github.com/Marco-Cricchio/moh/compare/v0.59.3...develop
+[Unreleased]: https://github.com/Marco-Cricchio/moh/compare/v0.61.0...develop
+[0.61.0]: https://github.com/Marco-Cricchio/moh/compare/v0.60.0...v0.61.0
 [0.60.0]: https://github.com/Marco-Cricchio/moh/compare/v0.59.3...v0.60.0
 [0.59.3]: https://github.com/Marco-Cricchio/moh/compare/v0.59.2...v0.59.3
 [0.59.2]: https://github.com/Marco-Cricchio/moh/compare/v0.59.1...v0.59.2
