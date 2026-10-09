@@ -1619,6 +1619,7 @@ function AppShell({
       onFirstSend={handleFirstSend}
       branchFrom={branchFrom}
       onBranchFromDismiss={() => setBranchFrom(null)}
+      onNotify={(text) => push(text, "warn")}
       notice={toasts.at(-1)?.text}
       updateMessage={statusRowUpdateText(updateNotice ? updateNoticeText(updateNotice) : null, skillUpdateCount)}
       submitSignal={submitSignal}
@@ -2159,6 +2160,7 @@ function AppShell({
         {/* Toasts remain non-blocking bottom chrome on every screen — except
             while the logo intro plays: the animation is the whole screen. */}
         {!showChat && !introActive && <Toasts toasts={toasts} />}
+        {showChat && <Toasts toasts={toasts.filter((t) => t.position === "side" ? false : true).slice(-1)} />}
       </Box>
     </ThemeProvider>
   );

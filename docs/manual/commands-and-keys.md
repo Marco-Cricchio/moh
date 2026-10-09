@@ -14,6 +14,7 @@ page is the same content in manual form, plus the manual's own entries
 | shift+enter | newline (option+enter / ctrl+j on legacy terminals) |
 | ctrl+a/e | line start / line end |
 | esc | steer (type to redirect the running turn) |
+| ! command | run a shell command from the composer (!cmd; !!cmd also sends the output to the model; \\! for a literal !) |
 | esc esc | stop the running turn |
 | ctrl+d | toggle tool-call detail |
 | ctrl+o | switch vibe / dev mode |

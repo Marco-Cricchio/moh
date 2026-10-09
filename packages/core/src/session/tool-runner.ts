@@ -5,7 +5,7 @@ import { splitCommandSegments, type FilesystemScope } from "../permissions";
 // type-only cycle would be fine, but the guard is a runtime function.
 import { isScreenshotToolResult, renderScreenshotChip } from "../browser-tool";
 import { CANCELLED_TOOL_OUTPUT } from "../types";
-import type { SessionConfig } from "./config";
+import type { SessionConfig, PermissionAskContext } from "./config";
 
 /**
  * A synthetic failed result for a tool call still open when the turn is
@@ -380,7 +380,9 @@ export class ToolRunner {
     args: unknown,
     callId: string,
     signal: AbortSignal,
-    requester: { extension: string },
+    requester?: { extension: string },
+    /** ADR-0076: the ask context a client-initiated door supplies. */
+    askContext?: PermissionAskContext,
   ): Promise<ToolOutcome> {
     const tool = this.#tools()[name];
     if (!tool) {

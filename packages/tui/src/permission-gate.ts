@@ -31,6 +31,12 @@ export interface PermissionRequestView {
    * extension's own reason becomes its label.
    */
   extensionAsk?: { extension?: string; reason?: string };
+  /**
+   * ADR-0076: set for a client-initiated call (the composer's `!`
+   * command). Same reduced prompt as an extension ask — yes/no only —
+   * with its own label; `reason` is the ask's one-line label.
+   */
+  userAsk?: { reason?: string };
 }
 
 /** Formats one request for display. Pure — unit-testable.

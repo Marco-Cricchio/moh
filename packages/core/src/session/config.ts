@@ -39,7 +39,12 @@ export interface PermissionsConfig {
 /** ADR-0031: why an "ask" reached the consent flow beyond the tool's own rules. */
 export interface PermissionAskContext {
   /** Present (and "extension") only when an extension's `ask` outcome raised this prompt. */
-  source?: "extension";
+  /**
+   * "extension": an extension's `ask` outcome raised this prompt.
+   * "user" (ADR-0076): a client-initiated tool run (e.g. the composer's
+   * `!` command) — the prompt offers yes/no only, never a rule.
+   */
+  source?: "extension" | "user";
   /** Name of the extension that asked. */
   extension?: string;
   /** The extension's own one-line reason, rendered as the prompt's label. */
