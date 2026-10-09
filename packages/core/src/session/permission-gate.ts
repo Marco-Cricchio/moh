@@ -105,7 +105,7 @@ export class PermissionGate {
     // deny — yolo lifts only moh's own prompts, never a guardrail's question.
     // "A non-answer is absence, never authority": the denial is recorded
     // visibly, naming the extension, so the silence of old behavior is gone.
-    if (mode === "yolo" && extensionAsk && !tool.startsWith("mcp__")) {
+    if (mode === "yolo" && extensionAsk) {
       this.#append({ type: "permission_denied", callId, tool, reason: "extension" });
       return {
         allowed: false,

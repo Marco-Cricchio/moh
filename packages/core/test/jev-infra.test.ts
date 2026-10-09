@@ -139,6 +139,24 @@ describe("ask outcome (ADR-0031)", () => {
     expect(history).toContain("asked by extension probe");
   });
 
+  test("yolo denies an extension ask for MCP tools too", async () => {
+    const { rt } = await channel((ctx) =>
+      ctx.onToolCall(() => ({ ask: true, reason: "guardrail" })),
+    );
+    const session = createSession({
+      provider: MockProvider.scripted([
+        { deltas: [""], finish: "tool_calls", toolCalls: [{ name: "mcp__echo", args: { text: "hi" } }] },
+        { deltas: ["done"], finish: "stop" },
+      ]),
+      tools: { "mcp__echo": { ...echoTool, name: "mcp__echo" } },
+      extensions: rt,
+      permissions: { unrestrictedTools: true },
+    });
+    await session.send("go");
+    expect(session.history().some((e) => e.type === "permission_denied" && e.reason === "extension")).toBe(true);
+    expect(session.history().some((e) => e.type === "permission_granted" && e.reason === "yolo")).toBe(false);
+  });
+
   test("headless denies with the headless reason (no recipient)", async () => {
     const { rt } = await askingRuntime();
     const session = createSession({
