@@ -31,6 +31,7 @@ commands:
   secret   user-owned extension secrets (see: moh secret --help)
   handoff  publish a session handoff (see: moh handoff --help)
   browser  browser tool status and setup (see: moh browser --help)
+  retro    review accumulated retro findings (see: moh retro --help)
 
 options:
   --yolo     unrestricted tools: no permission prompts, no filesystem
@@ -460,6 +461,31 @@ options:
                    password
   --cwd <dir>      project root (default: process.cwd())
   --help           show this help
+```
+
+## moh retro
+
+```
+usage: moh retro [--json] [--dismiss <signature>] [--apply <signature> [--yes]] [--cwd <dir>]
+
+Reviews the retro findings accumulated for this project (ADR-0075).
+Findings are ordered by confidence and each shows its category, evidence
+and signature; prior dismissals of the same category are shown as
+lineage, never hidden.
+
+  --json              emit the report as JSON
+  --dismiss <sig>     record a durable dismissal: that observation is
+                      never proposed again, and repeated dismissals of a
+                      category raise the bar its extraction must clear
+  --apply <sig>       show the concrete change the finding proposes
+                      (a rule, a check, a navigation pointer); with --yes
+                      the change is written, appended under a
+                      "## Retro findings" heading — existing prose is
+                      never edited, and nothing is written without --yes
+  --cwd <dir>         the project root (default: process.cwd())
+
+Findings never reach the system prompt or a steering file on their own.
+In the TUI, /retro opens the same report in-session.
 ```
 
 ## moh secret

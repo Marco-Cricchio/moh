@@ -38,6 +38,7 @@ moh reads two files:
   "memory": { "enabled": true, "intervalTurns": 5, "budgetTokens": 2000 },
   "compaction": { "summarizer": "llm", "tailTurns": 10, "threshold": 0.8, "fallbackWindowTokens": 180000 },
   "handoff": { "transport": "gist", "onboarding": "dismissed" },
+  "retro": { "enabled": true },
   "skillRouting": { "labels": { "my-label": { "command": "/implement", "priority": 1, "disabled": false, "suffix": "..." } } },
   "mpm": { "enabled": true, "quota": { "maxFiles": 5000, "maxTotalBytes": 33554432 }, "exclude": ["legacy/**"] },
   "browser": { "enabled": true, "headless": true, "allowedHosts": ["192.168.1.1"] },
@@ -173,6 +174,12 @@ All keys are optional. Notes:
   never fires. Any integer 1–500 is accepted (the 50/100/200/500
   presets are a UI concern): manage it from the TUI settings row
   ("Max iterations/turn") or `moh run --max-iterations`.
+- `retro` — retro findings (ADR-0075): `enabled` (default `true`)
+  turns the automatic accumulation, the judgement batch, the digest and
+  the count indicator on or off. Findings are user data under
+  `~/.moh/projects/<slug>/retro/`; nothing reaches your steering files or
+  the prompt without an explicit confirmation per application (see the
+  Memory & compaction page).
 - `hookTimeoutMs` — ADR-0056: the wall-clock ceiling, in milliseconds,
   for every turn-path extension hook invocation (`beforeTurn`,
   `beforeModelCall`, `onToolCall`, `onToolResult`, `afterTurn`).

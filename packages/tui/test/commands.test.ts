@@ -35,7 +35,7 @@ function makeCtx(over: Partial<SlashContext> = {}): TestSlashContext {
 describe("new base slash commands (/commands /mode /theme /settings /wayfinder)", () => {
   test("BASE_COMMANDS lists the base commands alphabetically", () => {
     const names = BASE_COMMANDS.map((c) => c.name);
-    expect(names).toEqual(["ask-moh", "browser", "commands", "compact", "copy", "extensions", "fork", "help", "jev", "lanes", "mode", "model", "mpm", "reload", "rename", "routing", "session", "settings", "theme", "thinking", "tree", "wayfinder", "workflow"]);
+    expect(names).toEqual(["ask-moh", "browser", "commands", "compact", "copy", "extensions", "fork", "help", "jev", "lanes", "mode", "model", "mpm", "reload", "rename", "retro", "routing", "session", "settings", "theme", "thinking", "tree", "wayfinder", "workflow"]);
     expect([...names].sort((a, b) => a.localeCompare(b))).toEqual(names);
   });
 
@@ -368,7 +368,7 @@ describe("workflow skill aliases", () => {
   test("aliases only exist while workflow is on", () => {
     const ctx = makeCtx() as any;
     expect(activeCommands({ config: DEFAULT_USER_CONFIG }).map((c) => c.name)).toEqual([
-      "ask-moh", "browser", "commands", "compact", "copy", "extensions", "fork", "help", "jev", "lanes", "mode", "model", "mpm", "reload", "rename", "routing", "session", "settings", "theme", "thinking", "tree", "wayfinder", "workflow",
+      "ask-moh", "browser", "commands", "compact", "copy", "extensions", "fork", "help", "jev", "lanes", "mode", "model", "mpm", "reload", "rename", "retro", "routing", "session", "settings", "theme", "thinking", "tree", "wayfinder", "workflow",
     ]);
     runSlashCommand("/workflow on", ctx);
     const names = activeCommands({ config: ctx.config }).map((c) => c.name);

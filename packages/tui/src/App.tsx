@@ -80,6 +80,7 @@ import { JevModal } from "./JevModal";
 import { JEV_EXTENSION_NAME, readJevSummary, resolveJevChip, setJevUseCase, type JevStatusSummary } from "./jev-control";
 import { SessionRenameModal } from "./SessionRenameModal";
 import { SessionModal } from "./SessionModal";
+import { RetroModal } from "./RetroModal";
 import { ExtensionsModal } from "./ExtensionsModal";
 import { ExtensionsRail, ExtensionOverlayView } from "./ExtensionsRail";
 import { LanesModal } from "./LanesModal";
@@ -149,7 +150,7 @@ export interface AppProps {
   session?: AgentSession;
 }
 
-type Overlay = null | "settings" | "commands" | "manual" | "notes" | "onboarding" | "handoff-onboarding" | "workflow-offer" | "frontier" | "skill-chooser" | "model" | "skill-updates" | "quota" | "rename" | "cold-wizard" | "tree" | "mpm" | "session" | "jev" | "browser" | "lanes" | "extensions" | "stranded";
+type Overlay = null | "settings" | "commands" | "manual" | "notes" | "onboarding" | "handoff-onboarding" | "workflow-offer" | "frontier" | "skill-chooser" | "model" | "skill-updates" | "quota" | "rename" | "cold-wizard" | "tree" | "mpm" | "session" | "retro" | "jev" | "browser" | "lanes" | "extensions" | "stranded";
 
 /** #242: one-shot, non-blocking informed-consent copy. Exported so focused
  * tests can verify the full message even when narrow status chrome clips it. */
@@ -1685,6 +1686,7 @@ function AppShell({
         onOpenTree: () => setOverlay("tree"),
         onOpenMpm: () => setOverlay("mpm"),
         onOpenSession: () => setOverlay("session"),
+        onOpenRetro: () => setOverlay("retro"),
         onOpenExtensions: () => setOverlay("extensions"),
         onOpenLanes: () => setOverlay("lanes"),
         onOpenJev: () => setOverlay("jev"),
@@ -1947,6 +1949,14 @@ function AppShell({
           ) : (
             <Text> session analysis unavailable: {sessionReport && "error" in sessionReport ? sessionReport.error : "session file unknown"}</Text>
           ))}
+        {overlay === "retro" && session && (
+          <RetroModal
+            cwd={sessionCwd}
+            readReport={() => session.retroReport()}
+            dismiss={(signature, category) => session.retroDismiss(signature, category)}
+            onClose={() => setOverlay(null)}
+          />
+        )}
         {overlay === "lanes" && <LanesModal cwd={process.cwd()} onClose={() => setOverlay(null)} />}
         {overlay === "stranded" && (
           <StrandedModal
