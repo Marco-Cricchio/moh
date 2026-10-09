@@ -111,7 +111,7 @@ describe("ask outcome (ADR-0031)", () => {
     expect(session.permissionRules.filter((r) => r.tier === "runtime")).toEqual([]);
   });
 
-  test("yolo ignores the ask: the call proceeds as if the hook said nothing", async () => {
+  test("yolo denies the ask explicitly and records the denial (#1258)", async () => {
     const { rt } = await askingRuntime();
     let asked = 0;
     const session = createSession({
@@ -127,7 +127,16 @@ describe("ask outcome (ADR-0031)", () => {
     const result = await session.send("go");
     expect(result.status).toBe("done");
     expect(asked).toBe(0);
-    expect(session.history().some((e) => e.type === "permission_granted" && e.reason === "yolo")).toBe(true);
+    expect(session.history().some((e) => e.type === "permission_granted" && e.reason === "yolo")).toBe(false);
+    const denial = session.history().find((e) => e.type === "permission_denied" && e.reason === "extension") as any;
+    expect(denial).toBeTruthy();
+    expect(denial.callId).toBeTruthy();
+    expect(denial.tool).toBe("echo");
+    // The refusal is visible: the log carries the deny chrome and the failed
+    // tool_result names the extension for the model.
+    const history = JSON.stringify(session.history());
+    expect(history).toContain("permission_denied");
+    expect(history).toContain("asked by extension probe");
   });
 
   test("headless denies with the headless reason (no recipient)", async () => {
