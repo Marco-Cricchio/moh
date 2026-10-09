@@ -116,6 +116,20 @@ describe("semantic transcript projection (#183)", () => {
     expect(vibe[0]?.type).toBe("jev · routing · switch skipped (invalid_model), staying openai-compat/glm-5.3-flash, tried openrouter/openai/o3-mini-high");
   });
 
+  test("ADR-0076: vibe shows a user-typed (!) bash command's output like dev does", () => {
+    const call: AgentEvent = { type: "tool_call", callId: "b1", name: "bash", args: { command: "cat package.json" }, source: "user" } as unknown as AgentEvent;
+    const result: AgentEvent = { type: "tool_result", callId: "b1", ok: true, output: '{\n  "name": "root",\n  "private": true\n}' };
+    const blocks = projectTranscript([call, result], { mode: "vibe" });
+    expect(blocks).toHaveLength(1);
+    expect(blocks[0]!.lines).toEqual(['{', '  "name": "root",', '  "private": true', '}']);
+    // A loop-driven bash call keeps vibe's one-line collapse.
+    const loopCall: AgentEvent = { type: "tool_call", callId: "b2", name: "bash", args: { command: "ls" } };
+    const loopResult: AgentEvent = { type: "tool_result", callId: "b2", ok: true, output: "a.ts\nb.ts" };
+    const loop = projectTranscript([loopCall, loopResult], { mode: "vibe" });
+    expect(loop).toHaveLength(1);
+    expect(loop[0]!.lines).toEqual(["ran a command · ls"]);
+  });
+
   test("vibe hides metric/chrome blocks and keeps failures; dev keeps the full grammar (#193)", () => {
     const vibe = projectTranscript(base, { mode: "vibe" });
     expect(vibe.some((block) => block.type === "usage" || block.usage)).toBe(false);

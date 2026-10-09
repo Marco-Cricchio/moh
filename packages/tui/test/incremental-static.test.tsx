@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import React from "react";
 import { render } from "ink-testing-library";
 import { mkdtempSync } from "node:fs";
+import { execFileSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { AgentEvent } from "@moh/core";
@@ -10,6 +11,7 @@ import { App } from "../src/App";
 import { settledBoundary } from "../src/Chat";
 import { projectTranscript } from "../src/transcript";
 import { stripAnsi } from "./helpers";
+import { DevelopmentLaneService } from "@moh/core";
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -330,4 +332,36 @@ describe("the open tail paragraph reaches scrollback while it streams (#972)", (
     expect(settled.split("PSTART").length - 1).toBe(1);
     expect(settled.split("PEND").length - 1).toBe(1);
   }, 30_000);
+});
+
+describe("ADR-0060 decision: the first prompt never names the lane", () => {
+  test("a send inside a labeled lane leaves the registry label untouched; row2 keeps it", async () => {
+    const root = mkdtempSync(join(tmpdir(), "moh-lane-label-"));
+    execFileSync("git", ["init", "-b", "develop"], { cwd: root, stdio: "ignore" });
+    execFileSync("git", ["config", "user.email", "test@moh.local"], { cwd: root, stdio: "ignore" });
+    execFileSync("git", ["config", "user.name", "moh-test"], { cwd: root, stdio: "ignore" });
+    execFileSync("git", ["commit", "--allow-empty", "-m", "seed"], { cwd: root, stdio: "ignore" });
+    const home = mkdtempSync(join(tmpdir(), "moh-lane-label-home-"));
+    const service = new DevelopmentLaneService({ cwd: root, home });
+    const ensured = await service.ensureSessionLane({ sessionId: "sess-label-1", force: true });
+    if (!ensured.lane) throw new Error(`lane provisioning failed: ${ensured.reason ?? "unknown"}`);
+    const laneId = ensured.lane.id;
+    const { DevelopmentLaneStore } = await import("@moh/core");
+    const registry = new DevelopmentLaneStore({ cwd: root, home });
+    registry.setLabel(laneId, "team-chosen label");
+    const provider = MockProvider.scripted([{ deltas: ["ack"], finish: "stop" }]);
+    const app = <App intro={false} cwd={root} home={home} provider={provider} startInChat skipOnboarding />;
+    const ink = render(app);
+    Object.defineProperty(ink.stdout, "columns", { value: 120, configurable: true });
+    Object.defineProperty(ink.stdout, "rows", { value: 40, configurable: true });
+    ink.rerender(app);
+    await sleep(30);
+    ink.stdin.write("se controlli i comandi bash che ho eseguito ce ne sono alcuni che non danno output");
+    await sleep(20);
+    ink.stdin.write("\r");
+    await sleep(1200);
+    const after = registry.listLanes().find((lane) => lane.id === laneId);
+    expect(after?.label).toBe("team-chosen label");
+    ink.unmount();
+  }, 15000);
 });
