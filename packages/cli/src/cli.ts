@@ -21,6 +21,7 @@ import { secretCommand, SECRET_USAGE } from "./secret";
 import { trashCommand, TRASH_USAGE } from "./trash";
 import { lanesCommand, lanesRemoveCommand, lanesDeleteCommand, LANES_USAGE } from "./lanes";
 import { browserCommand, BROWSER_USAGE } from "./browser";
+import { retroCommand, RETRO_USAGE } from "./retro";
 import { CLI_VERSION } from "./version";
 
 const HELP = `moh — headless coding agent
@@ -48,6 +49,7 @@ commands:
   secret   user-owned extension secrets (see: moh secret --help)
   handoff  publish a session handoff (see: moh handoff --help)
   browser  browser tool status and setup (see: moh browser --help)
+  retro    review accumulated retro findings (see: moh retro --help)
 
 options:
   --yolo     unrestricted tools: no permission prompts, no filesystem
@@ -255,6 +257,13 @@ export async function main(
       return 0;
     }
     return browserCommand({ argv: rest, home: process.env.HOME });
+  }
+  if (command === "retro") {
+    if (rest.includes("--help") || rest.includes("-h")) {
+      process.stdout.write(RETRO_USAGE + "\n");
+      return 0;
+    }
+    return retroCommand({ argv: rest, home: process.env.HOME });
   }
   process.stderr.write(`moh: unknown command "${command}"\n\n${HELP}`);
   return 2;

@@ -7,6 +7,8 @@ matching section here at tag time.
 
 ## [Unreleased]
 
+- **Retro report** (#1275): adds `moh retro` for reviewing accumulated findings, inspecting dismissal lineage, and recording durable dismissals without automatically changing steering files.
+
 ## [0.59.3] - 2026-10-08
 
 ### Security

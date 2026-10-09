@@ -250,3 +250,20 @@ describe("deterministic extraction", () => {
     expect(store.read().map((f) => f.signature)).toEqual(first.map((f) => f.signature));
   });
 });
+
+describe("retro report", () => {
+  test("orders findings and exposes same-category dismissal lineage", () => {
+    const dir = tempDir();
+    const store = new RetroStore(dir);
+    const first = candidate({ category: "navigation", evidence: "missing pointer", session: "session-1", signature: retroSignature("navigation", "missing pointer") });
+    store.append([first], new Date("2026-01-01T00:00:00Z"));
+    store.dismiss(first.signature, new Date("2026-01-02T00:00:00Z"));
+    const second = candidate({ category: "navigation", evidence: "new pointer", session: "session-2", signature: retroSignature("navigation", "new pointer") });
+    store.append([second], new Date("2026-01-03T00:00:00Z"));
+    const report = store.report();
+    expect(report.findings).toHaveLength(1);
+    expect(report.findings[0]?.priorDismissals).toHaveLength(1);
+    expect(report.findings[0]?.lineage).toBe("2026-01-02T00:00:00.000Z");
+    expect(report.dismissed[0]?.signature).toBe(first.signature);
+  });
+});

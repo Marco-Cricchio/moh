@@ -31,6 +31,7 @@ commands:
   secret   user-owned extension secrets (see: moh secret --help)
   handoff  publish a session handoff (see: moh handoff --help)
   browser  browser tool status and setup (see: moh browser --help)
+  retro    review accumulated retro findings (see: moh retro --help)
 
 options:
   --yolo     unrestricted tools: no permission prompts, no filesystem
@@ -443,6 +444,17 @@ options:
                    password
   --cwd <dir>      project root (default: process.cwd())
   --help           show this help
+```
+
+## moh retro
+
+```
+usage: moh retro [--json] [--dismiss <signature>] [--apply <signature>] [--cwd <dir>]
+
+Review accumulated retro findings. Findings are ordered by confidence; prior
+same-category dismissals are shown as lineage. Dismiss is durable. Apply only
+prints the proposed last-mile change and requires a separate human confirmation
+before any steering file is changed.
 ```
 
 ## moh secret

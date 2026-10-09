@@ -86,6 +86,22 @@ interface DigestState {
   lastDigest: string;
 }
 
+export interface RetroDismissal {
+  signature: string;
+  category: string;
+  dismissedAt: string;
+}
+
+export interface RetroReportFinding extends RetroFinding {
+  priorDismissals: RetroDismissal[];
+  lineage: string | null;
+}
+
+export interface RetroReport {
+  findings: RetroReportFinding[];
+  dismissed: RetroDismissal[];
+}
+
 /** The per-project retro store. Writes are atomic (temp + rename);
  * `findings.jsonl` only ever grows, except for the bounded eviction. */
 export class RetroStore {
@@ -173,14 +189,40 @@ export class RetroStore {
   /** The durable dismissed-signature set (ADR-0075: rejecting is a
    * durable user decision; the UX that calls this is #1275). */
   dismissed(): Set<string> {
+    return new Set(this.dismissalRecords().map((record) => record.signature));
+  }
+
+  dismissalRecords(): RetroDismissal[] {
     try {
       const parsed = JSON.parse(readFileSync(join(this.dir, DISMISSED_FILE), "utf8")) as {
-        signatures?: Record<string, string>;
+        signatures?: Record<string, string | { category?: string; dismissedAt?: string }>;
       };
-      return new Set(Object.keys(parsed.signatures ?? {}));
+      const findings = new Map(this.read().map((finding) => [finding.signature, finding.category]));
+      return Object.entries(parsed.signatures ?? {}).map(([signature, value]) => ({
+        signature,
+        category: typeof value === "string" ? findings.get(signature) ?? "unknown" : value.category ?? findings.get(signature) ?? "unknown",
+        dismissedAt: typeof value === "string" ? value : value.dismissedAt ?? "",
+      })).sort((a, b) => a.dismissedAt.localeCompare(b.dismissedAt));
     } catch {
-      return new Set();
+      return [];
     }
+  }
+
+  report(): RetroReport {
+    const dismissed = this.dismissalRecords();
+    const byCategory = new Map<string, RetroDismissal[]>();
+    for (const record of dismissed) {
+      const list = byCategory.get(record.category) ?? [];
+      list.push(record);
+      byCategory.set(record.category, list);
+    }
+    const dismissedSignatures = new Set(dismissed.map((record) => record.signature));
+    const findings = this.read().filter((finding) => !dismissedSignatures.has(finding.signature)).map((finding) => ({
+      ...finding,
+      priorDismissals: byCategory.get(finding.category) ?? [],
+      lineage: (byCategory.get(finding.category) ?? []).at(-1)?.dismissedAt ?? null,
+    })).sort((a, b) => b.confidence - a.confidence || a.appendedAt.localeCompare(b.appendedAt));
+    return { findings, dismissed };
   }
 
   dismiss(signature: string, now = new Date()): void {
