@@ -748,6 +748,24 @@ export function projectTranscript(events: ReadonlyArray<AgentEvent>, options: { 
             });
             break;
           }
+          if (event.name === "bash" && event.source === "user") {
+            // ADR-0076: the user typed this command — its output is the
+            // content they asked for, so vibe shows it like dev does.
+            // Failures fall through to the shared error block below.
+            if (state !== "fail") {
+              blocks.push({
+                key,
+                kind: "moh",
+                glyph: "◆",
+                type: "command",
+                detail: vibeCommandHint(event.args),
+                lines: result?.ok ? result.output.split("\n").slice(0, options.filePreview === "always" ? 15 : 5).map(sanitizeLine) : [],
+                state,
+                ...timingFields,
+              });
+              break;
+            }
+          }
           if (state !== "fail") {
             const action = TOOL_ACTION[event.name] ?? `used ${event.name}`;
             const target = event.name === "bash" ? vibeCommandHint(event.args) : vibeDetail(event.name, event.args);

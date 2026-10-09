@@ -1569,7 +1569,24 @@ export function settledBoundary(
    * at call end (or at the tool call that follows) instead of
    * paragraph-by-paragraph. */ holdReplyForReasoning?: boolean } = {},
 ): number {
-  if (!pending) return events.length;
+  if (!pending) {
+    // ADR-0076: bang commands run outside a turn (pending === false), so
+    // the whole log would promote at once — printing an unresolved
+    // tool_call's ◌ block (zero lines) that Static can never revise when
+    // the result lands, swallowing the command's output. Hold the first
+    // unresolved call (and everything after it) volatile until its result
+    // closes it. Append-only events keep the already-promoted prefix
+    // stable, so the boundary may only move forward across renders.
+    const resolved = new Set<string>();
+    for (const event of events) {
+      if (event.type === "tool_result" || event.type === "subagent_result") resolved.add(event.callId);
+    }
+    for (let i = 0; i < events.length; i++) {
+      const event = events[i]!;
+      if ((event.type === "tool_call" || event.type === "subagent_spawn") && !resolved.has(event.callId)) return i;
+    }
+    return events.length;
+  }
   const hold = options.holdReplyForReasoning === true;
   let turnStart = events.length;
   for (let i = events.length - 1; i >= 0; i--) {

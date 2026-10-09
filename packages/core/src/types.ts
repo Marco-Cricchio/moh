@@ -439,6 +439,11 @@ type AgentEventBase =
        * when the tool declares no timeout; the runner stamps it from
        * `Tool.timeoutMs` at call time so clients can render a live timer. */
       timeoutMs?: number;
+      /** ADR-0076: the client itself initiated this call (composer `!`
+       * command via `runBash`), outside the agent loop. Clients use it to
+       * render the call's output as user-requested content. Absent on
+       * loop-driven calls. */
+      source?: "user";
     })
   | { type: "tool_result"; callId: string; ok: boolean; output: string; /** #731: structured failure reason on failed results only — lets
              * telemetry classify errors without parsing output text. */

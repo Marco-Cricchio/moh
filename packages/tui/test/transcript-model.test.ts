@@ -187,6 +187,22 @@ describe("settledBoundary — incremental promotion boundary (#194)", () => {
     expect(settledBoundary(events, false)).toBe(events.length);
   });
 
+  test("not pending: an unresolved tool_call (composer ! command) stays volatile until its result", () => {
+    // ADR-0076: a bang command runs outside a turn — promoting its ◌
+    // block printed zero lines Static could never revise, swallowing
+    // the output.
+    const events: AgentEvent[] = [user, call];
+    expect(settledBoundary(events, false)).toBe(1);
+    expect(settledBoundary([...events, result], false)).toBe(3);
+  });
+
+  test("not pending: an unresolved subagent_spawn stays volatile too", () => {
+    const spawn: AgentEvent = { type: "subagent_spawn", callId: "s1", name: "research", preset: "research" } as unknown as AgentEvent;
+    const doneSpawn: AgentEvent = { type: "subagent_result", callId: "s1", status: "done", name: "research", usage: { inputTokens: 1, outputTokens: 1 } } as unknown as AgentEvent;
+    expect(settledBoundary([user, spawn], false)).toBe(1);
+    expect(settledBoundary([user, spawn, doneSpawn], false)).toBe(3);
+  });
+
   test("a closed tool pair passes the boundary past the result (never inside the pair)", () => {
     // Baseline: part-b §9 — the boundary never begins on a tool_result:
     // the whole pair promotes together, so the next print starts after it.
