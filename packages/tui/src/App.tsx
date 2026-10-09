@@ -24,11 +24,13 @@ import {
   DevelopmentLaneStore,
   mainCheckoutFor,
   readUserConfigFile,
+  readLaneSetup,
   type AgentSession,
   type AssemblyError,
   type DevelopmentLane,
   type ExtensionStatus,
   type HandoffOffer,
+  laneInstallLine,
   type Provider,
   type SessionMode,
   type TrackerBackend,
@@ -991,14 +993,26 @@ function AppShell({
         const recentSibling = listSessionSummaries(cwd, home).some(
           (summary) => Date.now() - summary.mtimeMs < 10 * 60 * 1000,
         );
-        const provisioned = await new DevelopmentLaneService({ cwd, home }).ensureSessionLane({
+        const setup = readLaneSetup(home);
+        const provisioned = await new DevelopmentLaneService({
+          cwd,
+          home,
+          ...(setup !== undefined ? { setup } : {}),
+        }).ensureSessionLane({
           sessionId: `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
           auto: userCfg.lanes?.auto !== false,
           task: initialPrompt,
           ...(recentSibling ? { liveSiblingSessions: 1 } : {}),
         });
         if (provisioned.lane) {
-          finishOpen(provisioned.lane.worktreePath, `lane: ${provisioned.lane.branchRef} — isolated worktree`);
+          // The install outcome is part of the provisioning result (ADR-0060
+          // amendment 5): a failure is never silent — the lane is real and
+          // usable, its dependencies are not.
+          const install = laneInstallLine(provisioned.install);
+          finishOpen(
+            provisioned.lane.worktreePath,
+            `lane: ${provisioned.lane.branchRef} — isolated worktree${install ? ` · ${install}` : ""}`,
+          );
         } else {
           finishOpen();
         }

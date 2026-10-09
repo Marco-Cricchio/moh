@@ -6,7 +6,7 @@
  * registry backs the modal, but no git operations run here.
  */
 import { describe, expect, test } from "bun:test";
-import { existsSync, mkdtempSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, symlinkSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -165,7 +165,8 @@ describe("lanes modal (ADR-0060)", () => {
     ink.unmount();
   });
 
-  test("windowed list: many lanes scroll inside the dialog with indicators", () => {    const { cwd, home, store } = registry();
+  test("windowed list: many lanes scroll inside the dialog with indicators", () => {
+    const { cwd, home, store } = registry();
     const group = store.createFeatureGroup({ name: "many", targetRef: "develop" });
     for (let i = 0; i < 12; i++) {
       store.createLane({
@@ -197,5 +198,38 @@ describe("lanes modal (ADR-0060)", () => {
     const notices: string[] = [];
     lanes!.run({ notify: (m: string) => notices.push(m) } as any, "");
     expect(notices).toEqual(["/lanes needs an open session"]);
+  });
+
+  test("each lane's install state shows, and a drifted checkout is reported read-only (amendment 5)", () => {
+    const { cwd, home, store } = registry();
+    const group = store.createFeatureGroup({ name: "deps", targetRef: "develop" });
+    store.createLane({
+      featureGroupId: group.id,
+      sessionId: "session-dep",
+      worktreePath: join(cwd, "no-such-worktree"),
+      branchRef: "feature/deps-1",
+      baseRef: "develop",
+      baseRevision: "abc123def456",
+      targetRef: "develop",
+      relation: "independent",
+    });
+    const lane = store.listLanes()[0]!;
+    const clean = frame(<LanesModal cwd={cwd} home={home} onClose={() => {}} />);
+    // No install record yet, and the checkout declares none: nothing claimed.
+    expect(clean).not.toContain("install");
+    expect(clean).not.toContain("drifted");
+
+    store.setInstall(lane.id, { kind: "installed", command: "bun install", fingerprint: "abc123", at: new Date().toISOString() });
+    expect(frame(<LanesModal cwd={cwd} home={home} onClose={() => {}} />)).toContain("install bun install");
+
+    store.setInstall(lane.id, { kind: "failed", command: "bun install", reason: "boom", at: new Date().toISOString() });
+    expect(frame(<LanesModal cwd={cwd} home={home} onClose={() => {}} />)).toContain("install FAILED");
+
+    // The checkout's own drift: one read-only line naming the CLI door.
+    mkdirSync(join(cwd, "node_modules", "@moh"), { recursive: true });
+    symlinkSync(join(cwd, "no-such-target"), join(cwd, "node_modules", "@moh", "core"));
+    const drifted = frame(<LanesModal cwd={cwd} home={home} onClose={() => {}} />);
+    expect(drifted).toContain("checkout install drifted");
+    expect(drifted).toContain("moh lanes repair --apply");
   });
 });

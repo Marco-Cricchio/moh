@@ -125,6 +125,27 @@ describe("development lane store", () => {
     const cleared = store.setLabel(lane.id, "   ");
     expect(cleared.label).toBeUndefined();
   });
+
+  test("records a lane's install outcome, and an unchanged one does not churn the row (ADR-0060 amendment 5)", () => {
+    const { cwd, home } = project();
+    const store = new DevelopmentLaneStore({ cwd, home });
+    const group = store.createFeatureGroup({ name: "deps", targetRef: "develop" });
+    const lane = store.createLane({
+      featureGroupId: group.id, sessionId: "session-a", worktreePath: "/tmp/deps", branchRef: "moh/auto-a",
+      baseRef: "develop", baseRevision: "abc", targetRef: "develop", relation: "independent",
+    });
+    expect(store.listLanes()[0]!.install).toBeUndefined();
+    const first = store.setInstall(lane.id, { kind: "installed", command: "bun install", fingerprint: "abc123", at: "2026-10-09T10:00:00.000Z" });
+    expect(first.install).toMatchObject({ kind: "installed", command: "bun install", fingerprint: "abc123" });
+    // The same fact again: the recorded timestamp survives, so an unchanged
+    // open does not rewrite the registry.
+    const again = store.setInstall(lane.id, { kind: "installed", command: "bun install", fingerprint: "abc123", at: "2026-10-09T11:00:00.000Z" });
+    expect(again.install!.at).toBe("2026-10-09T10:00:00.000Z");
+    // A different outcome replaces it (a failure, or a visible nothing).
+    const failed = store.setInstall(lane.id, { kind: "failed", command: "bun install", reason: "boom", at: "2026-10-09T11:00:00.000Z" });
+    expect(failed.install).toMatchObject({ kind: "failed", reason: "boom" });
+    expect(() => store.setInstall("lane-nope", { kind: "nothing", at: "x" })).toThrow("unknown lane");
+  });
 });
 
 describe("removeLane (single-lane registry removal)", () => {

@@ -7,6 +7,22 @@ matching section here at tag time.
 
 ## [Unreleased]
 
+### Fixed
+
+- **Lanes own their dependency install** (#1280, ADR-0060 amendment 5). A
+  lane's `node_modules` is no longer a symlink to the checkout's install:
+  one `bun install` inside a lane used to repoint `@moh/*` for every lane
+  and the main checkout, so every worktree compiled and tested one arbitrary
+  lane's sources. Each lane now runs the install its own project declares
+  (`lanes.setup` in `~/.moh/config`, then `package.json`'s `packageManager`,
+  then the lockfile table), records the outcome and the lockfile fingerprint
+  on the lane, and converts a store it does not own — including the old
+  shared one — on its next open. A failed install leaves the lane usable,
+  says so, and is retried on the next open. The checkout is never mutated
+  automatically: `moh lanes list` reports a drifted checkout read-only, and
+  the new `moh lanes repair [--apply]` removes the workspace links and
+  reinstalls.
+
 ## [0.59.3] - 2026-10-08
 
 ### Security
