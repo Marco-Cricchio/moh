@@ -16,6 +16,32 @@ is never merged by the core — only appended atomically, and consolidated
 Later sessions load the index plus the relevant topics, so facts about
 your project survive restarts without you repeating them.
 
+## Retro findings (across sessions)
+
+The same dotdir also accumulates **retro findings**: improvement
+candidates extracted automatically when a session closes — a check that
+exists in `package.json` but nothing wires it (no pre-commit hook, no CI
+job), a bash command re-issued repeatedly within one session, repeated
+tool timeouts. Extraction is deterministic (no model call), and findings
+land in `~/.moh/projects/<slug>/retro/`, append-only, deduplicated by
+their evidence signature.
+
+Accumulation is automatic; **consumption is only at consent** — findings
+never reach the system prompt and never edit your steering files:
+
+- `moh retro` reviews them, ordered by confidence, with the context of
+  earlier dismissals of the same subject.
+- `moh retro --dismiss <signature>` records a durable decision for that
+  exact observation. A materially new observation is a new signature and
+  can be proposed again.
+- `moh retro --apply <signature> --yes` records an approved application.
+  Nothing is written automatically; the change itself stays yours.
+
+The only in-session surfaces are a discreet count when findings were
+appended, and one session-start line pointing at the report, at most
+once every 48 hours. Nothing is ever deleted, and `moh.json`'s `retro`
+block (`enabled: false` turns it off) is the only switch.
+
 ## Compaction (within a session)
 
 When a session's context grows, compaction rebuilds the past **inside**

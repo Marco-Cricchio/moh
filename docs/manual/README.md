@@ -15,7 +15,6 @@ regenerates it).
 - [Memory & compaction](./memory-and-compaction.md) — memory-and-compaction
 - [Permissions & rules](./permissions.md) — permissions
 - [Providers & models](./providers-and-models.md) — providers-and-models
-- [Retro findings](./retro.md) — retro
 - [Sessions](./sessions.md) — sessions
 - [Skills & workflow mode](./skills-and-workflow.md) — skills-and-workflow
 - [What moh offers](./what-moh-offers.md) — what-moh-offers

@@ -20,7 +20,6 @@ import extensions from "./manual/extensions.md" with { type: "text" };
 import mcp from "./manual/mcp.md" with { type: "text" };
 import skillsAndWorkflow from "./manual/skills-and-workflow.md" with { type: "text" };
 import memoryAndCompaction from "./manual/memory-and-compaction.md" with { type: "text" };
-import retro from "./manual/retro.md" with { type: "text" };
 import cliReference from "./manual/cli-reference.md" with { type: "text" };
 import configReference from "./manual/config-reference.md" with { type: "text" };
 import commandsAndKeys from "./manual/commands-and-keys.md" with { type: "text" };
@@ -47,7 +46,6 @@ const PAGES: ReadonlyArray<ManualPage> = [
   { id: "mcp", title: "MCP", summary: "declaring MCP servers, stdio/HTTP transports, consent and trust", body: mcp },
   { id: "skills-and-workflow", title: "Skills & workflow mode", summary: "first-party skills, /workflow on|off, slash commands, /ask-moh", body: skillsAndWorkflow },
   { id: "memory-and-compaction", title: "Memory & compaction", summary: "facts across sessions vs rebuilt context within one", body: memoryAndCompaction },
-  { id: "retro", title: "Retro findings", summary: "review accumulated improvement findings without automatic steering changes", body: retro },
   { id: "cli-reference", title: "CLI reference", summary: "every moh command and flag (generated)", body: cliReference },
   { id: "config-reference", title: "Config reference", summary: "moh.json and ~/.moh/config keys (generated)", body: configReference },
   { id: "commands-and-keys", title: "Commands & keys", summary: "TUI keybindings and slash commands (generated)", body: commandsAndKeys },
