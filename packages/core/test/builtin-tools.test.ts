@@ -1015,6 +1015,22 @@ describe("bash re-run guard (#304)", () => {
     expect(out).toContain("tree-green");
     expect(out).not.toContain("not re-executed");
   }, 10_000);
+
+  // #1262 (stale ledger hit): `status --porcelain` hides ignored files, so
+  // a build artifact the suite reads could change while the fingerprint
+  // held still. Ignored files are part of the fingerprint now.
+  test("an ignored-file change defeats interception too", async () => {
+    writeFileSync(join(repo, ".gitignore"), "ignored.log\n");
+    Bun.spawnSync(["git", "add", ".gitignore"], { cwd: repo });
+    Bun.spawnSync(["git", "commit", "-qm", "ignore"], { cwd: repo });
+    fakeSuite("ignored", "sleep 0.2 && cat ignored.log");
+    writeFileSync(join(repo, "ignored.log"), "stale-content");
+    await guardTools.bash.execute({ command: "make ignored" }, repoCtx);
+    writeFileSync(join(repo, "ignored.log"), "fresh-content");
+    const out = await guardTools.bash.execute({ command: "make ignored" }, repoCtx);
+    expect(out).toContain("fresh-content");
+    expect(out).not.toContain("not re-executed");
+  }, 10_000);
 });
 
 describe("suite-like classification (#304)", () => {

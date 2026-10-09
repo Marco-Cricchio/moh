@@ -286,7 +286,7 @@ function gitSnapshot(cwd: string): string | null {
   try {
     const head = Bun.spawnSync(["git", "rev-parse", "HEAD"], { cwd, stdout: "pipe", stderr: "ignore" });
     if (head.exitCode !== 0) return null;
-    const status = Bun.spawnSync(["git", "status", "--porcelain"], { cwd, stdout: "pipe", stderr: "ignore" });
+    const status = Bun.spawnSync(["git", "status", "--porcelain", "--ignored=matching"], { cwd, stdout: "pipe", stderr: "ignore" });
     if (status.exitCode !== 0) return null;
     return `${head.stdout.toString().trim()}|${status.stdout.toString().trim()}`;
   } catch {
