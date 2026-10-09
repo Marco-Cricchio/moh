@@ -63,6 +63,8 @@ export function PermissionModal({
         <Text color={theme.warn}>
           {`${consent ? "extension enable" : "extension ask"}${view.extensionAsk.extension ? ` (${view.extensionAsk.extension})` : ""}${view.extensionAsk.reason ? `: ${view.extensionAsk.reason}` : ""}`}
         </Text>
+      ) : view.userAsk ? (
+        <Text color={theme.warn}>{`your command${view.userAsk.reason ? `: ${view.userAsk.reason}` : ""}`}</Text>
       ) : null}
       <Text> </Text>
       {view.detail.map((line, i) => (
