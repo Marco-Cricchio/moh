@@ -29,10 +29,18 @@ afterEach(() => {
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
+/** Mounts the modal over a real store, wired exactly as the App wires it
+ * to the session's own seams. */
 function mount(cwd: string, mohHome: string) {
+  const store = RetroStore.forProject(cwd, mohHome);
   return render(
     <ThemeProvider value={THEMES[DEFAULT_THEME]}>
-      <RetroModal cwd={cwd} mohHome={mohHome} onClose={() => {}} />
+      <RetroModal
+        cwd={cwd}
+        readReport={() => store.report()}
+        dismiss={(signature, category) => store.dismiss(signature, { category })}
+        onClose={() => {}}
+      />
     </ThemeProvider>,
   );
 }
@@ -50,7 +58,28 @@ describe("RetroModal", () => {
     const cwd = tempDir("cwd");
     const mohHome = tempDir("home");
     const instance = mount(cwd, mohHome);
-    await waitForFrame(() => stripAnsi(instance.lastFrame() ?? ""), "nothing accumulated");
+    await waitForFrame(() => stripAnsi(instance.lastFrame() ?? ""), "no open findings");
+    instance.unmount();
+  });
+
+  test("a disabled retro says so instead of showing an empty report", async () => {
+    const cwd = tempDir("cwd");
+    const instance = render(
+      <ThemeProvider value={THEMES[DEFAULT_THEME]}>
+        <RetroModal cwd={cwd} readReport={() => null} dismiss={() => {}} onClose={() => {}} />
+      </ThemeProvider>,
+    );
+    await waitForFrame(() => stripAnsi(instance.lastFrame() ?? ""), "disabled for this session");
+    instance.unmount();
+  });
+
+  test("dismissals stay visible after the finding is gone", async () => {
+    const cwd = tempDir("cwd");
+    const mohHome = tempDir("home");
+    const { store, signature } = seed(cwd, mohHome);
+    store.dismiss(signature, { now: new Date("2026-01-02T00:00:00Z"), category: "navigation" });
+    const instance = mount(cwd, mohHome);
+    await waitForFrame(() => stripAnsi(instance.lastFrame() ?? ""), "1 dismissal recorded");
     instance.unmount();
   });
 

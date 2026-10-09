@@ -1163,11 +1163,8 @@ export {
   type RetroReportFinding,
 } from "./retro";
 
-export {
-  proposeRetroApplication,
-  applyRetroApplication,
-  retroApplicationPath,
-  type RetroApplication,
-  type RetroApplicationKind,
-  type RetroApplyResult,
-} from "./retro-apply";
+export { proposeRetroApplication, applyRetroApplication } from "./retro-apply";
+
+// ADR-0075 (#1275): the judgement pipeline's injectable seam — the type
+// `SessionConfig.retroJudgment` references, so clients and tests can name it.
+export type { RetroJudgmentExtractor, RetroJudgmentInput } from "./retro-judgment";

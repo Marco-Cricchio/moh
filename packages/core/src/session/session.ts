@@ -34,7 +34,7 @@ import { AgentLoop } from "./agent-loop";
 import { SubagentHost, type SubagentSpawnRequester, type SubagentSpawnLimits } from "../subagents";
 import { replayMessages, replayWarnings } from "../session-store";
 import { MemoryRunner, MemoryStore, createMaintenanceExtractor } from "../memory";
-import { RetroStore, extractRetroFindings } from "../retro";
+import { RetroStore, extractRetroFindings, type RetroReport } from "../retro";
 import { RETRO_JUDGMENT_BATCH, closedSessions, createRetroJudgmentExtractor, selectJudgmentBatch, type RetroJudgmentExtractor } from "../retro-judgment";
 import type { CompactionHookContext } from "@moh/extension";
 import type { ContributedToolSchema } from "@moh/extension";
@@ -2336,13 +2336,33 @@ export class AgentSession {
   }
 
   /**
-   * ADR-0075: the report opened in this session replaces the digest —
-   * the session-start digest line is suppressed (the timestamp still
-   * moves, so the reviewed batch is not re-digested). Called by the
-   * report surface (#1275).
+   * ADR-0075 (#1275): the report opened in this session replaces the
+   * digest. The reviewed batch must not be re-digested by the next
+   * session either, so the digest timestamp moves now — the store's own
+   * `reportOpen` path, which emits nothing and only advances the clock.
    */
   suppressRetroDigest(): void {
     this.#retroDigestSuppressed = true;
+    this.#retro?.maybeDigest(undefined, { reportOpen: true });
+  }
+
+  /**
+   * ADR-0075 (#1275): the retro report for this project — the surface the
+   * in-session door renders (`/retro`). Null when retro is disabled for
+   * this session (`retro.enabled: false`), so a client never invents a
+   * store the session did not configure.
+   */
+  retroReport(): RetroReport | null {
+    return this.#retro?.report() ?? null;
+  }
+
+  /**
+   * ADR-0075 (#1275): records a durable dismissal through the session's
+   * own store (the same store the report read), so a client cannot write
+   * to a store the session is not using.
+   */
+  retroDismiss(signature: string, category: string): void {
+    this.#retro?.dismiss(signature, { category });
   }
 
   /** Ends the session: flushes a pending memory run, shuts down MCP servers, dispatches onSessionEnd hooks. Idempotent.

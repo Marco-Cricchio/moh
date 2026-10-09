@@ -36,16 +36,22 @@ function storeFor(cwd: string, home?: string): RetroStore {
 
 function render(report: ReturnType<RetroStore["report"]>): string {
   if (report.findings.length === 0) {
+    // A dismissal is a durable decision, so it stays visible even after
+    // the finding it rejected is gone — silence would read as "nothing
+    // ever happened".
+    if (report.dismissed.length > 0) {
+      const last = report.dismissed.at(-1)!;
+      return `No open retro findings — ${report.dismissed.length} dismissal${report.dismissed.length === 1 ? "" : "s"} recorded (last ${last.dismissedAt.slice(0, 10)}, ${last.category}).\n`;
+    }
     return "No retro findings. Findings accumulate automatically as sessions close.\n";
   }
   return report.findings.map((finding, index) => {
     const application = proposeRetroApplication(finding);
     const lineage = finding.lineage ? `\n   dismissed in similar form on ${finding.lineage.slice(0, 10)}` : "";
-    const target = application.target ? application.proposal : application.proposal;
     return [
       `${index + 1}. [${finding.category}] confidence ${(finding.confidence * 100).toFixed(0)}%`,
       `   ${finding.evidence}${lineage}`,
-      `   proposed: ${target}${application.target ? ` (${application.target})` : ""}`,
+      `   proposed: ${application.proposal}${application.target ? ` (${application.target})` : ""}`,
       `   signature: ${finding.signature}`,
     ].join("\n");
   }).join("\n\n") + "\n";
@@ -77,7 +83,7 @@ export async function retroCommand({
       process.stderr.write(`moh retro: no finding with signature "${parsed.strings.dismiss}"\n`);
       return 2;
     }
-    store.dismiss(finding.signature, new Date(), finding.category);
+    store.dismiss(finding.signature, { category: finding.category });
     process.stdout.write(`dismissed: ${finding.signature}\n`);
     return 0;
   }

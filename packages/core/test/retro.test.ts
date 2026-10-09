@@ -257,7 +257,7 @@ describe("retro report", () => {
     const store = new RetroStore(dir);
     const first = candidate({ category: "navigation", evidence: "missing pointer", session: "session-1", signature: retroSignature("navigation", "missing pointer") });
     store.append([first], new Date("2026-01-01T00:00:00Z"));
-    store.dismiss(first.signature, new Date("2026-01-02T00:00:00Z"));
+    store.dismiss(first.signature, { now: new Date("2026-01-02T00:00:00Z") });
     const second = candidate({ category: "navigation", evidence: "new pointer", session: "session-2", signature: retroSignature("navigation", "new pointer") });
     store.append([second], new Date("2026-01-03T00:00:00Z"));
     const report = store.report();
@@ -278,7 +278,7 @@ describe("adaptive threshold (ADR-0075)", () => {
     // Nine dismissals of the category put the bar at 0.45 — above the
     // 0.4 finding and below the 0.6 one.
     for (let i = 0; i < 9; i++) {
-      store.dismiss(`navigation-sig-${i}`, new Date("2026-01-02T00:00:00Z"), "navigation");
+      store.dismiss(`navigation-sig-${i}`, { now: new Date("2026-01-02T00:00:00Z"), category: "navigation" });
     }
     expect(store.thresholdFor("navigation")).toBeCloseTo(0.45);
     const stillLow = { ...candidate({ category: "navigation", evidence: "pointer B", session: "s2", signature: retroSignature("navigation", "pointer B") }), confidence: 0.4 };
@@ -293,7 +293,7 @@ describe("adaptive threshold (ADR-0075)", () => {
     const dir = tempDir();
     const store = new RetroStore(dir);
     for (let i = 0; i < 40; i++) {
-      store.dismiss(`sig-${i}`, new Date("2026-01-02T00:00:00Z"), "coding-standards");
+      store.dismiss(`sig-${i}`, { now: new Date("2026-01-02T00:00:00Z"), category: "coding-standards" });
     }
     expect(store.thresholdFor("coding-standards")).toBe(RETRO_THRESHOLD_CAP);
     const candidateLow = { ...candidate({ category: "coding-standards", evidence: "rule X", session: "s", signature: retroSignature("coding-standards", "rule X") }), confidence: 0.85 };

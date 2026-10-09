@@ -1930,8 +1930,13 @@ function AppShell({
           ) : (
             <Text> session analysis unavailable: {sessionReport && "error" in sessionReport ? sessionReport.error : "session file unknown"}</Text>
           ))}
-        {overlay === "retro" && (
-          <RetroModal cwd={sessionCwd} mohHome={mohHome} onClose={() => setOverlay(null)} />
+        {overlay === "retro" && session && (
+          <RetroModal
+            cwd={sessionCwd}
+            readReport={() => session.retroReport()}
+            dismiss={(signature, category) => session.retroDismiss(signature, category)}
+            onClose={() => setOverlay(null)}
+          />
         )}
         {overlay === "lanes" && <LanesModal cwd={process.cwd()} onClose={() => setOverlay(null)} />}
         {overlay === "stranded" && (

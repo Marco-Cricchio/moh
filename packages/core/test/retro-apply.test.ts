@@ -25,7 +25,9 @@ describe("retro application proposals", () => {
   test("each category maps to a concrete target deterministically", () => {
     expect(proposeRetroApplication(finding("navigation"))).toMatchObject({ kind: "navigation-pointer", target: "AGENTS.md" });
     expect(proposeRetroApplication(finding("coding-standards"))).toMatchObject({ kind: "coding-standards-rule", target: "CODING_STANDARDS.md" });
-    expect(proposeRetroApplication(finding("missing-guardrail"))).toMatchObject({ kind: "automated-check" });
+    // A check is wired in YAML, not a markdown bullet: the proposal names
+    // the change and carries no automatic target.
+    expect(proposeRetroApplication(finding("missing-guardrail"))).toMatchObject({ kind: "automated-check", target: "" });
     expect(proposeRetroApplication(finding("navigation"))).toEqual(proposeRetroApplication(finding("navigation")));
   });
 

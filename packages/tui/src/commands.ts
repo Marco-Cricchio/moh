@@ -568,7 +568,8 @@ const treeCommand: SlashCommand = {
 };
 
 /** #619: opens the project-map inspection modal — the same read-only
- * diagnostic concepts as `moh mpm`, in-process. */const mpmCommand: SlashCommand = {
+ * diagnostic concepts as `moh mpm`, in-process. */
+const mpmCommand: SlashCommand = {
   name: "mpm",
   description: "project map status and diagnostics (MPM)",
   usage: "/mpm",

@@ -1,7 +1,6 @@
 import React, { useState } from "react";
 import { Text, useInput } from "ink";
 import {
-  RetroStore,
   applyRetroApplication,
   proposeRetroApplication,
   type RetroFinding,
@@ -22,28 +21,33 @@ import { Dialog, Dim } from "./ui";
  * replaces it).
  */
 export interface RetroModalProps {
+  /** Project root — where a confirmed application is written. */
   cwd: string;
-  /** The moh dir (`~/.moh`) — the store's parent, resolved by the core. */
-  mohHome: string;
+  /** The session's own report seam (`AgentSession.retroReport`). Null when
+   * retro is disabled for this session — the modal then says so instead of
+   * inventing a store the session did not configure. */
+  readReport: () => RetroReport | null;
+  /** The session's own dismissal seam (`AgentSession.retroDismiss`). */
+  dismiss: (signature: string, category: string) => void;
   onClose: () => void;
 }
 
 const pct = (value: number): string => `${Math.round(value * 100)}%`;
 
-export function RetroModal({ cwd, mohHome, onClose }: RetroModalProps) {
+export function RetroModal({ cwd, readReport, dismiss, onClose }: RetroModalProps) {
   const theme = useTheme();
-  const [store] = useState(() => RetroStore.forProject(cwd, mohHome));
-  const [report, setReport] = useState<RetroReport>(() => store.report());
+  const [report, setReport] = useState<RetroReport | null>(() => readReport());
   const [index, setIndex] = useState(0);
   const [confirming, setConfirming] = useState<RetroFinding | null>(null);
   const [status, setStatus] = useState<string | null>(null);
 
-  const findings = report.findings;
+  const findings = report?.findings ?? [];
+  const dismissed = report?.dismissed ?? [];
   const clamped = Math.min(index, Math.max(0, findings.length - 1));
   const selected = findings[clamped];
 
   const refresh = (nextIndex = clamped) => {
-    setReport(store.report());
+    setReport(readReport());
     setIndex(nextIndex);
   };
 
@@ -67,7 +71,7 @@ export function RetroModal({ cwd, mohHome, onClose }: RetroModalProps) {
     if (key.upArrow || input === "k") return setIndex(Math.max(0, clamped - 1));
     if (key.downArrow || input === "j") return setIndex(Math.min(findings.length - 1, clamped + 1));
     if (input === "d") {
-      store.dismiss(selected.signature, new Date(), selected.category);
+      dismiss(selected.signature, selected.category);
       setStatus(`dismissed: ${selected.category} — this observation will not be proposed again`);
       refresh(Math.max(0, clamped - 1));
       return;
@@ -82,8 +86,16 @@ export function RetroModal({ cwd, mohHome, onClose }: RetroModalProps) {
 
   return (
     <Dialog title=" retro findings " color={theme.accent}>
-      {findings.length === 0 ? (
-        <Dim> nothing accumulated — findings collect automatically as sessions close</Dim>
+      {report === null ? (
+        <Dim> retro findings are disabled for this session (moh.json "retro.enabled": false)</Dim>
+      ) : findings.length === 0 ? (
+        <Dim>
+          {" "}
+          no open findings
+          {dismissed.length > 0
+            ? ` — ${dismissed.length} dismissal${dismissed.length === 1 ? "" : "s"} recorded (last ${dismissed.at(-1)!.dismissedAt.slice(0, 10)})`
+            : " — findings collect automatically as sessions close"}
+        </Dim>
       ) : (
         findings.map((finding, i) => (
           <Text key={finding.signature} bold={i === clamped}>

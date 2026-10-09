@@ -80,6 +80,14 @@ const DIGEST_FILE = "digest.json";
 const JUDGMENT_FILE = "judgment.json";
 
 /** The stable identity: category plus an observation fingerprint. */
+/** ADR-0075's threshold rule, in one place: each dismissal of a category
+ * adds `RETRO_THRESHOLD_STEP` to the confidence bar that category must
+ * clear, capped at `RETRO_THRESHOLD_CAP`. */
+function thresholdFor(category: string, dismissals: ReadonlyArray<RetroDismissal>): number {
+  const count = dismissals.filter((record) => record.category === category).length;
+  return Math.min(RETRO_THRESHOLD_CAP, count * RETRO_THRESHOLD_STEP);
+}
+
 export function retroSignature(category: string, observation: string): string {
   return createHash("sha256").update(`${category}\u0000${observation}`).digest("hex").slice(0, 32);
 }
@@ -178,18 +186,13 @@ export class RetroStore {
       const existing = this.read();
       const records = this.dismissalRecords();
       const dismissed = new Set(records.map((record) => record.signature));
-      const thresholds = new Map<string, number>();
-      for (const record of records) {
-        thresholds.set(record.category, (thresholds.get(record.category) ?? 0) + RETRO_THRESHOLD_STEP);
-      }
       const seen = new Set(existing.map((f) => f.signature));
       const appended: RetroFinding[] = [];
       for (const c of candidates) {
         if (!c.category.trim() || seen.has(c.signature) || dismissed.has(c.signature)) continue;
         // ADR-0075: repeated dismissals make extraction stricter instead
         // of re-proposing the same shape of finding.
-        const bar = Math.min(RETRO_THRESHOLD_CAP, thresholds.get(c.category.trim()) ?? 0);
-        if (c.confidence < bar) continue;
+        if (c.confidence < thresholdFor(c.category.trim(), records)) continue;
         seen.add(c.signature);
         appended.push({
           category: c.category.trim(),
@@ -256,11 +259,11 @@ export class RetroStore {
    * eviction of the dismissed finding itself.
    */
   thresholdFor(category: string): number {
-    const dismissals = this.dismissalRecords().filter((record) => record.category === category).length;
-    return Math.min(RETRO_THRESHOLD_CAP, dismissals * RETRO_THRESHOLD_STEP);
+    return thresholdFor(category, this.dismissalRecords());
   }
 
-  dismiss(signature: string, now = new Date(), category?: string): void {
+  dismiss(signature: string, opts: { category?: string; now?: Date } = {}): void {
+    const now = opts.now ?? new Date();
     try {
       mkdirSync(this.dir, { recursive: true, mode: 0o700 });
       const file = join(this.dir, DISMISSED_FILE);
@@ -272,7 +275,7 @@ export class RetroStore {
       }
       // The category rides the record so a dismissal keeps its lineage
       // and its threshold after the finding itself is evicted.
-      const known = category ?? this.read().find((finding) => finding.signature === signature)?.category;
+      const known = opts.category ?? this.read().find((finding) => finding.signature === signature)?.category;
       signatures[signature] = known
         ? { category: known, dismissedAt: now.toISOString() }
         : now.toISOString();
@@ -324,13 +327,13 @@ export class RetroStore {
    * ADR-0075 judgement threshold: one closed session counted toward the
    * next batch. Returns the running count. Never throws.
    */
-  noteClosedSession(now = new Date()): number {
+  noteClosedSession(): number {
     try {
       const state = this.#readJudgment();
       const closedSinceBatch = state.closedSinceBatch + 1;
       this.#writeAtomic(
         join(this.dir, JUDGMENT_FILE),
-        `${JSON.stringify({ version: 1, closedSinceBatch, lastSeenAt: now.toISOString(), ...(state.lastRunAt ? { lastRunAt: state.lastRunAt } : {}) }, null, 2)}\n`,
+        `${JSON.stringify({ version: 1, closedSinceBatch, ...(state.lastRunAt ? { lastRunAt: state.lastRunAt } : {}) }, null, 2)}\n`,
       );
       return closedSinceBatch;
     } catch {

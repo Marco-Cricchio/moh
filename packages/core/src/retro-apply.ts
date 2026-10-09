@@ -14,7 +14,7 @@
  *   prompt) does not exist here at all.
  */
 import { existsSync, readFileSync, statSync, writeFileSync } from "node:fs";
-import { isAbsolute, join, relative, resolve } from "node:path";
+import { isAbsolute, relative, resolve } from "node:path";
 import type { RetroFinding } from "./retro";
 
 /** What kind of change an application is (ADR-0075's three shapes). */
@@ -42,10 +42,13 @@ export function proposeRetroApplication(finding: RetroFinding): RetroApplication
         section: "## Retro findings",
       };
     case "missing-guardrail":
+      // A check is wired in a workflow or a hook — a YAML file a markdown
+      // bullet must not be appended to. The proposal names the change; the
+      // human makes it. No automatic target.
       return {
         kind: "automated-check",
-        target: ".github/workflows",
-        proposal: `wire the existing check so it actually runs: ${finding.evidence}`,
+        target: "",
+        proposal: `wire the check that exists but never runs: ${finding.evidence}`,
         section: "## Retro findings",
       };
     case "tool-economy":
@@ -112,13 +115,4 @@ export function applyRetroApplication(opts: {
   } catch (error) {
     return { ok: false, error: `refused: ${error instanceof Error ? error.message : String(error)}` };
   }
-}
-
-/** Resolves the absolute target path without writing (the report shows it). */
-export function retroApplicationPath(projectRoot: string, application: RetroApplication): string | null {
-  if (!application.target) return null;
-  const root = resolve(projectRoot);
-  const file = join(root, application.target);
-  const rel = relative(root, file);
-  return rel.startsWith("..") || isAbsolute(rel) ? null : file;
 }

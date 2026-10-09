@@ -94,7 +94,8 @@ describe("moh retro (#1275)", () => {
     expect(result.stdout).toContain("dismissed");
     expect(store.dismissed().has(signature)).toBe(true);
     const after = await run([], { cwd, home });
-    expect(after.stdout).toContain("No retro findings");
+    expect(after.stdout).toContain("No open retro findings");
+    expect(after.stdout).not.toContain("[navigation]");
   });
 
   test("an unknown signature is refused, never silently accepted", async () => {
@@ -131,6 +132,27 @@ describe("moh retro (#1275)", () => {
     const second = await run(["--apply", signature, "--yes"], { cwd, home });
     expect(second.stdout).toContain("already applied");
     expect(readFileSync(join(cwd, "AGENTS.md"), "utf8")).toBe(written);
+  });
+
+  test("dismissals stay visible when no finding is open", async () => {
+    const cwd = tempDir("cwd");
+    const home = tempDir("home");
+    const { signature } = seed(cwd, home);
+    await run(["--dismiss", signature], { cwd, home });
+    const result = await run([], { cwd, home });
+    expect(result.stdout).toContain("1 dismissal recorded");
+  });
+
+  test("a check to wire is proposed, never auto-applied", async () => {
+    const cwd = tempDir("cwd");
+    const home = tempDir("home");
+    const { signature } = seed(cwd, home, "missing-guardrail", "no CI job runs the test script");
+    const proposal = await run(["--apply", signature], { cwd, home });
+    expect(proposal.code).toBe(0);
+    expect(proposal.stdout).toContain("no automatic target; apply it by hand");
+    const forced = await run(["--apply", signature, "--yes"], { cwd, home });
+    expect(forced.code).toBe(2);
+    expect(forced.stderr).toContain("no automatic target");
   });
 
   test("a confirmed apply refuses a missing target instead of creating it", async () => {

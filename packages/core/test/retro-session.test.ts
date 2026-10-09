@@ -35,6 +35,60 @@ function sessionWithRetro(dir: string, retro: Record<string, unknown>) {
   });
 }
 
+describe("retro report seams (#1275)", () => {
+  /** Seeds the store a digest would fire from. */
+  function seedFinding(dir: string): void {
+    const storeDir = join(dir, "retro");
+    mkdirSync(storeDir, { recursive: true });
+    writeFileSync(
+      join(storeDir, "findings.jsonl"),
+      JSON.stringify({
+        category: "navigation",
+        evidence: "spent 12 calls locating the session store",
+        confidence: 0.7,
+        session: "earlier",
+        signature: "sig-nav",
+        appendedAt: new Date().toISOString(),
+      }) + "\n",
+    );
+  }
+
+  test("opening the report suppresses the digest and the reviewed batch is not re-digested", async () => {
+    const dir = tempDir();
+    seedFinding(dir);
+    const first = sessionWithRetro(dir, {});
+    expect(first.history().filter((e) => e.type === "retro_digest")).toHaveLength(1);
+    expect(first.retroReport()?.findings).toHaveLength(1);
+    // The report opens: the digest for the next session is suppressed and
+    // the reviewed batch's timestamp moves, so it is not re-reported.
+    first.suppressRetroDigest();
+    await first.dispose();
+
+    const second = sessionWithRetro(dir, {});
+    expect(second.history().filter((e) => e.type === "retro_digest")).toHaveLength(0);
+    await second.dispose();
+  });
+
+  test("the session owns the report and the dismissal, so the store it configured is the one written", async () => {
+    const dir = tempDir();
+    seedFinding(dir);
+    const session = sessionWithRetro(dir, {});
+    const finding = session.retroReport()?.findings[0];
+    expect(finding?.category).toBe("navigation");
+    session.retroDismiss(finding!.signature, finding!.category);
+    expect(session.retroReport()?.findings).toEqual([]);
+    expect(readFileSync(join(dir, "retro", "dismissed.json"), "utf8")).toContain(finding!.signature);
+    await session.dispose();
+  });
+
+  test("retro.enabled: false means no report at all, never an empty one", async () => {
+    const dir = tempDir();
+    const session = sessionWithRetro(dir, { enabled: false });
+    expect(session.retroReport()).toBeNull();
+    await session.dispose();
+  });
+});
+
 describe("retro session integration", () => {
   test("digest on session start after findings accumulated; rate-limited after", async () => {
     const dir = tempDir();

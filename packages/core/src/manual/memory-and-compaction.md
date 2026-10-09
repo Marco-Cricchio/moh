@@ -104,11 +104,13 @@ Nothing is applied by itself. Findings are consumed only when you ask:
   category is proposed at all. A materially new observation is a new
   finding, shown with its lineage.
 - `a` / `--apply <signature>` shows the concrete change the finding
-  proposes (a rule for `CODING_STANDARDS.md`, a navigation pointer in
-  `AGENTS.md`, wiring an existing check). Writing it needs your explicit
-  confirmation, per application, and lands as an appended bullet under a
-  `## Retro findings` heading — existing prose is never edited. Findings
-  are never injected into the system prompt.
+  proposes: a rule for `CODING_STANDARDS.md`, a navigation pointer in
+  `AGENTS.md`, or the check that exists but nothing runs. Writing it needs
+  your explicit confirmation, per application, and lands as an appended
+  bullet under a `## Retro findings` heading — existing prose is never
+  edited, and a change that is not a prose append (a workflow job, a hook)
+  is proposed for you to make, never applied. Findings are never injected
+  into the system prompt.
 
 The only unprompted surface is a **digest**: one line at session start
 when findings accumulated since the last digest, rate-limited to one per

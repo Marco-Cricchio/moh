@@ -15,11 +15,10 @@
  * process restarts and is testable without a model call.
  */
 import { existsSync } from "node:fs";
-import type { Provider } from "./types";
-import type { AgentEvent } from "./types";
+import type { AgentEvent, Provider } from "./types";
 import { retroSignature, type RetroCandidate } from "./retro";
 import { PromptComposer } from "./prompt-composer";
-import { SessionStore, listSessionSummaries, lastAssistantText, type SessionSummary } from "./session-store";
+import { SessionStore, isSessionOpen, listSessionSummaries, lastAssistantText, type SessionSummary } from "./session-store";
 
 /** Closed sessions per judgement batch (owner decision, 2026-10-09). */
 export const RETRO_JUDGMENT_BATCH = 10;
@@ -144,10 +143,10 @@ export function retroTranscript(events: ReadonlyArray<AgentEvent>): string {
 }
 
 /**
- * Selects the batch: the newest `RETRO_JUDGMENT_BATCH` closed sessions,
- * excluding the session currently open. Reads each log read-only; an
- * unreadable session is skipped, never fatal. Returns [] when the batch
- * is empty.
+ * Selects the batch: the newest `RETRO_JUDGMENT_BATCH` *closed* sessions.
+ * A session another process (or this one) still holds open is skipped —
+ * its log is being written, so it is not closed yet. Reads each log
+ * read-only; an unreadable session is skipped, never fatal.
  */
 export function selectJudgmentBatch(
   summaries: ReadonlyArray<SessionSummary>,
@@ -159,6 +158,7 @@ export function selectJudgmentBatch(
     if (chosen.length >= RETRO_JUDGMENT_BATCH) break;
     if (summary.id === opts.exclude) continue;
     if (!existsSync(summary.file)) continue;
+    if (isSessionOpen(summary.file)) continue;
     let store: SessionStore | null = null;
     try {
       store = SessionStore.open(summary.file, { register: false });
