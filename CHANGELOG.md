@@ -7,6 +7,27 @@ matching section here at tag time.
 
 ## [Unreleased]
 
+## [0.61.1] - 2026-10-09
+
+### Fixed
+
+- **Composer `!` command output shows in both display modes** (#1292,
+  ADR-0076): bang commands ran and logged their output, but the transcript
+  swallowed it — `settledBoundary` short-circuited to `events.length` when
+  no turn was pending, so the unresolved `tool_call` block (zero lines)
+  promoted into the append-only region before its `tool_result` landed and
+  was never reprinted. The first unresolved tool block is now held
+  volatile until its result closes it. Vibe mode additionally collapsed
+  every bash call, including user-typed ones, to a one-line plain-language
+  head; a bash call with `source: "user"` now renders its command head and
+  output lines like the dev mode does.
+- **The first submitted prompt never names the lane** (#1294, ADR-0060
+  decision): row2's lane label was written from the first submitted prompt
+  when a lane had no label yet, so the owner's opening sentence leaked into
+  the lane registry (visible in `moh lanes list` and every later row2). A
+  lane is labeled only by the registry — the provisioning task or
+  `moh lanes label` — never by the prompt.
+
 ## [0.61.0] - 2026-10-09
 
 ### Added
@@ -2330,7 +2351,8 @@ security audit, each fixed behind its own PR.
   passed; a regression test pins the resolved path under
   `<home>/.moh/projects`.
 
-[Unreleased]: https://github.com/Marco-Cricchio/moh/compare/v0.61.0...develop
+[Unreleased]: https://github.com/Marco-Cricchio/moh/compare/v0.61.1...develop
+[0.61.1]: https://github.com/Marco-Cricchio/moh/compare/v0.61.0...v0.61.1
 [0.61.0]: https://github.com/Marco-Cricchio/moh/compare/v0.60.0...v0.61.0
 [0.60.0]: https://github.com/Marco-Cricchio/moh/compare/v0.59.3...v0.60.0
 [0.59.3]: https://github.com/Marco-Cricchio/moh/compare/v0.59.2...v0.59.3
