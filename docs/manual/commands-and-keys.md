@@ -54,6 +54,7 @@ page is the same content in manual form, plus the manual's own entries
 | /model | model picker (r refreshes live model lists) |
 | /reload | hot-reload moh.json + user config |
 | /rename `<name>` | rename the current session |
+| /retro | retro findings report (review, dismiss, apply) |
 | /routing | model routing: state, pause/resume, release the override |
 | /session | session analysis report (usage, tools, shape — snapshot at open) |
 | /settings | settings panel |

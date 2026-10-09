@@ -106,6 +106,10 @@ export interface SlashContext {
   /** #767: opens the session analysis modal (/session). Absent
    * (headless): the command explains it needs the TUI. */
   onOpenSession?: () => void;
+  /** ADR-0075 (#1275): opens the retro report modal (/retro) — the
+   * pull-based consumption door. Absent (headless): the command points at
+   * `moh retro` instead of pretending a session command exists. */
+  onOpenRetro?: () => void;
   /** #833: opens the Jev use-case modal (/jev) — the session-warm control
    * surface. Absent (headless): the command points at the persistent
    * switches instead of pretending a session command exists. */
@@ -564,8 +568,7 @@ const treeCommand: SlashCommand = {
 };
 
 /** #619: opens the project-map inspection modal — the same read-only
- * diagnostic concepts as `moh mpm`, in-process. */
-const mpmCommand: SlashCommand = {
+ * diagnostic concepts as `moh mpm`, in-process. */const mpmCommand: SlashCommand = {
   name: "mpm",
   description: "project map status and diagnostics (MPM)",
   usage: "/mpm",
@@ -586,6 +589,22 @@ const sessionCommand: SlashCommand = {
     if (!ctx.session) return ctx.notify("/session needs an open session");
     if (!ctx.onOpenSession) return ctx.notify("/session needs the TUI session shell");
     ctx.onOpenSession();
+  },
+};
+
+/** ADR-0075 (#1275): opens the retro report — the pull-based door where
+ * accumulated findings are reviewed, dismissed or applied. The digest
+ * only ever points here; nothing is applied without confirmation. */
+const retroCommand: SlashCommand = {
+  name: "retro",
+  description: "retro findings report (review, dismiss, apply)",
+  usage: "/retro",
+  run(ctx) {
+    if (!ctx.session) return ctx.notify("/retro needs an open session");
+    if (!ctx.onOpenRetro) return ctx.notify("/retro needs the TUI session shell — run `moh retro` instead");
+    // ADR-0075: the report replaces the digest for this session.
+    ctx.session.suppressRetroDigest();
+    ctx.onOpenRetro();
   },
 };
 
@@ -809,6 +828,7 @@ export const BASE_COMMANDS: SlashCommand[] = [
   mpmCommand,
   reloadCommand,
   renameCommand,
+  retroCommand,
   routingCommand,
   sessionCommand,
   settingsCommand,

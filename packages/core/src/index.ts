@@ -1158,5 +1158,16 @@ export {
 
 export {
   RetroStore,
+  type RetroFinding,
+  type RetroReport,
   type RetroReportFinding,
 } from "./retro";
+
+export {
+  proposeRetroApplication,
+  applyRetroApplication,
+  retroApplicationPath,
+  type RetroApplication,
+  type RetroApplicationKind,
+  type RetroApplyResult,
+} from "./retro-apply";

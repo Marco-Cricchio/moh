@@ -449,12 +449,26 @@ options:
 ## moh retro
 
 ```
-usage: moh retro [--json] [--dismiss <signature>] [--apply <signature>] [--cwd <dir>]
+usage: moh retro [--json] [--dismiss <signature>] [--apply <signature> [--yes]] [--cwd <dir>]
 
-Review accumulated retro findings. Findings are ordered by confidence; prior
-same-category dismissals are shown as lineage. Dismiss is durable. Apply only
-prints the proposed last-mile change and requires a separate human confirmation
-before any steering file is changed.
+Reviews the retro findings accumulated for this project (ADR-0075).
+Findings are ordered by confidence and each shows its category, evidence
+and signature; prior dismissals of the same category are shown as
+lineage, never hidden.
+
+  --json              emit the report as JSON
+  --dismiss <sig>     record a durable dismissal: that observation is
+                      never proposed again, and repeated dismissals of a
+                      category raise the bar its extraction must clear
+  --apply <sig>       show the concrete change the finding proposes
+                      (a rule, a check, a navigation pointer); with --yes
+                      the change is written, appended under a
+                      "## Retro findings" heading — existing prose is
+                      never edited, and nothing is written without --yes
+  --cwd <dir>         the project root (default: process.cwd())
+
+Findings never reach the system prompt or a steering file on their own.
+In the TUI, /retro opens the same report in-session.
 ```
 
 ## moh secret

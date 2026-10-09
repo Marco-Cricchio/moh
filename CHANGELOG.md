@@ -7,7 +7,16 @@ matching section here at tag time.
 
 ## [Unreleased]
 
-- **Retro report** (#1275): adds `moh retro` for reviewing accumulated findings, inspecting dismissal lineage, and recording durable dismissals without automatically changing steering files.
+- **Retro findings** (#1274, #1275): sessions accumulate retro findings
+  automatically — deterministic checks at close, judgement categories
+  (navigation, standards) from a maintenance subagent over batches of 10
+  closed sessions. `moh retro` / `/retro` opens the report: findings
+  ordered by confidence with their category, evidence, dismissal lineage
+  and a concrete proposed application; `d` records a durable dismissal
+  (repeated dismissals raise the category's extraction bar) and applying
+  a change needs explicit per-application confirmation, appended under a
+  `## Retro findings` heading. The only unprompted surface is one
+  digest line per 48 hours. Nothing reaches the system prompt.
 
 ## [0.59.3] - 2026-10-08
 
