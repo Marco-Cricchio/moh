@@ -570,6 +570,9 @@ export function sessionFromConfig(options: SessionFromConfigOptions): SessionFro
       ...(config.agents ? { subagents: { presets: config.agents } } : {}),
       // Memory (#38): on by default (spec); moh.json `memory` tunes/disables it.
       ...(config.memory ? { memory: config.memory } : { memory: {} }),
+      // Retro findings (ADR-0075, #1274): automatic accumulation on by
+      // default; moh.json `retro` tunes/disables it.
+      ...(config.retro ? { retro: config.retro } : { retro: {} }),
       // Compaction (#466): on by default; purely additive when absent.
       // #766 (ADR-0051): moh.json `compaction` tunes the JSON-safe
       // subset (summarizer strategy, tail, threshold); the function

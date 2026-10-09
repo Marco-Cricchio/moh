@@ -34,6 +34,7 @@ import { AgentLoop } from "./agent-loop";
 import { SubagentHost, type SubagentSpawnRequester, type SubagentSpawnLimits } from "../subagents";
 import { replayMessages, replayWarnings } from "../session-store";
 import { MemoryRunner, MemoryStore, createMaintenanceExtractor } from "../memory";
+import { RetroStore, extractRetroFindings } from "../retro";
 import type { CompactionHookContext } from "@moh/extension";
 import type { ContributedToolSchema } from "@moh/extension";
 
@@ -178,6 +179,10 @@ export class AgentSession {
   /** Memory (#38): the post-turn trigger collaborator (see memory.ts). */
   readonly #sessionId = `session-${randomUUID().slice(0, 8)}`;
   #memory: MemoryRunner | null = null;
+  /** Retro findings (ADR-0075, #1274): the close-of-session pass collaborator. */
+  #retro: RetroStore | null = null;
+  /** The report opened in this session replaces the digest (ADR-0075). */
+  #retroDigestSuppressed = false;
   /** Compaction (#466): the post-turn marker producer collaborator. */
   #compaction: CompactionRunner | null = null;
   /**
@@ -695,6 +700,12 @@ export class AgentSession {
         onUpdated: () => this.#assemblePrompt(),
       });
     }
+    // Retro findings (ADR-0075, #1274): enabled by default; `retro.enabled:
+    // false` means no store, no extraction, no digest.
+    const retro = config.retro;
+    if (retro && (retro.enabled ?? true)) {
+      this.#retro = new RetroStore(retro.dir ?? RetroStore.forProject(this.#cwd, this.#mohHome).dir);
+    }
     // Compaction (#466): on by default when the option is present
     // (from-config passes it unconditionally); `enabled: false` turns it off.
     const comp = config.compaction;
@@ -1048,6 +1059,10 @@ export class AgentSession {
     }
     this.#assemblePrompt();
     this.#append({ type: "session_start", schemaVersion: SCHEMA_VERSION, promptVersion: this.#promptVersion });
+    // ADR-0075: the one sanctioned proactive surface — one line when
+    // findings accumulated since the last digest (48h rate limit).
+    const digest = this.#retro?.maybeDigest(undefined, { reportOpen: this.#retroDigestSuppressed });
+    if (digest) this.#append({ type: "retro_digest", count: digest.count, line: digest.line });
     this.#append({ type: "session_mode", mode: this.#permissions.mode });
     this.#declareInheritedRoute();
     this.#appendStartupChrome(true);
@@ -2281,6 +2296,16 @@ export class AgentSession {
     return { ok: true };
   }
 
+  /**
+   * ADR-0075: the report opened in this session replaces the digest —
+   * the session-start digest line is suppressed (the timestamp still
+   * moves, so the reviewed batch is not re-digested). Called by the
+   * report surface (#1275).
+   */
+  suppressRetroDigest(): void {
+    this.#retroDigestSuppressed = true;
+  }
+
   /** Ends the session: flushes a pending memory run, shuts down MCP servers, dispatches onSessionEnd hooks. Idempotent.
    * `timeoutMs` budgets the memory flush only (vision note 14): a slow
    * extraction is aborted — the log is append-only and safe, and the
@@ -2309,6 +2334,17 @@ export class AgentSession {
     }
     await this.#mcp?.shutdown();
     this.#mpmLifecycle?.dispose();
+    // Retro findings (ADR-0075, #1274): the deterministic mechanical pass
+    // over the closed session's log. Fail-silent, no model call; a
+    // count-only indicator is the only surface when something appended.
+    if (this.#retro) {
+      try {
+        const appended = this.#retro.append(
+          extractRetroFindings(this.#eventLog.live(), { cwd: this.#cwd, session: this.#sessionId }),
+        );
+        if (appended > 0) this.#append({ type: "retro_updated", findings: appended });
+      } catch { /* accumulation never fails a dispose */ }
+    }
     // ADR-0055 (#1222): the extension-spawned children kept alive for
     // steering die with the session that spawned them — no orphans at exit.
     await this.#subagentHost?.disposeSteerableChildren();
