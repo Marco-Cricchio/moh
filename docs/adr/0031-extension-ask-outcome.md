@@ -1,6 +1,6 @@
 # ADR-0031: extension `ask` outcome on the tool-call hook
 
-Status: accepted · Date: 2026-09-18 · Parent: wayfinder map #799, ticket #800 (feature #784)
+Status: accepted · Date: 2026-09-18 (amended 2026-10-09, yolo clause) · Parent: wayfinder map #799, ticket #800 (feature #784)
 
 ## Context
 
@@ -82,6 +82,22 @@ Key decisions, each with its rationale:
    reached changes nothing about moh's behavior). The bump is documented in the
    contract; the extension side may check `apiVersion` if it wants to know. The runtime
    does not attempt to detect unknown decision keys.
+
+## Yolo clause (#1258, 2026-10-09)
+
+**Amendment, owner decision:** decision 4's yolo rule is superseded. An extension `ask`
+in yolo mode is no longer silently ignored: it becomes an explicit **deny** of the tool
+call, recorded as the gate's ordinary chrome (`permission_denied { callId, tool,
+reason: "extension" }`) with a denial string naming the extension and the vetoed call.
+Spawn consent in yolo follows the same rule: the standing mode consent is the answer (a
+child spawned under yolo inherits yolo by explicit user choice, #849), and a required
+ask that cannot be asked denies and records, exactly as the headless branch already does.
+
+Rationale: the original rejection of "turning yolo asks into denies" feared a silent
+block; the actual defect was the silence in the other direction — an ignored ask was a
+grant the extension never made, invisible in the log. ADR-0056's wording now holds for
+consent too: *a non-answer is absence, never authority*. Outside yolo the consent model
+is unchanged.
 
 ## Consequences
 

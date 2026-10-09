@@ -68,8 +68,9 @@ Where an ask lands:
 - An explicit `allow` rule does **not** suppress it — judging what your
   rules already let through is the whole point.
 - In auto-accept the ask still reaches you (that mode has no other filter);
-  `yolo` ignores it and the call proceeds as if the hook had said nothing,
-  so anything that must stop under yolo uses `veto`.
+  `yolo` turns it into an explicit denial recorded with
+  `permission_denied { reason: "extension" }`; yolo lifts only moh's own
+  prompts, never an extension's question.
 - Headless (`moh run`) degrades the ask to a denial, exactly as any other
   ask without a prompt to raise.
 

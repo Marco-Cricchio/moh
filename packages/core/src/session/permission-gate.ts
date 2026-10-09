@@ -101,8 +101,17 @@ export class PermissionGate {
     // #377: yolo lifts prompts for built-in tools only — MCP tools keep
     // their explicit ask flow (server first-use consent lives in McpRuntime;
     // the per-call default "ask on first invocation" must survive yolo too).
-    // ADR-0031: an extension ask is ignored here — the call proceeds as if
-    // the hook had said nothing (use `veto` for anything lethal).
+    // #1258 (ADR-0031 yolo clause): an extension ask in yolo is an explicit
+    // deny — yolo lifts only moh's own prompts, never a guardrail's question.
+    // "A non-answer is absence, never authority": the denial is recorded
+    // visibly, naming the extension, so the silence of old behavior is gone.
+    if (mode === "yolo" && extensionAsk) {
+      this.#append({ type: "permission_denied", callId, tool, reason: "extension" });
+      return {
+        allowed: false,
+        denial: `permission denied: ${tool} asked by extension${extensionAsk.extension ? ` ${extensionAsk.extension}` : ""}${extensionAsk.reason ? ` (${extensionAsk.reason})` : ""}; yolo does not prompt — the call is denied`,
+      };
+    }
     if (mode === "yolo" && !tool.startsWith("mcp__")) {
       this.#append({ type: "permission_granted", callId, tool, reason: "yolo" });
       return { allowed: true };
