@@ -165,6 +165,91 @@ live there. Consequences, stated:
   truth); only *new* lanes land under the home root. A stale
   `.moh-lanes` directory beside an old checkout is inert user data.
 
+## Amendment 5: a lane installs its own dependencies (2026-10-09)
+
+Auto-provisioning made every fresh worktree's `node_modules` a symlink to the
+checkout's install, so a lane would reuse it instead of paying a fresh one.
+The sharing was fail-silent and was never recorded as a decision; it is
+reversed here, on evidence verified on disk (bun 1.2.19, 2026-10-09).
+
+**What the shared install actually does.** Inside that one install, bun writes
+the `@moh/*` workspace links **relative to the physical install directory**
+while pointing them at the packages of *the lane that ran the install*. A
+relative path resolves identically for every consumer, so the checkout and
+every lane then compile and test the installing lane's sources. Bun rewrites a
+workspace link when it does not resolve to a valid package and never when it
+does: deleting the lane that owns the links is what arms the next install, and
+the next lane-side `bun install` repoints the whole install at itself
+(reproduced: after the owner was removed, one lane-side
+`bun install --frozen-lockfile` left the checkout and every lane resolving
+`@moh/core` to that lane). A *satisfied* foreign link is never repaired by
+reinstalling — neither `bun install` nor `bun install --force` in the checkout
+touches it; only removing the workspace links and reinstalling does. A lane
+whose workspace set differs from the checkout's also *adds* its own entries to
+the shared install, so it accumulates foreign entries over time. The bare
+`catch` that made the share fail-silent further hid a lane that ended up with
+no `node_modules` at all.
+
+This contradicts the "Concurrent sessions cannot corrupt one another through
+shared uncommitted files" claim above: the shared install is exactly such a
+channel, and it sits outside the worktree isolation this ADR is built on.
+
+**Decision: the sharing is removed, unconditionally. A lane owns its install.**
+
+- **No lane shares the checkout's install.** A lane never resolves the
+  checkout's or another lane's packages. The cost this ADR already accepted —
+  "Multiple worktrees may duplicate dependency installations and generated
+  artifacts" — applies as written.
+- **The install command belongs to the project, not to moh's toolchain.** One
+  ordered lookup, read from the lane's own files (a lane installs what its
+  branch declares):
+  1. the `lanes.setup` user-config key — the last word, alongside `lanes.auto`;
+     it can also record that a project has nothing to install;
+  2. `packageManager` in `package.json`;
+  3. the lockfile table, for the tools whose store is the project directory:
+     the `node_modules` family, `uv.lock`, `composer.lock`, `mix.lock`,
+     `poetry.lock`, `Gemfile.lock`;
+  4. a user-level store (`Cargo.lock`, `go.sum`, Maven/Gradle, NuGet) is not a
+     lane-scoped install: nothing to run, nothing to report;
+  5. nothing recognized **and** a manifest present (`package.json`,
+     `pyproject.toml`, …): the lane is created without its own dependencies and
+     the reason is visible, once. moh never invents a command. No manifest →
+     nothing to say.
+- **The install runs at provisioning**, as the last step before the lane is
+  reported ready. Lanes are lazy (first amendment), so the cost is paid only
+  once parallelism already exists.
+- **The install is free, not frozen on the lockfile**: it may update the lane's
+  own lockfile, because a frozen install fails exactly when a lane is adding a
+  dependency.
+- **The state marker lives in the lane registry row** — the user-data side of
+  this ADR — holding the lockfile fingerprint the install was made from and its
+  outcome. The worktree is never given an untracked marker: that is one
+  `git add -A` away from being committed (#1223).
+- **Failure creates the lane and is visible**: the lane exists with no or a
+  partial install, the reason is reported like every other provisioning result,
+  and the next open retries.
+- **Existing lanes convert on their next open**: a lane whose `node_modules` is
+  not a real directory it owns (a symlink, foreign links, a missing store) is
+  reinstalled with its own command.
+- **The checkout is repaired only on request.** A read-only check surfaces the
+  drift in the lane-facing surfaces; the repair — remove the workspace links,
+  reinstall — runs when the user asks, through a door shaped like `moh lanes
+  cleanup` (dry run by default, applying on request). Automatic startup
+  mutation of the user's checkout is rejected: the project's install may
+  replace the whole store, and a half-failed install leaves the checkout worse
+  than it found it. The check must state that a plain install does not repair
+  the links.
+- **Gate.** The unit test that asserted the sharing is replaced by one
+  asserting a lane owns its store, and the runtime check that converts a stale
+  lane also refuses to use a `node_modules` that is not a real directory inside
+  a lane. A silent regression of this class is not acceptable.
+
+**Rejected:** keeping the sharing behind a guard plus a repair door (the
+failure mode stays: a lane compiles another lane's packages); a per-lane shadow
+install of symlinks into the shared third-party tree (more moving parts for no
+correctness the plain install does not already give); frozen installs; and
+tying any of this to one package manager.
+
 ## Follow-up
 
 Implementation starts with the isolated lane lifecycle, then adds feature-group metadata and explicit relationships, followed by integration and resumable conflict state. A later decision may add a shared-runtime mode only if real workloads demonstrate that isolated worktrees are insufficient.
