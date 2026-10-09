@@ -1657,7 +1657,7 @@ export class AgentSession {
   async runBash(command: string, options: { signal?: AbortSignal } = {}): Promise<{ ok: boolean; output: string }> {
     const callId = newUlid();
     const args = { command, timeoutMs: COMPOSER_BASH_TIMEOUT_MS };
-    this.#append({ type: "tool_call", callId, name: "bash", args, timeoutMs: COMPOSER_BASH_TIMEOUT_MS });
+    this.#append({ type: "tool_call", callId, name: "bash", args, timeoutMs: COMPOSER_BASH_TIMEOUT_MS, source: "user" });
     const outcome = await this.#toolRunner.runSeamCall(
       "bash",
       args,
