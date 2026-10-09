@@ -4,6 +4,7 @@ import type { FilesystemScope } from "./permissions";
 import { resolve, isAbsolute, relative, join, dirname } from "node:path";
 import { chmodSync, mkdirSync, mkdtempSync, readdirSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { boundedTest, compileSearchRegex, statIdentity, writeGuarded } from "./tool-guards.js";
+import { redactString } from "./redact.js";
 import { tmpdir } from "node:os";
 import { request as httpRequest } from "node:http";
 import { request as httpsRequest } from "node:https";
@@ -285,7 +286,7 @@ function gitSnapshot(cwd: string): string | null {
   try {
     const head = Bun.spawnSync(["git", "rev-parse", "HEAD"], { cwd, stdout: "pipe", stderr: "ignore" });
     if (head.exitCode !== 0) return null;
-    const status = Bun.spawnSync(["git", "status", "--porcelain"], { cwd, stdout: "pipe", stderr: "ignore" });
+    const status = Bun.spawnSync(["git", "status", "--porcelain", "--ignored=matching"], { cwd, stdout: "pipe", stderr: "ignore" });
     if (status.exitCode !== 0) return null;
     return `${head.stdout.toString().trim()}|${status.stdout.toString().trim()}`;
   } catch {
@@ -703,6 +704,13 @@ const fetchSchema = z.object({
  * re-checked and re-pinned. */
 const FETCH_MAX_REDIRECTS = 10;
 
+/** #1262 (decompression bomb): the hard cap a response body may occupy
+ * decompressed. Enforced while streaming in `readBody` — the flow stops
+ * at the budget, memory never holds more than it plus one chunk. Tool
+ * callers truncate further (`maxLength`), so the budget only has to sit
+ * comfortably above every caller's own ceiling. */
+export const FETCH_MAX_BODY_BYTES = 2_000_000;
+
 /** #1079: how much of a failed response's own words the model gets. Big
  * enough for a provider's error JSON, small enough that an HTML error
  * page cannot flood the turn. */
@@ -947,9 +955,23 @@ export function requestPinnedUrl(
             return new Promise<string>((resolveBody, rejectBodyPromise) => {
               rejectBody = rejectBodyPromise;
               const chunks: Buffer[] = [];
+              let received = 0;
+              let truncated = false;
               const sink = new Writable({
                 write(chunk: Buffer | string, _encoding, callback) {
-                  chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+                  const buf = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+                  received += buf.byteLength;
+                  if (received > FETCH_MAX_BODY_BYTES) {
+                    // #1262 (decompression bomb): keep only the budgeted
+                    // head and stop the flow — the peer cannot park memory
+                    // or the turn on an unbounded decompressed body.
+                    const head = buf.subarray(0, Math.max(0, FETCH_MAX_BODY_BYTES - (received - buf.byteLength)));
+                    if (head.byteLength > 0) chunks.push(head);
+                    truncated = true;
+                    callback(new Error("fetch response body exceeded the read budget"));
+                    return;
+                  }
+                  chunks.push(buf);
                   callback();
                 },
               });
@@ -967,7 +989,12 @@ export function requestPinnedUrl(
                   cleanup();
                   resolveBody(body.toString("utf8"));
                 })
-                .catch((error) => fail(error));
+                .catch((error) => {
+                  if (!truncated) return fail(error); // a real transport failure
+                  bodySettled = true;
+                  cleanup();
+                  resolveBody(Buffer.concat(chunks).toString("utf8") + `\n… [truncated after ${FETCH_MAX_BODY_BYTES} bytes]`);
+                });
             });
           },
         });
@@ -1064,7 +1091,29 @@ async function doFetch(
   return {
     status: response.status,
     headers: response.headers,
-    readBody: () => response.text(),
+    // Same byte budget as the pinned transport (#1262): `response.text()`
+    // would buffer the whole decompressed body before anyone truncates it.
+    readBody: async () => {
+      const reader = response.body?.getReader();
+      if (!reader) return "";
+      const chunks: Buffer[] = [];
+      let received = 0;
+      let truncated = false;
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        const remaining = FETCH_MAX_BODY_BYTES - received;
+        if (value.byteLength > remaining) {
+          if (remaining > 0) chunks.push(Buffer.from(value.subarray(0, remaining)));
+          truncated = true;
+          await reader.cancel().catch(() => {});
+          break;
+        }
+        chunks.push(Buffer.from(value));
+        received += value.byteLength;
+      }
+      return Buffer.concat(chunks).toString("utf8") + (truncated ? `\n… [truncated after ${FETCH_MAX_BODY_BYTES} bytes]` : "");
+    },
     discard: () => {
       response.body?.cancel().catch(() => {});
     },
@@ -1149,6 +1198,11 @@ export async function fetchUrlText(
     if (!location) break;
     res.discard();
     const next = new URL(location, url).toString();
+    // #1262 (redirect downgrade): an https origin never follows a hop to
+    // plain http — the redirect must not walk the traffic out of TLS.
+    if (url.protocol === "https:" && next.startsWith("http:")) {
+      throw new Error(`fetch: refusing https to http redirect downgrade: ${next}`);
+    }
     pin = await resolveUrl(next);
     url = assertFetchable(next);
     res = await dial(url, pin);
@@ -1332,7 +1386,13 @@ const gitTool: Tool<z.infer<typeof gitSchema>> = {
       const err = out.stderr.toString().trim();
       throw new Error(`git exited with code ${out.exitCode}${err ? `: ${err}` : ""}`);
     }
-    return out.stdout.toString();
+    const text = out.stdout.toString();
+    // #1262 (config exfil): `config --list` (and `--get` of a secret-shaped
+    // key) lifts stored credentials into tool output. The same pass every
+    // persisted event goes through masks them here too — read-only stays
+    // read-only for secrets as well.
+    if (sub === "config") return redactString(text);
+    return text;
   },
 };
 
