@@ -234,6 +234,13 @@ export class RetroStore {
     }
   }
 
+  /**
+   * The report (ADR-0075): open findings by confidence, plus the dismissal
+   * record. Lineage is grouped by **category**, which is what "same
+   * category/subject" means here: an identical subject *is* the same
+   * signature, and that is suppressed from the report entirely — so the
+   * only lineage a live finding can carry is its category's history.
+   */
   report(): RetroReport {
     const dismissed = this.dismissalRecords();
     const byCategory = new Map<string, RetroDismissal[]>();
