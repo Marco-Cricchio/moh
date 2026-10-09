@@ -10,7 +10,7 @@ import { useToolProgress } from "./tool-progress";
 import { scannerFrame } from "./scanner";
 import { useViewport } from "./viewport";
 import { RAIL_MIN_ROWS, RAIL_WIDTH } from "./rail-layout";
-import { sanitizeLine, truncate } from "./ui";
+import { sanitizeLine, truncate, truncate as truncateText } from "./ui";
 import { advanceReveal, DEFAULT_REVEAL_SETTINGS, type RevealSettings } from "./reveal";
 import { MultilineInput, pasteAsPath, type ComposerHandle } from "./Input";
 import { BASE_COMMANDS, type CommandEntry } from "./commands";
@@ -29,6 +29,7 @@ import { SubagentPanel } from "./SubagentPanel";
 import { AskUserBlock, askBlockMinRows, askUserBlockRows } from "./AskUserBlock";
 import type { AskUserGate } from "./ask-user-gate";
 import { useGitBranch } from "./git-branch";
+import { bangActiveTurnRefusal, parseBangCommand, stripBangEscape, type BangCommand } from "./bang-command";
 import type { SidebarTokens } from "./sidebar";
 
 
@@ -154,6 +155,8 @@ export interface ChatProps {
    * names a lane opened without a prompt (App writes the registry label).
    * At most once per session instance; never on subsequent sends. */
   onFirstSend?: (text: string) => void;
+  /** ADR-0076: user-facing one-line notices (the chat's toast line). */
+  onNotify?: (text: string) => void;
   /** #876: the permission mode to show in the bar — the tail chip for all
    * three values plus the ⚠ YOLO banner. Override for tests; the default is
    * the session's own live mode (the launch flag seeds it, shift+tab moves
@@ -252,11 +255,23 @@ export function Chat({
   inLane = false,
   laneLabel = null,
   onFirstSend,
+  onNotify,
   permissionMode = session.sessionMode,
   rootOnWindowsMount = session.rootOnWindowsMount,
   commands = BASE_COMMANDS.map((command) => ({ name: `/${command.name}`, description: command.description, custom: false })),
 }: ChatProps) {
   const state = useSessionState(session);
+  // ADR-0076: the bang-command runner — one user bash call through the
+  // session's own tool runner, rendered by the transcript as an ordinary
+  // tool result. `!!` auto-sends the (already tool-truncated) output as
+  // the next user message when the command finishes; failures surface the
+  // refusal/result but never fabricate a send.
+  const runBangCommand = async (bang: BangCommand): Promise<void> => {
+    const result = await session.runBash(bang.command);
+    if (!bang.autoSend) return;
+    const body = result.ok ? result.output : `failed: ${result.output}`;
+    await session.send(`! output:\n${truncateText(sanitizeLine(body), 8_000)}`);
+  };
   // #1022: the composer publishes its rendered height (draft window +
   // completion popup); the volatile budget below subtracts it. One row until
   // the first report — the empty composer, which is the honest default.
@@ -1266,9 +1281,23 @@ export function Chat({
         prefill={prefill}
         onSubmit={(text) => {
           if (onCommand?.(text)) return;
+          // ADR-0076: the composer's bang commands — chat only, never Home
+          // (Home mounts no Chat). Parsed before the plain-send path; an
+          // active turn refuses visibly (`!!` is not steering).
+          const bang = parseBangCommand(text);
+          if (bang) {
+            if (state.pending) {
+              onNotify?.(bangActiveTurnRefusal());
+              return;
+            }
+            void runBangCommand(bang).catch((err: unknown) => {
+              onNotify?.(`! failed: ${err instanceof Error ? err.message : String(err)}`);
+            });
+            return;
+          }
           if (!firstSendDoneRef.current) {
             firstSendDoneRef.current = true;
-            onFirstSend?.(text);
+            onFirstSend?.(stripBangEscape(text));
           }
           onBranchFromDismiss?.();
           void session.send(text);
