@@ -305,20 +305,9 @@ function AppShell({
     if (!lane) return undefined;
     return shortenHome(mainCheckoutFor(sessionCwd) ?? lane.worktreePath ?? sessionCwd, laneHome);
   }, [lane, sessionCwd, laneHome]);
-  // A lane opened without a prompt gets its name from the first submitted
-  // prompt — one registry write, the same label `moh lanes list` renders.
-  const handleFirstSend = useCallback(
-    (text: string) => {
-      if (!lane || laneLabel) return;
-      try {
-        const store = new DevelopmentLaneStore({ cwd: mainCheckoutFor(sessionCwd) ?? lane.worktreePath, home: laneHome });
-        setLaneLabel(store.setLabel(lane.id, text).label ?? null);
-      } catch {
-        // Labeling is best-effort chrome; the lane works unnamed.
-      }
-    },
-    [lane, laneLabel, sessionCwd, laneHome],
-  );
+  // ADR-0060 decision (owner, 2026-10-09): the first submitted prompt never
+  // names the lane. Row2 shows the registry label only — a lane stays
+  // unnamed until the team/task flow (or `moh lanes label`) names it.
   // startInChat assembles eagerly (tests, bare resume); a broken config is a
   // visible error now — no silent demo fallback (ADR-0005).
   const [initialSession] = useState(() =>
@@ -1616,7 +1605,6 @@ function AppShell({
       displayCwd={displayCwd}
       inLane={lane !== null}
       laneLabel={laneLabel}
-      onFirstSend={handleFirstSend}
       branchFrom={branchFrom}
       onBranchFromDismiss={() => setBranchFrom(null)}
       onNotify={(text) => push(text, "warn")}

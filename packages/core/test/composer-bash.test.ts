@@ -56,6 +56,13 @@ describe("AgentSession.runBash (ADR-0076)", () => {
     expect(call && "timeoutMs" in call ? call.timeoutMs : undefined).toBe(120_000);
   });
 
+  test("the tool_call carries the user-source marker (ADR-0076)", async () => {
+    const { session, events } = assemble();
+    await session.runBash("echo hi");
+    const call = events.find((e) => e.type === "tool_call");
+    expect(call && "source" in call ? call.source : undefined).toBe("user");
+  });
+
   test("a failing command reports ok:false without throwing", async () => {
     const { session } = assemble();
     const result = await session.runBash("exit 3");
