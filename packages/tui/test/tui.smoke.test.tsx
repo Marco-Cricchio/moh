@@ -212,6 +212,21 @@ describe("home smoke", () => {
     i.unmount();
   });
 
+  test("App: ctrl+l opens the model picker on any terminal (legacy byte 0x0c)", async () => {
+    const i = await mountApp({ intro: false, cwd: process.cwd(), home: tempHome(), provider: MockProvider.demo(), startInChat: true, skipOnboarding: true });
+    expect(stripAnsi(i.lastFrame() ?? "")).toContain("^l model");
+    i.stdin.write("\x0c"); // ctrl+l — a control byte no terminal encodes as another key
+    await waitForFrame(() => stripAnsi(i.lastFrame() ?? ""), "model");
+    i.unmount();
+  });
+
+  test("App: kitty Ctrl+M opens the model picker (legacy ctrl+m is byte-identical to Enter)", async () => {
+    const i = await mountApp({ intro: false, cwd: process.cwd(), home: tempHome(), provider: MockProvider.demo(), startInChat: true, skipOnboarding: true });
+    i.stdin.write("\x1b[109;5u"); // kitty keyboard protocol: Ctrl+M
+    await waitForFrame(() => stripAnsi(i.lastFrame() ?? ""), "model");
+    i.unmount();
+  });
+
   test("App: mode switch changes the transcript grammar, not just the label (#193)", async () => {
     const provider = MockProvider.scripted([
       { deltas: ["first answer"], finish: "stop", usage: { inputTokens: 100, outputTokens: 10 } },

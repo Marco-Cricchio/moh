@@ -1478,6 +1478,11 @@ function AppShell({
     if (key.ctrl && input === "y" && session) return cycleThinkingLevel();
     if (key.ctrl && input === "w" && session) return activateChip("workflow");
     if (overlay === null && key.ctrl && input === "s") return setOverlay("settings");
+    // The model picker is ctrl+l, not ctrl+m: a legacy terminal encodes
+    // ctrl+m as 0x0d, byte-identical to Enter, so the key cannot be told
+    // apart from a submit anywhere except under the kitty keyboard
+    // protocol (CSI-u), where ctrl+m additionally opens the picker.
+    if (overlay === null && key.ctrl && (input === "l" || input === "m")) return setOverlay("model");
     // #1218: Ctrl+P toggles the extensions-rail focus mode — the panel
     // scrolls, esc/Ctrl+P hands the keys back to the composer.
     if (overlay === null && key.ctrl && input === "p" && railVisible && railWide) {
