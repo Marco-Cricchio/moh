@@ -703,6 +703,13 @@ const fetchSchema = z.object({
  * re-checked and re-pinned. */
 const FETCH_MAX_REDIRECTS = 10;
 
+/** #1262 (decompression bomb): the hard cap a response body may occupy
+ * decompressed. Enforced while streaming in `readBody` — the flow stops
+ * at the budget, memory never holds more than it plus one chunk. Tool
+ * callers truncate further (`maxLength`), so the budget only has to sit
+ * comfortably above every caller's own ceiling. */
+export const FETCH_MAX_BODY_BYTES = 2_000_000;
+
 /** #1079: how much of a failed response's own words the model gets. Big
  * enough for a provider's error JSON, small enough that an HTML error
  * page cannot flood the turn. */
@@ -947,9 +954,23 @@ export function requestPinnedUrl(
             return new Promise<string>((resolveBody, rejectBodyPromise) => {
               rejectBody = rejectBodyPromise;
               const chunks: Buffer[] = [];
+              let received = 0;
+              let truncated = false;
               const sink = new Writable({
                 write(chunk: Buffer | string, _encoding, callback) {
-                  chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+                  const buf = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+                  received += buf.byteLength;
+                  if (received > FETCH_MAX_BODY_BYTES) {
+                    // #1262 (decompression bomb): keep only the budgeted
+                    // head and stop the flow — the peer cannot park memory
+                    // or the turn on an unbounded decompressed body.
+                    const head = buf.subarray(0, Math.max(0, FETCH_MAX_BODY_BYTES - (received - buf.byteLength)));
+                    if (head.byteLength > 0) chunks.push(head);
+                    truncated = true;
+                    callback(new Error("fetch response body exceeded the read budget"));
+                    return;
+                  }
+                  chunks.push(buf);
                   callback();
                 },
               });
@@ -967,7 +988,12 @@ export function requestPinnedUrl(
                   cleanup();
                   resolveBody(body.toString("utf8"));
                 })
-                .catch((error) => fail(error));
+                .catch((error) => {
+                  if (!truncated) return fail(error); // a real transport failure
+                  bodySettled = true;
+                  cleanup();
+                  resolveBody(Buffer.concat(chunks).toString("utf8") + `\n… [truncated after ${FETCH_MAX_BODY_BYTES} bytes]`);
+                });
             });
           },
         });

@@ -4,7 +4,7 @@ import { gzipSync } from "node:zlib";
 import { createServer as createNetServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { builtinTools, fetchUrlText, requestPinnedUrl, resolveVerifiedUrl, type PinnedResponse } from "../src/builtin-tools";
+import { builtinTools, fetchUrlText, requestPinnedUrl, resolveVerifiedUrl, FETCH_MAX_BODY_BYTES, type PinnedResponse } from "../src/builtin-tools";
 // #304: classification unit-tested directly.
 import { isSuiteLike } from "../src/builtin-tools";
 import type { ToolContext } from "../src/types";
@@ -594,6 +594,53 @@ describe("built-in tools", () => {
       server.stop(true);
     }
   });
+
+  // #1262 (decompression bomb): the byte budget is enforced while
+  // streaming — memory stays bounded even when the decompressed body is
+  // far larger than the budget, and the read settles with the bounded
+  // head plus a truncation marker instead of buffering the whole body.
+  test("a body over the byte budget settles bounded, without reading it all", async () => {
+    const bomb = gzipSync(Buffer.alloc(FETCH_MAX_BODY_BYTES + 1_000_000, 0x61));
+    expect(bomb.byteLength).toBeLessThan(100_000); // genuinely bomb-shaped
+    const server = Bun.serve({
+      port: 0,
+      hostname: "127.0.0.1",
+      fetch: () => new Response(new Uint8Array(bomb), { headers: { "content-encoding": "gzip" } }),
+    });
+    try {
+      const response = await requestPinnedUrl(
+        new URL(`http://verified.invalid:${server.port}/bomb`),
+        { address: "127.0.0.1", family: 4 },
+        ctx.signal,
+      );
+      const body = await response.readBody();
+      expect(body).toContain("[truncated");
+      expect(Buffer.byteLength(body)).toBeLessThan(FETCH_MAX_BODY_BYTES + 100);
+    } finally {
+      server.stop(true);
+    }
+  }, 10_000);
+
+  test("a body at the byte budget arrives complete, untruncated", async () => {
+    const exact = Buffer.alloc(FETCH_MAX_BODY_BYTES, 0x62);
+    const server = Bun.serve({
+      port: 0,
+      hostname: "127.0.0.1",
+      fetch: () => new Response(new Uint8Array(exact)),
+    });
+    try {
+      const response = await requestPinnedUrl(
+        new URL(`http://verified.invalid:${server.port}/exact`),
+        { address: "127.0.0.1", family: 4 },
+        ctx.signal,
+      );
+      const body = await response.readBody();
+      expect(Buffer.byteLength(body)).toBe(FETCH_MAX_BODY_BYTES);
+      expect(body).not.toContain("[truncated");
+    } finally {
+      server.stop(true);
+    }
+  }, 10_000);
 
   test("abort after headers rejects a pinned body read promptly (#922)", async () => {
     const server = createNetServer((socket) => {
