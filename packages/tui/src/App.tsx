@@ -2160,7 +2160,6 @@ function AppShell({
         {/* Toasts remain non-blocking bottom chrome on every screen — except
             while the logo intro plays: the animation is the whole screen. */}
         {!showChat && !introActive && <Toasts toasts={toasts} />}
-        {showChat && <Toasts toasts={toasts.filter((t) => t.position === "side" ? false : true).slice(-1)} />}
       </Box>
     </ThemeProvider>
   );
