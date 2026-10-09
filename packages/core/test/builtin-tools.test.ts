@@ -503,6 +503,31 @@ describe("built-in tools", () => {
       expect(text).toContain("not found");
     });
 
+    // #1262 (redirect downgrade): an https origin must never hand the
+    // traffic to an http hop — the Location authority does not widen what
+    // the user asked for.
+    test("an https to http redirect is refused before dialling the downgrade", async () => {
+      let dials = 0;
+      const text = await failureOf(fetchUrlText(
+        { url: "https://secure.test/start" },
+        ctx.signal,
+        {
+          lookup: async () => [{ address: "203.0.113.7", family: 4 }],
+          requestPinned: async (url: URL): Promise<PinnedResponse> => {
+            dials++;
+            return {
+              status: 302,
+              headers: new Headers({ location: `http://plain.test/moved${url.pathname === "/moved" ? "-again" : ""}` }),
+              readBody: async () => "hop",
+              discard: () => {},
+            };
+          },
+        },
+      ));
+      expect(text).toMatch(/downgrade|http:/);
+      expect(dials).toBe(1); // the http hop is never dialled
+    });
+
     test("a chain of ten redirects is followed and an eleventh hop is refused", async () => {
       const chain = (status: number | null) => async (url: URL): Promise<PinnedResponse> => {
         const hop = Number(new URL(url).pathname.slice(1));

@@ -1175,6 +1175,12 @@ export async function fetchUrlText(
     if (!location) break;
     res.discard();
     const next = new URL(location, url).toString();
+    // #1262 (redirect downgrade): an https origin never follows a hop to
+    // plain http — the redirect must not walk the traffic out of TLS.
+    if (url.protocol === "https:" && next.startsWith("http:")) {
+      res.discard();
+      throw new Error(`fetch: refusing https to http redirect downgrade: ${next}`);
+    }
     pin = await resolveUrl(next);
     url = assertFetchable(next);
     res = await dial(url, pin);
