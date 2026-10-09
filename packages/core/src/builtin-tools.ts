@@ -4,6 +4,7 @@ import type { FilesystemScope } from "./permissions";
 import { resolve, isAbsolute, relative, join, dirname } from "node:path";
 import { chmodSync, mkdirSync, mkdtempSync, readdirSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { boundedTest, compileSearchRegex, statIdentity, writeGuarded } from "./tool-guards.js";
+import { redactString } from "./redact.js";
 import { tmpdir } from "node:os";
 import { request as httpRequest } from "node:http";
 import { request as httpsRequest } from "node:https";
@@ -1364,7 +1365,13 @@ const gitTool: Tool<z.infer<typeof gitSchema>> = {
       const err = out.stderr.toString().trim();
       throw new Error(`git exited with code ${out.exitCode}${err ? `: ${err}` : ""}`);
     }
-    return out.stdout.toString();
+    const text = out.stdout.toString();
+    // #1262 (config exfil): `config --list` (and `--get` of a secret-shaped
+    // key) lifts stored credentials into tool output. The same pass every
+    // persisted event goes through masks them here too — read-only stays
+    // read-only for secrets as well.
+    if (sub === "config") return redactString(text);
+    return text;
   },
 };
 
