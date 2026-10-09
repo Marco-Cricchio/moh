@@ -27,7 +27,7 @@ import { join } from "node:path";
 import { z } from "zod";
 import { redactString } from "./redact";
 import { projectSlug } from "./session-store";
-import type { AgentEvent } from "./types";
+import type { AgentEvent, Provider } from "./types";
 
 /** moh.json `retro` block; `retro.enabled: false` disables everything. */
 export const retroConfigSchema = z.object({
@@ -67,10 +67,13 @@ export const RETRO_MAX_FINDINGS = 200;
 export const RETRO_EVIDENCE_CHARS = 300;
 /** Digest cadence (ADR-0075): at most one per 48 hours. */
 export const RETRO_DIGEST_INTERVAL_MS = 48 * 60 * 60 * 1000;
+/** Judgment extraction is intentionally batched, never per session. */
+export const RETRO_JUDGMENT_SESSION_THRESHOLD = 5;
 
 const FINDINGS_FILE = "findings.jsonl";
 const DISMISSED_FILE = "dismissed.json";
 const DIGEST_FILE = "digest.json";
+const APPLICATIONS_FILE = "applications.jsonl";
 
 /** The stable identity: category plus an observation fingerprint. */
 export function retroSignature(category: string, observation: string): string {
@@ -200,8 +203,30 @@ export class RetroStore {
     }
   }
 
+  /** Number of closed-session transcripts accumulated for a judgment batch. */
+  judgmentBatchSize(): number {
+    return new Set(this.read().map((finding) => finding.session)).size;
+  }
+
+  /** Whether the judgment maintenance subagent may run; never true per session. */
+  judgmentBatchReady(threshold = RETRO_JUDGMENT_SESSION_THRESHOLD): boolean {
+    return this.judgmentBatchSize() >= threshold;
+  }
+
+  /** Records an explicit user-approved application without mutating steering files. */
+  recordApplication(finding: RetroFinding, now = new Date()): void {
+    try {
+      mkdirSync(this.dir, { recursive: true, mode: 0o700 });
+      const file = join(this.dir, APPLICATIONS_FILE);
+      const record = { signature: finding.signature, category: finding.category, recordedAt: now.toISOString() };
+      writeFileSync(file, `${JSON.stringify(record)}\n`, { flag: "a", mode: 0o600 });
+    } catch {
+      // fail-silent persistence seam
+    }
+  }
+
   /**
-   * The session-start digest (ADR-0075): one line when findings
+   * The session-start digest (ADR-0075): one line when
    * accumulated since the last digest, rate-limited to one per 48
    * hours, suppressed while the report is open in the same session
    * (`reportOpen` — the report replaces the digest, and the timestamp

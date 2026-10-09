@@ -49,6 +49,7 @@ import {
 import { scopeEffectSentence } from "./scope-effect";
 import { defaultCredentialStore, validateCredentialScope, type CredentialStore } from "./credential-scope";
 import { PromptComposer, type SkillIndexEntry } from "./prompt-composer";
+import { RetroStore, type RetroFinding, type RetroOptions } from "./retro";
 import type {
   AgentEvent,
   ExtensionControlPayload,
@@ -1140,6 +1141,9 @@ export {
   type AskUserSetResult,
   type Provider,
   type Tool,
+  RetroStore,
+  type RetroFinding,
+  type RetroOptions,
   // #576: session-tree surface — head resolution + reference helpers.
   resolveHead,
   // #577: active-path projection (root→head linearization).
