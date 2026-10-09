@@ -148,13 +148,9 @@ export interface ChatProps {
   /** ADR-0060: the session runs in a lane worktree — the cwd segment
    * carries the `· lane` marker. */
   inLane?: boolean;
-  /** ADR-0060: what the lane is working on (registry label). Renders next
-   * to the auto-branch; caller updates it after a first-send labeling. */
+  /** ADR-0060: the lane's registry label. Renders next to the auto-branch;
+   * labeled by the team/task flow (or `moh lanes label`), never by a send. */
   laneLabel?: string | null;
-  /** ADR-0060: fired once on the first submitted prompt — the seam that
-   * names a lane opened without a prompt (App writes the registry label).
-   * At most once per session instance; never on subsequent sends. */
-  onFirstSend?: (text: string) => void;
   /** ADR-0076: user-facing one-line notices (the chat's toast line). */
   onNotify?: (text: string) => void;
   /** #876: the permission mode to show in the bar — the tail chip for all
@@ -254,7 +250,6 @@ export function Chat({
   displayCwd,
   inLane = false,
   laneLabel = null,
-  onFirstSend,
   onNotify,
   permissionMode = session.sessionMode,
   rootOnWindowsMount = session.rootOnWindowsMount,
@@ -361,10 +356,6 @@ export function Chat({
   // running tools' partial output — volatile only, never persisted.
   const toolTails = useToolProgress(session, state.pending);
   const gitBranch = useGitBranch(cwd);
-  // ADR-0060: one labeling seam per session instance — the first submit
-  // carries the work's name (App writes it into the lane registry when the
-  // lane opened without a prompt). Reset on a session swap.
-  const firstSendDoneRef = useRef(false);
   const viewport = useViewport();
   const cols = width ?? viewport.columns;
   // The composer hint — one expression for both policies: the compact width
@@ -413,7 +404,6 @@ export function Chat({
   const segmentsRef = useRef<Segment[]>([{ base: 0, mode, show: showReasoning }]);
   if (sessionRef.current !== session) {
     sessionRef.current = session;
-    firstSendDoneRef.current = false;
     segmentsRef.current = [{ base: 0, mode, show: showReasoning }];
     // #329: head chains belong to the previous session's event log; their
     // `${index}-reasoning` keys would collide with the new projection.
@@ -1294,10 +1284,6 @@ export function Chat({
               onNotify?.(`! failed: ${err instanceof Error ? err.message : String(err)}`);
             });
             return;
-          }
-          if (!firstSendDoneRef.current) {
-            firstSendDoneRef.current = true;
-            onFirstSend?.(stripBangEscape(text));
           }
           onBranchFromDismiss?.();
           void session.send(text);
