@@ -97,6 +97,21 @@ describe("read-only git tool (#1165)", () => {
     expect(() => git.execute({ args: ["config", "user.email", "x@x"] }, ctx)).toThrow(/read-only/i);
   });
 
+  // #1262 (config exfil): stored credentials surfaced by `config --list`
+  // (or a direct `--get`) come out masked — same pass the event log uses.
+  test("config output masks credential-shaped values", async () => {
+    Bun.spawnSync(["git", "config", "credential.helper", "!f() { echo token=ghsup3rS3cretValue0123456789; }"], { cwd: repo });
+    Bun.spawnSync(["git", "config", "test.plain", "just-a-plain-value"], { cwd: repo });
+    const list = await git.execute({ args: ["config", "--list"] }, ctx);
+    expect(list).toContain("test.plain=just-a-plain-value");
+    expect(list).not.toContain("ghsup3rS3cretValue0123456789");
+    expect(list).toMatch(/token=\[redacted\]/);
+    const single = await git.execute({ args: ["config", "--get", "credential.helper"] }, ctx);
+    expect(single).not.toContain("ghsup3rS3cretValue0123456789");
+    Bun.spawnSync(["git", "config", "--unset", "credential.helper"], { cwd: repo });
+    Bun.spawnSync(["git", "config", "--unset", "test.plain"], { cwd: repo });
+  });
+
   test("transient -c config options that can execute commands are refused (#1254)", () => {
     for (const args of [
       ["-c", "diff.external=touch /tmp/pwned", "diff"],

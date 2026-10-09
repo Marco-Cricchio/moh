@@ -3,6 +3,7 @@ import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { randomUUID } from "node:crypto";
 import { projectSessionsDir } from "./session-store";
+import { sameInstallOutcome, type LaneInstallOutcome } from "./lane-install";
 
 export type LaneRelation = "independent" | "depends-on" | "integration";
 export type LaneStatus = "active" | "paused" | "ready" | "integrating" | "conflicted" | "landed" | "abandoned";
@@ -31,6 +32,10 @@ export interface DevelopmentLane {
    * the session's first user message or set explicitly. User-facing in
    * `moh lanes list` and /lanes so a stale lane is identifiable. */
   label?: string;
+  /** The last dependency-install outcome for this lane (ADR-0060
+   * amendment 5): command used, nothing-to-install, or failure with its
+   * reason. Registry state, never a marker file inside the worktree. */
+  install?: LaneInstallOutcome;
   createdAt: string;
   updatedAt: string;
 }
@@ -259,6 +264,20 @@ export class DevelopmentLaneStore {
     const lane = state.lanes.find((candidate) => candidate.id === laneId);
     if (!lane) throw new Error(`unknown lane: ${laneId}`);
     lane.branchRef = branchRef.trim();
+    lane.updatedAt = now();
+    writeState(this.#file, state);
+    return { ...lane };
+  }
+
+  /** Records a lane's dependency-install outcome (ADR-0060 amendment 5).
+   * Skips the write when the outcome is already on record, so an
+   * unchanged open does not churn the registry. */
+  setInstall(laneId: string, outcome: LaneInstallOutcome): DevelopmentLane {
+    const state = readState(this.#file);
+    const lane = state.lanes.find((candidate) => candidate.id === laneId);
+    if (!lane) throw new Error(`unknown lane: ${laneId}`);
+    if (sameInstallOutcome(lane.install, outcome)) return { ...lane };
+    lane.install = outcome;
     lane.updatedAt = now();
     writeState(this.#file, state);
     return { ...lane };

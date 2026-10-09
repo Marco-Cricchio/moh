@@ -9,7 +9,7 @@
  */
 import { describe, expect, test } from "bun:test";
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdtempSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { main } from "../src/cli";
@@ -53,6 +53,7 @@ describe("moh lanes (ADR-0060)", () => {
     const help = await run(cwd, home, ["--help"]);
     expect(help.code).toBe(0);
     expect(help.out).toContain("usage: moh lanes group");
+    expect(help.out).toContain("repair [--apply]");
     const unknown = await run(cwd, home, ["frobnicate"]);
     expect(unknown.code).toBe(2);
     expect(unknown.err).toContain('unknown command "frobnicate"');
@@ -142,6 +143,93 @@ describe("moh lanes (ADR-0060)", () => {
     const store = new DevelopmentLaneStore({ cwd, home });
     expect(store.file.startsWith(join(home, ".moh", "projects"))).toBe(true);
     expect(store.file.startsWith(cwd)).toBe(false);
+  });
+});
+
+describe("moh lanes install + repair (ADR-0060 amendment 5)", () => {
+  /** The `lanes.setup` user-config key, in the test's own home. */
+  function writeLaneSetup(home: string, setup: unknown): void {
+    mkdirSync(join(home, ".moh"), { recursive: true });
+    writeFileSync(join(home, ".moh", "config"), JSON.stringify({ lanes: { setup } }));
+  }
+
+  test("start runs the project's own install in the lane, and reports the outcome", async () => {
+    const { cwd, home } = newRepo();
+    // A cheap command instead of a real package install: the point is that
+    // the lane runs what the config declares *in its own worktree*.
+    writeLaneSetup(home, "touch installed-marker");
+    await run(cwd, home, ["group", "deps", "--target", "develop"]);
+    const started = await run(cwd, home, ["start", "deps", "feature/deps-1"]);
+    expect(started.code).toBe(0);
+    expect(started.out).toContain("install touch installed-marker");
+    const lane = new DevelopmentLaneStore({ cwd, home }).listLanes()[0]!;
+    expect(lane.install).toMatchObject({ kind: "installed", command: "touch installed-marker" });
+    // Ran where it belongs: inside the lane's worktree, not the checkout.
+    expect(existsSync(join(lane.worktreePath, "installed-marker"))).toBe(true);
+    expect(existsSync(join(cwd, "installed-marker"))).toBe(false);
+    // The state is part of the lane surfaces.
+    const list = await run(cwd, home, ["list"]);
+    expect(list.out).toContain("install touch installed-marker");
+    const show = await run(cwd, home, ["show", lane.id]);
+    expect(show.out).toContain("install touch installed-marker");
+  });
+
+  test("a project declaring no install reports nothing; an unrecognized one reports once", async () => {
+    const { cwd, home } = newRepo();
+    await run(cwd, home, ["group", "plain", "--target", "develop"]);
+    const started = await run(cwd, home, ["start", "plain", "feature/plain-1"]);
+    expect(started.code).toBe(0);
+    expect(started.out).not.toContain("install");
+    expect((await run(cwd, home, ["list"])).out).not.toContain("install");
+
+    // A manifest moh does not recognize: the lane exists, the reason is
+    // visible — never a command moh invented. It must be committed: a lane
+    // installs what its BRANCH declares, not the checkout's working tree.
+    const other = newRepo();
+    writeFileSync(join(other.cwd, "pyproject.toml"), "[project]\nname = \"x\"\n");
+    execFileSync("git", ["add", "pyproject.toml"], { cwd: other.cwd, stdio: "ignore" });
+    execFileSync("git", ["commit", "-m", "pyproject"], { cwd: other.cwd, stdio: "ignore" });
+    await run(other.cwd, other.home, ["group", "py", "--target", "develop"]);
+    const py = await run(other.cwd, other.home, ["start", "py", "feature/py-1"]);
+    expect(py.code).toBe(0);
+    expect(py.out).toContain("install nothing (no recognized install command");
+    expect((await run(other.cwd, other.home, ["list"])).out).toContain("lanes.setup");
+  });
+
+  test("repair names the method on a dry run, and only --apply mutates", async () => {
+    const { cwd, home } = newRepo();
+    writeFileSync(join(cwd, "package.json"), JSON.stringify({ name: "proj", packageManager: "bun@1.2.19" }));
+    // A foreign workspace link: exactly the damage one lane-side install did.
+    const elsewhere = mkdtempSync(join(tmpdir(), "moh-lanes-cli-elsewhere-"));
+    mkdirSync(join(cwd, "node_modules", "@moh"), { recursive: true });
+    symlinkSync(elsewhere, join(cwd, "node_modules", "@moh", "core"));
+
+    const clean = await run(cwd, home, ["list"]);
+    expect(clean.out).toContain("checkout install DRIFTED");
+    expect(clean.out).toContain("moh lanes repair --apply");
+
+    const dry = await run(cwd, home, ["repair"]);
+    expect(dry.code).toBe(0);
+    expect(dry.out).toContain("drifted link: @moh/core →");
+    expect(dry.out).toContain("remove node_modules/@moh, then: bun install");
+    expect(dry.out).toContain("dry run");
+    expect(existsSync(join(cwd, "node_modules", "@moh", "core"))).toBe(true);
+
+    // Apply: the workspace links go, then the install runs in the checkout.
+    writeLaneSetup(home, "touch repaired-marker");
+    const applied = await run(cwd, home, ["repair", "--apply"]);
+    expect(applied.code).toBe(0);
+    expect(applied.out).toContain("repaired: removed node_modules/@moh and reinstalled (touch repaired-marker)");
+    expect(existsSync(join(cwd, "node_modules", "@moh"))).toBe(false);
+    expect(existsSync(join(cwd, "repaired-marker"))).toBe(true);
+  });
+
+  test("a clean checkout reports clean and never installs", async () => {
+    const { cwd, home } = newRepo();
+    const clean = await run(cwd, home, ["repair"]);
+    expect(clean.code).toBe(0);
+    expect(clean.out).toContain("checkout install is clean");
+    expect(existsSync(join(cwd, "node_modules"))).toBe(false);
   });
 });
 

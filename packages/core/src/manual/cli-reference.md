@@ -314,10 +314,11 @@ usage: moh lanes group <name> [--target <ref>] [--cwd <dir>]
        moh lanes remove <lane-id> [--force] [--cwd <dir>]
        moh lanes delete <lane-id> [--keep-worktree] [--cwd <dir>]
        moh lanes cleanup [--min-age-days <n>] [--apply] [--cwd <dir>]
+       moh lanes repair [--apply] [--cwd <dir>]
 
 Parallel development lanes (feature groups + isolated worktrees): each
-lane owns one worktree and one ordinary git branch, so concurrent sessions
-never share uncommitted state. Metadata and worktrees live under
+lane owns one worktree, one ordinary git branch and its own dependency
+install. Metadata and worktrees live under
 ~/.moh/projects/<slug>/ (development-lanes.json and lanes/<branch>) —
 never in the repository.
 
@@ -327,9 +328,11 @@ never in the repository.
                             ref's exact revision. --base defaults to the
                             group's target. The session id binds the lane
                             to one session; a duplicate active worktree or
-                            session is refused.
+                            session is refused. The project's declared
+                            dependency install runs in the new worktree
+                            (see install below).
   list [--group]            lanes (and groups) with status, branch, base
-                            freshness and worktree health
+                            freshness, worktree health and install state
   show <lane-id>            one lane's full record
   integrate <lane-id>       merge the lane branch into the group's target.
                             On conflict the target merge is aborted and the
@@ -354,8 +357,22 @@ never in the repository.
                             branch + registry row). Dirty lanes are
                             reported but never touched. Without --apply it
                             is a dry run.
+  repair [--apply]          repair the CHECKOUT's own install when it
+                            drifted (its workspace links resolve outside
+                            it). Without --apply it only reports: the
+                            method is remove \`node_modules/@moh\` and
+                            reinstall — a plain install does not repair a
+                            satisfied foreign link.
 
-  --cwd     project root the lanes belong to (default: process.cwd())
+  install       a lane installs what its project declares, in its own
+                worktree: the lanes.setup user-config key (a command, or
+                false for nothing), then package.json's packageManager,
+                then the lockfile table (bun/npm/yarn/pnpm/uv/composer/
+                mix/poetry/bundler). A user-level store (Cargo, Go,
+                Maven/Gradle, NuGet) runs nothing and reports nothing; a
+                manifest with no recognized command is reported once.
+                moh never invents a command.
+  --cwd         project root the lanes belong to (default: process.cwd())
 ```
 
 ## moh usage

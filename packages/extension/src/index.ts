@@ -399,8 +399,8 @@ export interface ToolResultHookResult {
  * - `ask` (ADR-0031, apiVersion 1.1) hands the call to the existing human
  *   consent flow. It is not a grant: it never writes a permission rule and
  *   the prompt it raises offers no "always" answer. In auto-accept it still
- *   reaches the user, in yolo it is ignored (yolo is sovereign — use `veto`
- *   for anything lethal), and headless it degrades to a denial.
+ *   reaches the user, in yolo it becomes an explicit denial recorded in the
+ *   session log, and headless it degrades to a denial.
  * - Both together are contradictory: `veto` wins.
  * - The first hook returning a decision wins, in registration order.
  */

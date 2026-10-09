@@ -11,6 +11,8 @@ import { homedir } from "node:os";
 import {
   MAX_ITERATIONS_UNLIMITED,
   DevelopmentLaneService,
+  laneInstallLine,
+  readLaneSetup,
   MockProvider,
   RuleError,
   SessionStore,
@@ -354,7 +356,14 @@ export async function runCommand(options: RunOptions): Promise<number> {
     const recentSibling = listSessionSummaries(cwd, options.home).some(
       (summary) => Date.now() - summary.mtimeMs < 10 * 60 * 1000,
     );
-    const provisioned = await new DevelopmentLaneService({ cwd, home: options.home }).ensureSessionLane({
+    // ADR-0060 amendment 5: the lane installs its own dependencies, with
+    // `lanes.setup` as the last word — read where `lanes.auto` is read.
+    const setup = readLaneSetup(options.home);
+    const provisioned = await new DevelopmentLaneService({
+      cwd,
+      home: options.home,
+      ...(setup !== undefined ? { setup } : {}),
+    }).ensureSessionLane({
       sessionId: `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
       auto: lanesEnabled,
       task: prompt,
@@ -362,7 +371,10 @@ export async function runCommand(options: RunOptions): Promise<number> {
     });
     if (provisioned.lane) {
       laneCwd = provisioned.lane.worktreePath;
-      out.write(`lane: ${provisioned.lane.branchRef} (isolated worktree: ${laneCwd})\n`);
+      // The install outcome is part of the provisioning result: a failed
+      // install leaves the lane usable and says so on the same line.
+      const install = laneInstallLine(provisioned.install);
+      out.write(`lane: ${provisioned.lane.branchRef} (isolated worktree: ${laneCwd})${install ? ` · ${install}` : ""}\n`);
     }
   } catch {
     // Lane provisioning must never block a session.
