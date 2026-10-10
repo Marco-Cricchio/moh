@@ -1,4 +1,8 @@
 import { describe, expect, test } from "bun:test";
+import { createRequire } from "node:module";
+const chalk = createRequire(import.meta.resolve("ink"))("chalk").default as { level: 0 | 1 | 2 | 3 };
+import { beforeEach, afterEach } from "bun:test";
+
 import React from "react";
 import { render } from "ink-testing-library";
 import type { AgentEvent } from "@moh/core";
@@ -6,6 +10,7 @@ import { blockTint, compactionCannotHelpNow, projectTranscript, assistantSegment
 import { createMarkdownRenderer, renderMarkdownRows } from "../src/markdown";
 import { ThemeProvider, THEMES } from "../src/themes";
 import { stripAnsi } from "./helpers";
+import { DEFAULT_THEME } from "../src/themes";
 
 const base: AgentEvent[] = [
   { type: "session_start", schemaVersion: 1, promptVersion: "abcdef123456" },
@@ -251,18 +256,50 @@ describe("semantic transcript projection (#183)", () => {
     expect(commentOnly?.detail).toBe("  # no executable command");
   });
 
-  test("vibe command hint is a short synthesis, never the full command line (#215)", () => {
+  test("vibe preserves agent commands while bang keeps its reduced hint (#1300)", () => {
     const events: AgentEvent[] = [
       { type: "tool_call", callId: "h1", name: "bash", args: { command: "FOO=1 bun test packages/tui" } },
       { type: "tool_call", callId: "h2", name: "bash", args: { command: "git status --porcelain -b" } },
       { type: "tool_call", callId: "h3", name: "bash", args: { command: "/usr/bin/git log --oneline" } },
     ];
     const lines = projectTranscript(events, { mode: "vibe" }).filter((block) => block.lines.length === 1).map((block) => block.lines[0]);
-    expect(lines).toContain("ran a command · bun test packages/tui");
+    // #1300: the agent-run arm prints the command in full — env assignments
+    // and wrapper paths shown verbatim, no reduction, no … cap.
+    expect(lines).toContain("ran a command · FOO=1 bun test packages/tui");
     expect(lines).toContain("ran a command · git status --porcelain -b");
-    expect(lines).toContain("ran a command · git log --oneline");
-    // env assignments and wrapper paths stay hidden
-    expect(lines.some((line) => line.includes("FOO=1") || line.includes("/usr/bin"))).toBe(false);
+    expect(lines).toContain("ran a command · /usr/bin/git log --oneline");
+    expect(lines.every((line) => !line.includes("…"))).toBe(true);
+    // The bang path (source: "user") keeps the reduced, capped hint.
+    const bang: AgentEvent[] = [
+      { type: "tool_call", callId: "b1", name: "bash", source: "user", args: { command: "FOO=1 /usr/bin/git log --oneline" } },
+      { type: "tool_result", callId: "b1", ok: true, output: "ok" },
+    ];
+    const bangLines = projectTranscript(bang, { mode: "vibe" }).map((block) => block.detail);
+    expect(bangLines).toContain("git log --oneline");
+    const longBang = projectTranscript([{ type: "tool_call", callId: "long-bang", name: "bash", source: "user", args: { command: `FOO=1 /usr/bin/git log ${"--long-option ".repeat(8)}` } }], { mode: "vibe" });
+    expect(longBang[0]!.detail).toHaveLength(48);
+    expect(longBang[0]!.detail).toEndWith("…");
+
+  });
+
+  test("#1300: the agent-run vibe bash line is the full command, verbatim", () => {
+    const events: AgentEvent[] = [
+      { type: "tool_call", callId: "long", name: "bash", args: { command: "npm run build --configuration production --output-hashing all --source-map true" } },
+      { type: "tool_result", callId: "long", ok: true, output: "ok" },
+      { type: "tool_call", callId: "pipe", name: "bash", args: { command: "npm test --filter session | tee out.txt > log.txt" } },
+      { type: "tool_result", callId: "pipe", ok: true, output: "ok" },
+      { type: "tool_call", callId: "env", name: "bash", args: { command: "FOO=1 /usr/bin/git log --oneline | head -20 > log.txt 2>&1" } },
+      { type: "tool_result", callId: "env", ok: true, output: "ok" },
+      { type: "tool_call", callId: "heredoc", name: "bash", args: { command: "cat <<EOF\nhello\nEOF" } },
+      { type: "tool_result", callId: "heredoc", ok: true, output: "ok" },
+    ];
+    const lines = projectTranscript(events, { mode: "vibe" }).map((block) => block.lines[0]);
+    expect(lines).toContain("ran a command · npm run build --configuration production --output-hashing all --source-map true");
+    expect(lines).toContain("ran a command · npm test --filter session | tee out.txt > log.txt");
+    expect(lines).toContain("ran a command · FOO=1 /usr/bin/git log --oneline | head -20 > log.txt 2>&1");
+    // Stated limitation: a multi-line payload renders its first executable line only.
+    expect(lines).toContain("ran a command · cat <<EOF");
+    expect(lines.every((line) => !line.includes("…"))).toBe(true);
   });
 
   test("fetch collapses to a plain-language line in both modes; failures show (#219)", () => {
@@ -453,14 +490,14 @@ describe("semantic transcript projection (#183)", () => {
     ink.unmount();
   });
 
-  test("renders the validated head/body/gap grammar with tint and no transcript frame", () => {
+  test("renders the user head directly above its body inside a heavy frame", () => {
     const block = projectTranscript([{ type: "user_message", text: "select this cleanly" }])[0]!;
     const ink = render(<ThemeProvider value={THEMES["tokyo-night"]}><TranscriptBlockView block={block} width={80} /></ThemeProvider>);
     const raw = ink.lastFrame() ?? "";
     const clean = stripAnsi(raw);
     expect(clean).toContain("› you");
-    // Head sits directly above its body, indented 4 under the type label (#211).
-    expect(clean).toContain("    select this cleanly");
+    expect(clean).toContain("┃ select this cleanly");
+    expect(clean).toContain("┏");
     expect(clean).not.toMatch(/[┌┐└┘╭╮╰╯]/);
     expect(blockTint(block, THEMES["tokyo-night"])).not.toBe(THEMES["tokyo-night"].bg);
     expect(blockTint({ key: "cot", kind: "thinking", glyph: "⋯", type: "thinking", lines: ["inner"] }, THEMES["tokyo-night"])).toBeUndefined();
@@ -857,5 +894,58 @@ describe("#949: compaction_skipped", () => {
     const lines = refused.find((b) => b.type === "error")?.lines ?? [];
     expect(lines.some((l) => l.includes("/models"))).toBe(true);
     expect(lines.some((l) => l.includes("/compact"))).toBe(false);
+  });
+});
+
+describe("#1300 glyph colors and the bordered user block", () => {
+let previousColorLevel: typeof chalk.level;
+beforeEach(() => { previousColorLevel = chalk.level; chalk.level = 3; });
+afterEach(() => { chalk.level = previousColorLevel; });
+  test("a tool block's ✓ head and body glyphs render the fixed semantic colors on an off-hue theme (TRON)", () => {
+    const block = projectTranscript([
+      { type: "tool_call", callId: "g1", name: "bash", args: { command: "bun test" } },
+      { type: "tool_result", callId: "g1", ok: true, output: "1 pass ✓" },
+    ])[0]!;
+    const ink = render(<ThemeProvider value={THEMES["tron"]}><TranscriptBlockView block={block} width={60} /></ThemeProvider>);
+    const frame = ink.lastFrame() ?? "";
+    // TRON's ok token is cyan #00d9ff — the glyph must never wear it.
+    expect(frame).toContain("\u001b[38;2;46;160;67m✓");
+    expect(frame).not.toContain("\u001b[38;2;0;217;255m✓");
+    ink.unmount();
+  });
+
+  test("a failed block's ✗ renders the fixed semantic red on an off-hue theme (TRON)", () => {
+    const block = projectTranscript([
+      { type: "tool_call", callId: "g2", name: "bash", args: { command: "bun test" } },
+      { type: "tool_result", callId: "g2", ok: false, output: "boom" },
+    ])[0]!;
+    const ink = render(<ThemeProvider value={THEMES["tron"]}><TranscriptBlockView block={block} width={60} /></ThemeProvider>);
+    const frame = ink.lastFrame() ?? "";
+    expect(frame).toContain("\u001b[38;2;238;90;82m✗");
+    expect(frame).not.toContain("\u001b[38;2;255;51;85m✗");
+    ink.unmount();
+  });
+
+  test("the user block renders inside a heavy warn border at every width class", () => {
+    for (const width of [80, 44, 24]) {
+      const block = projectTranscript([{ type: "user_message", text: "fix the login bug" }])[0]!;
+      const ink = render(<ThemeProvider value={THEMES[DEFAULT_THEME]}><TranscriptBlockView block={block} width={width} /></ThemeProvider>);
+      const frame = stripAnsi(ink.lastFrame() ?? "");
+      expect(frame).toContain("┏");
+      expect(frame).toContain("┗");
+      expect(frame).toContain("› you");
+      expect(frame.replace(/[┃┏┗━╋]/g, " ").replace(/\s+/g, " ")).toContain("fix the login bug");
+      ink.unmount();
+    }
+  });
+
+  test("a long user message wraps inside the border and the body stays narrower than the border", () => {
+    const text = "this is a deliberately long user message that must wrap across several rows inside the heavy border frame";
+    const block = projectTranscript([{ type: "user_message", text }])[0]!;
+    const ink = render(<ThemeProvider value={THEMES[DEFAULT_THEME]}><TranscriptBlockView block={block} width={44} /></ThemeProvider>);
+    const frame = stripAnsi(ink.lastFrame() ?? "");
+    expect(frame).toContain("┏");
+    expect(frame.split("\n").every((row) => row.length <= 44)).toBe(true);
+    ink.unmount();
   });
 });

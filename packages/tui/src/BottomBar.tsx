@@ -9,6 +9,8 @@ import type { ExtensionStatus, SessionMode, ThinkingLevel } from "@moh/core";
 import type { JevStatusSummary } from "./jev-control";
 import { scannerPaint, scannerStripSplit } from "./scanner";
 import { sanitizeForDisplay } from "./render-sanitize";
+import { SemanticText, glyphColor } from "./glyph-color";
+import { SAND_FRAMES, frameGlyph } from "./icons";
 
 /** TUI chrome also names the absence of an explicit canonical request. */
 export type DisplayThinkingLevel = ThinkingLevel | "default";
@@ -508,7 +510,7 @@ function StatusRow(props: StatusProps) {
   return (
     <Box flexDirection="column" width={Math.max(1, props.width - 1)}>
       <Box justifyContent="space-between" flexWrap="nowrap" paddingX={1}>
-        <Box gap={1}>{props.pending ? <ScannerText text={left} theme={theme} /> : <Text color={theme.dim}>{left}</Text>}{props.memoryFresh && <Text color={theme.purple}>{cls === "wide" ? "◍ memory" : "◍"}</Text>}{props.mpmStatus != null && <MpmStatusChip status={props.mpmStatus} wide={cls === "wide"} theme={theme} />}{(props.extensionStatuses ?? []).map((status) => <ExtensionStatusChip key={status.extension} status={status} wide={cls === "wide"} maxWidth={statusCap} theme={theme} />)}{props.jevStatus != null && <JevStatusChip status={props.jevStatus} labelled={cls !== "compact"} theme={theme} />}{props.compactionFailed && <Text color={theme.err}>{cls === "wide" ? "⚠ compaction failed — retrying" : "⚠"}</Text>}{props.growthWarning != null && <Text color={theme.err}>{cls === "wide" ? `⚡ file grew externally ×${props.growthWarning} — ^g keep my branch · /fork` : "⚡ keep my branch"}</Text>}{props.browserSetup && <Text color={theme.warn}>{cls === "wide" ? "⚠ browser tool unavailable — ^b install" : "⚠ browser"}</Text>}</Box>
+        <Box gap={1}>{props.pending ? <ScannerText text={left} theme={theme} /> : left.startsWith("✓") ? <SemanticText text={left} color={theme.dim} /> : <Text color={theme.dim}>{left}</Text>}{props.memoryFresh && <Text color={theme.purple}>{cls === "wide" ? "◍ memory" : "◍"}</Text>}{props.mpmStatus != null && <MpmStatusChip status={props.mpmStatus} wide={cls === "wide"} theme={theme} />}{(props.extensionStatuses ?? []).map((status) => <ExtensionStatusChip key={status.extension} status={status} wide={cls === "wide"} maxWidth={statusCap} theme={theme} />)}{props.jevStatus != null && <JevStatusChip status={props.jevStatus} labelled={cls !== "compact"} theme={theme} />}{props.compactionFailed && <Text color={theme.err}>{cls === "wide" ? "⚠ compaction failed — retrying" : "⚠"}</Text>}{props.growthWarning != null && <Text color={theme.err}>{cls === "wide" ? `⚡ file grew externally ×${props.growthWarning} — ^g keep my branch · /fork` : "⚡ keep my branch"}</Text>}{props.browserSetup && <Text color={theme.warn}>{cls === "wide" ? "⚠ browser tool unavailable — ^b install" : "⚠ browser"}</Text>}</Box>
         <Box gap={1} flexWrap="nowrap">{row1Gauge != null ? <Text color={tokenColor} wrap="truncate">{row1Gauge}</Text> : props.tokens.contextIn > 0 && <ContextBar tokens={props.tokens.contextIn} limit={contextLimit} width={props.width} theme={theme} />}{row1.map((text, index) => <Text key={index} color={row1Color(text)}>{text}</Text>)}</Box>
       </Box>
       {row2 && (
@@ -558,7 +560,7 @@ function WindowsMountHint({ width }: { width: number }) {
  * Owner spec: subagent chips live on their OWN row, not the action chips'
  * row. They degrade to a bare count (⊙N) when the terminal narrows and
  * disappear entirely when there are no subagents. */
-function SubagentChipRow({ width, focusedSubagent, subagentChips }: { width: number; focusedSubagent?: number | null; subagentChips?: { label: string; glyph: string; active: boolean }[] }) {
+function SubagentChipRow({ width, focusedSubagent, subagentChips, frame = 0 }: { width: number; focusedSubagent?: number | null; subagentChips?: { label: string; glyph: string; active: boolean }[]; frame?: number }) {
   const theme = useTheme();
   const subs = subagentChips ?? [];
   if (subs.length === 0) return null;
@@ -573,11 +575,18 @@ function SubagentChipRow({ width, focusedSubagent, subagentChips }: { width: num
     </Box>;
   }
   return <Box width={Math.max(1, width - 1)} justifyContent="center" gap={2} flexWrap="nowrap" flexShrink={0}>
-    {subs.map((sub, index) => (
-      <Box key={`${index}-${sub.label}`} borderStyle="round" borderColor={focusedSubagent === index ? theme.accent : sub.active ? theme.accent : theme.border} paddingX={1} flexShrink={0}>
-        <Text color={sub.active ? theme.accent : theme.dim}>{sub.glyph} </Text><Text color={focusedSubagent === index ? theme.accent : theme.fg} bold>{sub.label}</Text>
-      </Box>
-    ))}
+    {subs.map((sub, index) => {
+      // #1300: only a running member (`◐`) animates (sand frames); ⏸ stays
+      // static (a warning, not progress) and settled ✓/✗ take the fixed
+      // semantic colors. The `+N` over-cap chip keeps its empty glyph.
+      const glyph = frameGlyph(sub.glyph, frame, SAND_FRAMES);
+      const color = glyphColor(sub.glyph) ?? (sub.active ? theme.accent : theme.dim);
+      return (
+        <Box key={`${index}-${sub.label}`} borderStyle="round" borderColor={focusedSubagent === index ? theme.accent : sub.active ? theme.accent : theme.border} paddingX={1} flexShrink={0}>
+          <Text color={color}>{glyph} </Text><Text color={focusedSubagent === index ? theme.accent : theme.fg} bold>{sub.label}</Text>
+        </Box>
+      );
+    })}
   </Box>;
 }
 
@@ -595,9 +604,9 @@ function KeyRow({ width, focused, keepMyBranch, browserSetup }: { width: number;
   </Box>;
 }
 
-export function BottomBar(props: StatusProps & { focusedChip: number | null; focusedSubagent?: number | null; subagentChips?: { label: string; glyph: string; active: boolean }[]; keepMyBranch?: boolean; browserSetup?: boolean }) {
+export function BottomBar(props: StatusProps & { focusedChip: number | null; focusedSubagent?: number | null; subagentChips?: { label: string; glyph: string; active: boolean }[]; keepMyBranch?: boolean; browserSetup?: boolean; frame?: number }) {
   return <Box flexDirection="column">
-    <SubagentChipRow width={props.width} focusedSubagent={props.focusedSubagent} subagentChips={props.subagentChips} />
+    <SubagentChipRow width={props.width} focusedSubagent={props.focusedSubagent} subagentChips={props.subagentChips} frame={props.frame} />
     {props.rootOnWindowsMount && <WindowsMountHint width={props.width} />}
     <StatusRow {...props} />
     <KeyRow width={props.width} focused={props.focusedChip} keepMyBranch={props.keepMyBranch} browserSetup={props.browserSetup} />

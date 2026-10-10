@@ -8,7 +8,7 @@ The session screen is a single native-scrollback column. It never renders the fo
 
 1. Settled transcript blocks are emitted through Ink `<Static>` so terminal scrollback owns history and mouse selection.
 2. The open turn is volatile above the input and is promoted to `<Static>` only when it settles — with one deliberate exception (#329): while a provider reasoning block streams, everything except the last few lines (`REASONING_TAIL_LINES`) is promoted into `<Static>` incrementally as immutable continuation chunks, pi-style, so the volatile region ink fully rewrites each frame stays tiny. The settled, model-labelled block deduplicates the promoted lines when it seals, so the text lands in scrollback exactly once.
-3. Transcript content has no frame glyphs. Input has no side borders; full-width horizontal separators delimit it.
+3. Only user transcript blocks have a heavy warning-colored frame (terminal width minus two, horizontal padding one, top margin one); all other transcript blocks remain unbordered. Input has no side borders; full-width horizontal separators delimit it.
 4. Home and dialogs may still use `MEASURE` and framed chrome. Dialogs are blocking interaction surfaces, so round borders are appropriate there.
 5. Theme switches remount the session tree; already printed scrollback remains above the new tree.
 6. Modal layers are transparent outside the dialog and centered against the full terminal viewport. They render in the terminal's alternate buffer so opening them cannot move or mutate native scrollback; closing restores the main buffer. Settled history is replayed only in the alternate buffer to preserve the session behind the dialog. Only the dialog surface uses `bg` for readability.
@@ -27,7 +27,7 @@ The head starts at column one, body content is indented by two additional cells,
 
 Semantic forms:
 
-- `› you`: user message, warning tint.
+- `› you`: user message, heavy warning-colored border; the inner body wraps at terminal width minus six (outer margin, border and padding). The tail budget counts the exact wrapped body rows plus four rows for the margin, borders and head.
 - `◆ moh`: assistant prose, accent tint.
 - `⌨ code` / `± diff`: code and diffs, purple tint; additions use `ok`, removals use `err`.
 - `◌/✓/✗ tool`: running/success/failure with output.
@@ -37,11 +37,13 @@ Semantic forms:
 
 The event log remains the source of truth. Projection may group adjacent deltas or pair tool calls/results, but it must not silently discard an `AgentEvent` type.
 
-**Vibe projection (#193).** The mode is a projection option, never a log filter. In vibe, usage/done metric blocks and non-essential chrome (session start, permission mode, skill invoked, model switched, memory updated, compaction, extension loaded, MCP started) do not render; tool activity collapses to one plain-language moh block ("read a file · src/a.ts", "ran a command") that keeps the run/ok state marker but shows no raw command line, argument dump, or output preview; failures always render as error blocks with their message. A mode switch cannot retro-edit native scrollback: each switch seals a new projection segment at the current boundary — printed blocks keep their grammar (same behavior as a theme switch), and later events follow the new one. Exception: the todo tool's box renders its full task list in both modes — the task list reads as a persistent panel, not a capped log.
+**Vibe projection (#193).** The mode is a projection option, never a log filter. In vibe, usage/done metric blocks and non-essential chrome (session start, permission mode, skill invoked, model switched, memory updated, compaction, extension loaded, MCP started) do not render; tool activity collapses to one plain-language moh block ("read a file · src/a.ts", "ran a command") that keeps the run/ok state marker but shows no argument dump or output preview. Agent-run bash shows the full first executable command line, without reduction or a length cap; multiline payloads still show only that first line. User-typed bang commands retain their separate reduced hint; failures always render as error blocks with their message. A mode switch cannot retro-edit native scrollback: each switch seals a new projection segment at the current boundary — printed blocks keep their grammar (same behavior as a theme switch), and later events follow the new one. Exception: the todo tool's box renders its full task list in both modes — the task list reads as a persistent panel, not a capped log.
 
 **Liveness (prototype alive-proto, variant C; scanner per ADR-0042).** The volatile region stays visibly alive between stream events: running-block heads cycle animated glyph frames (`◔ ◑ ◕ ●`) on an independent ~120ms clock gated on the active turn (never on stream events, so the beat survives event gaps), and a running tool's partial output streams as a dim scrolling tail (last `TOOL_TAIL_CAP` = 9 lines) inside its volatile block via the ephemeral `tool_progress` live channel — never persisted; the settled block keeps its usual result cap, so scrollback determinism (#194) is untouched. No blinking cursor, no fake progress.
 
 **The bottom bar's liveness scanner (ADR-0042).** Row 1's left slot is a seven-cell scanner sweep while a turn is live: one lit segment walking left→right and back (ping-pong, one cell per tick, no wrap — a full round trip is ~1.1s on the existing ~90ms clock, gated on the active turn and on input not being blocked), two cells of decaying trail behind it, and the unlit track visible the whole time. The intensity lives in the glyph (`▮` light, `▯`/`▫` trail, `·` track; ASCII `# = - .` when icons are off), so the beat reads in a monochrome terminal; the bar adds `err` on the light and the trail and `dim` on the track. It encodes exactly one bit — the turn is live — and never where the turn is going: no fill, no monotonic advance, no progress. Compact terminals keep the strip and drop the phase word, as before. The tick still produces a plain string on the `spinner` prop (a caller passing the older braille frame renders it unchanged), and the transcript's block-head animation, the `moh update` progress line and the quota modal keep their own glyphs.
+
+Running subagent glyphs ride the existing gated 90ms scanner tick: footer chips sample `sand` at its native 80ms cadence, rail roster prefixes sample `growVertical` at 120ms. Only `◐` animates, never stalled or settled members. Icons off replaces it with a static ASCII `-`. The rail client recognizes roster prefixes on selected and unselected string rows; all other extension text is unchanged.
 
 ## 3. Input and thinking level
 
@@ -98,7 +100,7 @@ Status and chip rows must fit from 35 through 140 columns without wrapping. Tran
 
 The curated catalog is exactly: Tokyo Night, Catppuccin Mocha, Gruvbox Material, Green Phosphor, Amber Phosphor P3, Neon Noir, Lava, and Candy Pop.
 
-Components use semantic tokens only: `fg`, `accent`, `dim`, `ok`, `warn`, `err`, `purple`, `border`, `bg`. The xhigh separator is the deliberate exception: its fixed seven-hue rainbow is theme-independent. `err` is true red and distinct from the warning semantic; it is used for failures, errors, diff removals and negative edit counts.
+Components use semantic tokens only: `fg`, `accent`, `dim`, `ok`, `warn`, `err`, `purple`, `border`, `bg`. Pass/fail glyphs are fixed semantic colors (`✓` #2ea043, `✗` #ee5a52), independent of theme tokens; block colors and tints remain theme-derived. These glyph colors still honor `NO_COLOR`. The xhigh separator is another deliberate exception: its fixed seven-hue rainbow is theme-independent. `err` is true red and distinct from the warning semantic; it is used for failures, errors, diff removals and negative edit counts.
 
 ### Color capability (`NO_COLOR`)
 
