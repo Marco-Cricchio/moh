@@ -43,7 +43,10 @@ export interface UserConfig {
   /** Contextual tool-call viewer policy (style guide §1 Q7). */
   filePreview: FilePreview;
   answerLanguage: AnswerLanguage;
-  /** Opt-in only; never asked interactively outside the settings panel. */
+  /** Opt-in only. Reserved for the planned telemetry feature: nothing reads
+   * it yet, so the Settings panel does not show it (it would be a switch that
+   * controls nothing). Still parsed and persisted, so the key is ready when
+   * the feature lands. */
   telemetry: boolean;
   /** Permission mode for new sessions; yolo stays launch-only. */
   permissionMode: DefaultPermissionMode;
