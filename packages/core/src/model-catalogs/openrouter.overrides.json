@@ -4330,40 +4330,44 @@
       }
     },
     "qwen/qwen-plus-2025-07-28": {
-      "author": "moh migration (#959)",
-      "date": "2026-09-24",
-      "reason": "labels and row identity are moh-owned (ADR-0046): never aggregator-supplied",
+      "author": "moh (v0.61.2, #1005)",
+      "date": "2026-10-10",
+      "reason": "OpenRouter retired the listing (window and metered price both gone, no live record) — dropped rather than frozen by hand (#1005)",
       "api": "openai-completions",
       "baseUrl": "https://openrouter.ai/api/v1",
       "name": "Qwen: Qwen Plus 0728",
       "compat": {
         "supportsDeveloperRole": false,
         "thinkingFormat": "openrouter"
-      }
+      },
+      "retired": true
     },
     "qwen/qwen3-14b": {
-      "author": "moh migration (#959)",
-      "date": "2026-09-24",
-      "reason": "labels and row identity are moh-owned (ADR-0046): never aggregator-supplied",
+      "author": "moh (v0.61.2, #1005)",
+      "date": "2026-10-10",
+      "reason": "upstream listing regressed the window 131072 → 40960; declared windows are monotonic (ADR-0049) — keep the taught 131072 and accept the upstream shrink",
       "api": "openai-completions",
       "baseUrl": "https://openrouter.ai/api/v1",
       "name": "Qwen: Qwen3 14B",
       "compat": {
         "supportsDeveloperRole": false,
         "thinkingFormat": "openrouter"
-      }
+      },
+      "contextWindow": 131072,
+      "acceptContextShrink": true
     },
     "qwen/qwen3-235b-a22b": {
-      "author": "moh migration (#959)",
-      "date": "2026-09-24",
-      "reason": "labels and row identity are moh-owned (ADR-0046): never aggregator-supplied",
+      "author": "moh (v0.61.2, #1005)",
+      "date": "2026-10-10",
+      "reason": "OpenRouter retired the listing (window and metered price both gone, no live record) — dropped rather than frozen by hand (#1005)",
       "api": "openai-completions",
       "baseUrl": "https://openrouter.ai/api/v1",
       "name": "Qwen: Qwen3 235B A22B",
       "compat": {
         "supportsDeveloperRole": false,
         "thinkingFormat": "openrouter"
-      }
+      },
+      "retired": true
     },
     "qwen/qwen3-235b-a22b-2507": {
       "author": "moh migration (#959)",
@@ -4378,9 +4382,9 @@
       }
     },
     "qwen/qwen3-235b-a22b-thinking-2507": {
-      "author": "moh migration (#959)",
-      "date": "2026-09-24",
-      "reason": "labels and row identity are moh-owned (ADR-0046): never aggregator-supplied",
+      "author": "moh (v0.61.2, #1005)",
+      "date": "2026-10-10",
+      "reason": "OpenRouter retired the listing (window and metered price both gone, no live record) — dropped rather than frozen by hand (#1005)",
       "api": "openai-completions",
       "baseUrl": "https://openrouter.ai/api/v1",
       "name": "Qwen: Qwen3 235B A22B Thinking 2507",
@@ -4390,19 +4394,21 @@
       "compat": {
         "supportsDeveloperRole": false,
         "thinkingFormat": "openrouter"
-      }
+      },
+      "retired": true
     },
     "qwen/qwen3-30b-a3b": {
-      "author": "moh migration (#959)",
-      "date": "2026-09-24",
-      "reason": "labels and row identity are moh-owned (ADR-0046): never aggregator-supplied",
+      "author": "moh (v0.61.2, #1005)",
+      "date": "2026-10-10",
+      "reason": "OpenRouter retired the listing (window and metered price both gone, no live record) — dropped rather than frozen by hand (#1005)",
       "api": "openai-completions",
       "baseUrl": "https://openrouter.ai/api/v1",
       "name": "Qwen: Qwen3 30B A3B",
       "compat": {
         "supportsDeveloperRole": false,
         "thinkingFormat": "openrouter"
-      }
+      },
+      "retired": true
     },
     "qwen/qwen3-30b-a3b-instruct-2507": {
       "author": "moh migration (#959)",
@@ -4417,9 +4423,9 @@
       }
     },
     "qwen/qwen3-30b-a3b-thinking-2507": {
-      "author": "moh migration (#959)",
-      "date": "2026-09-24",
-      "reason": "labels and row identity are moh-owned (ADR-0046): never aggregator-supplied",
+      "author": "moh (v0.61.2, #1005)",
+      "date": "2026-10-10",
+      "reason": "OpenRouter retired the listing (window and metered price both gone, no live record) — dropped rather than frozen by hand (#1005)",
       "api": "openai-completions",
       "baseUrl": "https://openrouter.ai/api/v1",
       "name": "Qwen: Qwen3 30B A3B Thinking 2507",
@@ -4429,7 +4435,8 @@
       "compat": {
         "supportsDeveloperRole": false,
         "thinkingFormat": "openrouter"
-      }
+      },
+      "retired": true
     },
     "qwen/qwen3-32b": {
       "author": "moh migration (#959)",
@@ -4444,16 +4451,17 @@
       }
     },
     "qwen/qwen3-8b": {
-      "author": "moh migration (#959)",
-      "date": "2026-09-24",
-      "reason": "labels and row identity are moh-owned (ADR-0046): never aggregator-supplied",
+      "author": "moh (v0.61.2, #1005)",
+      "date": "2026-10-10",
+      "reason": "OpenRouter retired the listing (window and metered price both gone, no live record) — dropped rather than frozen by hand (#1005)",
       "api": "openai-completions",
       "baseUrl": "https://openrouter.ai/api/v1",
       "name": "Qwen: Qwen3 8B",
       "compat": {
         "supportsDeveloperRole": false,
         "thinkingFormat": "openrouter"
-      }
+      },
+      "retired": true
     },
     "qwen/qwen3-coder": {
       "author": "moh migration (#959)",
@@ -4504,40 +4512,43 @@
       }
     },
     "qwen/qwen3-coder-plus": {
-      "author": "moh migration (#959)",
-      "date": "2026-09-24",
-      "reason": "labels and row identity are moh-owned (ADR-0046): never aggregator-supplied",
+      "author": "moh (v0.61.2, #1005)",
+      "date": "2026-10-10",
+      "reason": "OpenRouter retired the listing (window and metered price both gone, no live record) — dropped rather than frozen by hand (#1005)",
       "api": "openai-completions",
       "baseUrl": "https://openrouter.ai/api/v1",
       "name": "Qwen: Qwen3 Coder Plus",
       "compat": {
         "supportsDeveloperRole": false,
         "thinkingFormat": "openrouter"
-      }
+      },
+      "retired": true
     },
     "qwen/qwen3-max": {
-      "author": "moh migration (#959)",
-      "date": "2026-09-24",
-      "reason": "labels and row identity are moh-owned (ADR-0046): never aggregator-supplied",
+      "author": "moh (v0.61.2, #1005)",
+      "date": "2026-10-10",
+      "reason": "OpenRouter retired the listing (window and metered price both gone, no live record) — dropped rather than frozen by hand (#1005)",
       "api": "openai-completions",
       "baseUrl": "https://openrouter.ai/api/v1",
       "name": "Qwen: Qwen3 Max",
       "compat": {
         "supportsDeveloperRole": false,
         "thinkingFormat": "openrouter"
-      }
+      },
+      "retired": true
     },
     "qwen/qwen3-max-thinking": {
-      "author": "moh migration (#959)",
-      "date": "2026-09-24",
-      "reason": "labels and row identity are moh-owned (ADR-0046): never aggregator-supplied",
+      "author": "moh (v0.61.2, #1005)",
+      "date": "2026-10-10",
+      "reason": "OpenRouter retired the listing (window and metered price both gone, no live record) — dropped rather than frozen by hand (#1005)",
       "api": "openai-completions",
       "baseUrl": "https://openrouter.ai/api/v1",
       "name": "Qwen: Qwen3 Max Thinking",
       "compat": {
         "supportsDeveloperRole": false,
         "thinkingFormat": "openrouter"
-      }
+      },
+      "retired": true
     },
     "qwen/qwen3-next-80b-a3b-instruct": {
       "author": "moh migration (#959)",
@@ -4579,9 +4590,9 @@
       }
     },
     "qwen/qwen3-vl-235b-a22b-thinking": {
-      "author": "moh migration (#959)",
-      "date": "2026-09-24",
-      "reason": "labels and row identity are moh-owned (ADR-0046): never aggregator-supplied",
+      "author": "moh (v0.61.2, #1005)",
+      "date": "2026-10-10",
+      "reason": "OpenRouter retired the listing (window and metered price both gone, no live record) — dropped rather than frozen by hand (#1005)",
       "api": "openai-completions",
       "baseUrl": "https://openrouter.ai/api/v1",
       "name": "Qwen: Qwen3 VL 235B A22B Thinking",
@@ -4591,7 +4602,8 @@
       "compat": {
         "supportsDeveloperRole": false,
         "thinkingFormat": "openrouter"
-      }
+      },
+      "retired": true
     },
     "qwen/qwen3-vl-30b-a3b-instruct": {
       "author": "moh migration (#959)",
@@ -4621,16 +4633,17 @@
       }
     },
     "qwen/qwen3-vl-32b-instruct": {
-      "author": "moh migration (#959)",
-      "date": "2026-09-24",
-      "reason": "labels and row identity are moh-owned (ADR-0046): never aggregator-supplied",
+      "author": "moh (v0.61.2, #1005)",
+      "date": "2026-10-10",
+      "reason": "OpenRouter retired the listing (window and metered price both gone, no live record) — dropped rather than frozen by hand (#1005)",
       "api": "openai-completions",
       "baseUrl": "https://openrouter.ai/api/v1",
       "name": "Qwen: Qwen3 VL 32B Instruct",
       "compat": {
         "supportsDeveloperRole": false,
         "thinkingFormat": "openrouter"
-      }
+      },
+      "retired": true
     },
     "qwen/qwen3-vl-8b-instruct": {
       "author": "moh migration (#959)",
@@ -4645,9 +4658,9 @@
       }
     },
     "qwen/qwen3-vl-8b-thinking": {
-      "author": "moh migration (#959)",
-      "date": "2026-09-24",
-      "reason": "labels and row identity are moh-owned (ADR-0046): never aggregator-supplied",
+      "author": "moh (v0.61.2, #1005)",
+      "date": "2026-10-10",
+      "reason": "OpenRouter retired the listing (window and metered price both gone, no live record) — dropped rather than frozen by hand (#1005)",
       "api": "openai-completions",
       "baseUrl": "https://openrouter.ai/api/v1",
       "name": "Qwen: Qwen3 VL 8B Thinking",
@@ -4657,7 +4670,8 @@
       "compat": {
         "supportsDeveloperRole": false,
         "thinkingFormat": "openrouter"
-      }
+      },
+      "retired": true
     },
     "qwen/qwen3.5-122b-a10b": {
       "author": "moh migration (#959)",
@@ -4817,16 +4831,17 @@
       }
     },
     "qwen/qwen3.6-max-preview": {
-      "author": "moh migration (#959)",
-      "date": "2026-09-24",
-      "reason": "labels and row identity are moh-owned (ADR-0046): never aggregator-supplied",
+      "author": "moh (v0.61.2, #1005)",
+      "date": "2026-10-10",
+      "reason": "OpenRouter retired the listing (window and metered price both gone, no live record) — dropped rather than frozen by hand (#1005)",
       "api": "openai-completions",
       "baseUrl": "https://openrouter.ai/api/v1",
       "name": "Qwen: Qwen3.6 Max Preview",
       "compat": {
         "supportsDeveloperRole": false,
         "thinkingFormat": "openrouter"
-      }
+      },
+      "retired": true
     },
     "qwen/qwen3.6-plus": {
       "author": "moh migration (#959)",

@@ -19,7 +19,7 @@ import { browserRowValue, readBrowserSettingWithState } from "./browser-setup";
 
 /**
  * Settings overlay (issue #33 / style guide §10 Q15): mode, theme, icons,
- * file preview, provider-reasoning display, answer language, telemetry,
+ * file preview, provider-reasoning display, answer language,
  * default permission mode — plus in-panel provider management (switch / add / remove endpoints in
  * moh.json). Changes persist to `~/.moh/config` immediately.
  */
@@ -422,7 +422,8 @@ export function SettingsPanel({ cwd, home, config, onChange, modelLabel, onProvi
       { key: "icons", label: "Icons", value: config.icons ? "on" : "off" },
       { key: "filePreview", label: "File preview", value: config.filePreview },
       { key: "answerLanguage", label: "Answer language", value: config.answerLanguage },
-      { key: "telemetry", label: "Telemetry", value: config.telemetry ? "on (opt-in)" : "off" },
+      // `telemetry` stays in UserConfig but is hidden here until the planned
+      // feature reads it: a visible switch that controls nothing misleads.
       { key: "permissionMode", label: "Default permission mode", value: config.permissionMode },
       { key: "provider", label: "Provider", value: modelLabel },
       { key: "fallback", label: "Fallback models", value: fallbackSummary },
@@ -541,8 +542,6 @@ export function SettingsPanel({ cwd, home, config, onChange, modelLabel, onProvi
         return onChange({ filePreview: cycle<FilePreview>(["on-demand", "always", "none"], config.filePreview) });
       case "answerLanguage":
         return onChange({ answerLanguage: cycle<AnswerLanguage>(["auto", "en", "it"], config.answerLanguage) });
-      case "telemetry":
-        return onChange({ telemetry: !config.telemetry });
       case "mpm":
         return cycleMpmSetting();
       case "browser":
