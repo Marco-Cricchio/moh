@@ -1,17 +1,17 @@
 {
   "schemaVersion": 1,
-  "version": "0.61.1",
-  "generatedAt": "2026-10-09T17:32:46.789Z",
+  "version": "0.61.2",
+  "generatedAt": "2026-10-10T06:58:32.513Z",
   "sources": [
     {
       "name": "models.dev",
       "url": "https://models.dev/api.json",
-      "fetchedAt": "2026-10-09T17:32:46.339Z"
+      "fetchedAt": "2026-10-10T06:58:31.940Z"
     },
     {
       "name": "openrouter",
       "url": "https://openrouter.ai/api/v1/models",
-      "fetchedAt": "2026-10-09T17:32:46.601Z"
+      "fetchedAt": "2026-10-10T06:58:32.265Z"
     }
   ],
   "files": {
@@ -196,10 +196,10 @@
       }
     },
     "openrouter": {
-      "sha256": "8969deedc4433162b3567865b2aaffc17ba7b35cdc37e60d30538b7be79029ef",
-      "rows": 361,
+      "sha256": "172b192e6bdac618a905b1cf5ec9e48ce31c39720c98fcd84d890d8d94a0b291",
+      "rows": 348,
       "verdicts": {
-        "exact": 336,
+        "exact": 323,
         "base-model": 1,
         "ambiguous": 0,
         "absent": 24
@@ -6915,21 +6915,6 @@
       ],
       "overrides": []
     },
-    "openrouter/qwen/qwen-plus-2025-07-28": {
-      "provider": "openrouter",
-      "id": "qwen/qwen-plus-2025-07-28",
-      "verdict": "exact",
-      "source": "models.dev",
-      "namespace": "openrouter",
-      "supplied": [
-        "cost",
-        "contextWindow",
-        "maxTokens",
-        "reasoning",
-        "input"
-      ],
-      "overrides": []
-    },
     "openrouter/qwen/qwen3-14b": {
       "provider": "openrouter",
       "id": "qwen/qwen3-14b",
@@ -6943,56 +6928,13 @@
         "reasoning",
         "input"
       ],
-      "overrides": []
-    },
-    "openrouter/qwen/qwen3-235b-a22b": {
-      "provider": "openrouter",
-      "id": "qwen/qwen3-235b-a22b",
-      "verdict": "exact",
-      "source": "models.dev",
-      "namespace": "openrouter",
-      "supplied": [
-        "cost",
-        "contextWindow",
-        "maxTokens",
-        "reasoning",
-        "input"
-      ],
-      "overrides": []
+      "overrides": [
+        "contextWindow"
+      ]
     },
     "openrouter/qwen/qwen3-235b-a22b-2507": {
       "provider": "openrouter",
       "id": "qwen/qwen3-235b-a22b-2507",
-      "verdict": "exact",
-      "source": "models.dev",
-      "namespace": "openrouter",
-      "supplied": [
-        "cost",
-        "contextWindow",
-        "maxTokens",
-        "reasoning",
-        "input"
-      ],
-      "overrides": []
-    },
-    "openrouter/qwen/qwen3-235b-a22b-thinking-2507": {
-      "provider": "openrouter",
-      "id": "qwen/qwen3-235b-a22b-thinking-2507",
-      "verdict": "exact",
-      "source": "models.dev",
-      "namespace": "openrouter",
-      "supplied": [
-        "cost",
-        "contextWindow",
-        "maxTokens",
-        "reasoning",
-        "input"
-      ],
-      "overrides": []
-    },
-    "openrouter/qwen/qwen3-30b-a3b": {
-      "provider": "openrouter",
-      "id": "qwen/qwen3-30b-a3b",
       "verdict": "exact",
       "source": "models.dev",
       "namespace": "openrouter",
@@ -7020,39 +6962,9 @@
       ],
       "overrides": []
     },
-    "openrouter/qwen/qwen3-30b-a3b-thinking-2507": {
-      "provider": "openrouter",
-      "id": "qwen/qwen3-30b-a3b-thinking-2507",
-      "verdict": "exact",
-      "source": "models.dev",
-      "namespace": "openrouter",
-      "supplied": [
-        "cost",
-        "contextWindow",
-        "maxTokens",
-        "reasoning",
-        "input"
-      ],
-      "overrides": []
-    },
     "openrouter/qwen/qwen3-32b": {
       "provider": "openrouter",
       "id": "qwen/qwen3-32b",
-      "verdict": "exact",
-      "source": "models.dev",
-      "namespace": "openrouter",
-      "supplied": [
-        "cost",
-        "contextWindow",
-        "maxTokens",
-        "reasoning",
-        "input"
-      ],
-      "overrides": []
-    },
-    "openrouter/qwen/qwen3-8b": {
-      "provider": "openrouter",
-      "id": "qwen/qwen3-8b",
       "verdict": "exact",
       "source": "models.dev",
       "namespace": "openrouter",
@@ -7125,51 +7037,6 @@
       ],
       "overrides": []
     },
-    "openrouter/qwen/qwen3-coder-plus": {
-      "provider": "openrouter",
-      "id": "qwen/qwen3-coder-plus",
-      "verdict": "exact",
-      "source": "models.dev",
-      "namespace": "openrouter",
-      "supplied": [
-        "cost",
-        "contextWindow",
-        "maxTokens",
-        "reasoning",
-        "input"
-      ],
-      "overrides": []
-    },
-    "openrouter/qwen/qwen3-max": {
-      "provider": "openrouter",
-      "id": "qwen/qwen3-max",
-      "verdict": "exact",
-      "source": "models.dev",
-      "namespace": "openrouter",
-      "supplied": [
-        "cost",
-        "contextWindow",
-        "maxTokens",
-        "reasoning",
-        "input"
-      ],
-      "overrides": []
-    },
-    "openrouter/qwen/qwen3-max-thinking": {
-      "provider": "openrouter",
-      "id": "qwen/qwen3-max-thinking",
-      "verdict": "exact",
-      "source": "models.dev",
-      "namespace": "openrouter",
-      "supplied": [
-        "cost",
-        "contextWindow",
-        "maxTokens",
-        "reasoning",
-        "input"
-      ],
-      "overrides": []
-    },
     "openrouter/qwen/qwen3-next-80b-a3b-instruct": {
       "provider": "openrouter",
       "id": "qwen/qwen3-next-80b-a3b-instruct",
@@ -7215,21 +7082,6 @@
       ],
       "overrides": []
     },
-    "openrouter/qwen/qwen3-vl-235b-a22b-thinking": {
-      "provider": "openrouter",
-      "id": "qwen/qwen3-vl-235b-a22b-thinking",
-      "verdict": "exact",
-      "source": "models.dev",
-      "namespace": "openrouter",
-      "supplied": [
-        "cost",
-        "contextWindow",
-        "maxTokens",
-        "reasoning",
-        "input"
-      ],
-      "overrides": []
-    },
     "openrouter/qwen/qwen3-vl-30b-a3b-instruct": {
       "provider": "openrouter",
       "id": "qwen/qwen3-vl-30b-a3b-instruct",
@@ -7260,39 +7112,9 @@
       ],
       "overrides": []
     },
-    "openrouter/qwen/qwen3-vl-32b-instruct": {
-      "provider": "openrouter",
-      "id": "qwen/qwen3-vl-32b-instruct",
-      "verdict": "exact",
-      "source": "models.dev",
-      "namespace": "openrouter",
-      "supplied": [
-        "cost",
-        "contextWindow",
-        "maxTokens",
-        "reasoning",
-        "input"
-      ],
-      "overrides": []
-    },
     "openrouter/qwen/qwen3-vl-8b-instruct": {
       "provider": "openrouter",
       "id": "qwen/qwen3-vl-8b-instruct",
-      "verdict": "exact",
-      "source": "models.dev",
-      "namespace": "openrouter",
-      "supplied": [
-        "cost",
-        "contextWindow",
-        "maxTokens",
-        "reasoning",
-        "input"
-      ],
-      "overrides": []
-    },
-    "openrouter/qwen/qwen3-vl-8b-thinking": {
-      "provider": "openrouter",
-      "id": "qwen/qwen3-vl-8b-thinking",
       "verdict": "exact",
       "source": "models.dev",
       "namespace": "openrouter",
@@ -7471,21 +7293,6 @@
     "openrouter/qwen/qwen3.6-flash": {
       "provider": "openrouter",
       "id": "qwen/qwen3.6-flash",
-      "verdict": "exact",
-      "source": "models.dev",
-      "namespace": "openrouter",
-      "supplied": [
-        "cost",
-        "contextWindow",
-        "maxTokens",
-        "reasoning",
-        "input"
-      ],
-      "overrides": []
-    },
-    "openrouter/qwen/qwen3.6-max-preview": {
-      "provider": "openrouter",
-      "id": "qwen/qwen3.6-max-preview",
       "verdict": "exact",
       "source": "models.dev",
       "namespace": "openrouter",
