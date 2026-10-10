@@ -7,6 +7,22 @@ matching section here at tag time.
 
 ## [Unreleased]
 
+## [0.61.3] - 2026-10-10
+
+### Changed
+
+- **TUI transcript clarity** (#1300, PR #1301): fixed semantic pass/fail
+  glyph colors (every ✓ and ✗ renders in the same green/red regardless of
+  theme, respecting `NO_COLOR`); running subagent chips and rail rosters
+  animate on the existing gated 90 ms tick — sand (80 ms phase) and
+  growVertical (120 ms phase) — with a static ASCII `-` when icons are off
+  and static glyphs once settled; user messages get a heavy warn border
+  with shared wrapping and row-budget accounting; and in vibe mode the
+  agent's bash hint shows the full first executable line verbatim
+  (environment assignments, wrapper paths and pipelines kept, the 48-char
+  cap gone — user-typed `!cmd` output behavior unchanged). Block tints
+  stay theme-derived; no Ink-8-only behavior.
+
 ## [0.61.2] - 2026-10-10
 
 ### Changed
@@ -2369,6 +2385,7 @@ security audit, each fixed behind its own PR.
   `<home>/.moh/projects`.
 
 [Unreleased]: https://github.com/Marco-Cricchio/moh/compare/v0.61.2...develop
+[0.61.3]: https://github.com/Marco-Cricchio/moh/compare/v0.61.2...v0.61.3
 [0.61.2]: https://github.com/Marco-Cricchio/moh/compare/v0.61.1...v0.61.2
 [0.61.1]: https://github.com/Marco-Cricchio/moh/compare/v0.61.0...v0.61.1
 [0.61.0]: https://github.com/Marco-Cricchio/moh/compare/v0.60.0...v0.61.0

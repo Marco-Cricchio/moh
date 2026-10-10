@@ -1565,12 +1565,13 @@ function AppShell({
       session={session}
       cwd={sessionCwd}
       onRailWideChange={setRailWide}
-      railContent={railVisible ? ((space) => (
+      railContent={railVisible ? ((space, frame) => (
         <ExtensionsRail
           panels={session!.extensionPanels()}
           collapsed={collapsedPanels}
           columns={space.columns}
           rows={space.rows}
+          frame={frame}
           focused={railFocused && !overlayOpen}
           onFocusExit={() => setRailFocused(false)}
           onClamp={setPanelClamps}

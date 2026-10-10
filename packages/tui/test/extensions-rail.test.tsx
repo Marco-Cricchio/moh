@@ -10,6 +10,12 @@
  * onKey, and a consumed key costs the panel one re-render.
  */
 import { describe, expect, test } from "bun:test";
+import { createRequire } from "node:module";
+const chalk = createRequire(import.meta.resolve("ink"))("chalk").default as { level: 0 | 1 | 2 | 3 };
+import { beforeEach, afterEach } from "bun:test";
+let previousColorLevel: typeof chalk.level;
+beforeEach(() => { previousColorLevel = chalk.level; chalk.level = 3; });
+afterEach(() => { chalk.level = previousColorLevel; });
 import React from "react";
 import { Text } from "ink";
 import { render } from "ink-testing-library";
@@ -22,6 +28,7 @@ import { App } from "../src/App";
 import { ExtensionOverlayView, ExtensionsRail } from "../src/ExtensionsRail";
 import type { PanelKeyEvent } from "@moh/extension";
 import { RAIL_MIN_ROWS } from "../src/rail-layout";
+import { GROW_VERTICAL_FRAMES } from "../src/icons";
 import { ThemeProvider, THEMES, DEFAULT_THEME } from "../src/themes";
 import { grantTeamExtension, stripAnsi, waitForCondition } from "./helpers";
 
@@ -60,6 +67,73 @@ describe("ExtensionsRail (#1132)", () => {
   test("every panel collapsed renders nothing — the zone disappears", () => {
     const i = mount(<ExtensionsRail panels={[panel()]} collapsed={new Set(["status"])} columns={120} rows={ROWS} />);
     expect(i.frame().trim()).toBe("");
+    i.unmount();
+  });
+
+  test("#1300: a string roster's selected row animates a running glyph and keeps the semantic colors", async () => {
+    const roster = ["team: 2 members", ">◐ alpha · running", " ✓ beta · done", " ◐ gamma · running"].join("\n");
+    const mountRaw = (frame: number) => {
+      const i = render(
+        <ThemeProvider value={THEMES[DEFAULT_THEME]}>
+          <ExtensionsRail
+            panels={[panel({ name: "team", render: () => roster })]}
+            collapsed={new Set()}
+            columns={120}
+            rows={ROWS}
+            frame={frame}
+          />
+        </ThemeProvider>,
+      );
+      return i;
+    };
+    const a = mountRaw(0);
+    await new Promise((r) => setTimeout(r, 30));
+    const frameA = stripAnsi(a.lastFrame() ?? "");
+    expect(frameA).toContain(GROW_VERTICAL_FRAMES[0]!);
+    expect(frameA).toContain("alpha · running");
+    expect(frameA).toContain(`${GROW_VERTICAL_FRAMES[0]} gamma · running`);
+    expect(a.lastFrame() ?? "").toContain("\u001b[38;2;46;160;67m✓");
+    a.unmount();
+    const b = mountRaw(4);
+    await new Promise((r) => setTimeout(r, 30));
+    const frameB = b.lastFrame() ?? "";
+    expect(stripAnsi(frameB)).toContain(GROW_VERTICAL_FRAMES[4]!);
+    b.unmount();
+    // A settled member on the selected row takes the fixed semantic green,
+    // not the theme token (tokyo-night's ok is #9ece6a).
+    const settled = render(
+      <ThemeProvider value={THEMES[DEFAULT_THEME]}>
+        <ExtensionsRail
+          panels={[panel({ name: "team", render: () => ["team: 1 member", ">✓ beta · done"].join("\n") })]}
+          collapsed={new Set()}
+          columns={120}
+          rows={ROWS}
+          frame={2}
+        />
+      </ThemeProvider>,
+    );
+    await new Promise((r) => setTimeout(r, 30));
+    // With truecolor forced, the settled glyph carries the fixed semantic
+    // green, not the theme token (tokyo-night's ok is #9ece6a).
+    expect(settled.lastFrame() ?? "").toContain("\u001b[38;2;46;160;67m✓");
+    const frameS = stripAnsi(settled.lastFrame() ?? "");
+    expect(frameS).toContain("✓ beta · done");
+    for (const glyph of GROW_VERTICAL_FRAMES) expect(frameS).not.toContain(`${glyph} beta`);
+    settled.unmount();
+  });
+
+  test("#1300: only the recognized running glyph animates — the row text stays verbatim", async () => {
+    const roster = ["team: 1 member", ">⏸ alpha · stalled"].join("\n");
+    const i = render(
+      <ThemeProvider value={THEMES[DEFAULT_THEME]}>
+        <ExtensionsRail panels={[panel({ name: "team", render: () => roster })]} collapsed={new Set()} columns={120} rows={ROWS} frame={7} />
+      </ThemeProvider>,
+    );
+    await new Promise((r) => setTimeout(r, 30));
+    const frame = stripAnsi(i.lastFrame() ?? "");
+    expect(frame).toContain("⏸ alpha · stalled");
+    // the ⏸ never swaps for a frame glyph
+    for (const glyph of GROW_VERTICAL_FRAMES) expect(frame).not.toContain(`${glyph} alpha`);
     i.unmount();
   });
 

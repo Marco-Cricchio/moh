@@ -24,3 +24,15 @@ export function ic(glyph: string, ascii: string): string {
 
 /** Braille spinner frames (cli-spinners dataset subset). */
 export const SPINNER_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"] as const;
+
+/** cli-spinners `sand` — footer subagent chip, native interval 80 ms (#1300). */
+export const SAND_FRAMES = ["⠁", "⠂", "⠄", "⡀", "⡈", "⡐", "⡠", "⣀", "⣁", "⣂", "⣄", "⣌", "⣔", "⣤", "⣥", "⣦", "⣮", "⣶", "⣷", "⣿", "⡿", "⠿", "⢟", "⠟", "⡛", "⠛", "⠫", "⢋", "⠋", "⠍", "⡉", "⠉", "⠑", "⠡", "⢁"] as const;
+
+/** cli-spinners `growVertical` — rail roster running member, native interval 120 ms (#1300). */
+export const GROW_VERTICAL_FRAMES = ["▁", "▃", "▄", "▅", "▆", "▇", "▆", "▅", "▄", "▃"] as const;
+
+/** Only running roster glyphs animate; Icons off uses a static ASCII dash. */
+export function frameGlyph(base: string, frame: number, frames: readonly string[]): string {
+  if (base.trim() !== "◐") return base;
+  return base.replace("◐", icons ? frames[frame % frames.length]! : "-");
+}
