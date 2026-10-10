@@ -131,7 +131,6 @@ describe("settings panel (issue #33)", () => {
       "Icons",
       "File preview",
       "Answer language",
-      "Telemetry",
       "Default permission mode",
       "Provider",
       "Add provider",
@@ -140,6 +139,8 @@ describe("settings panel (issue #33)", () => {
     ]) {
       expect(frame).toContain(label);
     }
+    // moh sends no telemetry, so there is no switch for it.
+    expect(frame).not.toContain("Telemetry");
     expect(frame).toContain("vibe");
     expect(frame).toContain("Tokyo Night");
     // The list scrolls: the rows below the fold are reachable, not missing.
@@ -163,13 +164,9 @@ describe("settings panel (issue #33)", () => {
     await gotoRow(i, "Icons");
     i.stdin.write("\r"); // icons off
     await sleep(10);
-    await gotoRow(i, "Telemetry");
-    i.stdin.write("\r"); // telemetry on
-    await sleep(10);
     expect(changes).toContainEqual({ mode: "dev" });
     expect(changes).toContainEqual({ theme: "catppuccin" });
     expect(changes).toContainEqual({ icons: false });
-    expect(changes).toContainEqual({ telemetry: true });
     i.unmount();
   });
 
@@ -264,7 +261,7 @@ test("ADR-0049: the model rows show a provider-declared window next to the catal
     const { i } = mount(cwd);
     const frame = () => stripAnsi(i.lastFrame() ?? "");
     await sleep(30);
-    await down(i, 8);
+    await gotoRow(i, "Provider");
     i.stdin.write("\r");
     // #1042: navigation is keyed off the rendered cursor row, so each step
     // waits for its commit instead of a fixed sleep (under suite load a
@@ -335,7 +332,7 @@ test("ADR-0049: the model rows show a provider-declared window next to the catal
     let closed = 0;
     const { i } = mount(setupCwd(), { onClose: () => (closed += 1) });
     await sleep(30);
-    await down(i, 8);
+    await gotoRow(i, "Provider");
     i.stdin.write("\r");
     await sleep(30);
     i.stdin.write("\x1b"); // leave submenu, not the panel
@@ -363,7 +360,7 @@ describe("merged provider endpoints (#129)", () => {
     const { i } = mount(cwd, { home });
     const frame = () => stripAnsi(i.lastFrame() ?? "");
     await sleep(30);
-    await down(i, 8);
+    await gotoRow(i, "Provider");
     i.stdin.write("\r");
     await waitForFrame(frame, "switch endpoint");
     // Wait for each React commit before the next key: under suite load a
@@ -397,7 +394,7 @@ describe("merged provider endpoints (#129)", () => {
     try {
       const { i, switched } = mount(cwd, { home });
       await sleep(30);
-      await down(i, 8);
+      await gotoRow(i, "Provider");
       i.stdin.write("\r");
       await sleep(30);
       await down(i, 3); // zai (user)
@@ -480,7 +477,7 @@ describe("fallback models screen (ADR-0012 preferred model)", () => {
     );
     const i = mount(cwd, { home });
     await sleep(30);
-    await down(i.i, 9); // Mode…Provider are 0..8; Fallback models is 9
+    await gotoRow(i.i, "Fallback models");
     i.i.stdin.write("\r");
     // #930: both reads below gate assertions. `down()` paces keystrokes with a
     // 30 ms sleep, which is under the TUI's 33 ms coalescing window, so the
@@ -534,7 +531,7 @@ describe("fallback models screen (ADR-0012 preferred model)", () => {
     const { cwd, home } = fallbackSetup();
     const i = mount(cwd, { home });
     await sleep(30);
-    await down(i.i, 9);
+    await gotoRow(i.i, "Fallback models");
     i.i.stdin.write("\r"); // fallback list
     await sleep(40);
     i.i.stdin.write("\x1b[B"); // to openai
@@ -562,7 +559,7 @@ describe("fallback models screen (ADR-0012 preferred model)", () => {
     const { cwd, home } = fallbackSetup();
     const i = mount(cwd, { home });
     await sleep(30);
-    await down(i.i, 9);
+    await gotoRow(i.i, "Fallback models");
     i.i.stdin.write("\r");
     await sleep(40);
     i.i.stdin.write("\x1b[B");
@@ -590,7 +587,7 @@ describe("fallback models screen (ADR-0012 preferred model)", () => {
     const { cwd, home } = fallbackSetup();
     const i = mount(cwd, { home });
     await sleep(30);
-    await down(i.i, 9);
+    await gotoRow(i.i, "Fallback models");
     i.i.stdin.write("\r");
     await sleep(40);
     i.i.stdin.write("x"); // exclude the first row (anthropic)
@@ -621,7 +618,7 @@ describe("fallback models screen (ADR-0012 preferred model)", () => {
     const { cwd, home } = fallbackSetup();
     const i = mount(cwd, { home });
     await sleep(30);
-    await down(i.i, 9);
+    await gotoRow(i.i, "Fallback models");
     i.i.stdin.write("\r");
     await sleep(40);
     i.i.stdin.write("\x1b[B");
@@ -643,7 +640,7 @@ describe("fallback models screen (ADR-0012 preferred model)", () => {
     const { cwd, home } = fallbackSetup();
     const i = mount(cwd, { home });
     await sleep(30);
-    await down(i.i, 9);
+    await gotoRow(i.i, "Fallback models");
     i.i.stdin.write("\r");
     await sleep(40);
     i.i.stdin.write("c"); // clear the first row (anthropic)
@@ -663,9 +660,6 @@ describe("max iterations row (#498)", () => {
     const cwd = setupCwd();
     const { i, toasts } = mount(cwd);
     await sleep(30);
-    // Rows: mode0 theme1 icons2 preview3 lang4 telemetry5 perm6
-    // Rows: mode0 theme1 themes2 icons3 preview4 lang5 telemetry6 perm7
-    // provider8 add9 remove10 jev11 handoff12 mpm13 maxIterations14 (#784)
     await gotoRow(i, "Max iterations/turn");
     expect(stripAnsi(i.lastFrame() ?? "")).toContain("Max iterations/turn");
     i.stdin.write("\r"); // 50 → 100
@@ -762,7 +756,6 @@ describe("max iterations row (#498) — right arrow", () => {
     const cwd = setupCwd();
     const { i, toasts } = mount(cwd);
     await sleep(30);
-    // Rows: mode0 theme1 themes2 icons3 preview4 lang5 telemetry6 perm7 provider8 add9 remove10 jev11 handoff12 mpm13 (#784)
     await gotoRow(i, "Moh Project Map");
     await sleep(30);
     expect(stripAnsi(i.lastFrame() ?? "")).toContain("Moh Project Map");

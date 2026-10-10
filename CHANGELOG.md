@@ -7,6 +7,16 @@ matching section here at tag time.
 
 ## [Unreleased]
 
+### Changed
+
+- **The Telemetry row is hidden from the Settings panel**: the row toggled
+  the `telemetry` key in `~/.moh/config`, but the planned telemetry feature
+  that will read it has not landed yet, so the switch controlled nothing
+  while suggesting moh sends telemetry, which it does not (usage reports
+  such as `moh usage` are computed locally from your own session logs). The
+  `telemetry` config key itself is unchanged — still parsed and persisted
+  for the feature to use.
+
 ## [0.61.1] - 2026-10-09
 
 ### Fixed
