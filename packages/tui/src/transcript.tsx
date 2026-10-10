@@ -13,6 +13,7 @@ import type { ToolTimings } from "./tool-timing";
 import type { ToolTailMap } from "./tool-progress";
 import type { PreviewImage } from "./image-preview";
 import { BROWSER_SETUP_ACTION } from "./browser-setup";
+import { glyphColor, SemanticText } from "./glyph-color";
 export type BlockKind = "user" | "moh" | "code" | "diff" | "tool" | "error" | "chrome" | "thinking" | "subagent" | "info";
 export interface TranscriptBlock {
   key: string;
@@ -191,6 +192,16 @@ const bashDetail = (command: string): string => {
   const lines = sanitizeLine(command).split("\n");
   const executable = lines.find((line) => line.trim() !== "" && !line.trimStart().startsWith("#"));
   return executable ?? lines.find((line) => line.trim() !== "") ?? "";
+};
+
+/** #1300: the agent-run bash arm of the vibe projection prints the full
+ * command — the same text `dev`'s head shows (first executable line,
+ * verbatim: no 48-cap, no shell-control cut, no env/wrapper stripping).
+ * `vibeCommandHint` keeps serving the bang path, whose contract
+ * (ADR-0076) is untouched. */
+const vibeBashCommand = (args: unknown): string => {
+  const command = args && typeof args === "object" ? (args as { command?: unknown }).command : undefined;
+  return typeof command === "string" ? bashDetail(command) : "";
 };
 
 const detailOf = (args: unknown, toolName?: string): string => {
@@ -768,7 +779,7 @@ export function projectTranscript(events: ReadonlyArray<AgentEvent>, options: { 
           }
           if (state !== "fail") {
             const action = TOOL_ACTION[event.name] ?? `used ${event.name}`;
-            const target = event.name === "bash" ? vibeCommandHint(event.args) : vibeDetail(event.name, event.args);
+            const target = event.name === "bash" ? vibeBashCommand(event.args) : vibeDetail(event.name, event.args);
             blocks.push({ key, kind: "moh", glyph: "◆", type: "moh", lines: [target ? `${action} · ${target}` : action], state, ...timingFields });
             break;
           }
@@ -1508,6 +1519,27 @@ function blockTimerLabel(block: TranscriptBlock, live: { elapsedMs: number; time
   return block.durationMs !== undefined ? `· ${formatDuration(block.durationMs)}` : "";
 }
 
+/** The outer box reserves two terminal columns; its border and padding cost four more.
+ * Painting and tail clipping must use the same cell-aware rows. */
+export function userBlockRows(block: TranscriptBlock, width: number): string[] {
+  const budget = Math.max(1, width - 6);
+  const segments = new Intl.Segmenter(undefined, { granularity: "grapheme" });
+  return (block.renderedMarkdownRows ?? block.lines).flatMap((line) =>
+    wrapRenderedLines(line || " ", budget).flatMap((row) => {
+      const rows: string[] = [];
+      let current = "";
+      for (const { segment } of segments.segment(row)) {
+        if (current && Bun.stringWidth(current + segment) > budget) {
+          rows.push(current);
+          current = "";
+        }
+        current += segment;
+      }
+      rows.push(current);
+      return rows;
+    }));
+}
+
 /**
  * Content-compared memo: projection rebuilds every block object per event
  * (ref equality is useless), but unchanged blocks must not re-render —
@@ -1517,6 +1549,7 @@ function blockTimerLabel(block: TranscriptBlock, live: { elapsedMs: number; time
  * blocks (never inside Static) and the settled memo path never sees it,
  * so `React.memo` on settled blocks stays intact (#300).
  */
+
 export const TranscriptBlockView = React.memo(function TranscriptBlockView({ block, width, liveMeta }: { block: TranscriptBlock; width: number; liveMeta?: { elapsedMs: number; timeoutMs?: number } }) {
   const theme = useTheme();
   const color = blockColor(block, theme);
@@ -1538,6 +1571,12 @@ export const TranscriptBlockView = React.memo(function TranscriptBlockView({ blo
         line.length > detailBudget ? (line.match(new RegExp(`.{1,${detailBudget}}`, "g")) ?? [line]) : [line])
     : [];
   const markdown = useMemo(() => block.renderedMarkdownRows === undefined && block.markdown ? createMarkdownRenderer(theme, contentWidth) : null, [block.renderedMarkdownRows, block.markdown, theme, contentWidth]);
+  if (block.kind === "user") {
+    return <Box flexDirection="column" borderStyle="bold" borderColor={theme.warn} paddingX={1} width={Math.max(7, width - 2)} marginTop={1}>
+      <Text color={color}>{block.glyph} {block.type}</Text>
+      {userBlockRows(block, width).map((line, index) => <Text key={index} color={theme.fg}>{line || " "}</Text>)}
+    </Box>;
+  }
   // #300: the right-aligned timer shares the head row with the label.
   // Without a timer the head renders exactly as before; with one, the
   // detail budget shrinks so the label never crowds the timer.
@@ -1551,11 +1590,11 @@ export const TranscriptBlockView = React.memo(function TranscriptBlockView({ blo
         <>
           {timerLabel ? (
             <Box width={Math.max(1, width - 1)} backgroundColor={bg} paddingLeft={1} paddingRight={1} justifyContent="space-between" flexShrink={0}>
-              <Text><Text color={color}>{headLabel}</Text>{detailLines[0] !== undefined && <Text color={theme.dim}> {detailLines[0]}</Text>}</Text>
+              <Text><SemanticText text={headLabel} color={color} />{detailLines[0] !== undefined && <Text color={theme.dim}> {detailLines[0]}</Text>}</Text>
               <Text color={theme.dim}>{timerLabel}</Text>
             </Box>
           ) : (
-            <Row width={width} bg={bg}><Text color={color}>{headLabel}</Text>{detailLines[0] !== undefined && <Text color={theme.dim}> {detailLines[0]}</Text>}</Row>
+            <Row width={width} bg={bg}><SemanticText text={headLabel} color={color} />{detailLines[0] !== undefined && <Text color={theme.dim}> {detailLines[0]}</Text>}</Row>
           )}
           {detailLines.slice(1).map((line, index) => (
             <Row key={`detail-${index}`} width={width} bg={bg} indent={timerLabel ? 2 : headLabel.length + 1}><Text color={theme.dim}>{line}</Text></Row>
@@ -1577,7 +1616,7 @@ export const TranscriptBlockView = React.memo(function TranscriptBlockView({ blo
         const lineColor = block.kind === "diff" ? (line.startsWith("+") ? theme.ok : line.startsWith("-") ? theme.err : theme.dim) : block.kind === "error" ? theme.err : block.kind === "thinking" || lineKind === "answer" ? theme.dim : block.kind === "tool" || block.kind === "subagent" ? theme.dim : lineKind === "heading" ? theme.accent : lineKind === "ask" ? theme.purple : theme.fg;
         const stateGlyph = block.kind === "tool" ? line.match(/^(.*?)(\s[✓✗◌])$/) : null;
         const body = stateGlyph
-          ? <><Text color={lineColor}>{stateGlyph[1]}</Text><Text color={stateGlyph[2]!.includes("✓") ? theme.ok : stateGlyph[2]!.includes("✗") ? theme.err : theme.accent}>{stateGlyph[2]}</Text></>
+          ? <><Text color={lineColor}>{stateGlyph[1]}</Text><Text color={glyphColor(stateGlyph[2]!) ?? theme.accent}>{stateGlyph[2]}</Text></>
           : <Text color={lineColor} bold={lineKind === "heading"} italic={block.kind === "thinking"}>{line || " "}</Text>;
         if (lineKind === "heading") return <React.Fragment key={index}><Row width={width} bg={bg} indent={4}>{body}</Row><Row width={width} bg={bg} indent={4}><Text color={theme.muted}>{"─".repeat(Math.min(line.length, 40))}</Text></Row></React.Fragment>;
         // Wrapped body continuations must keep the row color too (#213):
@@ -1596,7 +1635,7 @@ export const TranscriptBlockView = React.memo(function TranscriptBlockView({ blo
             const isHeading = kind === "heading";
             return <Row key={s} width={width} bg={bg} indent={indent}>
               {seg
-                ? <><Text color={lineColor}>{seg[1]}</Text><Text color={seg[2]!.includes("✓") ? theme.ok : seg[2]!.includes("✗") ? theme.err : theme.accent}>{seg[2]}</Text></>
+                ? <><Text color={lineColor}>{seg[1]}</Text><Text color={glyphColor(seg[2]!) ?? theme.accent}>{seg[2]}</Text></>
                 : <Text color={lineColor} bold={isHeading} italic={block.kind === "thinking"}>{segment}</Text>}
             </Row>;
           })}

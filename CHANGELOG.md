@@ -7,6 +7,10 @@ matching section here at tag time.
 
 ## [Unreleased]
 
+### Changed
+
+- **TUI transcript clarity**: fixed semantic pass/fail glyph colors, animated running subagent chips and rail rosters, heavy-bordered user messages, and unabridged first executable bash command lines in vibe mode (#1300).
+
 ## [0.61.2] - 2026-10-10
 
 ### Changed
