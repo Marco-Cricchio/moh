@@ -7,6 +7,23 @@ matching section here at tag time.
 
 ## [Unreleased]
 
+## [0.61.2] - 2026-10-10
+
+### Changed
+
+- **The Telemetry row is hidden from the Settings panel**: the row toggled
+  the `telemetry` key in `~/.moh/config`, but the planned telemetry feature
+  that will read it has not landed yet, so the switch controlled nothing
+  while suggesting moh sends telemetry, which it does not (usage reports
+  such as `moh usage` are computed locally from your own session logs). The
+  `telemetry` config key itself is unchanged — still parsed and persisted
+  for the feature to use.
+- **Model catalog refresh**: OpenRouter retired 13 qwen listings (window
+  and metered price both gone, no live record) — the rows are marked
+  `retired` in the sidecar rather than frozen by hand (#1005);
+  `qwen3-14b`'s window regression (131072 → 40960) is held at the taught
+  131072 per ADR-0049 (`acceptContextShrink`); 20 metered prices updated.
+
 ## [0.61.1] - 2026-10-09
 
 ### Fixed
@@ -2351,7 +2368,8 @@ security audit, each fixed behind its own PR.
   passed; a regression test pins the resolved path under
   `<home>/.moh/projects`.
 
-[Unreleased]: https://github.com/Marco-Cricchio/moh/compare/v0.61.1...develop
+[Unreleased]: https://github.com/Marco-Cricchio/moh/compare/v0.61.2...develop
+[0.61.2]: https://github.com/Marco-Cricchio/moh/compare/v0.61.1...v0.61.2
 [0.61.1]: https://github.com/Marco-Cricchio/moh/compare/v0.61.0...v0.61.1
 [0.61.0]: https://github.com/Marco-Cricchio/moh/compare/v0.60.0...v0.61.0
 [0.60.0]: https://github.com/Marco-Cricchio/moh/compare/v0.59.3...v0.60.0

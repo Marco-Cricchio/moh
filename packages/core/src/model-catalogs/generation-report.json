@@ -1,27 +1,27 @@
 {
   "schemaVersion": 1,
-  "version": "0.61.1",
-  "generatedAt": "2026-10-09T17:32:46.789Z",
+  "version": "0.61.2",
+  "generatedAt": "2026-10-10T06:58:32.513Z",
   "sources": [
     {
       "name": "models.dev",
       "url": "https://models.dev/api.json",
-      "fetchedAt": "2026-10-09T17:32:46.339Z"
+      "fetchedAt": "2026-10-10T06:58:31.940Z"
     },
     {
       "name": "openrouter",
       "url": "https://openrouter.ai/api/v1/models",
-      "fetchedAt": "2026-10-09T17:32:46.601Z"
+      "fetchedAt": "2026-10-10T06:58:32.265Z"
     }
   ],
   "totals": {
     "files": 25,
-    "rows": 557,
-    "exact": 505,
+    "rows": 544,
+    "exact": 492,
     "baseModel": 13,
     "ambiguous": 5,
     "absent": 34,
-    "rowsWithOverrides": 126
+    "rowsWithOverrides": 127
   },
   "files": [
     {
@@ -494,28 +494,28 @@
     },
     {
       "provider": "openrouter",
-      "rows": 361,
+      "rows": 348,
       "verdicts": {
-        "exact": 336,
+        "exact": 323,
         "base-model": 1,
         "ambiguous": 0,
         "absent": 24
       },
       "coverage": {
-        "rows": 361,
-        "pricing": 338,
-        "contextWindow": 361,
-        "maxTokens": 358,
-        "reasoning": 276,
-        "input": 358
+        "rows": 348,
+        "pricing": 325,
+        "contextWindow": 348,
+        "maxTokens": 345,
+        "reasoning": 267,
+        "input": 345
       },
       "previous": {
-        "rows": 361,
-        "pricing": 338,
-        "contextWindow": 361,
-        "maxTokens": 358,
-        "reasoning": 276,
-        "input": 358
+        "rows": 348,
+        "pricing": 325,
+        "contextWindow": 348,
+        "maxTokens": 345,
+        "reasoning": 267,
+        "input": 345
       }
     },
     {
@@ -891,24 +891,6 @@
       "id": "minimax-m3",
       "modelsDev": 512000,
       "openRouter": 1048576
-    },
-    {
-      "provider": "openrouter",
-      "id": "qwen/qwen3-14b",
-      "modelsDev": 131072,
-      "openRouter": 40960
-    },
-    {
-      "provider": "openrouter",
-      "id": "qwen/qwen3-235b-a22b-thinking-2507",
-      "modelsDev": 131072,
-      "openRouter": 128000
-    },
-    {
-      "provider": "openrouter",
-      "id": "qwen/qwen3-30b-a3b",
-      "modelsDev": 131072,
-      "openRouter": 40960
     },
     {
       "provider": "zai",
