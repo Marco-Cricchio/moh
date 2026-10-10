@@ -14,7 +14,7 @@ import { sanitizeLine, truncate, truncate as truncateText } from "./ui";
 import { advanceReveal, DEFAULT_REVEAL_SETTINGS, type RevealSettings } from "./reveal";
 import { MultilineInput, pasteAsPath, type ComposerHandle } from "./Input";
 import { BASE_COMMANDS, type CommandEntry } from "./commands";
-import { projectTranscript, assistantRunOrigin, closedPrefixLength, openBlockStableRows, TranscriptBlockView, type TranscriptBlock } from "./transcript";
+import { projectTranscript, assistantRunOrigin, closedPrefixLength, openBlockStableRows, TranscriptBlockView, userBlockRows, type TranscriptBlock } from "./transcript";
 import { updateToolTimings, type ToolTimings } from "./tool-timing";
 import { BottomBar, ThinkingSeparator, type DisplayThinkingLevel } from "./BottomBar";
 import type { JevStatusSummary } from "./jev-control";
@@ -91,7 +91,7 @@ export interface ChatProps {
   /** #1218: the rail's Ctrl+P focus mode holds the keys — the composer dims. */
   composerDimmed?: boolean;
   /** Chat owns the rail's real space above the full-width composer. */
-  railContent?: ((space: { columns: number; rows: number }) => React.ReactNode) | null;
+  railContent?: ((space: { columns: number; rows: number }, frame: number) => React.ReactNode) | null;
   onRailWideChange?: (wide: boolean) => void;
   focusedChip?: number | null;
   tokens?: SidebarTokens;
@@ -1238,7 +1238,7 @@ export function Chat({
             {railTranscript.map((block) => liveBlockView(block, transcriptCols))}
           </Box>
           <Box flexDirection="column" width={RAIL_WIDTH + 1} height={askBudget ?? tailBudget} flexShrink={0} overflow="hidden">
-            {railContent!({ columns: cols, rows: askBudget ?? tailBudget })}
+            {railContent!({ columns: cols, rows: askBudget ?? tailBudget }, Math.floor(tick * 90 / 120))}
           </Box>
         </Box>
       ) : <>
@@ -1246,7 +1246,7 @@ export function Chat({
           <TranscriptBlockView key={`replay-${block.key}`} block={block} width={cols} />
         ))}
         {state.pending && <Box flexDirection="column">{liveTail.map((block) => liveBlockView(block, cols))}</Box>}
-        {railContent?.({ columns: cols, rows: tailBudget })}
+        {railContent?.({ columns: cols, rows: tailBudget }, Math.floor(tick * 90 / 120))}
       </>}
 
       {/* #497: the subagent peek — the panel content rides the volatile
@@ -1312,6 +1312,7 @@ export function Chat({
         width={cols}
         pending={state.pending}
         spinner={spinner}
+        frame={Math.floor(tick * 90 / 80)}
         mode={mode}
         model={modelLabel}
         turns={state.turnCount}
@@ -1649,16 +1650,20 @@ export function transcriptTail(blocks: readonly TranscriptBlock[], width: number
   let rows = 0;
   const bodyWidth = Math.max(1, width - 3);
   for (let i = blocks.length - 1; i >= 0; i--) {
-    const block = blocks[i]!;
+    const original = blocks[i]!;
+    const block = original.kind === "user" ? { ...original, lines: userBlockRows(original, width), renderedMarkdownRows: undefined } : original;
     const blockRows = blockRowsHeight(block, bodyWidth);
     // A streaming response is commonly one giant prose block (GLM-5.6
     // emitted 220+ deltas without a paragraph break, #201). Keeping that
     // one block whole bypasses the block-level budget and makes Ink rewrite
     // hundreds of rows every frame — text flashes/disappears in Terminal.
     // Clip its tail at line/character granularity instead.
-    if (selected.length === 0 && blockRows > rowBudget) return [clipBlockTail(block, bodyWidth, rowBudget)];
+    if (selected.length === 0 && blockRows > rowBudget) {
+      if (block.kind === "user" && rowBudget < 5) return [];
+      return [clipBlockTail(block, bodyWidth, rowBudget)];
+    }
     if (selected.length > 0 && rows + blockRows > rowBudget) {
-      if (fillPartial && rowBudget - rows >= 4) selected.unshift(clipBlockTail(block, bodyWidth, rowBudget - rows));
+      if (fillPartial && rowBudget - rows >= (block.kind === "user" ? 5 : 4)) selected.unshift(clipBlockTail(block, bodyWidth, rowBudget - rows));
       break;
     }
     selected.unshift(block);
@@ -1676,6 +1681,7 @@ export function transcriptTail(blocks: readonly TranscriptBlock[], width: number
  * body of N rows occupies N + 3. */
 function blockRowsHeight(block: TranscriptBlock, bodyWidth: number): number {
   const rows = block.renderedMarkdownRows ?? block.lines;
+  if (block.kind === "user") return 4 + rows.length;
   return 3 + rows.reduce((sum, row) => sum + Math.max(1, Math.ceil(row.length / bodyWidth)), 0);
 }
 
@@ -1688,14 +1694,14 @@ function clipBlockTail(block: TranscriptBlock, bodyWidth: number, rowBudget: num
   // retains its newest rows (or the tail of one wrapped line).
   // The tightest budget must still leave a visible marker: an ellipsis-only
   // body beats an empty block (#950 regression guard).
-  let remaining = Math.max(1, rowBudget - 3);
+  let remaining = Math.max(1, rowBudget - (block.kind === "user" ? 4 : 3));
   const renderedRows = block.renderedMarkdownRows;
   const source = renderedRows ?? block.lines;
   const picked: Array<{ line: string; kind?: NonNullable<TranscriptBlock["lineKinds"]>[number] }> = [];
   let clipped = false;
   for (let i = source.length - 1; i >= 0 && remaining > 0; i--) {
     const line = source[i]!;
-    const lineRows = Math.max(1, Math.ceil(line.length / bodyWidth));
+    const lineRows = block.kind === "user" ? 1 : Math.max(1, Math.ceil(line.length / bodyWidth));
     const kind = block.lineKinds?.[i];
     if (lineRows <= remaining) {
       picked.unshift({ line, kind });

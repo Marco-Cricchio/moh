@@ -9,6 +9,8 @@ import {
   allocationHeader,
   suggestOverlay,
 } from "./rail-layout";
+import { GROW_VERTICAL_FRAMES, frameGlyph } from "./icons";
+import { glyphColor } from "./glyph-color";
 
 /**
  * The extensions rail (#1132, ADR-0062 as amended by #1218): the dedicated
@@ -74,6 +76,10 @@ export interface ExtensionsRailProps {
   /** #1218 focus mode (Ctrl+P): the selected panel scrolls with j/k; esc
    * hands the keys back to the composer. Inactive rail consumes no keys. */
   focused?: boolean;
+  /** #1300 animation beat: the client's gated native 120ms frame index, riding
+   * Chat's turn-gated clock (no rail-owned timer). Only a running member's
+   * recognized `◐` glyph cycles. */
+  frame?: number;
   onFocusExit?: () => void;
   /** Clamps the client applied to a declared maxHeight, for /extensions. */
   onClamp?: (clamps: ReadonlyMap<string, { max: number; shown: number }>) => void;
@@ -96,7 +102,7 @@ class PanelBoundary extends React.Component<{ children: React.ReactNode }, { fai
   }
 }
 
-export function ExtensionsRail({ panels, collapsed, columns, rows, focused = false, onFocusExit, onClamp }: ExtensionsRailProps) {
+export function ExtensionsRail({ panels, collapsed, columns, rows, focused = false, frame = 0, onFocusExit, onClamp }: ExtensionsRailProps) {
   const theme = useTheme();
   const visible = panels.filter((p) => !collapsed.has(p.name));
   if (visible.length === 0) return null;
@@ -117,6 +123,7 @@ export function ExtensionsRail({ panels, collapsed, columns, rows, focused = fal
       panels={visible}
       rows={rows}
       focused={focused}
+      frame={frame}
       onFocusExit={onFocusExit}
       onClamp={onClamp}
     />
@@ -127,12 +134,14 @@ function RailColumn({
   panels,
   rows,
   focused,
+  frame = 0,
   onFocusExit,
   onClamp,
 }: {
   panels: ExtensionsRailProps["panels"];
   rows: number;
   focused: boolean;
+  frame?: number;
   onFocusExit?: () => void;
   onClamp?: ExtensionsRailProps["onClamp"];
 }) {
@@ -253,7 +262,7 @@ function RailColumn({
                   offset={Math.min(offsets.get(p.name) ?? 0, Math.max(0, (demands.get(p.name) ?? 1) - Math.max(1, a.body)))}
                   onMeasure={measure}
                 >
-                  <PanelBody panel={p} />
+                  <PanelBody panel={p} frame={frame} />
                 </MeasuredPanel>
               </PanelBoundary>
             </Box>
@@ -337,24 +346,23 @@ function MeasuredPanel({
 /** The panel's own render runs *inside* the boundary: the call itself
  * must be a child render, or a throw would climb out of the boundary's
  * reach (the boundary only catches its subtree). */
-function PanelBody({ panel }: { panel: { render(): unknown } }) {
+function PanelBody({ panel, frame = 0 }: { panel: { render(): unknown }; frame?: number }) {
+  const theme = useTheme();
   const rendered = panel.render();
-  // Prototype style (team-view-rail): a string panel's selected row — the
-  // team roster's `>` line — draws with the theme's selection background,
-  // accent bold name. The client paints only what its theme owns; the
-  // extension's text stays verbatim.
-  if (typeof rendered === "string" && rendered.includes("\n>")) {
-    const theme = useTheme();
+  // Recognize roster prefixes only; extension prose and row spacing stay intact.
+  if (typeof rendered === "string" && /^(?:[> ][◐⏸✓✗])\s+/m.test(rendered)) {
     const rows = rendered.split("\n").map((line, i) => {
-      if (!line.startsWith(">")) return <Text key={i} wrap="truncate">{line}</Text>;
-      const nameMatch = line.match(/^>\S+ (\S+)/);
-      const glyphEnd = nameMatch ? line.indexOf(nameMatch[1]!) : 1;
+      const match = /^([> ])([◐⏸✓✗])(\s+)(\S+)(.*)$/.exec(line);
+      if (!match) return <Text key={i} wrap="truncate">{line}</Text>;
+      const [, prefix, glyph, gap, name, rest] = match;
+      const selected = prefix === ">";
       return (
-        <Text key={i} wrap="truncate" backgroundColor={theme.selection}>
+        <Text key={i} wrap="truncate" backgroundColor={selected ? theme.selection : undefined}>
           {" "}
-          <Text color={theme.ok}>{line.slice(1, glyphEnd)}</Text>
-          <Text color={theme.accent} bold>{line.slice(glyphEnd, glyphEnd + nameMatch![1]!.length)}</Text>
-          {line.slice(glyphEnd + nameMatch![1]!.length)}
+          <Text color={glyphColor(glyph!) ?? theme.ok}>{frameGlyph(glyph!, frame, GROW_VERTICAL_FRAMES)}</Text>
+          {gap}
+          <Text color={selected ? theme.accent : undefined} bold={selected}>{name}</Text>
+          {rest}
         </Text>
       );
     });

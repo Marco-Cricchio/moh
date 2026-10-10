@@ -7,6 +7,7 @@ import { render } from "ink-testing-library";
 import { Text } from "ink";
 import { ThemeProvider, THEMES } from "../src/themes";
 import { BottomBar } from "../src/BottomBar";
+import { SAND_FRAMES } from "../src/icons";
 import { SubagentPanel } from "../src/SubagentPanel";
 import {
   trackSubagents,
@@ -202,7 +203,10 @@ describe("subagent chips in the bottom bar (#497)", () => {
     const actionLine = lines.findIndex((l) => l.includes("⏎ send"));
     expect(subLine).toBeGreaterThanOrEqual(0);
     expect(actionLine).toBeGreaterThan(subLine); // own row, above the actions
-    expect(frame).toContain("◐");
+    // #1300: the running chip animates from frame 0 (default) — it shows a
+    // sand frame, never the static ◐; the settled chip keeps its glyph.
+    expect(frame).toContain(SAND_FRAMES[0]!);
+    expect(frame).toContain("✓");
   });
 
   test("no subagents → no chips (footer unchanged)", () => {
