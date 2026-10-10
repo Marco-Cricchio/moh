@@ -2385,6 +2385,7 @@ security audit, each fixed behind its own PR.
   `<home>/.moh/projects`.
 
 [Unreleased]: https://github.com/Marco-Cricchio/moh/compare/v0.61.2...develop
+[0.61.3]: https://github.com/Marco-Cricchio/moh/compare/v0.61.2...v0.61.3
 [0.61.2]: https://github.com/Marco-Cricchio/moh/compare/v0.61.1...v0.61.2
 [0.61.1]: https://github.com/Marco-Cricchio/moh/compare/v0.61.0...v0.61.1
 [0.61.0]: https://github.com/Marco-Cricchio/moh/compare/v0.60.0...v0.61.0
