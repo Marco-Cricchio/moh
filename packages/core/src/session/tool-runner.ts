@@ -1,5 +1,6 @@
 import type { AgentEvent, Message, ReasoningStreamEvent, Tool, ToolContext, ToolCall, ToolErrorKind } from "../types";
 import { resolve, relative, sep } from "node:path";
+import { z } from "zod";
 import { splitCommandSegments, type FilesystemScope } from "../permissions";
 // #778: the screenshot brand lives next to the tool that produces it — a
 // type-only cycle would be fine, but the guard is a runtime function.
@@ -332,6 +333,22 @@ export class ToolRunner {
   }
 
   /**
+   * #1324: when the model emitted a tool call with no arguments at all
+   * (the lenient-backend failure mode for union-shaped schemas), the
+   * raw zod discriminator error tells the model nothing actionable —
+   * name the actual problem instead.
+   */
+  #invalidArgsOutput(name: string, error: z.ZodError, args: unknown): string {
+    const issues = error.issues
+      .map((i) => `${i.path.join(".") || "(root)"}: ${i.message}`)
+      .join("; ");
+    const empty = args === undefined || args === null || (typeof args === "object" && Object.keys(args as object).length === 0);
+    return empty
+      ? `invalid arguments for ${name}: the model emitted the tool call with no arguments (expected at least the required arguments)`
+      : `invalid arguments for ${name}: ${issues}`;
+  }
+
+  /**
    * One tool call: schema validation, unknown-tool handling, permission
    * gate, execution. Errors never throw — they become failed results the
    * model can self-correct on.
@@ -348,10 +365,7 @@ export class ToolRunner {
     if (tool.inputSchema) {
       const parsed = tool.inputSchema.safeParse(call.args);
       if (!parsed.success) {
-        const issues = parsed.error.issues
-          .map((i) => `${i.path.join(".") || "(root)"}: ${i.message}`)
-          .join("; ");
-        return { callId: call.callId, ok: false, output: `invalid arguments for ${call.name}: ${issues}`, errorKind: "schema-validation" };
+        return { callId: call.callId, ok: false, output: this.#invalidArgsOutput(call.name, parsed.error, call.args), errorKind: "schema-validation" };
       }
       args = parsed.data;
     }
