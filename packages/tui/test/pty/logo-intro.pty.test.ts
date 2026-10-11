@@ -14,9 +14,16 @@ describe.skipIf(!hasPython)("splash intro on a tall terminal (PTY)", () => {
       config: { onboarded: true, workflowOffered: true, mode: "dev" },
       project: { provider: "mock" },
       steps: [
-        { wait: 0.6 },
+        // #1332: the skip key goes first, while the intro is guaranteed
+        // active (it settles at ~3.15s; the harness's 2.5s boot pump ends
+        // well before). The old shape (0.6s wait, then key, then a
+        // since-guarded wait for the settled home) was structurally
+        // race-prone: on a slow host the intro fully settles inside the
+        // boot pump, "New session" is painted BEFORE the until step starts
+        // and the since guard can never match — the 6s budget burns to
+        // expiry (#1326's widening could not fix that).
         { send: "\r" },
-        { wait: 6.0, until: "New session" },
+        { wait: 6.0, until: "New session", untilFromBuffer: true },
       ],
       tail: 30,
     });
