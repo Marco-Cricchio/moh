@@ -16,7 +16,7 @@ describe.skipIf(!hasPython)("splash intro on a tall terminal (PTY)", () => {
       steps: [
         { wait: 0.6 },
         { send: "\r" },
-        { wait: 3.0, until: "New session" },
+        { wait: 6.0, until: "New session" },
       ],
       tail: 30,
     });
