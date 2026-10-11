@@ -993,6 +993,11 @@ export function projectTranscript(events: ReadonlyArray<AgentEvent>, options: { 
         // session start pointing at the report.
         blocks.push({ key, kind: "chrome", glyph: "◈", type: "retro digest", lines: [event.line] });
         break;
+      case "retro_batch_skipped":
+        // #1339: the batch could not run — one bounded, rate-limited line
+        // instead of silence.
+        blocks.push({ key, kind: "chrome", glyph: "◈", type: "retro batch skipped", lines: [event.reason] });
+        break;
       case "compaction":
         if (vibe) break;
         blocks.push({ key, kind: "chrome", glyph: "▣", type: "context compacted", lines: [event.summary.split("\n").slice(0, 3).join("\n")] });
