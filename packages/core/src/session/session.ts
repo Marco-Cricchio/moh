@@ -2371,7 +2371,10 @@ export class AgentSession {
     if (!store || !extractor || this.#retroJudgmentRun) return;
     if (!store.judgmentDue(RETRO_JUDGMENT_BATCH)) return;
     const sessions = selectJudgmentBatch(closedSessions(this.#cwd, this.#mohHome), { exclude: this.#sessionId });
-    if (sessions.length === 0) return;
+    if (sessions.length === 0) {
+      if (store.noteJudgmentSkip()) this.#append({ type: "retro_batch_skipped", reason: "no closed sessions found for the judgement batch" });
+      return;
+    }
     store.markJudgmentRun();
     this.#retroJudgmentRun = (async () => {
       try {
