@@ -7,6 +7,22 @@ matching section here at tag time.
 
 ## [Unreleased]
 
+## [0.64.6] - 2026-10-11
+
+### Fixed
+
+- **The `/retro` modal keeps its borders with a status line** (#1343, PR
+  #1347): the status used to sit in `ScrollDialog`'s uncounted header slot;
+  at the exact terminal height, vertical centering clipped both borders.
+  Status now joins the counted footer, whose wrapped height is measured
+  (`footerText` + `wrapLines`) instead of assumed to be one row.
+- **Retro apply can create a missing steering file with explicit consent**
+  (#1343, PR #1347): `moh retro --apply --yes --create-missing` creates a
+  missing steering file in the project root with a minimal heading, then
+  appends the marked finding. The TUI confirmation says `missing — y creates
+  it`; omitting `--create-missing` keeps the strict refusal, as do
+  no-confirm and outside-root cases.
+
 ## [0.64.5] - 2026-10-11
 
 ### Fixed
@@ -2562,7 +2578,8 @@ security audit, each fixed behind its own PR.
   passed; a regression test pins the resolved path under
   `<home>/.moh/projects`.
 
-[Unreleased]: https://github.com/Marco-Cricchio/moh/compare/v0.64.5...develop
+[Unreleased]: https://github.com/Marco-Cricchio/moh/compare/v0.64.6...develop
+[0.64.6]: https://github.com/Marco-Cricchio/moh/compare/v0.64.5...v0.64.6
 [0.64.5]: https://github.com/Marco-Cricchio/moh/compare/v0.64.4...v0.64.5
 [0.64.4]: https://github.com/Marco-Cricchio/moh/compare/v0.64.3...v0.64.4
 [0.64.3]: https://github.com/Marco-Cricchio/moh/compare/v0.64.2...v0.64.3
