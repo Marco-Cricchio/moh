@@ -154,7 +154,7 @@ describe("jev-guard extension setup (#786)", () => {
 
   test("ask: hook returns ask with the caso incerto badge", async () => {
     const ctx = fakeCtx();
-    const answers = { ...SAFE_ANSWERS, destructive: { type: "noul", noul: 0.5 } };
+    const answers = { ...SAFE_ANSWERS, destructive: { type: "noul", noul: 0.65 } };
     const def = createJevGuardExtension({ transport: transportOf((async () => okResponse(answers)) as unknown as typeof fetch) });
     await def.setup(ctx);
     const out = (await runHook(ctx.toolHooks, bash)) ?? {};
@@ -165,7 +165,7 @@ describe("jev-guard extension setup (#786)", () => {
 
   test("yolo mode (via session_mode event): middle band no longer asks", async () => {
     const ctx = fakeCtx();
-    const answers = { ...SAFE_ANSWERS, destructive: { type: "noul", noul: 0.5 } };
+    const answers = { ...SAFE_ANSWERS, destructive: { type: "noul", noul: 0.65 } };
     const def = createJevGuardExtension({ transport: transportOf((async () => okResponse(answers)) as unknown as typeof fetch) });
     await def.setup(ctx);
     ctx.eventHooks.forEach((h) => h({ event: { type: "session_mode", mode: "yolo" } }));
