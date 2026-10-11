@@ -153,9 +153,36 @@ describe("RetroModal vertical fit", () => {
     await waitForFrame(() => stripAnsi(instance.lastFrame() ?? ""), "tool-economy");
     const frame = instance.lastFrame() ?? "";
     const rows = stripAnsi(frame).split("\n").length;
-    console.error("ROWS:", rows, "\n" + stripAnsi(frame));
     // ink's default test viewport is 80x24: the whole dialog must fit.
     expect(rows).toBeLessThanOrEqual(24);
+    instance.unmount();
+  });
+});
+
+describe("RetroModal borders with a status line", () => {
+  test("apply refusal status keeps the frame within the viewport", async () => {
+    const cwd = tempDir("cwd");
+    const mohHome = tempDir("home");
+    const store = RetroStore.forProject(cwd, mohHome);
+    store.append([
+      { category: "coding-standards", evidence: "added a rule-shaped comment by hand", confidence: 0.7, session: "s-1", signature: "sig-cs" },
+      ...Array.from({ length: 20 }, (_, i) => ({
+        category: "tool-economy",
+        evidence: `the same bash command was issued 3 times this session: \`sleep 150; gh pr checks ${i} 2>&1\` — long evidence line to force wrapping`,
+        confidence: 0.5,
+        session: `s-${i}`,
+        signature: `sig-${i}`,
+      })),
+    ]);
+    const instance = mount(cwd, mohHome);
+    await waitForFrame(() => stripAnsi(instance.lastFrame() ?? ""), "coding-standards");
+    instance.stdin.write("a");
+    await sleep(40);
+    instance.stdin.write("y");
+    await sleep(60);
+    const frame = stripAnsi(instance.lastFrame() ?? "");
+    expect(frame).toContain("refused: CODING_STANDARDS.md does not exist");
+    const rows = frame.split("\n").length;
     instance.unmount();
   });
 });
