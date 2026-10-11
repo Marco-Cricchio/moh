@@ -30,6 +30,7 @@ import { sanitizeForDisplay } from "../display-sanitize";
 import type { PanelKeyEvent } from "@moh/extension";
 import { EventLog } from "./event-log";
 import { commercialDeclarationEvent, observationsFromQuotaReport } from "../quota/telemetry";
+import { withdrawnSubscriptionReason } from "../auth/lifecycle";
 import { endpointIdentity } from "../types";
 import { PermissionGate, type ToolHookChecker } from "./permission-gate";
 import { ToolRunner, type ToolResultHookChecker } from "./tool-runner";
@@ -1172,6 +1173,17 @@ export class AgentSession {
   #appendStartupChrome(withNotes: boolean): void {
     for (const message of this.#startupDiagnostics) {
       this.#append({ type: "browser_unavailable", reason: message });
+    }
+    // #1317: an endpoint authenticated with a subscription login the wizard
+    // no longer offers (anthropic) cannot serve inference. Like the
+    // toolchain diagnostic above, this is a fact of every open — a resumed
+    // session is resumed into the same broken endpoint, and a client that
+    // sees only new events (the headless sink behind `moh run`) would
+    // otherwise be silent — so it is recorded before the `withNotes` gate,
+    // and it changes nothing: no conversion, no deletion, no network call.
+    for (const profile of this.#endpoints) {
+      const reason = withdrawnSubscriptionReason(profile);
+      if (reason) this.#append({ type: "endpoint_auth_withdrawn", endpoint: profile.name, reason });
     }
     if (!withNotes) return;
     // #1100: the endpoints' user-owned commercial declarations, recorded

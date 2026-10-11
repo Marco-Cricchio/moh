@@ -68,15 +68,23 @@ validation, so a broken config leaves no orphan session file.
 
 **Subscription (OAuth) endpoints.** An endpoint profile may carry
 `auth: { kind: "subscription" }` (absent = api-key, the backward-compatible
-default). Subscription endpoints resolve their credential automatically at
-stream time: the access token is read from the `auth` section of
-`~/.moh/config` (ADR-0009 — never moh.json), refreshed proactively before
-the single stream call when near expiry, and a failure surfaces as a
-`ProviderError` of kind `auth` pointing at `moh provider login <name>`. As
-an embedder you do nothing: no token plumbing, no refresh handling — the
-login flow itself is a CLI concern (`moh provider add` / `login`), driven
-through the `OnboardingIo` seam (which grew a best-effort `openUrl` for
-headless-safe OAuth). After a successful login the wizard offers the
+default). One exception, and only one: **anthropic**, whose subscription
+offer moh's onboarding withdrew (#1317, ADR-0010 amendment — the grant
+stays reachable through `moh provider login`, the offer does not). Such an
+endpoint still opens a session and records one visible
+`endpoint_auth_withdrawn` chrome event per open, on resume too: nothing is
+converted, deleted, disabled or called, and the reason names the remedy
+(an API-key endpoint, and `moh provider logout <name>`); the predicate
+behind the exception is exported as `offersSubscriptionAuth(kind)`, for a
+client that builds a wizard of its own. Every other kind resolves its
+credential automatically at stream time: the access token is read from the
+`auth` section of `~/.moh/config` (ADR-0009 — never moh.json), refreshed
+proactively before the single stream call when near expiry, and a failure
+surfaces as a `ProviderError` of kind `auth` pointing at
+`moh provider login <name>`. As an embedder you do nothing: no token
+plumbing, no refresh handling — the login flow itself is a CLI concern
+(`moh provider add` / `login`), driven through the `OnboardingIo` seam
+(which grew a best-effort `openUrl` for headless-safe OAuth). After a successful login the wizard offers the
 provider's model list from the shipped catalogs
 (`subscriptionModelCatalog` in `@moh/core` — generated data, see
 `src/model-catalogs/README.md` for the sources and the generation pipeline);

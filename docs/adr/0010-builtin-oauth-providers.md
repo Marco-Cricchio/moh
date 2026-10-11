@@ -59,3 +59,37 @@ tickets (#160–#163, catalogs #164) could start:
   env-overridable in pi and drift-prone everywhere).
 - Per-provider implementation, catalogs, and TUI polish stay in the child
   tickets; this ADR records the decision and the shared seams only.
+
+## Amendment — 2026-10-11, #1317 Anthropic's subscription choice leaves the wizard
+
+Anthropic stays a subscription-capable kind: the grant, refresh, quota
+probe and the `moh provider login|logout|status` paths are untouched. What
+leaves is the **offer** — the `api-key | subscription` question the
+onboarding wizard (TUI and `moh provider add`) used to ask, which made the
+subscription route look like a supported way to run inference.
+
+Two reasons, in this order:
+
+1. **Terms.** Anthropic reserves subscription OAuth for Claude Code and
+   its own clients, and states that third-party applications may not
+   route requests through Claude Pro/Max credentials
+   (<https://code.claude.com/docs/en/legal-and-compliance>).
+2. **It does not work.** Independently of the terms, the route does not
+   serve inference: a minimal Bearer probe answers an opaque
+   `429 rate_limit_error` on every model, output budget and grant tried,
+   and the binding condition is the account's own usage state, not the
+   request shape (`research/anthropic-oauth-inference-429.md`).
+
+The withdrawal is one predicate, not a scattered condition:
+`offersSubscriptionAuth` (`auth/lifecycle.ts`) narrows
+`isSubscriptionKind` by a withheld set, and every door that offers the
+choice reads it — both clients' wizards stay free of a provider-specific
+`if`. The other six OAuth kinds keep their choice unchanged.
+
+An endpoint that already stores an Anthropic subscription token keeps its
+configuration: nothing is converted, deleted, disabled, or called.
+Session assembly records one visible `endpoint_auth_withdrawn` chrome
+event per open (on resume too — the endpoint is still that way in the
+environment the session is resumed in), rendered as a warning in the TUI
+and as one stderr line under `moh run`, naming the remedy: add an API-key
+endpoint, and drop the stored tokens with `moh provider logout <name>`.

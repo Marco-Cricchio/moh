@@ -14,10 +14,14 @@ when you are ready to use a real model, run the guided onboarding:
 moh provider add
 ```
 
-It asks whether you have an API key or a provider subscription (Claude
-Pro/Max, ChatGPT Plus/Pro, a personal Google account) and walks you
-through the rest. Subscription logins use your plan's OAuth flow — no
-key to copy, and your plan's usage is what gets billed.
+It asks whether you have an API key or a provider subscription (ChatGPT
+Plus/Pro, a personal Google account) and walks you through the rest.
+Subscription logins use your plan's OAuth flow — no key to copy, and
+your plan's usage is what gets billed. **Anthropic is API-key only**: the
+wizard no longer offers Claude Pro/Max subscription login, because
+Anthropic reserves that route for its own clients and it does not serve
+inference. An endpoint that still stores such a login is reported at
+session start, and `moh provider logout <name>` drops its tokens.
 
 ## Your first session
 

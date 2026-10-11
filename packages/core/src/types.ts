@@ -637,6 +637,11 @@ type AgentEventBase =
   /** #774 / ADR-0029: the browser tool was requested but the toolchain is
    * missing. Visible diagnostic chrome — never a turn error. */
   | { type: "browser_unavailable"; reason: string }
+  /** #1317: the endpoint stores a subscription credential for a kind the
+   * onboarding wizard no longer offers (Anthropic, ADR-0010 amendment) and
+   * therefore cannot serve inference. One visible warning per open, on
+   * resume too — nothing is converted, deleted, or called. */
+  | { type: "endpoint_auth_withdrawn"; endpoint: string; reason: string }
   /** MCP lifecycle (#15): lazy start, per-server failures, session-end stop. */
   | { type: "mcp_server_started"; server: string; tools: string[] }
   | { type: "mcp_server_failed"; server: string; reason: string; message: string }
