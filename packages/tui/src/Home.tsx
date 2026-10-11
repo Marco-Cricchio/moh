@@ -2,8 +2,9 @@ import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { Box, Text, useInput } from "ink";
 import { useTheme } from "./themes";
 import { ic } from "./icons";
-import { Accent, Dim, Footer, Logo, truncate, formatCount } from "./ui";
+import { Accent, Dim, Footer, Logo, pickSplashFont, truncate, formatCount } from "./ui";
 import { LogoIntro } from "./LogoIntro";
+import { pickRampPreset } from "./logo-ramp";
 import {
   HOME_LIST_DEFAULT,
   homeBannerFits,
@@ -154,6 +155,10 @@ export function Home({ cwd, home, mode, onOpen, onOpenSettings, onOpenCommands, 
   // Big ASCII banner only on tall non-compact terminals (#292); the version
   // moves from under the acronym into the footer in fallback mode.
   const banner = homeBannerFits(viewport);
+  // #1304: one splash font and one ramp preset per Home mount, shared by the
+  // intro and the settled logo so the two screens agree.
+  const [splashFont] = useState(pickSplashFont);
+  const [rampPreset] = useState(pickRampPreset);
   // Search/list column: fixed 50 where it fits, contracting on narrow terminals.
   const boxW = Math.min(50, viewport.columns - 4);
   const [query, setQuery] = useState("");
@@ -375,10 +380,10 @@ export function Home({ cwd, home, mode, onOpen, onOpenSettings, onOpenCommands, 
   return (
     <Box flexDirection="column" alignItems="center" justifyContent="center" flexGrow={1} paddingY={vertical.paddingY}>
       {intro ? (
-        <LogoIntro onSkip={skipIntro} />
+        <LogoIntro onSkip={skipIntro} splashFont={splashFont} banner={banner} rampPreset={rampPreset} />
       ) : (
         <>
-          <Logo banner={banner} version={banner ? version : undefined} />
+          <Logo banner={banner} version={banner ? version : undefined} rampPreset={rampPreset} />
           {vertical.spacers >= 3 ? <Text> </Text> : null}
       {vertical.spacers >= 4 ? <Text> </Text> : null}
       <Box borderStyle="round" borderColor={theme.border} width={boxW} paddingX={1}>

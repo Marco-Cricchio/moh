@@ -68,7 +68,7 @@ export const LOGO_BANNER = [
  * and committed as literals — figlet is not a TUI dependency, and literals
  * are greppable and dependency-free. The splash varies by font; the settled
  * home logo stays the canonical Slant `LOGO_BANNER`. */
-export const SPLASH_BANNERS: Record<string, string[]> = {
+export const SPLASH_BANNERS = {
   Ghost: [
     " _   .-')                 ('-. .-. ",
     "( '.( OO )_              ( OO )  / ",
@@ -118,9 +118,11 @@ export const SPLASH_BANNERS: Record<string, string[]> = {
   ],
 };
 
+export type SplashFontName = keyof typeof SPLASH_BANNERS;
+
 /** One splash font per mount, uniformly. Injectable for tests. */
-export function pickSplashFont(): string {
-  const names = Object.keys(SPLASH_BANNERS);
+export function pickSplashFont(): SplashFontName {
+  const names = Object.keys(SPLASH_BANNERS) as SplashFontName[];
   return names[Math.floor(Math.random() * names.length)]!;
 }
 

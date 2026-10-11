@@ -1,8 +1,9 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { Box, Text, useInput } from "ink";
-import { LOGO_BANNER, SPLASH_BANNERS, pickSplashFont } from "./ui";
+import { LOGO_BANNER, SPLASH_BANNERS, pickSplashFont, type SplashFontName } from "./ui";
 import { useTheme } from "./themes";
-
+import { colorEnabled } from "./color";
+import { pickRampPreset, rampLogoRows, type RampPresetName } from "./logo-ramp";
 /** The startup intro duration: snappy on purpose — long enough to read as
  * an animation, short enough never to feel like a gate (~3s, skippable). */
 const DURATION_MS = 2800;
@@ -14,9 +15,10 @@ type Frame = string[];
 const noise = () => GLYPHS[Math.floor(Math.random() * GLYPHS.length)]!;
 
 /** The splash banner rows for one mount: always "MoH", the randomness is
- * the font (#1304). An unknown/missing font name falls back to the settled
- * `LOGO_BANNER` — the intro must never block or crash on a missing font. */
-function splashBanner(font?: string): string[] {
+ * the font (#1304). A font name that is not in the allow-list falls back to
+ * the settled `LOGO_BANNER` — the intro must never block or crash on a
+ * missing font. */
+function splashBanner(font?: SplashFontName): string[] {
   if (font) return SPLASH_BANNERS[font] ?? LOGO_BANNER;
   return SPLASH_BANNERS[pickSplashFont()] ?? LOGO_BANNER;
 }
@@ -233,17 +235,37 @@ const STYLES = [
  * keystroke skips to the settled logo. Style and splash font are picked once
  * per mount, so every launch looks different — always the word "MoH", the
  * randomness is the font (#1304).
+ *
+ * The splash banner respects the settled logo's geometry gate (`banner`
+ * false on short terminals renders the inline one-liner instead, never
+ * overflowing the viewport); the tagline under the banner shares the
+ * settled screen's ramp preset so intro and settled Home agree.
  */
 export function LogoIntro({
   onSkip,
   splashFont,
-}: { onSkip: () => void; /** Injected font for tests (determinism). */ splashFont?: string }) {
+  banner: bannerFits = true,
+  rampPreset,
+}: {
+  onSkip: () => void;
+  /** Injected font for tests (determinism). */
+  splashFont?: SplashFontName;
+  /** Same gate as the settled Logo (homeBannerFits): no big banner where it
+   * would not fit. */
+  banner?: boolean;
+  /** Injected preset so intro and settled tagline share one ramp. */
+  rampPreset?: RampPresetName;
+}) {
   const theme = useTheme();
+  const preset = rampPreset ?? pickRampPreset();
   const style = useMemo(
     () => STYLES[Math.floor(Math.random() * STYLES.length)] ?? STYLES[0]!,
     [],
   );
-  const banner = useMemo(() => splashBanner(splashFont), [splashFont]);
+  const banner = useMemo(
+    () => (bannerFits ? splashBanner(splashFont) : LOGO_BANNER),
+    [bannerFits, splashFont],
+  );
   const frames = useMemo(() => {
     const made = style.make(banner);
     // A style that yields nothing must not crash the render: fall back to
@@ -279,6 +301,7 @@ export function LogoIntro({
   // Render purity: the per-row flicker is seeded per frame, not re-rolled
   // inside the render body (nested updates from render crash Ink).
   const flicker = useMemo(() => frames.map(() => Math.random() > 0.2), [frames]);
+  const tagline = useMemo(() => rampLogoRows("My Own Harness", null, preset).tagline, [preset]);
   return (
     <Box flexDirection="column" alignItems="center">
       {frame.map((line, i) => (
@@ -286,6 +309,7 @@ export function LogoIntro({
           {line}
         </Text>
       ))}
+      {bannerFits ? <Text>{tagline}</Text> : null}
     </Box>
   );
 }

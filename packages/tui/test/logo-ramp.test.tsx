@@ -3,14 +3,27 @@ import React from "react";
 import { render } from "ink-testing-library";
 import { Home } from "../src/Home";
 import { Logo } from "../src/ui";
-import { LOGO_BANNER, SPLASH_BANNERS, pickSplashFont } from "../src/ui";
+import { LOGO_BANNER, SPLASH_BANNERS, pickSplashFont, type SplashFontName } from "../src/ui";
 import { LogoIntro } from "../src/LogoIntro";
+import { stripAnsi } from "./helpers";
 import { RAMP_PRESETS, lerpHex, pickRampPreset, rampLogoRows, rampText } from "../src/logo-ramp";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 const isolatedHome = () => mkdtempSync(join(tmpdir(), "moh-tui-logo-ramp-"));
+
+describe("intro={false} fast-path (#1304 regression)", () => {
+  test("a static Home renders no intro banner rows", () => {
+    const { lastFrame } = render(
+      <Home intro={false} cwd={process.cwd()} home={isolatedHome()} mode="vibe" onOpen={() => {}} />,
+    );
+    const frame = stripAnsi(lastFrame() ?? "");
+    // A splash font's first row can never appear: only the settled canonical
+    // banner or the one-liner is on a static Home, never the scatter noise.
+    expect(frame).not.toContain(SPLASH_BANNERS.Ghost![0]!.trimEnd());
+  });
+});
 
 /** Extracts the truecolor escape sequences from a frame. */
 const escapes = (s: string): string[] => s.match(/\x1b\[38;2;\d+;\d+;\d+m/g) ?? [];
@@ -126,6 +139,20 @@ describe("LogoIntro splash (#1304)", () => {
     }
   }
 
+  test(
+    "each allow-listed font renders through the injected choice",
+    async () => {
+      for (const font of Object.keys(SPLASH_BANNERS) as SplashFontName[]) {
+        const rows = SPLASH_BANNERS[font]!.map((r) => r.trimEnd()).filter((r) => r !== "");
+        const view = render(<LogoIntro onSkip={() => {}} splashFont={font} />);
+        const frame = await settledFrame(view, rows);
+        for (const row of rows) expect(frame).toContain(row);
+        view.unmount();
+      }
+    },
+    30_000,
+  );
+
   test("renders the injected font's banner rows once settled", async () => {
     const rows = SPLASH_BANNERS.Small!.map((r) => r.trimEnd());
     const view = render(<LogoIntro onSkip={() => {}} splashFont="Small" />);
@@ -136,9 +163,38 @@ describe("LogoIntro splash (#1304)", () => {
 
   test("a font name that is not in the allow-list falls back to LOGO_BANNER", async () => {
     const rows = LOGO_BANNER.map((r) => r.trimEnd());
-    const view = render(<LogoIntro onSkip={() => {}} splashFont="Nonexistent" />);
+    const view = render(
+      <LogoIntro onSkip={() => {}} splashFont={"Nonexistent" as SplashFontName} />,
+    );
     const frame = await settledFrame(view, rows);
     for (const row of rows) expect(frame).toContain(row);
     view.unmount();
+  });
+
+  test("banner=false (short-terminal gate) animates the fallback LOGO_BANNER rows", async () => {
+    const rows = LOGO_BANNER.map((r) => r.trimEnd());
+    const view = render(
+      <LogoIntro onSkip={() => {}} splashFont="Ghost" banner={false} rampPreset="mind" />,
+    );
+    const frame = await settledFrame(view, rows);
+    // No splash font's rows leak: the intro animates the canonical fallback.
+    for (const row of rows) expect(frame).toContain(row);
+    expect(frame).not.toContain(SPLASH_BANNERS.Ghost![0]!.trimEnd());
+    // No ramp on the short-terminal intro (the tagline stays settled-only).
+    expect(escapes(frame)).toHaveLength(0);
+    view.unmount();
+  });
+
+  test("intro tagline and settled Logo tagline share the injected preset", () => {
+    const intro = render(<LogoIntro onSkip={() => {}} splashFont="Small" banner rampPreset="vice" />);
+    const settled = render(<Logo banner rampPreset="vice" />);
+    // Both paint from the same preset: the intro's one-liner and the settled
+    // tagline open with the same first-stop escape.
+    const introEsc = escapes(intro.lastFrame() ?? "")[0];
+    const settledEsc = escapes(settled.lastFrame() ?? "")[0];
+    expect(introEsc).toBe("\x1b[38;2;94;231;223m");
+    expect(settledEsc).toBe(introEsc);
+    intro.unmount();
+    settled.unmount();
   });
 });
