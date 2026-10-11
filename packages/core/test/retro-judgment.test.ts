@@ -8,7 +8,7 @@ import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, test } from "bun:test";
-import { RetroStore, retroSignature } from "../src/retro";
+import { RETRO_DIGEST_INTERVAL_MS, RetroStore, retroSignature } from "../src/retro";
 import {
   closedSessions,
   parseJudgmentFindings,
@@ -125,6 +125,43 @@ describe("judgement threshold", () => {
     store.markJudgmentRun();
     expect(store.closedSinceBatch()).toBe(0);
     expect(store.judgmentDue(RETRO_JUDGMENT_BATCH)).toBe(false);
+  });
+});
+
+describe("judgement batch skip reporting", () => {
+  test("noteJudgmentSkip emits at most once per digest interval, durably", () => {
+    const store = new RetroStore(tempDir());
+    const now = new Date("2026-10-11T12:00:00Z");
+    expect(store.noteJudgmentSkip(now)).toBe(true);
+    expect(store.noteJudgmentSkip(new Date(now.getTime() + 1000))).toBe(false);
+    expect(store.noteJudgmentSkip(new Date(now.getTime() + RETRO_DIGEST_INTERVAL_MS))).toBe(true);
+  });
+
+  test("a full batch due with an empty selection emits one retro_batch_skipped, rate-limited across sessions", async () => {
+    const dir = tempDir();
+    const store = new RetroStore(join(dir, "retro"));
+    for (let i = 0; i < RETRO_JUDGMENT_BATCH; i++) store.noteClosedSession();
+    const session = new AgentSession({
+      provider: MockProvider.scripted([{ deltas: ["ok"], finish: "stop" as const }]),
+      cwd: dir,
+      mohHome: join(dir, "moh"),
+      retro: { dir: store.dir },
+      retroJudgment: async () => [],
+    });
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    await session.dispose();
+    const skipped = session.history().filter((e) => e.type === "retro_batch_skipped");
+    expect(skipped).toHaveLength(1);
+    const second = new AgentSession({
+      provider: MockProvider.scripted([{ deltas: ["ok"], finish: "stop" as const }]),
+      cwd: dir,
+      mohHome: join(dir, "moh"),
+      retro: { dir: store.dir },
+      retroJudgment: async () => [],
+    });
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    await second.dispose();
+    expect(second.history().filter((e) => e.type === "retro_batch_skipped")).toHaveLength(0);
   });
 });
 

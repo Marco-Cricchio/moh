@@ -20,7 +20,7 @@ import {
 } from "../src/live-model-catalog";
 import type { CatalogModel } from "../src/model-catalog";
 import { BUILTIN_PROVIDER_TYPES } from "../src/provider-onboarding";
-import { mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -133,7 +133,7 @@ describe("fetchLiveCatalogs", () => {
   test("with no network and no cache, returns empty (static catalog stands)", async () => {
     const dir = home();
     try {
-      const out = await fetchLiveCatalogs([{ name: "e", type: "anthropic" }], { mohHome: dir, fetchImpl: async () => { throw new Error("offline"); } });
+      const out = await fetchLiveCatalogs([{ name: "e", type: "anthropic" }], { mohHome: join(dir, ".moh"), fetchImpl: async () => { throw new Error("offline"); } });
       // ADR-0045: the failure is the status, not an empty object.
       expect(out.e?.models).toEqual([]);
       expect(out.e?.status.kind).toBe("failed");
@@ -143,13 +143,29 @@ describe("fetchLiveCatalogs", () => {
     }
   });
 
+  test("mohHome is the dotdir: the cache lands in <mohHome>/live-models.json, never <home>/.moh/ (#1339)", async () => {
+    const home = mkdtempSync(join(tmpdir(), "moh-live-"));
+    const mohHome = join(home, ".moh");
+    try {
+      const fetchImpl = async () => ({ status: 200, json: { data: [{ id: "m1", display_name: "M1" }] } });
+      await fetchLiveCatalogs([{ name: "my-anthropic", type: "anthropic" }], { mohHome, fetchImpl });
+      expect(existsSync(join(mohHome, "live-models.json"))).toBe(true);
+      expect(existsSync(join(home, ".moh", ".moh"))).toBe(false);
+      // And the reader (from-config seam) finds what the writer wrote.
+      const cache = await loadLiveModelCache(join(mohHome, "live-models.json"));
+      expect(Object.keys(cache)).toContain("my-anthropic");
+    } finally {
+      rmSync(home, { recursive: true, force: true });
+    }
+  });
+
   test("serves from a fresh cache without fetching; merges new fetches into the cache", async () => {
     const dir = home();
     try {
       const fetchImpl = async () => ({        status: 200,
         json: { data: [{ id: "brand-new-model", display_name: "Brand New" }] },
       });
-      const first = await fetchLiveCatalogs([{ name: "my-anthropic", type: "anthropic" }], { mohHome: dir, fetchImpl });
+      const first = await fetchLiveCatalogs([{ name: "my-anthropic", type: "anthropic" }], { mohHome: join(dir, ".moh"), fetchImpl });
       expect(first["my-anthropic"]?.models).toEqual([{ id: "brand-new-model", name: "Brand New" }]);
       expect(first["my-anthropic"]?.status).toEqual({ kind: "fresh" });
 
@@ -159,7 +175,7 @@ describe("fetchLiveCatalogs", () => {
         called = true;
         return { status: 200, json: { data: [{ id: "brand-new-model", display_name: "Brand New" }] } };
       };
-      const second = await fetchLiveCatalogs([{ name: "my-anthropic", type: "anthropic" }], { mohHome: dir, fetchImpl: countingFetch });
+      const second = await fetchLiveCatalogs([{ name: "my-anthropic", type: "anthropic" }], { mohHome: join(dir, ".moh"), fetchImpl: countingFetch });
       expect(called).toBe(false);
       expect(second["my-anthropic"]?.models).toEqual([{ id: "brand-new-model", name: "Brand New" }]);
       // ADR-0045: served from a valid cache is the healthy steady state,
@@ -168,7 +184,7 @@ describe("fetchLiveCatalogs", () => {
       expect(second["my-anthropic"]?.status.kind === "cached" && second["my-anthropic"]!.status.ageHours).toBe(0);
 
       // force bypasses the cache and re-fetches.
-      const forced = await fetchLiveCatalogs([{ name: "my-anthropic", type: "anthropic" }], { mohHome: dir, fetchImpl: countingFetch, force: true });
+      const forced = await fetchLiveCatalogs([{ name: "my-anthropic", type: "anthropic" }], { mohHome: join(dir, ".moh"), fetchImpl: countingFetch, force: true });
       expect(called).toBe(true);
       expect(forced["my-anthropic"]?.models).toHaveLength(1);
       expect(forced["my-anthropic"]?.status).toEqual({ kind: "fresh" });
@@ -186,7 +202,7 @@ describe("fetchLiveCatalogs", () => {
           { name: "compat", type: "openai-compat", baseUrl: "https://x/v1" },
           { name: "custom", type: "my-custom" },
         ],
-        { mohHome: dir, fetchImpl: async () => { called = true; return { status: 200, json: { data: [] } }; } },
+        { mohHome: join(dir, ".moh"), fetchImpl: async () => { called = true; return { status: 200, json: { data: [] } }; } },
       );
       expect(called).toBe(false);
       expect(out).toEqual({});
@@ -206,7 +222,7 @@ describe("fetchLiveCatalogs", () => {
           { name: "baseten", type: "baseten" },
         ],
         {
-          mohHome: dir,
+          mohHome: join(dir, ".moh"),
           fetchImpl: async (url) => {
             urls.push(url);
             return { status: 200, json: { data: [{ id: `${url.split("/")[2]}-model` }] } };
@@ -232,7 +248,7 @@ describe("fetchLiveCatalogs", () => {
       });
       let called = false;
       const out = await fetchLiveCatalogs([{ name: "e", type: "anthropic" }], {
-        mohHome: dir,
+        mohHome: join(dir, ".moh"),
         fetchImpl: async () => { called = true; return { status: 200, json: { data: [{ id: "x" }] } }; },
       });
       expect(called).toBe(false);
@@ -252,7 +268,7 @@ describe("fetchLiveCatalogs", () => {
         join(dir, ".moh", "live-models.json"),
       );
       const out = await fetchLiveCatalogs([{ name: "my-xai", type: "xai" }], {
-        mohHome: dir,
+        mohHome: join(dir, ".moh"),
         fetchImpl: async () => {
           throw new Error("offline");
         },
@@ -275,7 +291,7 @@ describe("fetchLiveCatalogs", () => {
           { name: "bad", type: "anthropic" },
         ],
         {
-          mohHome: dir,
+          mohHome: join(dir, ".moh"),
           fetchImpl: async (url) => (url.includes("x.ai") ? { status: 200, json: { data: [{ id: "grok-5" }] } } : { status: 500, json: {} }),
         },
       );
@@ -546,14 +562,14 @@ describe("OpenCode live-catalog cache and fallback (#794)", () => {
         calls += 1;
         return { status: 200, json: { data: [{ id: `live-${calls}` }] } };
       };
-      expect(await fetchLiveCatalogs([zen], { mohHome: dir, fetchImpl })).toEqual({ "opencode-zen": { models: [{ id: "live-1" }], status: { kind: "fresh" }, type: "opencode" } });
-      const cached = await fetchLiveCatalogs([zen], { mohHome: dir, fetchImpl });
+      expect(await fetchLiveCatalogs([zen], { mohHome: join(dir, ".moh"), fetchImpl })).toEqual({ "opencode-zen": { models: [{ id: "live-1" }], status: { kind: "fresh" }, type: "opencode" } });
+      const cached = await fetchLiveCatalogs([zen], { mohHome: join(dir, ".moh"), fetchImpl });
       expect(cached["opencode-zen"]?.models).toEqual([{ id: "live-1" }]);
       expect(cached["opencode-zen"]?.status.kind).toBe("cached");
       expect(calls).toBe(1);
-      expect(await fetchLiveCatalogs([zen], { mohHome: dir, fetchImpl, force: true })).toEqual({ "opencode-zen": { models: [{ id: "live-2" }], status: { kind: "fresh" }, type: "opencode" } });
+      expect(await fetchLiveCatalogs([zen], { mohHome: join(dir, ".moh"), fetchImpl, force: true })).toEqual({ "opencode-zen": { models: [{ id: "live-2" }], status: { kind: "fresh" }, type: "opencode" } });
       await saveLiveModelCache({ "opencode-zen": { fetchedAt: Date.now() - 48 * 3_600_000, models: [{ id: "stale-open-code" }] } }, join(dir, ".moh", "live-models.json"));
-      const stale = await fetchLiveCatalogs([zen], { mohHome: dir, fetchImpl: async () => { throw new Error("offline"); } });
+      const stale = await fetchLiveCatalogs([zen], { mohHome: join(dir, ".moh"), fetchImpl: async () => { throw new Error("offline"); } });
       expect(stale["opencode-zen"]?.models).toEqual([{ id: "stale-open-code" }]);
       expect(stale["opencode-zen"]?.status.kind).toBe("stale");
     } finally {

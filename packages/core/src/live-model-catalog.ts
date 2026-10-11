@@ -702,9 +702,12 @@ export async function fetchLiveCatalogs(
   endpoints: { name: string; type: string; baseUrl?: string; apiKey?: string }[],
   opts: FetchLiveCatalogsOptions = {},
 ): Promise<LiveCatalogReport> {
-  const config = readLiveModelsConfig(opts.mohHome);
+  // The two helpers below speak user home (they append `.moh` themselves);
+  // our option is mohHome — derive the user home once, here (#1339).
+  const home = opts.mohHome !== undefined ? join(opts.mohHome, "..") : undefined;
+  const config = readLiveModelsConfig(home);
   if (config.enabled === false) return {};
-  const cacheFile = opts.cacheFile ?? liveModelCacheFile(opts.mohHome);
+  const cacheFile = opts.cacheFile ?? liveModelCacheFile(home);
   const now = opts.now ?? Date.now();
   const report: LiveCatalogReport = {};
   const targets: typeof endpoints = [];

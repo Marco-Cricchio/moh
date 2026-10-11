@@ -666,6 +666,13 @@ type AgentEventBase =
    */
   | { type: "retro_digest"; count: number; line: string }
   /**
+   * Retro judgement batch (#1339): the gate passed but the closed-session
+   * selection came back empty — the batch could not run. Rate-limited
+   * (one per digest interval, durable); chrome only, never provider
+   * context. Exists so a dead batch is visible instead of silent.
+   */
+  | { type: "retro_batch_skipped"; reason: string }
+  /**
    * #400 single-writer guard: the session JSONL grew beyond what this
    * writer last appended (another machine over a sync channel, or a second
    * process). Chrome only: never provider context. Clients surface a
