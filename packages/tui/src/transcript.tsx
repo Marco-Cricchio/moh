@@ -223,6 +223,36 @@ const detailOf = (args: unknown, toolName?: string): string => {
   return truncate(sanitizeLine(rendered), 100);
 };
 
+/** #1310: bounded diff lines for a successful `edit`, derived from the
+ * logged `tool_call` args only (never a disk read) so resume, fork and
+ * replay project the same block byte for byte. Common prefix/suffix lines
+ * become context (up to 3 each side); the body is capped at 40 rows with a
+ * trailing `… N more lines` row. */
+const DIFF_BODY_CAP = 40;
+const DIFF_CONTEXT = 3;
+
+export function editDiffLines(oldText: string, newText: string): string[] {
+  const a = oldText.split("\n");
+  const b = newText.split("\n");
+  let start = 0;
+  while (start < a.length && start < b.length && a[start] === b[start]) start++;
+  let endA = a.length;
+  let endB = b.length;
+  while (endA > start && endB > start && a[endA - 1] === b[endB - 1]) { endA--; endB--; }
+  const lines: string[] = [];
+  const push = (sign: string, text: string) => lines.push(`${sign}${sanitizeLine(text)}`);
+  for (let i = Math.max(0, start - DIFF_CONTEXT); i < start; i++) push(" ", a[i]!);
+  for (let i = start; i < endA; i++) push("-", a[i]!);
+  for (let i = start; i < endB; i++) push("+", b[i]!);
+  for (let i = endA; i < Math.min(endA + DIFF_CONTEXT, a.length); i++) push(" ", a[i]!);
+  if (lines.length > DIFF_BODY_CAP) {
+    const kept = lines.slice(0, DIFF_BODY_CAP);
+    kept.push(`… ${lines.length - DIFF_BODY_CAP} more lines`);
+    return kept;
+  }
+  return lines;
+}
+
 /** Preserve source identity when a projection starts inside an assistant run. */
 export function assistantRunOrigin(events: readonly AgentEvent[], start: number): { startIndex: number; sourceOffset: number; previousLine: string } | undefined {
   if (events[start]?.type !== "assistant_delta" || events[start - 1]?.type !== "assistant_delta") return undefined;
@@ -805,6 +835,21 @@ export function projectTranscript(events: ReadonlyArray<AgentEvent>, options: { 
           const start = event.args && typeof event.args === "object" && typeof (event.args as { offset?: unknown }).offset === "number" ? (event.args as { offset: number }).offset : 1;
           const previewLines = result.output.split("\n").slice(0, options.filePreview === "always" ? 15 : 5);
           blocks.push({ key: `${key}-preview`, kind: "code", glyph: "⌨", type: "preview", detail: `${detailOf(event.args, event.name)} · ${start}–${start + Math.max(0, previewLines.length - 1)}`, lines: previewLines.map((line, lineIndex) => `${String(start + lineIndex).padStart(3)} │ ${sanitizeLine(line)}`) });
+        }
+        if (event.name === "edit" && state === "ok" && result?.ok) {
+          const args = event.args as { path?: unknown; oldText?: unknown; newText?: unknown };
+          if (typeof args.oldText === "string" && typeof args.newText === "string") {
+            const removed = args.oldText.split("\n").length;
+            const added = args.newText.split("\n").length;
+            blocks.push({
+              key: `${key}-diff`,
+              kind: "diff",
+              glyph: "±",
+              type: "edit",
+              detail: `${detailOf(event.args, event.name)} · +${added} −${removed}`,
+              lines: editDiffLines(args.oldText, args.newText),
+            });
+          }
         }
         break;
       }

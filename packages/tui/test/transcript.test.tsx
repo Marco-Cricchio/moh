@@ -6,7 +6,7 @@ import { beforeEach, afterEach } from "bun:test";
 import React from "react";
 import { render } from "ink-testing-library";
 import type { AgentEvent } from "@moh/core";
-import { blockTint, compactionCannotHelpNow, projectTranscript, assistantSegments, capReasoningText, closedPrefixLength, inertPrefixLength, openBlockStableRows, REASONING_DISPLAY_CAP, TranscriptBlockView } from "../src/transcript";
+import { blockTint, compactionCannotHelpNow, editDiffLines, projectTranscript, assistantSegments, capReasoningText, closedPrefixLength, inertPrefixLength, openBlockStableRows, REASONING_DISPLAY_CAP, TranscriptBlockView } from "../src/transcript";
 import { createMarkdownRenderer, renderMarkdownRows } from "../src/markdown";
 import { ThemeProvider, THEMES } from "../src/themes";
 import { stripAnsi } from "./helpers";
@@ -947,5 +947,54 @@ afterEach(() => { chalk.level = previousColorLevel; });
     expect(frame).toContain("┏");
     expect(frame.split("\n").every((row) => row.length <= 44)).toBe(true);
     ink.unmount();
+  });
+});
+
+describe("#1310: the edit tool shows its diff (kind: diff, revived)", () => {
+  const editEvents = (oldText: string, newText: string, ok = true): AgentEvent[] => [
+    { type: "tool_call", callId: "edit-1", name: "edit", args: { path: "src/foo.ts", oldText, newText } },
+    { type: "tool_result", callId: "edit-1", ok, output: ok ? "edited src/foo.ts" : `oldText not found in src/foo.ts` },
+  ];
+
+  test("a successful edit emits a bounded diff block beside the tool block", () => {
+    const blocks = projectTranscript(editEvents("alpha\nbeta\ngamma", "alpha\nbeta\ngamma!"));
+    const diff = blocks.find((block) => block.kind === "diff");
+    expect(diff).toBeDefined();
+    expect(diff!.glyph).toBe("±");
+    expect(diff!.type).toBe("edit");
+    expect(diff!.detail).toBe("src/foo.ts · +3 −3");
+    expect(diff!.lines).toEqual([
+      " alpha",
+      " beta",
+      "-gamma",
+      "+gamma!",
+    ]);
+    // the record of the call stays untouched
+    expect(blocks.some((block) => block.kind === "tool" && block.type === "edit")).toBe(true);
+  });
+
+  test("the diff derives from logged args only (no disk read) and stays deterministic", () => {
+    expect(projectTranscript(editEvents("a", "b"))).toEqual(projectTranscript(editEvents("a", "b")));
+  });
+
+  test("a failed edit keeps its error block — no invented diff", () => {
+    const blocks = projectTranscript(editEvents("a", "b", false));
+    expect(blocks.some((block) => block.kind === "diff")).toBe(false);
+    expect(blocks.some((block) => block.kind === "tool" && block.state === "fail")).toBe(true);
+  });
+
+  test("a long diff is capped at 40 body rows with a trailing count row", () => {
+    const oldText = Array.from({ length: 60 }, (_, i) => `old ${i}`).join("\n");
+    const newText = Array.from({ length: 60 }, (_, i) => `new ${i}`).join("\n");
+    const lines = editDiffLines(oldText, newText);
+    expect(lines).toHaveLength(41);
+    expect(lines[40]).toBe("… 80 more lines");
+    expect(lines[0]!.startsWith("-")).toBe(true);
+  });
+
+  test("vibe mode is unchanged: one plain-language line, no diff block", () => {
+    const blocks = projectTranscript(editEvents("a\nb", "a\nc"), { mode: "vibe" });
+    expect(blocks.some((block) => block.kind === "diff")).toBe(false);
+    expect(blocks.some((block) => block.kind === "moh")).toBe(true);
   });
 });

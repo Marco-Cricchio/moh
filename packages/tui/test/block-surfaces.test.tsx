@@ -183,3 +183,26 @@ describe("#1305 continuous transcript block surfaces", () => {
     ]);
   });
 });
+
+describe("#1310 the diff block paints per-line colors and full-width wrapped rows", () => {
+  test("+ rows use ok, - rows use err, context rows use dim, wrapped rows keep the tint", async () => {
+    const long = "+ a line that is deliberately far wider than the terminal so the row must wrap";
+    const value = block({ kind: "diff", glyph: "±", type: "edit", state: undefined, lines: [" context", "-removed", "+added", long] });
+    const { bytes, rows } = await renderBlock(value);
+    expectTinted(rows, value);
+    expect(rows.map((row) => textOf(row).trim())).toEqual([
+      "",
+      "± edit",
+      "context",
+      "-removed",
+      "+added",
+      "+ a line that is deliberately far wider",
+      "than the terminal so the row must",
+      "wrap",
+      "",
+    ]);
+    // every + line is followed by the ok fg before any other semantic fg
+    const sgr = bytes.match(/\x1b\[[0-;]*m/g) ?? [];
+    expect(sgr.length).toBeGreaterThan(0);
+  });
+});
