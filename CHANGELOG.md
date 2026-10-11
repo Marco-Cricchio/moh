@@ -7,6 +7,21 @@ matching section here at tag time.
 
 ## [Unreleased]
 
+## [0.64.5] - 2026-10-11
+
+### Fixed
+
+- **The `/retro` modal never overflows the terminal** (#1343, PR #1344): the
+  findings list was windowed on a guessed `rows - 12` budget while the
+  selected finding's evidence, proposal and status rendered as a fixed
+  block whose wrapped height the budget never counted — with long findings
+  the dialog outgrew the viewport and clipped its own borders. The whole
+  report is now one measured scroll body (`ScrollDialog` with rows weighted
+  by their `wrapLines` height, per #1042's measure-don't-estimate rule):
+  arrows still move the selection, the scroller keeps the detail in view,
+  hints stay fixed. 30 long findings render within a 24-row viewport with
+  `↑`/`↓ N more` indicators.
+
 ## [0.64.4] - 2026-10-11
 
 ### Fixed
@@ -2547,7 +2562,8 @@ security audit, each fixed behind its own PR.
   passed; a regression test pins the resolved path under
   `<home>/.moh/projects`.
 
-[Unreleased]: https://github.com/Marco-Cricchio/moh/compare/v0.64.4...develop
+[Unreleased]: https://github.com/Marco-Cricchio/moh/compare/v0.64.5...develop
+[0.64.5]: https://github.com/Marco-Cricchio/moh/compare/v0.64.4...v0.64.5
 [0.64.4]: https://github.com/Marco-Cricchio/moh/compare/v0.64.3...v0.64.4
 [0.64.3]: https://github.com/Marco-Cricchio/moh/compare/v0.64.2...v0.64.3
 [0.64.2]: https://github.com/Marco-Cricchio/moh/compare/v0.64.1...v0.64.2
