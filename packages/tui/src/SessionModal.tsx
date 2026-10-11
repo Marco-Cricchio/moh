@@ -1,8 +1,8 @@
-import React from "react";
+import React, { useState } from "react";
 import { Text, useInput } from "ink";
 import { PRICING_SNAPSHOT, type SessionAnalysisReport } from "@moh/core";
 import { useTheme } from "./themes";
-import { Dialog, Dim } from "./ui";
+import { Dim, ScrollDialog, type ScrollRow } from "./ui";
 
 /**
  * The session analysis modal (#767): opened with /session from chat. A
@@ -10,7 +10,8 @@ import { Dialog, Dim } from "./ui";
  * session's active branch: usage by model (pricing-snapshot convention),
  * tool health with errorKind breakdown, permission counts, shape and
  * tree stats, wall and tool durations. Same read-only metadata discipline
- * as the core report it renders.
+ * as the core report it renders. The body scrolls inside the viewport:
+ * long model/tool lists never overflow a short terminal.
  */
 export interface SessionModalProps {
   report: SessionAnalysisReport;
@@ -22,10 +23,14 @@ const formatUsd = (usd: number): string => `$${usd.toFixed(usd < 0.01 ? 4 : 2)}`
 const formatMs = (ms: number): string =>
   ms < 1000 ? `${ms}ms` : ms < 60_000 ? `${(ms / 1000).toFixed(1)}s` : `${Math.floor(ms / 60_000)}m ${Math.round((ms % 60_000) / 1000)}s`;
 
+const row = (node: React.ReactNode): ScrollRow => ({ node, weight: 1 });
+
 export function SessionModal({ report, onClose }: SessionModalProps) {
   const theme = useTheme();
+  const [, bump] = useState(0);
   useInput((_input, key) => {
     if (key.escape || _input === "q") return onClose();
+    if (_input === "r") return bump((n) => n + 1);
   });
 
   const priced = report.models.filter((m) => m.estimatedCostUsd !== undefined);
@@ -34,14 +39,16 @@ export function SessionModal({ report, onClose }: SessionModalProps) {
   const totalTok = report.models.reduce((a, m) => a + m.inputTokens + m.outputTokens, 0);
   const s = report.shape;
 
-  return (
-    <Dialog title=" session " color={theme.accent}>
-      <Text bold> usage by model</Text>
-      {report.models.length === 0 ? (
-        <Dim> no model calls on the active path</Dim>
-      ) : (
-        report.models.map((m) => (
-          <Text key={m.model}>
+  const rows: ScrollRow[] = [
+    row(<Text bold> usage by model</Text>),
+  ];
+  if (report.models.length === 0) {
+    rows.push(row(<Dim> no model calls on the active path</Dim>));
+  } else {
+    for (const m of report.models) {
+      rows.push(
+        row(
+          <Text>
             {" "}
             {m.model} <Dim>·</Dim> {num(m.calls)} call{m.calls === 1 ? "" : "s"} <Dim>·</Dim> {num(m.inputTokens)} in /{" "}
             {num(m.outputTokens)} out
@@ -52,10 +59,13 @@ export function SessionModal({ report, onClose }: SessionModalProps) {
             ) : (
               <Dim> · unpriced</Dim>
             )}
-          </Text>
-        ))
-      )}
-      <Text> </Text>
+          </Text>,
+        ),
+      );
+    }
+  }
+  rows.push(
+    row(
       <Text>
         {" "}
         {num(totalTok)} tokens · wall {formatMs(report.wallTimeMs)} · tools {formatMs(report.toolDurationMs)}
@@ -67,60 +77,75 @@ export function SessionModal({ report, onClose }: SessionModalProps) {
         ) : unpriced > 0 ? (
           <Dim> · no pricing for {unpriced} model{unpriced === 1 ? "" : "s"}</Dim>
         ) : null}
-      </Text>
-      <Dim> pricing snapshot {PRICING_SNAPSHOT.version}</Dim>
-
-      <Text> </Text>
-      <Text bold> tool health (calls / ok / fail)</Text>
-      {report.tools.length === 0 ? (
-        <Dim> no tool calls on the active path</Dim>
-      ) : (
-        report.tools.map((t) => {
-          const kinds =
-            t.errorKinds && Object.keys(t.errorKinds).length > 0
-              ? ` — ${Object.entries(t.errorKinds).map(([k, v]) => `${k}: ${v}`).join(", ")}`
-              : "";
-          return (
-            <Text key={t.tool}>
-              {" "}
-              {t.tool} <Dim>·</Dim> {t.calls} / {t.ok} / {t.fail}
-              {kinds ? <Text color={theme.warn}>{kinds}</Text> : null}
-            </Text>
-          );
-        })
-      )}
-
-      <Text> </Text>
-      <Text bold> shape</Text>
+      </Text>,
+    ),
+    row(<Dim> pricing snapshot {PRICING_SNAPSHOT.version}</Dim>),
+    row(<Text> </Text>),
+    row(<Text bold> tool health (calls / ok / fail)</Text>),
+  );
+  if (report.tools.length === 0) {
+    rows.push(row(<Dim> no tool calls on the active path</Dim>));
+  } else {
+    for (const t of report.tools) {
+      const kinds =
+        t.errorKinds && Object.keys(t.errorKinds).length > 0
+          ? ` — ${Object.entries(t.errorKinds).map(([k, v]) => `${k}: ${v}`).join(", ")}`
+          : "";
+      rows.push(
+        row(
+          <Text>
+            {" "}
+            {t.tool} <Dim>·</Dim> {t.calls} / {t.ok} / {t.fail}
+            {kinds ? <Text color={theme.warn}>{kinds}</Text> : null}
+          </Text>,
+        ),
+      );
+    }
+  }
+  rows.push(
+    row(<Text> </Text>),
+    row(<Text bold> shape</Text>),
+    row(
       <Text>
         {" "}
         {s.turns} turn{s.turns === 1 ? "" : "s"} ({s.done} done, {s.error} error, {s.cancelled} cancelled) ·{" "}
         {s.userMessages} user message{s.userMessages === 1 ? "" : "s"}
-      </Text>
+      </Text>,
+    ),
+    row(
       <Text>
         {" "}
         {s.compactions} compaction{s.compactions === 1 ? "" : "s"}
         {s.compactionFailures > 0 ? <Text color={theme.warn}> ({s.compactionFailures} failed)</Text> : null} ·{" "}
         {s.modelSwitches} model switch{s.modelSwitches === 1 ? "" : "es"} · {s.fallbacks} fallback
         {s.fallbacks === 1 ? "" : "s"}
-      </Text>
-
-      <Text> </Text>
-      <Text bold> permissions & tree</Text>
+      </Text>,
+    ),
+    row(<Text> </Text>),
+    row(<Text bold> permissions & tree</Text>),
+    row(
       <Text>
         {" "}
         {report.permissions.requested} requested · {report.permissions.granted} granted · {report.permissions.denied}{" "}
         denied
-      </Text>
+      </Text>,
+    ),
+    row(
       <Text>
         {" "}
         {report.tree.branchCount} branch{report.tree.branchCount === 1 ? "" : "es"} · {report.tree.activePathTurns}{" "}
         turn{report.tree.activePathTurns === 1 ? "" : "s"} on the active path · {report.tree.bookmarks} bookmark
         {report.tree.bookmarks === 1 ? "" : "s"}
-      </Text>
+      </Text>,
+    ),
+  );
 
-      <Text> </Text>
-      <Dim> esc / q close — snapshot at open, reopen for fresh numbers</Dim>
-    </Dialog>
+  return (
+    <ScrollDialog
+      title=" session "
+      color={theme.accent}
+      rows={rows}
+      footer={<Dim> esc / q close — snapshot at open, reopen for fresh numbers</Dim>}
+    />
   );
 }

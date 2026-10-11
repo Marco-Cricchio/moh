@@ -12,6 +12,7 @@ import {
 } from "@moh/core";
 import { useTheme } from "./themes";
 import { Dialog, Dim } from "./ui";
+import { useViewport, weightedWindowing } from "./viewport";
 import { SPINNER_FRAMES } from "./icons";
 import {
   parseAllowedHosts,
@@ -259,6 +260,40 @@ export function BrowserSetupModal({ cwd, home, hasSession = false, probe, instal
   // said here, where the option that fixes it is one row away.
   const headfulWithoutBuild = !setting.headless && !status.chromium.available;
 
+  // Vertical-overflow guarantee: the interactive option block scrolls
+  // inside the dialog on a squashed terminal. Chrome above (toolchain
+  // rows) and the busy/hosts edit states are small and stay fixed; the
+  // block below is what grows.
+  const viewport = useViewport();
+  const optionRows: { key: RowKey | null; node: React.ReactNode; weight: number }[] = [
+    { key: null, node: <Dim key="hd">this project — moh.json</Dim>, weight: 1 },
+    { key: "enabled", node: option("enabled", "enable the browser tool for this project", setting.enabled), weight: 1 },
+    { key: "headless", node: option("headless", "headless — a real Chrome window when off", setting.headless), weight: 1 },
+    { key: "hosts", node: action("hosts", `allowed hosts: ${setting.allowedHosts.join(", ") || "none"} — enter to edit`), weight: 1 },
+    { key: null, node: <Dim key="ul">all install options below are user-level: one toolchain serves every project</Dim>, weight: 1 },
+    { key: "chromium", node: option("chromium", `full Chromium build (${FULL_CHROMIUM_DOWNLOAD_SIZE}) — browser.headless: false`, withChromium), weight: 1 },
+    { key: "deps", node: option("deps", "system dependencies (may ask for your administrator password)", withDeps), weight: 1 },
+    { key: "install", node: action("install", `install playwright-core + the Chromium headless shell (${HEADLESS_SHELL_DOWNLOAD_SIZE})`), weight: 1 },
+  ];
+  const tailRows: React.ReactNode[] = [];
+  if (headfulWithoutBuild)
+    tailRows.push(
+      <Text key="hw" color={theme.warn}>
+        {` ⚠ headful needs the full Chromium build (${FULL_CHROMIUM_DOWNLOAD_SIZE}) — select it above, then install`}
+      </Text>,
+    );
+  if (error !== null) tailRows.push(<Text key="err" color={theme.err}>{`✗ ${error}`}</Text>);
+  // Chrome: border 2 + title + 4 toolchain rows + spacer + busy/hosts-less
+  // state + 2 tail rows + 2 hint rows ≈ … budget stays conservative; the
+  // cursor row is what must never scroll away.
+  const optionBudget = Math.max(3, viewport.rows - 15);
+  const optionWeights = optionRows.map((r) => r.weight);
+  // Window over ALL optionRows entries (headers included) but keep cursor
+  // visible: weightedWindowing on row indexes, cursor mapped to its index.
+  const cursorIndex = optionRows.findIndex((r) => r.key === ROWS[cursor]);
+  const allWin = weightedWindowing(optionWeights, cursorIndex < 0 ? 0 : cursorIndex, optionBudget);
+  const shownOptions = optionRows.slice(allWin.start, allWin.start + allWin.count);
+
   return (
     <Dialog title=" browser setup " color={theme.purple}>
       <Dim>{`toolchain  ${status.root}`}</Dim>
@@ -284,21 +319,12 @@ export function BrowserSetupModal({ cwd, home, hasSession = false, probe, instal
         </>
       ) : (
         <>
-          <Dim>this project — moh.json</Dim>
-          {option("enabled", "enable the browser tool for this project", setting.enabled)}
-          {option("headless", "headless — a real Chrome window when off", setting.headless)}
-          {action("hosts", `allowed hosts: ${setting.allowedHosts.join(", ") || "none"} — enter to edit`)}
-          <Text> </Text>
-            <Dim>all install options below are user-level: one toolchain serves every project</Dim>
-          {option("chromium", `full Chromium build (${FULL_CHROMIUM_DOWNLOAD_SIZE}) — browser.headless: false`, withChromium)}
-          {option("deps", "system dependencies (may ask for your administrator password)", withDeps)}
-          {action("install", `install playwright-core + the Chromium headless shell (${HEADLESS_SHELL_DOWNLOAD_SIZE})`)}
-          {headfulWithoutBuild && (
-            <Text color={theme.warn}>
-              {` ⚠ headful needs the full Chromium build (${FULL_CHROMIUM_DOWNLOAD_SIZE}) — select it above, then install`}
-            </Text>
+          {allWin.start > 0 && <Dim>{` ↑ ${optionWeights.slice(0, allWin.start).reduce((a, w) => a + w, 0)} more`}</Dim>}
+          {shownOptions.map(({ node }) => node)}
+          {allWin.start + allWin.count < optionRows.length && (
+            <Dim>{` ↓ ${optionWeights.slice(allWin.start + allWin.count).reduce((a, w) => a + w, 0)} more (↑↓ scroll)`}</Dim>
           )}
-          {error !== null && <Text color={theme.err}>{`✗ ${error}`}</Text>}
+          {tailRows}
           <Text> </Text>
           <Text color={theme.ok}>[enter / space] change · [i] install</Text>
           <Dim>↑↓ select · r re-check · esc {changed.current !== null ? "apply and close" : "close"}</Dim>

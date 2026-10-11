@@ -11,6 +11,7 @@ import {
   visibleListHeight,
   widthClass,
   windowing,
+  weightedWindowing,
 } from "../src/viewport";
 
 describe("viewport width classes (issue #65)", () => {
@@ -106,5 +107,31 @@ describe("home vertical degradation (#1023)", () => {
     expect(visibleListHeight(10, 14)).toBe(1);
     expect(visibleListHeight(10, 10)).toBe(1);
     expect(visibleListHeight(5, 24)).toBe(5);
+  });
+});
+
+describe("weightedWindowing (vertical-overflow guarantee for dialogs)", () => {
+  test("cursor row always inside the window, weights respected", () => {
+    const weights = [1, 1, 3, 1, 1, 1];
+    // Budget 5: cursor at the heavy row (index 2, weight 3) leaves room for
+    // one neighbor; the window grows around the cursor.
+    const win = weightedWindowing(weights, 2, 5);
+    expect(win.start).toBeLessThanOrEqual(2);
+    expect(win.start + win.count).toBeGreaterThan(2);
+    expect(weights.slice(win.start, win.start + win.count).reduce((a, w) => a + w, 0)).toBeLessThanOrEqual(5);
+  });
+
+  test("hidden weight reported for the more-indicators", () => {
+    const weights = Array.from({ length: 20 }, () => 1);
+    const win = weightedWindowing(weights, 0, 4);
+    expect(win.above).toBe(0);
+    expect(win.below).toBe(16);
+    expect(win.start).toBe(0);
+    expect(win.count).toBe(4);
+  });
+
+  test("degenerate budget still shows the cursor row", () => {
+    const win = weightedWindowing([5], 0, 2);
+    expect(win).toEqual({ start: 0, count: 1, above: 0, below: 0 });
   });
 });

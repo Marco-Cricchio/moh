@@ -175,6 +175,40 @@ export function windowing(total: number, cursor: number, budget: number): Window
 }
 
 /**
+ * Weight-aware cursor window (the generalization of LanesModal's
+ * `windowFor`, moved here so every cursor list shares it): grows the
+ * window around the cursor within `budget` visual lines, where a row may
+ * occupy more than one (a wrapped description, an asymmetry note).
+ */
+export function weightedWindowing(weights: number[], cursor: number, budget: number): Windowed & { count: number } {
+  if (weights.length === 0) return { start: 0, count: 0, above: 0, below: 0 };
+  const c = Math.min(cursor, weights.length - 1);
+  let start = c;
+  let end = c + 1;
+  let used = Math.min(weights[c]!, budget);
+  for (;;) {
+    let grew = false;
+    if (end < weights.length && used + weights[end]! <= budget) {
+      used += weights[end]!;
+      end++;
+      grew = true;
+    }
+    if (start > 0 && used + weights[start - 1]! <= budget) {
+      start--;
+      used += weights[start]!;
+      grew = true;
+    }
+    if (!grew) break;
+  }
+  return {
+    start,
+    count: end - start,
+    above: weights.slice(0, start).reduce((a, w) => a + w, 0),
+    below: weights.slice(end).reduce((a, w) => a + w, 0),
+  };
+}
+
+/**
  * Pre-wrap a paragraph into fixed-width lines (#1042): layout must be able
  * to count a wrapping block's rows before rendering it — a wrap="wrap" Text
  * decides its height at render time, after the budget is already spent.

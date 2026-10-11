@@ -8,6 +8,7 @@ import {
 } from "@moh/core";
 import { useTheme } from "./themes";
 import { Dialog, Dim } from "./ui";
+import { useViewport, weightedWindowing } from "./viewport";
 
 /**
  * The retro report surface (ADR-0075, #1275): opened with `/retro`. The
@@ -84,6 +85,14 @@ export function RetroModal({ cwd, readReport, dismiss, onClose }: RetroModalProp
 
   const application = selected ? proposeRetroApplication(selected) : null;
 
+  // Height-aware findings list: the rows scroll inside the dialog
+  // (vertical-overflow guarantee); the selected-finding block and the
+  // footer stay fixed below the window. The selected finding's row weighs
+  // 2 (row + full evidence line).
+  const viewport = useViewport();
+  const weights = findings.map((finding, i) => (i === clamped ? 2 : 1));
+  const win = weightedWindowing(weights, clamped, Math.max(3, viewport.rows - 12));
+
   return (
     <Dialog title=" retro findings " color={theme.accent}>
       {report === null ? (
@@ -97,14 +106,18 @@ export function RetroModal({ cwd, readReport, dismiss, onClose }: RetroModalProp
             : " — findings collect automatically as sessions close"}
         </Dim>
       ) : (
-        findings.map((finding, i) => (
-          <Text key={finding.signature} bold={i === clamped}>
-            {" "}
-            {i === clamped ? "▸" : " "} [{finding.category}] {pct(finding.confidence)}
-            {i === clamped ? "" : " "}
-            {i === clamped ? <Text> {finding.evidence}</Text> : <Dim> {finding.evidence.slice(0, 48)}</Dim>}
-          </Text>
-        ))
+        <>
+          {win.above > 0 && <Dim>{` ↑ ${win.above} more`}</Dim>}
+          {findings.slice(win.start, win.start + win.count).map((finding, i) => (
+            <Text key={finding.signature} bold={win.start + i === clamped}>
+              {" "}
+              {win.start + i === clamped ? "▸" : " "} [{finding.category}] {pct(finding.confidence)}
+              {win.start + i === clamped ? "" : " "}
+              {win.start + i === clamped ? <Text> {finding.evidence}</Text> : <Dim> {finding.evidence.slice(0, 48)}</Dim>}
+            </Text>
+          ))}
+          {win.below > 0 && <Dim>{` ↓ ${win.below} more (↑↓ scroll)`}</Dim>}
+        </>
       )}
 
       {selected ? (
