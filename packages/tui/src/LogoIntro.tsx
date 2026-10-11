@@ -1,8 +1,9 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { Box, Text, useInput } from "ink";
-import { LOGO_BANNER } from "./ui";
+import { LOGO_BANNER, SPLASH_BANNERS, pickSplashFont, type SplashFontName } from "./ui";
 import { useTheme } from "./themes";
-
+import { colorEnabled } from "./color";
+import { pickRampPreset, rampLogoRows, type RampPresetName } from "./logo-ramp";
 /** The startup intro duration: snappy on purpose — long enough to read as
  * an animation, short enough never to feel like a gate (~3s, skippable). */
 const DURATION_MS = 2800;
@@ -13,16 +14,25 @@ type Frame = string[];
 /** Pick one glyph uniformly. */
 const noise = () => GLYPHS[Math.floor(Math.random() * GLYPHS.length)]!;
 
+/** The splash banner rows for one mount: always "MoH", the randomness is
+ * the font (#1304). A font name that is not in the allow-list falls back to
+ * the settled `LOGO_BANNER` — the intro must never block or crash on a
+ * missing font. */
+function splashBanner(font?: SplashFontName): string[] {
+  if (font) return SPLASH_BANNERS[font] ?? LOGO_BANNER;
+  return SPLASH_BANNERS[pickSplashFont()] ?? LOGO_BANNER;
+}
+
 /**
  * Scatter/settle: every banner cell is random noise resolving to the real
  * character in a random order — a Matrix-style composition.
  */
-function scatterFrames(): Frame[] {
-  const cols = Math.max(...LOGO_BANNER.map((r) => r.length));
+function scatterFrames(banner: string[]): Frame[] {
+  const cols = Math.max(...banner.map((r) => r.length));
   const chars: Array<string | null> = [];
   const live: number[] = [];
-  for (let y = 0; y < LOGO_BANNER.length; y++) {
-    const row = LOGO_BANNER[y]!.padEnd(cols);
+  for (let y = 0; y < banner.length; y++) {
+    const row = banner[y]!.padEnd(cols);
     for (let x = 0; x < cols; x++) {
       const c = row[x] === " " ? null : row[x]!;
       chars.push(c);
@@ -35,7 +45,7 @@ function scatterFrames(): Frame[] {
   for (let s = 0; s <= steps; s++) {
     const settled = new Set(order.slice(0, Math.floor((s / steps) * order.length)));
     frames.push(
-      Array.from({ length: LOGO_BANNER.length }, (_, y) => {
+      Array.from({ length: banner.length }, (_, y) => {
         let line = "";
         for (let x = 0; x < cols; x++) {
           const i = y * cols + x;
@@ -50,26 +60,26 @@ function scatterFrames(): Frame[] {
 }
 
 /** Typewriter: the banner carves itself line by line. */
-function typewriterFrames(): Frame[] {
-  const text = LOGO_BANNER.join("\n");
+function typewriterFrames(banner: string[]): Frame[] {
+  const text = banner.join("\n");
   const total = text.length;
   const frames: Frame[] = [];
   for (let n = 0; n <= total; n += Math.max(2, Math.floor(total / 24))) {
     const done = text.slice(0, n).split("\n");
-    frames.push(LOGO_BANNER.map((_, y) => done[y] ?? ""));
+    frames.push(banner.map((_, y) => done[y] ?? ""));
   }
-  frames.push([...LOGO_BANNER]);
+  frames.push([...banner]);
   return frames;
 }
 
 /** Glitch: the settled banner flickers — sheared slices and glyph swaps
  * decaying to zero, like a signal locking in. */
-function glitchFrames(): Frame[] {
+function glitchFrames(banner: string[]): Frame[] {
   const frames: Frame[] = [];
   for (let s = 0; s < 22; s++) {
     const intensity = 1 - s / 22;
     frames.push(
-      LOGO_BANNER.map((row) => {
+      banner.map((row) => {
         if (Math.random() > intensity * 0.9) return row;
         const shift = Math.floor((Math.random() - 0.5) * 8 * intensity);
         const body = row
@@ -81,18 +91,18 @@ function glitchFrames(): Frame[] {
       }),
     );
   }
-  frames.push([...LOGO_BANNER]);
+  frames.push([...banner]);
   return frames;
 }
 
 /** Slide: the four rows slide in from alternating edges with easing. */
-function slideFrames(): Frame[] {
+function slideFrames(banner: string[]): Frame[] {
   const W = 26;
   const frames: Frame[] = [];
   for (let s = 0; s <= 16; s++) {
     const ease = 1 - Math.pow(1 - s / 16, 3);
     frames.push(
-      LOGO_BANNER.map((row, y) => {
+      banner.map((row, y) => {
         const offset = Math.round((1 - ease) * W * (y % 2 === 0 ? 1 : -1));
         if (offset > 0) return row.slice(offset) + " ".repeat(Math.min(offset, W));
         if (offset < 0) return " ".repeat(Math.min(-offset, W)) + row.slice(0, Math.max(0, W + offset));
@@ -106,11 +116,11 @@ function slideFrames(): Frame[] {
 /** Rain: glyph columns fall from above; where a drop lands, the real
  * character remains — the banner "prints" from the top down, column by
  * column with jitter. */
-function rainFrames(): Frame[] {
-  const cols = Math.max(...LOGO_BANNER.map((r) => r.length));
+function rainFrames(banner: string[]): Frame[] {
+  const cols = Math.max(...banner.map((r) => r.length));
   const chars: Array<string | null> = [];
-  for (let y = 0; y < LOGO_BANNER.length; y++) {
-    const row = LOGO_BANNER[y]!.padEnd(cols);
+  for (let y = 0; y < banner.length; y++) {
+    const row = banner[y]!.padEnd(cols);
     for (let x = 0; x < cols; x++) chars.push(row[x] === " " ? null : row[x]!);
   }
   // Each column gets a random landing step.
@@ -119,7 +129,7 @@ function rainFrames(): Frame[] {
   const frames: Frame[] = [];
   for (let s = 0; s <= steps; s++) {
     frames.push(
-      Array.from({ length: LOGO_BANNER.length }, (_, y) => {
+      Array.from({ length: banner.length }, (_, y) => {
         let line = "";
         for (let x = 0; x < cols; x++) {
           const target = chars[y * cols + x];
@@ -137,11 +147,11 @@ function rainFrames(): Frame[] {
 
 /** Unveil: a solid block sweeps left→right; behind it the banner is
  * revealed, ahead of it faint noise hints at what is coming. */
-function unveilFrames(): Frame[] {
-  const cols = Math.max(...LOGO_BANNER.map((r) => r.length));
+function unveilFrames(banner: string[]): Frame[] {
+  const cols = Math.max(...banner.map((r) => r.length));
   const chars: Array<string | null> = [];
-  for (let y = 0; y < LOGO_BANNER.length; y++) {
-    const row = LOGO_BANNER[y]!.padEnd(cols);
+  for (let y = 0; y < banner.length; y++) {
+    const row = banner[y]!.padEnd(cols);
     for (let x = 0; x < cols; x++) chars.push(row[x] === " " ? null : row[x]!);
   }
   const steps = 20;
@@ -149,7 +159,7 @@ function unveilFrames(): Frame[] {
   for (let s = 0; s <= steps; s++) {
     const edge = Math.floor((s / steps) * (cols + 4)) - 2;
     frames.push(
-      Array.from({ length: LOGO_BANNER.length }, (_, y) => {
+      Array.from({ length: banner.length }, (_, y) => {
         let line = "";
         for (let x = 0; x < cols; x++) {
           const target = chars[y * cols + x];
@@ -167,16 +177,16 @@ function unveilFrames(): Frame[] {
 
 /** Pulse: the banner fades in as expanding blocks from the center rows
  * outward, breathing (grow → shrink → grow) before locking. */
-function pulseFrames(): Frame[] {
+function pulseFrames(banner: string[]): Frame[] {
   const frames: Frame[] = [];
-  const rows = LOGO_BANNER.length;
+  const rows = banner.length;
   const seq = [0.2, 0.4, 0.6, 0.8, 1, 0.6, 0.8, 1, 1, 1]; // breathe, then hold
   for (const level of seq) {
     const mid = (rows - 1) / 2;
     frames.push(
-      LOGO_BANNER.map((_, y) => {
+      banner.map((_, y) => {
         const proximity = 1 - Math.abs(y - mid) / ((rows + 1) / 2);
-        return proximity >= level ? LOGO_BANNER[y]! : "";
+        return proximity >= level ? banner[y]! : "";
       }),
     );
   }
@@ -185,14 +195,14 @@ function pulseFrames(): Frame[] {
 
 /** Wave: a horizontal sine wobble rolls across the banner, amplitude
  * decaying to zero — the logo "sways" into place. */
-function waveFrames(): Frame[] {
-  const cols = Math.max(...LOGO_BANNER.map((r) => r.length));
+function waveFrames(banner: string[]): Frame[] {
+  const cols = Math.max(...banner.map((r) => r.length));
   const steps = 18;
   const frames: Frame[] = [];
   for (let s = 0; s <= steps; s++) {
     const amp = (1 - s / steps) * 6;
     frames.push(
-      LOGO_BANNER.map((row) => {
+      banner.map((row) => {
         const padded = row.padEnd(cols);
         let line = "";
         for (let x = 0; x < cols; x++) {
@@ -222,21 +232,46 @@ const STYLES = [
 /**
  * The startup intro (#Home): a random ASCII animation of the logo, centered
  * in the home area, then settles into the static banner position. Any
- * keystroke skips to the settled logo. Style is picked once per mount, so
- * every launch looks different.
+ * keystroke skips to the settled logo. Style and splash font are picked once
+ * per mount, so every launch looks different — always the word "MoH", the
+ * randomness is the font (#1304).
+ *
+ * The splash banner respects the settled logo's geometry gate (`banner`
+ * false on short terminals renders the inline one-liner instead, never
+ * overflowing the viewport); the tagline under the banner shares the
+ * settled screen's ramp preset so intro and settled Home agree.
  */
-export function LogoIntro({ onSkip }: { onSkip: () => void }) {
+export function LogoIntro({
+  onSkip,
+  splashFont,
+  banner: bannerFits = true,
+  rampPreset,
+}: {
+  onSkip: () => void;
+  /** Injected font for tests (determinism). */
+  splashFont?: SplashFontName;
+  /** Same gate as the settled Logo (homeBannerFits): no big banner where it
+   * would not fit. */
+  banner?: boolean;
+  /** Injected preset so intro and settled tagline share one ramp. */
+  rampPreset?: RampPresetName;
+}) {
   const theme = useTheme();
+  const preset = rampPreset ?? pickRampPreset();
   const style = useMemo(
     () => STYLES[Math.floor(Math.random() * STYLES.length)] ?? STYLES[0]!,
     [],
   );
+  const banner = useMemo(
+    () => (bannerFits ? splashBanner(splashFont) : LOGO_BANNER),
+    [bannerFits, splashFont],
+  );
   const frames = useMemo(() => {
-    const made = style.make();
+    const made = style.make(banner);
     // A style that yields nothing must not crash the render: fall back to
     // the settled banner as a single frame.
-    return made.length > 0 ? made : [[...LOGO_BANNER]];
-  }, [style]);
+    return made.length > 0 ? made : [[...banner]];
+  }, [style, banner]);
   const [tick, setTick] = useState(0);
   const total = frames.length;
   const delay = DURATION_MS / total;
@@ -266,6 +301,7 @@ export function LogoIntro({ onSkip }: { onSkip: () => void }) {
   // Render purity: the per-row flicker is seeded per frame, not re-rolled
   // inside the render body (nested updates from render crash Ink).
   const flicker = useMemo(() => frames.map(() => Math.random() > 0.2), [frames]);
+  const tagline = useMemo(() => rampLogoRows("My Own Harness", null, preset).tagline, [preset]);
   return (
     <Box flexDirection="column" alignItems="center">
       {frame.map((line, i) => (
@@ -273,6 +309,7 @@ export function LogoIntro({ onSkip }: { onSkip: () => void }) {
           {line}
         </Text>
       ))}
+      {bannerFits ? <Text>{tagline}</Text> : null}
     </Box>
   );
 }

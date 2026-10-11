@@ -1,6 +1,8 @@
 import React from "react";
 import { Box, Text } from "ink";
 import { useTheme } from "./themes";
+import { colorEnabled } from "./color";
+import { pickRampPreset, rampLogoRows, type RampPresetName } from "./logo-ramp";
 
 import { dialogWidth, useViewport } from "./viewport";
 import { sanitizeForDisplay } from "./render-sanitize";
@@ -62,11 +64,81 @@ export const LOGO_BANNER = [
   " /_/ /_/ /_/\\____/_/ /_/ ",
 ];
 
+/** The splash fonts (#1304), pre-rendered with figlet 1.12 `textSync("MoH")`
+ * and committed as literals — figlet is not a TUI dependency, and literals
+ * are greppable and dependency-free. The splash varies by font; the settled
+ * home logo stays the canonical Slant `LOGO_BANNER`. */
+export const SPLASH_BANNERS = {
+  Ghost: [
+    " _   .-')                 ('-. .-. ",
+    "( '.( OO )_              ( OO )  / ",
+    " ,--.   ,--.).-'),-----. ,--. ,--. ",
+    " |   `.'   |( OO'  .-.  '|  | |  | ",
+    " |         |/   |  | |  ||   .|  | ",
+    " |  |'.'|  |\\_) |  |\\|  ||       | ",
+    " |  |   |  |  \\ |  | |  ||  .-.  | ",
+    " |  |   |  |   `'  '-'  '|  | |  | ",
+    " `--'   `--'     `-----' `--' `--' ",
+  ],
+  Slant: LOGO_BANNER,
+  Block: [
+    "                                 ",
+    " _|      _|            _|    _|  ",
+    " _|_|  _|_|    _|_|    _|    _|  ",
+    " _|  _|  _|  _|    _|  _|_|_|_|  ",
+    " _|      _|  _|    _|  _|    _|  ",
+    " _|      _|    _|_|    _|    _|  ",
+    "                                 ",
+    "                                 ",
+  ],
+  Standard: [
+    "  __  __       _   _ ",
+    " |  \\/  | ___ | | | |",
+    " | |\\/| |/ _ \\| |_| |",
+    " | |  | | (_) |  _  |",
+    " |_|  |_|\\___/|_| |_|",
+    "                     ",
+  ],
+  Big: [
+    "  __  __       _    _ ",
+    " |  \\/  |     | |  | |",
+    " | \\  / | ___ | |__| |",
+    " | |\\/| |/ _ \\|  __  |",
+    " | |  | | (_) | |  | |",
+    " |_|  |_|\\___/|_|  |_|",
+    "                      ",
+    "                      ",
+  ],
+  Small: [
+    "  __  __     _  _ ",
+    " |  \\/  |___| || |",
+    " | |\\/| / _ \\ __ |",
+    " |_|  |_\\___/_||_|",
+    "                  ",
+  ],
+};
+
+export type SplashFontName = keyof typeof SPLASH_BANNERS;
+
+/** One splash font per mount, uniformly. Injectable for tests. */
+export function pickSplashFont(): SplashFontName {
+  const names = Object.keys(SPLASH_BANNERS) as SplashFontName[];
+  return names[Math.floor(Math.random() * names.length)]!;
+}
+
 /** moh logo (#292): the figlet-Slant banner with the "My Own Harness"
  * acronym and the version number on tall non-compact terminals; a one-liner
  * everywhere else. Acronym and version share the banner's centered column
- * so they stay aligned to each other. */
-export function Logo({ banner = true, version }: { banner?: boolean; version?: string }) {
+ * so they stay aligned to each other.
+ *
+ * #1304: tagline and version are painted from ONE continuous gradient ramp
+ * (one preset per mount; injectable for tests). With no color capability the
+ * rows degrade to the plain dim treatment (#880). */
+export function Logo({
+  banner = true,
+  version,
+  rampPreset,
+}: { banner?: boolean; version?: string; rampPreset?: RampPresetName }) {
   const theme = useTheme();
   if (!banner) {
     return (
@@ -75,11 +147,17 @@ export function Logo({ banner = true, version }: { banner?: boolean; version?: s
       </Text>
     );
   }
+  const preset = rampPreset ?? pickRampPreset();
+  const rows = rampLogoRows("My Own Harness", version ? `v${version}` : null, preset);
   return (
     <Box flexDirection="column" alignItems="center">
       <Text color={theme.accent}>{LOGO_BANNER.join("\n")}</Text>
-      <Dim>My Own Harness</Dim>
-      {version ? <Dim>{`v${version}`}</Dim> : null}
+      {colorEnabled() ? (
+        <Text>{rows.tagline}</Text>
+      ) : (
+        <Dim>My Own Harness</Dim>
+      )}
+      {rows.version !== null ? (colorEnabled() ? <Text>{rows.version}</Text> : <Dim>{rows.version}</Dim>) : null}
     </Box>
   );
 }
