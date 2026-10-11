@@ -7,13 +7,23 @@ matching section here at tag time.
 
 ## [Unreleased]
 
+## [0.62.0] - 2026-10-11
+
+### Added
+
+- **Logo splash and continuous gradient** (#1304, PR #1306): startup now
+  splashes the fixed text “MoH” in a randomly selected pre-rendered font;
+  the settled tagline and version share a continuous gradient ramp. The
+  font varies, never the text. Short terminals use the canonical fallback;
+  `NO_COLOR` renders plain dim rows. No runtime font dependency.
+
 ### Changed
 
-- **Continuous transcript surfaces** (#1305): tinted reply, tool, code,
-  diff, error and subagent blocks now paint every terminal column, including
-  indentation, timer heads and their lead-in/closing blank rows. Thinking
-  stays neutral without gap rows; user borders are unchanged. Untinted and
-  `NO_COLOR` rows retain their previous width.
+- **Continuous transcript surfaces** (#1305, PR #1307): tinted reply, tool,
+  code, diff, error and subagent blocks now paint every terminal column,
+  including indentation, timer heads and their lead-in/closing blank rows.
+  Thinking stays neutral without gap rows; user borders are unchanged.
+  Untinted and `NO_COLOR` rows retain their previous width.
 
 ## [0.61.3] - 2026-10-10
 
@@ -2392,7 +2402,8 @@ security audit, each fixed behind its own PR.
   passed; a regression test pins the resolved path under
   `<home>/.moh/projects`.
 
-[Unreleased]: https://github.com/Marco-Cricchio/moh/compare/v0.61.2...develop
+[Unreleased]: https://github.com/Marco-Cricchio/moh/compare/v0.62.0...develop
+[0.62.0]: https://github.com/Marco-Cricchio/moh/compare/v0.61.3...v0.62.0
 [0.61.3]: https://github.com/Marco-Cricchio/moh/compare/v0.61.2...v0.61.3
 [0.61.2]: https://github.com/Marco-Cricchio/moh/compare/v0.61.1...v0.61.2
 [0.61.1]: https://github.com/Marco-Cricchio/moh/compare/v0.61.0...v0.61.1
