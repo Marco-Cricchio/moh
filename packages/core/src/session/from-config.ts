@@ -520,6 +520,13 @@ export function sessionFromConfig(options: SessionFromConfigOptions): SessionFro
   const builtins = builtinTools(builtinOpts);
   browserDispose = builtinOpts.browserSession ? () => builtinOpts.browserSession!.dispose() : undefined;
 
+  // #1316: a client-supplied registry (e.g. the TUI adding tracker tools)
+  // replaces the builtins wholesale, silently dropping the browser tool
+  // the same call just registered — enabled + ready, yet absent from the
+  // session. The browser is core-owned registration: it survives any
+  // client override unless the client names its own `browser` tool.
+  const tools =
+    o.tools && builtins.browser && !o.tools.browser ? { ...o.tools, browser: builtins.browser } : o.tools ?? builtins;
   try {
     const session = new AgentSession({
       provider,
@@ -546,7 +553,7 @@ export function sessionFromConfig(options: SessionFromConfigOptions): SessionFro
             },
           }
         : {}),
-      tools: o.tools ?? builtins,
+      tools,
       mohHome,
       sessionFile: store.file,
       externalGrowth: () => store.externalGrowth(),
