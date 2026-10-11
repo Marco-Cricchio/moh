@@ -7,6 +7,28 @@ matching section here at tag time.
 
 ## [Unreleased]
 
+## [0.63.0] - 2026-10-11
+
+### Fixed
+
+- **Edit tool now shows its diff** (#1310, PR #1311): a successful `edit` in
+  dev mode renders a bounded `± diff` block beside the tool block — removed
+  lines in `err`, additions in `ok`, context dim — derived from the logged
+  `oldText`/`newText` args (no disk read), capped at 40 body rows with a
+  trailing `… N more lines` row. Failed edits keep the error block; vibe
+  mode is unchanged. The `diff` block kind, unreachable since #205, is
+  revived with its documented grammar.
+- **Anthropic subscription OAuth uses Bearer authentication** (#1312, PR
+  #1313): subscription tokens now use `Authorization: Bearer` (plus
+  `ANTHROPIC_OAUTH_BETA`) in both streaming and live model listing; API-key
+  endpoints retain the `x-api-key` path. This restores subscription access
+  and makes the live catalog include the current 5.5 models.
+
+### Changed
+
+- **Model catalog refresh**: 5 metered prices updated (routine OpenRouter
+  drift).
+
 ## [0.62.0] - 2026-10-11
 
 ### Added
@@ -2402,7 +2424,8 @@ security audit, each fixed behind its own PR.
   passed; a regression test pins the resolved path under
   `<home>/.moh/projects`.
 
-[Unreleased]: https://github.com/Marco-Cricchio/moh/compare/v0.62.0...develop
+[Unreleased]: https://github.com/Marco-Cricchio/moh/compare/v0.63.0...develop
+[0.63.0]: https://github.com/Marco-Cricchio/moh/compare/v0.62.0...v0.63.0
 [0.62.0]: https://github.com/Marco-Cricchio/moh/compare/v0.61.3...v0.62.0
 [0.61.3]: https://github.com/Marco-Cricchio/moh/compare/v0.61.2...v0.61.3
 [0.61.2]: https://github.com/Marco-Cricchio/moh/compare/v0.61.1...v0.61.2

@@ -240,6 +240,38 @@ describe("OpenCode session header (#798, docs/go MissingSessionID)", () => {
   });
 });
 
+describe("anthropic subscription credential rides the Bearer path (issue #134, stream side)", () => {
+  const headerOf = (model: unknown): Record<string, string> => {
+    const config = (model as { config: Record<string, unknown> }).config;
+    const h = config.headers;
+    if (typeof h === "function") return (h as () => Record<string, string>)();
+    return (h ?? {}) as Record<string, string>;
+  };
+
+  it("a subscription grant goes out as Authorization: Bearer, never x-api-key", async () => {
+    const mod = await import("../src/providers/ai-sdk");
+    const target = {
+      endpoint: new Endpoint({ name: "anthropic", kind: "anthropic", auth: { kind: "subscription" } }),
+      modelId: "claude-x",
+    };
+    const headers = headerOf(mod.languageModelFor(target, "oauth-token", undefined));
+    expect(headers.authorization).toBe("Bearer oauth-token");
+    expect(headers["x-api-key"]).toBeUndefined();
+    expect(headers["anthropic-beta"]).toContain("oauth-2025-04-20");
+  });
+
+  it("an api-key endpoint keeps the x-api-key path", async () => {
+    const mod = await import("../src/providers/ai-sdk");
+    const target = {
+      endpoint: new Endpoint({ name: "anthropic", kind: "anthropic", apiKey: "k" }),
+      modelId: "claude-x",
+    };
+    const headers = headerOf(mod.languageModelFor(target, "k", undefined));
+    expect(headers["x-api-key"]).toBe("k");
+    expect(headers.authorization).toBeUndefined();
+  });
+});
+
 describe("#873 bug 1: double-encoded tool call arguments", () => {
   it("parses string input at the stream tool-call event into object args", async () => {
     const h = harness([
