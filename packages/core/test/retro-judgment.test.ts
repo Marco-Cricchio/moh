@@ -10,11 +10,13 @@ import { join } from "node:path";
 import { afterEach, describe, expect, test } from "bun:test";
 import { RetroStore, retroSignature } from "../src/retro";
 import {
+  closedSessions,
   parseJudgmentFindings,
   retroTranscript,
   selectJudgmentBatch,
   RETRO_JUDGMENT_BATCH,
 } from "../src/retro-judgment";
+import { projectSessionsDir, newSessionId } from "../src/session-store";
 import { MockProvider } from "../src/mock-provider";
 import { AgentSession } from "../src/session/session";
 import { SessionStore } from "../src/session-store";
@@ -59,6 +61,25 @@ describe("judgement parser", () => {
 });
 
 describe("judgement batch selection", () => {
+  test("closedSessions speaks mohHome: resolves the project sessions under <mohHome>/projects/<slug>", () => {
+    const home = tempDir();
+    const mohHome = join(home, ".moh");
+    const project = tempDir();
+    // Production layout: SessionStore writes under <userHome>/.moh/projects/<slug>;
+    // projectSessionsDir speaks user home, so derive it the same way the fix does.
+    // Production layout: SessionStore.create writes under <userHome>/.moh/projects/<slug>
+    // with a valid session id; closedSessions must find it from the moh dotdir alone.
+    const dir = projectSessionsDir(project, join(mohHome, ".."));
+    mkdirSync(dir, { recursive: true });
+    const events: AgentEvent[] = [
+      { type: "session_start", schemaVersion: 1, promptVersion: "p" },
+      { type: "user_message", text: "closed session body" },
+    ] as unknown as AgentEvent[];
+    writeFileSync(join(dir, `${newSessionId()}.jsonl`), events.map((e) => JSON.stringify(e)).join("\n") + "\n");
+    const summaries = closedSessions(project, mohHome);
+    expect(summaries.length).toBe(1);
+  });
+
   test("reads closed sessions newest-first, skips the open one and unreadable files", () => {
     const dir = tempDir();
     const good = join(dir, "session-aaa.jsonl");
@@ -123,7 +144,7 @@ describe("judgement session integration", () => {
     const session = new AgentSession({
       provider: MockProvider.scripted([{ deltas: ["ok"], finish: "stop" as const }]),
       cwd,
-      mohHome: home,
+      mohHome: join(home, ".moh"),
       retro: { dir: store.dir },
       retroJudgment: async (input) => {
         seen.push(input.sessions.map((entry) => entry.id));
