@@ -1,4 +1,3 @@
-import { z } from "zod";
 import type {
   AgentEvent,
   FinishReason,
@@ -30,6 +29,7 @@ import { servingModelOf, selectedModelOf } from "../model-pair";
 import { normalizeProviderError } from "../provider-errors";
 import { PRICING_SNAPSHOT } from "../pricing";
 import { newUlid } from "./ulid";
+import { wireToolSchema } from "./wire-schema";
 import { endpointIdentity, ProviderError } from "../types";
 import type { AttemptTelemetry, EndpointIdentity, UsageProvenance } from "../types";
 import { quotaEventsFromProviderError, quotaRecoveryEvent, scopeKeyFor } from "../quota/telemetry";
@@ -735,7 +735,9 @@ export class AgentLoop {
           const toolSpecs: ToolSpec[] = Object.values(this.#tools()).map((t) => ({
             name: t.name,
             description: t.description,
-            ...(t.inputSchema ? { parameters: z.toJSONSchema(t.inputSchema) as Record<string, unknown> } : {}),
+            ...(t.inputSchema
+              ? { parameters: wireToolSchema(t.inputSchema) as Record<string, unknown> }
+              : {}),
           }));
           for await (const event of provider.stream(this.#messages, controller.signal, toolSpecs, this.#streamOptions())) {
             if (controller.signal.aborted) break;

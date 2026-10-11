@@ -158,6 +158,22 @@ describe("ToolRunner", () => {
     expect(executed).toBe(false);
   });
 
+  test("#1324: empty provider args produce an explicit no-arguments message", async () => {
+    const tool = makeTool({
+      name: "unioned",
+      inputSchema: z.discriminatedUnion("action", [
+        z.object({ action: z.literal("navigate"), url: z.string() }),
+        z.object({ action: z.literal("close") }),
+      ]),
+      execute: () => "never",
+    });
+    const { runner } = harness({ tools: { unioned: tool } });
+    const { parts } = await runner.run([call("unioned", {})], new AbortController().signal);
+    expect(parts[0]).toMatchObject({ ok: false });
+    expect((parts[0] as any).output).toContain("emitted the tool call with no arguments");
+    expect((parts[0] as any).output).not.toContain("discriminator");
+  });
+
   test("gate denial becomes a failed result", async () => {
     const tool = makeTool({ name: "gated", execute: () => "never" });
     const { runner } = harness({

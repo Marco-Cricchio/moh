@@ -63,10 +63,10 @@ describe("guardrail judgment record carries the verdict (#843)", () => {
 
   test("an ask records decision: ask with the key dimension and probability", async () => {
     const { result, record } = await judged(
-      okOutcome({ destructive: noul(0.42), in_scope: noul(0.9), exfiltration: noul(0.05), risk_level: score(0.6) }),
+      okOutcome({ destructive: noul(0.65), in_scope: noul(0.9), exfiltration: noul(0.05), risk_level: score(0.6) }),
     );
     expect(result.verdict.verdict).toBe("ask");
-    expect(record).toMatchObject({ useCase: "guardrail", decision: "ask", keyDimension: "destructive", keyProbability: 0.42 });
+    expect(record).toMatchObject({ useCase: "guardrail", decision: "ask", keyDimension: "destructive", keyProbability: 0.65 });
   });
 
   test("a deny records decision: deny with the key dimension and probability", async () => {
@@ -79,9 +79,9 @@ describe("guardrail judgment record carries the verdict (#843)", () => {
 
   test("an exfiltration-driven ask keys on exfiltration, not destructive", async () => {
     const { record } = await judged(
-      okOutcome({ destructive: noul(0.01), in_scope: noul(0.9), exfiltration: noul(0.5), risk_level: score(0.2) }),
+      okOutcome({ destructive: noul(0.01), in_scope: noul(0.9), exfiltration: noul(0.65), risk_level: score(0.2) }),
     );
-    expect(record).toMatchObject({ decision: "ask", keyDimension: "exfiltration", keyProbability: 0.5 });
+    expect(record).toMatchObject({ decision: "ask", keyDimension: "exfiltration", keyProbability: 0.65 });
   });
 
   test("a cache hit records the verdict too, including a deny's key probability (#843 review)", async () => {
