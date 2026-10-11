@@ -7,18 +7,27 @@ matching section here at tag time.
 
 ## [Unreleased]
 
+## [0.64.0] - 2026-10-11
+
 ### Fixed
 
-- **Retried provider failures keep their HTTP status** (#1318): a provider
-  error the AI SDK retried arrived as an opaque `Failed after 3 attempts.
-  Last error: …` wrapper, so a real `429` was classified `invalid_request` —
-  the route neither retried it nor moved down the fallback chain, and a
-  fallback target inherited a 15-minute refusal cooldown from a transient
-  condition. The normalizer now reads the failure the wrapper carries in
-  `lastError`/`errors` (status, message, response body, `Retry-After`), so a
-  wrapped failure behaves exactly like a direct one. The SDK's own retry
-  layer is off: retries belong to the Route, which owns the cooldowns and
-  the fallback chain (one attempt per model call, no double retry).
+- **Retried provider failures keep their HTTP status** (#1318, PR #1319): a
+  provider error the AI SDK retried arrived as an opaque `Failed after 3
+  attempts. Last error: …` wrapper, so a real `429` was classified
+  `invalid_request` — the route neither retried it nor moved down the
+  fallback chain, and a fallback target inherited a 15-minute refusal
+  cooldown from a transient condition. The normalizer now reads the failure
+  the wrapper carries in `lastError`/`errors` (status, message, response
+  body, `Retry-After`), so a wrapped failure behaves exactly like a direct
+  one. The SDK's own retry layer is off: retries belong to the Route, which
+  owns the cooldowns and the fallback chain (one attempt per model call, no
+  double retry).
+- **The core-registered browser tool survives a client tools override**
+  (#1316, PR #1320): `sessionFromConfig` discarded the whole built-in
+  registry whenever a client passed its own `tools`, dropping the `browser`
+  tool even when enabled and ready. The core-owned registration now
+  survives the overlay — a client can still replace any other tool, but it
+  can no longer silently un-register the browser one.
 
 ### Changed
 
@@ -34,6 +43,8 @@ matching section here at tag time.
   stderr line — naming the remedy: an API-key endpoint, and
   `moh provider logout <name>` for the stored tokens. Nothing is
   converted, deleted or called.
+- **Model catalog refresh**: 5 metered prices updated (routine OpenRouter
+  drift).
 
 ## [0.63.0] - 2026-10-11
 
@@ -2452,7 +2463,8 @@ security audit, each fixed behind its own PR.
   passed; a regression test pins the resolved path under
   `<home>/.moh/projects`.
 
-[Unreleased]: https://github.com/Marco-Cricchio/moh/compare/v0.63.0...develop
+[Unreleased]: https://github.com/Marco-Cricchio/moh/compare/v0.64.0...develop
+[0.64.0]: https://github.com/Marco-Cricchio/moh/compare/v0.63.0...v0.64.0
 [0.63.0]: https://github.com/Marco-Cricchio/moh/compare/v0.62.0...v0.63.0
 [0.62.0]: https://github.com/Marco-Cricchio/moh/compare/v0.61.3...v0.62.0
 [0.61.3]: https://github.com/Marco-Cricchio/moh/compare/v0.61.2...v0.61.3

@@ -1,17 +1,17 @@
 {
   "schemaVersion": 1,
-  "version": "0.63.0",
-  "generatedAt": "2026-10-11T07:54:13.391Z",
+  "version": "0.64.0",
+  "generatedAt": "2026-10-11T10:30:41.977Z",
   "sources": [
     {
       "name": "models.dev",
       "url": "https://models.dev/api.json",
-      "fetchedAt": "2026-10-11T07:54:12.986Z"
+      "fetchedAt": "2026-10-11T10:30:41.602Z"
     },
     {
       "name": "openrouter",
       "url": "https://openrouter.ai/api/v1/models",
-      "fetchedAt": "2026-10-11T07:54:13.241Z"
+      "fetchedAt": "2026-10-11T10:30:41.828Z"
     }
   ],
   "totals": {
@@ -919,7 +919,64 @@
   ],
   "contextWindowShrinks": [],
   "changes": {
-    "pricing": [],
+    "pricing": [
+      {
+        "provider": "openrouter",
+        "id": "deepseek/deepseek-v4-flash-0731",
+        "from": {
+          "input": 0.0143,
+          "output": 0.64,
+          "cacheRead": 0.0143
+        },
+        "to": {
+          "input": 0.0155,
+          "output": 0.64,
+          "cacheRead": 0.0155
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "z-ai/glm-5.3",
+        "from": {
+          "input": 0.039,
+          "output": 4.8,
+          "cacheRead": 0.038
+        },
+        "to": {
+          "input": 0.07,
+          "output": 4.8,
+          "cacheRead": 0.05
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "~deepseek/deepseek-v4-flash-latest",
+        "from": {
+          "input": 0.0143,
+          "output": 0.64,
+          "cacheRead": 0.0143
+        },
+        "to": {
+          "input": 0.0155,
+          "output": 0.64,
+          "cacheRead": 0.0155
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "~z-ai/glm-latest",
+        "from": {
+          "input": 0.039,
+          "output": 4.8,
+          "cacheRead": 0.038
+        },
+        "to": {
+          "input": 0.07,
+          "output": 4.8,
+          "cacheRead": 0.05
+        }
+      }
+    ],
     "contextWindow": [],
     "reasoning": []
   },
