@@ -1,4 +1,4 @@
-import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, test } from "bun:test";
@@ -74,5 +74,39 @@ describe("retro application gate", () => {
     const result = applyRetroApplication({ finding: finding("coding-standards"), projectRoot: root, confirm: true });
     expect(result).toMatchObject({ ok: false });
     expect(result.ok === false && result.error).toContain("does not exist");
+  });
+
+  test("createMissing applies to a steering file that does not exist yet, marking created", () => {
+    const root = tempDir();
+    const result = applyRetroApplication({ finding: finding("coding-standards"), projectRoot: root, confirm: true, createMissing: true });
+    expect(result).toMatchObject({ ok: true, appended: true, created: true });
+    const after = readFileSync(join(root, "CODING_STANDARDS.md"), "utf8");
+    expect(after).toContain("## Retro findings");
+    expect(after).toContain("add a rule:");
+    // A second apply is still idempotent, and the file is no longer "created".
+    expect(applyRetroApplication({ finding: finding("coding-standards"), projectRoot: root, confirm: true, createMissing: true })).toMatchObject({
+      ok: true,
+      appended: false,
+      created: false,
+    });
+  });
+
+  test("createMissing without confirm still writes nothing", () => {
+    const root = tempDir();
+    const result = applyRetroApplication({ finding: finding("coding-standards"), projectRoot: root, confirm: false, createMissing: true });
+    expect(result.ok).toBe(false);
+    expect(existsSync(join(root, "CODING_STANDARDS.md"))).toBe(false);
+  });
+
+  test("createMissing on a directory target escapes root is still refused", () => {
+    const root = tempDir();
+    const result = applyRetroApplication({
+      finding: finding("navigation"),
+      projectRoot: root,
+      confirm: true,
+      createMissing: true,
+      application: { kind: "navigation-pointer", target: "../outside.md", proposal: "x", section: "## Retro findings" },
+    });
+    expect(result.ok).toBe(false);
   });
 });
