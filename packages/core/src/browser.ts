@@ -146,9 +146,15 @@ async function installRouteGuard(
 ): Promise<void> {
   if (typeof page.route !== "function") return;
   await page.route("**/*", async (route: BrowserRouteLike) => {
-    if (route.resourceType() !== "document") return route.continue();
+    // playwright-core 1.63 does not expose Route.resourceType() at runtime
+    // (its own .d.ts claims otherwise); the request's resourceType is the
+    // same value and is present across builds.
+    const resourceType = route.request?.()?.resourceType?.() ?? route.resourceType?.();
+    if (resourceType !== "document") return route.continue();
     try {
-      await verify(route.url());
+      const url = route.request?.()?.url?.() ?? route.url?.();
+      if (url === undefined) return route.continue();
+      await verify(url);
     } catch (e) {
       return route.fulfill(blockedRouteResponse(e instanceof Error ? e.message : String(e)));
     }
@@ -268,8 +274,11 @@ export interface DownloadStagingOptions {
 }
 /** The playwright surface this module needs — structural, so tests can fake it. */
 export interface BrowserRouteLike {
-  url(): string;
-  resourceType(): string;
+  /** Absent on playwright-core 1.63 at runtime despite the .d.ts; `request.url()` is the portable form. */
+  url?(): string;
+  /** Absent on playwright-core 1.63 at runtime despite the .d.ts; `request.resourceType()` is the portable form. */
+  resourceType?(): string;
+  request?(): { url(): string; resourceType(): string } | undefined;
   continue(): Promise<void>;
   fulfill(options: { status: number; contentType: string; body: string }): Promise<void>;
 }
