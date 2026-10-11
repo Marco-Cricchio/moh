@@ -7,6 +7,14 @@ matching section here at tag time.
 
 ## [Unreleased]
 
+### Changed
+
+- **Continuous transcript surfaces** (#1305): tinted reply, tool, code,
+  diff, error and subagent blocks now paint every terminal column, including
+  indentation, timer heads and their lead-in/closing blank rows. Thinking
+  stays neutral without gap rows; user borders are unchanged. Untinted and
+  `NO_COLOR` rows retain their previous width.
+
 ## [0.61.3] - 2026-10-10
 
 ### Changed

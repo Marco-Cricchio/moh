@@ -199,7 +199,6 @@ describe("multi-row steering draft during reasoning (pty §3, #1022)", () => {
     // wipe). Ported assertions, mark/markEnd window included:
     //   framesAfterMark > 0      — repaints really happened in the window
     //   fullscreenAfterMark == 0 — no clearTerminal while streaming
-    //   maxFrameRowsAfterMark <= 14 — the frame follows the real footer
     //   rawBytes contains "draftword" — the keystrokes are never dropped
     // 14 rows is the smallest geometry where the old estimate broke.
     // Measured calibration (T6 debug session): at 14 rows the composer
@@ -225,12 +224,10 @@ describe("multi-row steering draft during reasoning (pty §3, #1022)", () => {
     term.screen.markEnd();
     expect(term.screen.counters.framesAfterMark, "repaints in the streaming window").toBeGreaterThan(0);
     expect(term.screen.counters.fullscreenAfterMark, "fullscreen frames during the window").toBe(0);
-    // The model counts the log-update payload's trailing newline as a
-    // frame row, so the widest volatile frame measures rows+1; the guard
-    // (as in the pty baseline) is that no frame reaches the fullscreen
-    // predicate — asserted above via fullscreenAfterMark == 0 — and that
-    // the painted span stays within the terminal (<= rows + that newline).
-    expect(term.screen.counters.maxFrameRowsAfterMark, "widest volatile frame").toBeLessThanOrEqual(15);
+    // A synchronized write can contain newly settled Static rows AND the
+    // volatile footer. Its total height grows with card gaps (#1305), so
+    // maxFrameRowsAfterMark is not a volatile-height oracle here; the Ink
+    // fullscreen verdict above is the scrollback-wipe guard.
     // The draft is still the user's text: the capped composer scrolls it,
     // it never drops the keystrokes.
     expect(term.rawBytes().toString("utf8")).toContain("draftword");

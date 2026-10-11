@@ -451,11 +451,12 @@ export function Markdown({ text, md, width, rowWidth, bg }: { text: string; md: 
  * foreground and looks identical white in every theme (#753 follow-up). */
 export function MarkdownRows({ rows, rowWidth, bg }: { rows: readonly string[]; rowWidth: number; bg?: string }) {
   const theme = useTheme();
-  return <>{rows.map((line, index) => (
-    <Box key={index} width={Math.max(1, rowWidth - 1)} backgroundColor={bg} paddingLeft={4} flexShrink={0}>
-      <Text>{parseAnsiSegments(line, theme.fg).map((segment, s) => (
-        <Text key={s} color={segment.color} bold={segment.bold} italic={segment.italic} strikethrough={segment.strikethrough}>{segment.text}</Text>
-      ))}{line.trim() === "" ? " " : null}</Text>
-    </Box>
-  ))}</>;
+  return <>{rows.map((line, index) => {
+    const text = <Text>{parseAnsiSegments(line, theme.fg).map((segment, s) => (
+      <Text key={s} color={segment.color} bold={segment.bold} italic={segment.italic} strikethrough={segment.strikethrough}>{segment.text}</Text>
+    ))}{line.trim() === "" ? " " : null}</Text>;
+    return bg === undefined
+      ? <Box key={index} width={Math.max(1, rowWidth - 1)} paddingLeft={4} flexShrink={0}>{text}</Box>
+      : <Box key={index} width={rowWidth} backgroundColor={bg} flexShrink={0}><Box backgroundColor={bg} marginLeft={4} flexGrow={1}>{text}</Box></Box>;
+  })}</>;
 }
