@@ -346,6 +346,41 @@ describe("listProviderModels", () => {
     expect(out.map((m) => m.id)).toEqual(["m1", "m2"]);
   });
 
+  test("a subscription token rides Authorization: Bearer, never x-api-key (invalid x-api-key fix)", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "moh-live-"));
+    try {
+      const { saveTokens } = await import("../src/auth/store");
+      const configFile = join(dir, ".moh", "config");
+      saveTokens(configFile, "anthropic", { accessToken: "oauth-token", updatedAt: 1 } as never);
+      let headers: Record<string, string> = {};
+      await listProviderModels("anthropic", "anthropic", {
+        configFile,
+        fetchImpl: async (_url, h) => {
+          headers = h;
+          return { status: 200, json: { data: [{ id: "claude-opus-5-5" }] } };
+        },
+      });
+      expect(headers.Authorization).toBe("Bearer oauth-token");
+      expect(headers["x-api-key"]).toBeUndefined();
+      expect(headers["anthropic-beta"]).toContain("oauth-2025-04-20");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("an inline api key keeps the x-api-key listing shape", async () => {
+    let headers: Record<string, string> = {};
+    await listProviderModels("anthropic", "e", {
+      apiKey: "sk-key",
+      fetchImpl: async (_url, h) => {
+        headers = h;
+        return { status: 200, json: { data: [{ id: "m1" }] } };
+      },
+    });
+    expect(headers["x-api-key"]).toBe("sk-key");
+    expect(headers.authorization).toBeUndefined();
+  });
+
   test("google paginates via nextPageToken and filters generateContent", async () => {
     const pages = [
       { models: [{ name: "models/a", displayName: "A", inputTokenLimit: 1000, supportedGenerationMethods: ["generateContent"] }], nextPageToken: "T2" },
