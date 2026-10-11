@@ -7,6 +7,17 @@ matching section here at tag time.
 
 ## [Unreleased]
 
+## [0.64.4] - 2026-10-11
+
+### Fixed
+
+- **The retro judgement batch actually fires** (#1339, PR #1340): the
+  ADR-0075 batch had never run — the gate passed, but the batch selection
+  saw zero sessions because of a mohHome/user-home unit mismatch, then
+  exited silently (the counter grew to 94 with no `lastRunAt`, no event, no
+  trace). The selection now resolves the user home once, and a
+  `retro_batch_skipped` chrome event makes every future skip visible.
+
 ## [0.64.3] - 2026-10-11
 
 ### Fixed
