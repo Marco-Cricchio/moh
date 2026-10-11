@@ -58,4 +58,20 @@ describe("wireToolSchema (#1324)", () => {
     expect(wire.type).toBe("object");
     expect(wire.required).toEqual(["action"]);
   });
+
+  it("flattens a union whose non-discriminator property is an enum (browser scroll)", () => {
+    const wire = gen(
+      z.discriminatedUnion("action", [
+        z.object({ action: z.literal("navigate"), url: z.string() }),
+        z.object({
+          action: z.literal("scroll"),
+          direction: z.enum(["up", "down"]).optional(),
+          amount: z.number().optional(),
+        }),
+      ]),
+    ) as { type?: string; oneOf?: unknown; properties?: Record<string, unknown> };
+    expect(wire.type).toBe("object");
+    expect(wire.oneOf).toBeUndefined();
+    expect(wire.properties?.direction).toBeDefined();
+  });
 });

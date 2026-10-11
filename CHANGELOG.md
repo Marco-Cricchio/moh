@@ -7,6 +7,34 @@ matching section here at tag time.
 
 ## [Unreleased]
 
+## [0.64.2] - 2026-10-11
+
+### Fixed
+
+- **The browser tool schema actually flattens on the wire** (#1324, PR
+  #1330): the v0.64.1 flattening was a silent no-op for the one builtin
+  that needed it — `discriminatorName()` treated any `enum` property as a
+  discriminator candidate, and the browser union's `scroll` variant carries
+  `direction: z.enum`, so two candidates were found and the raw `oneOf`
+  shipped anyway (verified by loopback captures on both wires). Only
+  `const` — what `z.literal` compiles to — is a discriminator now;
+  `enum`-valued variant properties are ordinary payload. The real
+  13-variant browser schema flattens to a flat object with only `action`
+  required, confirmed on openai-chat and openai-responses.
+- **Info modals never overflow the terminal height** (PR #1331): `/session`,
+  `/extensions`, `/mpm`, the usage-quota modal, `/jev`, `/retro` and
+  `/browser` all rendered their whole body and spilled past the viewport on
+  short terminals. One shared scroll seam — `ScrollDialog` over a
+  weight-aware `weightedWindowing` — bounds every dialog body, with
+  `↑ N more / ↓ N more` indicators and `↑↓`/`j`/`k` scrolling.
+- **The logo-intro PTY test can no longer miss its needle** (#1332, PR
+  #1333): the harness pumps ~2.5 s of boot before the steps run, so the
+  `since=len(buf)` guard could never match a "New session" the intro had
+  already painted — the 6 s budget burned to expiry on slow hosts (two
+  same-day CI failures). The script now skips the intro immediately and
+  opts into the #1045 entry-buffer match (`untilFromBuffer`); no harness
+  change, the budget stays only as a slow-host ceiling.
+
 ## [0.64.1] - 2026-10-11
 
 ### Fixed
@@ -2493,7 +2521,8 @@ security audit, each fixed behind its own PR.
   passed; a regression test pins the resolved path under
   `<home>/.moh/projects`.
 
-[Unreleased]: https://github.com/Marco-Cricchio/moh/compare/v0.64.1...develop
+[Unreleased]: https://github.com/Marco-Cricchio/moh/compare/v0.64.2...develop
+[0.64.2]: https://github.com/Marco-Cricchio/moh/compare/v0.64.1...v0.64.2
 [0.64.1]: https://github.com/Marco-Cricchio/moh/compare/v0.64.0...v0.64.1
 [0.64.0]: https://github.com/Marco-Cricchio/moh/compare/v0.63.0...v0.64.0
 [0.63.0]: https://github.com/Marco-Cricchio/moh/compare/v0.62.0...v0.63.0

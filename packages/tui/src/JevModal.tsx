@@ -3,6 +3,7 @@ import { Text, useInput } from "ink";
 import { JEV_USE_CASES, JEV_USE_CASE_DESCRIPTIONS, type JevUseCase, type JevUseCaseAction, type JevUseCaseSnapshot, type JevUseCaseState } from "@moh/jev-guard";
 import { useTheme } from "./themes";
 import { Dialog, Dim, Footer, truncate } from "./ui";
+import { useViewport, weightedWindowing, wrapLines } from "./viewport";
 import { readJevState, type ExtensionStateReader } from "./jev-control";
 
 /**
@@ -91,6 +92,7 @@ export function sessionOnlyNote(state: JevUseCaseState): string | null {
 
 export function JevModal({ active, read, send, onClose }: JevModalProps) {
   const theme = useTheme();
+  const viewport = useViewport();
   const [cursor, setCursor] = useState(0);
   const [snapshot, setSnapshot] = useState<JevUseCaseSnapshot | null>(() => readJevState(read));
   const [message, setMessage] = useState<string | null>(null);
@@ -184,15 +186,31 @@ export function JevModal({ active, read, send, onClose }: JevModalProps) {
     );
   }
 
+  // Height-aware list: the rows scroll inside the dialog (vertical-overflow
+  // guarantee). Each row weighs 1, plus its asymmetry note and the wrapped
+  // description lines of the selected row.
+  const descriptionWidth = Math.max(20, Math.round(viewport.columns * 0.72) - 10);
+  const weights = JEV_USE_CASES.map((usecase, i) => {
+    const state = snapshot?.[usecase];
+    let weight = 1;
+    if (state && sessionOnlyNote(state) !== null) weight += 1;
+    if (i === cursor) weight += wrapLines(JEV_USE_CASE_DESCRIPTIONS[usecase] ?? "", descriptionWidth).length;
+    return weight;
+  });
+  // Chrome: border 2 + title + header dim + spacer + footer + indicator ≈ 7.
+  const win = weightedWindowing(weights, cursor, Math.max(3, viewport.rows - 7));
+
   return (
     <Dialog title=" jev use cases " color={theme.purple} width="72%">
       <Dim>this session only — the Settings entry is what the next session starts in</Dim>
       <Text> </Text>
       {snapshot === null && <Dim> the extension is still starting — no state to read yet (r tries again)</Dim>}
+      {snapshot !== null && win.above > 0 && <Dim>{` ↑ ${weights.slice(0, win.start).reduce((a, w) => a + w, 0)} more`}</Dim>}
       {snapshot !== null &&
-        JEV_USE_CASES.map((usecase, i) => {
+        JEV_USE_CASES.slice(win.start, win.start + win.count).map((usecase, i) => {
           const state = snapshot[usecase];
-          const selected = i === cursor;
+          const index = win.start + i;
+          const selected = index === cursor;
           const color = statusColor(state.status);
           const asymmetry = sessionOnlyNote(state);
           return (
@@ -215,6 +233,7 @@ export function JevModal({ active, read, send, onClose }: JevModalProps) {
             </React.Fragment>
           );
         })}
+      {snapshot !== null && win.below > 0 && <Dim>{` ↓ ${win.below} more`}</Dim>}
       <Text> </Text>
       {message !== null && <Text color={theme.accent}> {message}</Text>}
       {message !== null && <Text> </Text>}

@@ -6,6 +6,7 @@ import Table from "cli-table3";
 import { fgAnsi256 } from "./color";
 import { useTheme } from "./themes";
 import { Dialog, Dim, formatCount } from "./ui";
+import { useViewport } from "./viewport";
 import { SPINNER_FRAMES } from "./icons";
 
 /**
@@ -112,26 +113,63 @@ export function QuotaModal({ endpoints, localUsage, recentUsage, probe, onClose 
   const anyUnavailable = probed.some((e) => reports[e.name] === null);
   const spinner = SPINNER_FRAMES[tick % SPINNER_FRAMES.length]!;
 
+  // Vertical-overflow guarantee: the body is a list of measured blocks
+  // (per-endpoint table, notes) windowed to the terminal height, and the
+  // local tables cap their data rows to what is left. Tables render as
+  // plain (ANSI-colored) strings, so a block's height is its line count.
+  const viewport = useViewport();
+  const budget = Math.max(4, viewport.rows - 6);
+
+  type Block = { lines: number; node: React.ReactNode };
+  const blocks: Block[] = [];
+  const loadingRow = probed.length === 0 && loading;
+  for (const e of probed) {
+    const state = reports[e.name];
+    if (state === undefined || state === "loading") {
+      blocks.push({ lines: 1, node: <Text key={e.name}><Text bold>{` ${e.name}`}</Text><Dim>{` ${spinner} probing…`}</Dim></Text> });
+    } else if (state === null) {
+      blocks.push({ lines: 1, node: <Text key={e.name}><Text bold>{` ${e.name}`}</Text><Dim> — no quota source</Dim></Text> });
+    } else {
+      const table = quotaEndpointTable(e.name, state, theme);
+      blocks.push({ lines: state.windows.length + 3, node: <Text key={e.name}>{table}</Text> });
+    }
+  }
+  if (anyUnavailable) blocks.push({ lines: 1, node: <Dim key="unavail"> provider quota unavailable — local measurement only</Dim> });
+  if (openCodeEndpoints.length > 0)
+    blocks.push({ lines: 1, node: <Dim key="opencode">{` OpenCode usage: ${OPENCODE_CONSOLE_URL} · local measurement below`}</Dim> });
+
+  const fixedLines = (loadingRow ? 1 : 0) + 3; // footer hint + local-table header/note rows
+  let remaining = budget - fixedLines;
+  const visibleBlocks: React.ReactNode[] = [];
+  let localRoom = 0;
+  for (const block of blocks) {
+    if (remaining <= 0) break;
+    const take = Math.min(block.lines, remaining);
+    visibleBlocks.push(block.node);
+    remaining -= take;
+  }
+  localRoom = Math.max(0, remaining);
+  const hasRecent = recentUsage !== undefined && recentUsage !== null && recentUsage.models.length > 0;
+  const recentRows = hasRecent ? recentUsage!.models.length + 3 : 0;
+  const recentBudget = hasRecent ? Math.min(recentRows, Math.max(0, Math.floor(localRoom / 2))) : 0;
+  const currentBudget = Math.max(0, localRoom - recentBudget);
+
   return (
     <Dialog title=" usage quota " color={theme.ok}>
-      {probed.length === 0 && loading && <Dim>{`${spinner} probing provider quota…`}</Dim>}
-      {probed.map((e) => (
-        <QuotaEndpointTable key={e.name} name={e.name} state={reports[e.name]} spinner={spinner} />
-      ))}
-      {anyUnavailable && <Dim> provider quota unavailable — local measurement only</Dim>}
-      {openCodeEndpoints.length > 0 && (
-        <Dim>{` OpenCode usage: ${OPENCODE_CONSOLE_URL} · local measurement below`}</Dim>
-      )}
+      {loadingRow && <Dim>{`${spinner} probing provider quota…`}</Dim>}
+      {visibleBlocks}
       <LocalTable
         title="local measured (this session)"
         note={`estimated USD · pricing snapshot ${PRICING_SNAPSHOT.version}`}
         rows={localUsage}
         empty="no model calls yet"
+        maxRows={currentBudget - 3}
       />
-      {recentUsage && recentUsage.models.length > 0 ? (
+      {hasRecent ? (
         <LocalTable
-          title={`local measured (last ${recentUsage.window} sessions)`}
-          rows={recentUsage.models}
+          title={`local measured (last ${recentUsage!.window} sessions)`}
+          rows={recentUsage!.models}
+          maxRows={recentBudget - 2}
         />
       ) : null}
       <Dim> ● documented · ○ provider-reported · r refresh · esc close</Dim>
@@ -139,28 +177,14 @@ export function QuotaModal({ endpoints, localUsage, recentUsage, probe, onClose 
   );
 }
 
-/** One bordered table per endpoint: the header row carries the endpoint
- * name (plus the source badge); each quota window is a body cell with
- * label, detail, bar and reset — probing and null states stay single
- * dim rows, they are not worth a frame. */
-function QuotaEndpointTable({ name, state, spinner }: { name: string; state: QuotaReport | null | "loading" | undefined; spinner: string }) {
-  const theme = useTheme();
-  if (state === undefined || state === "loading") {
-    return (
-      <Text>
-        <Text bold>{` ${name}`}</Text>
-        <Dim>{` ${spinner} probing…`}</Dim>
-      </Text>
-    );
-  }
-  if (state === null) {
-    return (
-      <Text>
-        <Text bold>{` ${name}`}</Text>
-        <Dim> — no quota source</Dim>
-      </Text>
-    );
-  }
+/** The endpoint's quota table as a rendered string: the header row carries
+ * the endpoint name (plus the source badge); each quota window is a body
+ * cell with label, detail, bar and reset. */
+function quotaEndpointTable(
+  name: string,
+  state: QuotaReport,
+  theme: { ok?: string; warn?: string; err?: string; dim?: string },
+): string {
   const badge = state.source === "official" ? "●" : "○";
   const t = new Table({
     // Runtime supports {content, colSpan} header cells; the type defs
@@ -186,7 +210,7 @@ function QuotaEndpointTable({ name, state, spinner }: { name: string; state: Quo
       `${fg(theme.dim)}${reset}\x1b[39m`,
     ]);
   }
-  return <Text>{cleanTable(t.toString())}</Text>;
+  return cleanTable(t.toString());
 }
 
 const BAR_CELLS = 12;
@@ -227,11 +251,14 @@ interface LocalTableProps {
   note?: string;
   rows: LocalUsageRow[];
   empty?: string;
+  /** Vertical-overflow guarantee: at most this many data rows; the rest
+   * are cut with a "…N more" marker. Undefined = no cap (tests). */
+  maxRows?: number;
 }
 
 /** Fixed-column local usage table: model | in | out | calls | est. USD,
  * numbers right-aligned in their cells, colored total row at the foot. */
-function LocalTable({ title, note, rows, empty }: LocalTableProps) {
+function LocalTable({ title, note, rows, empty, maxRows }: LocalTableProps) {
   const theme = useTheme();
   const hasCost = rows.some((r) => r.estimatedCostUsd !== undefined);
   const total = rows.reduce(
@@ -245,7 +272,9 @@ function LocalTable({ title, note, rows, empty }: LocalTableProps) {
     style: { head: [], border: ["grey"] },
     chars: ROUND_CHARS,
   });
-  for (const r of rows) {
+  const shown = maxRows !== undefined && maxRows >= 0 ? rows.slice(0, maxRows) : rows;
+  const cut = rows.length - shown.length;
+  for (const r of shown) {
     const cells = [r.model, formatCount(r.inputTokens), formatCount(r.outputTokens), String(r.calls)];
     if (hasCost) cells.push(r.estimatedCostUsd === undefined ? "—" : formatUsd(r.estimatedCostUsd));
     t.push(cells);
@@ -266,6 +295,7 @@ function LocalTable({ title, note, rows, empty }: LocalTableProps) {
       <Text bold>{` ${title}`}</Text>
       {note !== undefined && <Dim>{` ${note}`}</Dim>}
       {rows.length === 0 ? <Dim>{` ${empty ?? ""}`}</Dim> : <Text>{cleanTable(t.toString())}</Text>}
+      {cut > 0 && <Dim>{` …and ${cut} more model(s)`}</Dim>}
     </>
   );
 }

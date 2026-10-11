@@ -150,7 +150,9 @@ describe("MpmModal inspection view (#619)", () => {
   });
 
   test("fallback reason is surfaced when present", async () => {
-    const { instance } = mountModal({ fallbackReason: "stale" });
+    // Sparse fixture: the full one scrolls in the test terminal's 24 rows,
+    // and the fallback line is the last row — keep it inside the window.
+    const { instance } = mountModal({ staleCount: 0, pendingWork: 0, exclusions: [], fallbackReason: "stale" });
     await waitFor(instance, "stale");
     expect(stripAnsi(instance.lastFrame()!)).toContain("mapped paths stale");
   });

@@ -90,6 +90,7 @@ export const COMMANDS: ReadonlyArray<{ area: string; keys: ReadonlyArray<[string
     area: "Modals",
     keys: [
       ["y / a / e / n", "permission: yes / always / edit / no"],
+      ["↑ / ↓ (or j / k)", "scroll the body of a read-only modal taller than the terminal (/session, /extensions, /mpm, /jev, /retro, /browser)"],
       ["esc", "close panel (deny when permission asks)"],
     ],
   },

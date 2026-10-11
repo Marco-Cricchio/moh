@@ -23,7 +23,11 @@ function discriminatorName(variants: VariantSchema[]): string | null {
   let name: string | null = null;
   for (const v of variants) {
     for (const [key, prop] of Object.entries(v.properties ?? {})) {
-      if ("const" in prop || "enum" in prop) {
+      // Only `const` (a z.literal) can be a discriminator. `enum` cannot:
+      // a variant carrying its own enum property (browser `scroll.direction`,
+      // required in its own variant by zod's compilation) would otherwise
+      // read as a second candidate and the flatten is refused — #1324.
+      if ("const" in prop) {
         if (name === null) name = key;
         else if (name !== key) return null;
       }
