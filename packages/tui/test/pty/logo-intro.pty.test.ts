@@ -24,6 +24,10 @@ describe.skipIf(!hasPython)("splash intro on a tall terminal (PTY)", () => {
         // expiry (#1326's widening could not fix that).
         { send: "\r" },
         { wait: 6.0, until: "New session", untilFromBuffer: true },
+        // #1332: with untilFromBuffer the wait resolves at entry when the
+        // settled home is already painted; 6.0 is only a slow-host ceiling,
+        // not the mechanism (the issue asked for no fixed-constant widening
+        // — the structural fix is the reordered steps + the opt-in).
       ],
       tail: 30,
     });
