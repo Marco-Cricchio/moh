@@ -41,25 +41,28 @@ function valuesOf(v: VariantSchema, key: string): unknown[] | null {
 }
 
 export function wireSchema(raw: JsonObject): JsonObject {
-  const key = "oneOf" in raw ? "oneOf" : "anyOf" in raw ? "anyOf" : null;
-  if (!key) return raw;
-  const variants = raw[key];
+  const unionKey = "oneOf" in raw ? "oneOf" : "anyOf" in raw ? "anyOf" : null;
+  if (!unionKey) return raw;
+  const variants = raw[unionKey];
   if (!Array.isArray(variants) || variants.length === 0) return raw;
   if (!variants.every((v) => v && typeof v === "object" && (v as VariantSchema).type === "object")) return raw;
 
-  const vs = variants as VariantSchema[];
-  const disc = discriminatorName(vs);
+  const disc = discriminatorName(variants as VariantSchema[]);
+  // A variant without the discriminator would silently vanish from the
+  // wire enum — refuse to flatten rather than widen the schema.
+  if (!disc || variants.some((v) => !valuesOf(v as VariantSchema, disc))) return raw;
   const properties: Record<string, JsonObject> = {};
-  if (disc) {
-    const values: unknown[] = [];
-    for (const v of vs) {
-      for (const value of valuesOf(v, disc) ?? []) {
-        if (!values.includes(value)) values.push(value);
-      }
+  const values: unknown[] = [];
+  for (const v of variants as VariantSchema[]) {
+    for (const value of valuesOf(v, disc) ?? []) {
+      if (!values.includes(value)) values.push(value);
     }
-    properties[disc] = { type: "string", enum: values };
   }
-  for (const v of vs) {
+  properties[disc] = {
+    ...(values.every((v) => typeof v === "string") ? { type: "string" } : {}),
+    enum: values,
+  };
+  for (const v of variants as VariantSchema[]) {
     for (const [propKey, prop] of Object.entries(v.properties ?? {})) {
       if (propKey === disc) continue;
       properties[propKey] = { ...prop };
@@ -67,7 +70,7 @@ export function wireSchema(raw: JsonObject): JsonObject {
   }
   // Keep only the requirements shared by every variant; per-variant
   // required keys are enforced by the zod schema at validation time.
-  const required = vs
+  const required = (variants as VariantSchema[])
     .map((v) => new Set(v.required ?? []))
     .reduce((common, set) => new Set([...common].filter((k) => set.has(k))));
   return { type: "object", properties, required: [...required], additionalProperties: false };

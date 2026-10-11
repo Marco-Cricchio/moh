@@ -7,6 +7,26 @@ matching section here at tag time.
 
 ## [Unreleased]
 
+### Fixed
+
+- **Browser tool works on openai-chat providers** (#1324): the tool schema a
+  `discriminatedUnion` produced on the wire was a bare top-level `oneOf` —
+  strict backends (Zen/DeepSeek) rejected the whole request with a 400 and
+  lenient ones (Z.ai) answered with calls carrying no arguments at all.
+  Tool specs are now flattened to a single object schema (the discriminator
+  becomes an enum, only shared required keys stay) while the zod union
+  remains the validation schema; a tool call that arrives with no
+  arguments reports that instead of the raw discriminator error.
+
+- **Browser tool works on openai-chat providers** (#1324): the tool schema a
+  `discriminatedUnion` produced on the wire was a bare top-level `oneOf` —
+  strict backends (Zen/DeepSeek) rejected the whole request with a 400 and
+  lenient ones (Z.ai) answered with calls carrying no arguments at all.
+  Tool specs are now flattened to a single object schema (the discriminator
+  becomes an enum, only shared required keys stay) while the zod union
+  remains the validation schema; a tool call that arrives with no
+  arguments reports that instead of the raw discriminator error.
+
 ## [0.64.0] - 2026-10-11
 
 ### Fixed

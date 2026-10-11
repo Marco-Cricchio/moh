@@ -34,12 +34,11 @@ describe("wireToolSchema (#1324)", () => {
     expect(wire.additionalProperties).toBe(false);
   });
 
-  it("flattens a plain union of objects the same way (anyOf)", () => {
+  it("leaves a plain union of objects (no discriminator) untouched", () => {
     const wire = gen(
       z.union([z.object({ ref: z.string() }), z.object({ ref: z.string(), text: z.string() })]),
-    ) as { type?: string; required?: string[] };
-    expect(wire.type).toBe("object");
-    expect(wire.required).toEqual(["ref"]);
+    ) as { anyOf?: unknown };
+    expect(wire.anyOf).toBeDefined();
   });
 
   it("leaves unions of non-object schemas untouched", () => {
