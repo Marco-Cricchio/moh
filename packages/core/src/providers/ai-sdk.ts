@@ -116,8 +116,13 @@ export function languageModelFor(
   // the anthropic-messages wire.
   const anthropicHeaders = kind === "anthropic" ? anthropicSubscriptionHeaders(target.endpoint.authKind) : undefined;
   if (wire === "anthropic-messages") {
+    // Subscription: the OAuth access token is only accepted as
+    // `Authorization: Bearer` — the SDK sends an `apiKey` credential as
+    // `x-api-key`, which Anthropic rejects with "invalid x-api-key".
+    // `authToken` is the SDK's own Bearer path (issue #134 stream side).
+    const isAnthropicSubscription = kind === "anthropic" && target.endpoint.authKind === "subscription";
     const anthropic = createAnthropic({
-      apiKey,
+      ...(isAnthropicSubscription ? { authToken: apiKey } : { apiKey }),
       ...(baseUrl ? { baseURL: baseUrl } : {}),
       ...((anthropicHeaders || headers) ? { headers: { ...(anthropicHeaders ?? {}), ...(headers ?? {}) } } : {}),
     });

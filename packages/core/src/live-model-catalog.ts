@@ -49,6 +49,7 @@ import { subscriptionModelCatalog } from "./model-catalog";
 import { providerProfile } from "./provider-profiles";
 import { OAUTH_BUILTIN_BASE_URLS } from "./wire";
 import { CHATGPT_CODEX_BASE_URL, CHATGPT_CODEX_ORIGINATOR } from "./auth/openai";
+import { ANTHROPIC_OAUTH_BETA } from "./auth/anthropic";
 import { readAuthSection, getStoredApiKey } from "./auth/store";
 import { readUserConfigFile, userConfigFile } from "./user-config";
 
@@ -321,13 +322,15 @@ function listingBase(kind: string, endpointName: string, endpointBaseUrl: string
  * profile's inline key, its env var, the wizard-stored api key, or —
  * for subscription endpoints — the stored access token *without* the
  * proactive refresh (a background picker fetch never mutates the auth
- * store; a stale token degrades to the static list, same as an error). */
-function listingCredential(kind: string, endpointName: string, inlineApiKey: string | undefined, configFile: string): string | undefined {
-  if (inlineApiKey) return inlineApiKey;
+ * store; a stale token degrades to the static list, same as an error).
+ * `subscription` marks a credential resolved from the token store: the
+ * header shape differs (Bearer vs x-api-key for Anthropic). */
+function listingCredential(kind: string, endpointName: string, inlineApiKey: string | undefined, configFile: string): { credential: string | undefined; subscription: boolean } {
+  if (inlineApiKey) return { credential: inlineApiKey, subscription: false };
   const section = readAuthSection(configFile);
   const token = section.tokens[endpointName];
-  if (token?.accessToken) return token.accessToken;
-  return getStoredApiKey(configFile, endpointName);
+  if (token?.accessToken) return { credential: token.accessToken, subscription: true };
+  return { credential: getStoredApiKey(configFile, endpointName), subscription: false };
 }
 
 /** Page loop limits (bounded, never unbounded). */
@@ -349,7 +352,19 @@ export async function listProviderModels(
   const clientVersion = opts.clientVersion ?? CODEX_LISTING_CLIENT_VERSION;
   const credential = listingCredential(kind, endpointName, opts.apiKey, opts.configFile ?? userConfigFile());
   const templates = contract.urls?.(base, clientVersion) ?? [`${base}/models`];
-  const headers = contract.headers?.(credential) ?? bearer(credential);
+  // Anthropic accepts OAuth access tokens only as `Authorization: Bearer`
+  // — an x-api-key header carrying one is rejected with 401 ("invalid
+  // x-api-key"), which degraded every subscription listing to the static
+  // catalog. Api-key endpoints keep the x-api-key shape.
+  const headers =
+    kind === "anthropic" && credential.subscription
+      ? {
+          ...ACCEPT,
+          "anthropic-version": "2023-06-01",
+          ...(credential.credential ? { Authorization: `Bearer ${credential.credential}` } : {}),
+          ...ANTHROPIC_OAUTH_BETA,
+        }
+      : contract.headers?.(credential.credential) ?? bearer(credential.credential);
   const doFetch = opts.fetchImpl ?? (async (u, h) => {
     const res = await fetch(u, { headers: h, signal: opts.signal ?? AbortSignal.timeout(10_000) });
     let json: unknown;
