@@ -4,7 +4,7 @@ import { useTheme } from "./themes";
 import { colorEnabled } from "./color";
 import { pickRampPreset, rampLogoRows, type RampPresetName } from "./logo-ramp";
 
-import { dialogWidth, useViewport } from "./viewport";
+import { dialogWidth, useViewport, wrapLines } from "./viewport";
 import { sanitizeForDisplay } from "./render-sanitize";
 
 /** pi-style labelled message box: single round border, label row inside. */
@@ -207,6 +207,19 @@ export function Dialog({
 }
 
 /**
+ * Flattens a fixed React node into its text for height measurement
+ * (#1343): the footer may wrap (a long status under the hints), and the
+ * windowing budget must count its rendered rows, not a fixed 1.
+ */
+function footerText(node: React.ReactNode): string {
+  if (node === null || node === undefined || typeof node === "boolean") return "";
+  if (typeof node === "string" || typeof node === "number") return String(node);
+  if (Array.isArray(node)) return node.map(footerText).join("");
+  const el = node as { props?: { children?: React.ReactNode } };
+  return el.props ? footerText(el.props.children) : "";
+}
+
+/**
  * One row of a ScrollDialog body: the node plus how many visual lines it
  * occupies (a wrapped description counts its wrapped rows — computed by the
  * caller with `wrapLines`, since only it knows the width).
@@ -247,7 +260,10 @@ export function ScrollDialog({
   const [offset, setOffset] = useState(0);
   // Dialog chrome: border (2) + title + spacer + the window's own more-
   // indicator row + the fixed footer. Never less than one row of body.
-  const budget = Math.max(1, viewport.rows - 7);
+  // #1343: the footer may wrap (a long status under the hints) — count
+  // its rendered height, not a fixed 1, so the frame cannot overflow.
+  const footerRows = footer === undefined ? 0 : wrapLines(footerText(footer), Math.max(20, dialogWidth(viewport) - 5)).length;
+  const budget = Math.max(1, viewport.rows - 7 - Math.max(0, footerRows - 1));
   const weights = rows.map((r) => r.weight);
   const totalWeight = weights.reduce((a, w) => a + w, 0);
   const clampedOffset = Math.min(offset, Math.max(0, rows.length - 1));
