@@ -7,6 +7,21 @@ matching section here at tag time.
 
 ## [Unreleased]
 
+## [0.64.3] - 2026-10-11
+
+### Fixed
+
+- **Browser navigations no longer hang on playwright-core 1.63** (#1336):
+  playwright-core 1.63.0 does not expose `Route.url()` or
+  `Route.resourceType()` at runtime despite its own type declarations, so
+  the SSRF route guard threw a `TypeError` on the first request, never
+  called `continue()`, and every navigation stalled to its 30 s timeout —
+  on any URL, in every session. The guard now reads the portable
+  `route.request().url()` / `.resourceType()` accessors, with fallbacks to
+  the direct ones (fakes, future builds). Verified live: all 11 browser
+  tools work, the guard still verifies URLs and fulfills 403 on
+  violations.
+
 ## [0.64.2] - 2026-10-11
 
 ### Fixed
@@ -2521,7 +2536,8 @@ security audit, each fixed behind its own PR.
   passed; a regression test pins the resolved path under
   `<home>/.moh/projects`.
 
-[Unreleased]: https://github.com/Marco-Cricchio/moh/compare/v0.64.2...develop
+[Unreleased]: https://github.com/Marco-Cricchio/moh/compare/v0.64.3...develop
+[0.64.3]: https://github.com/Marco-Cricchio/moh/compare/v0.64.2...v0.64.3
 [0.64.2]: https://github.com/Marco-Cricchio/moh/compare/v0.64.1...v0.64.2
 [0.64.1]: https://github.com/Marco-Cricchio/moh/compare/v0.64.0...v0.64.1
 [0.64.0]: https://github.com/Marco-Cricchio/moh/compare/v0.63.0...v0.64.0
