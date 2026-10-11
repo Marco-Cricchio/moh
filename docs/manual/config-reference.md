@@ -80,7 +80,13 @@ All keys are optional. Notes:
   the plan", which shows tokens only, never a free rate. Never inferred
   from a model name (ADR-0046).
 - `endpoints[].auth` — absent = api-key; `{ "kind": "subscription" }`
-  uses the plan's OAuth tokens.
+  uses the plan's OAuth tokens. One exception: `anthropic` — the
+  onboarding wizard no longer offers subscription login (#1317), so a
+  session whose endpoint still stores it records one visible
+  `endpoint_auth_withdrawn` warning at start, naming the remedy (an
+  API-key endpoint, and `moh provider logout <name>` for the tokens). It
+  converts nothing, deletes nothing and makes no network call, and
+  `moh provider login anthropic` still reaches the deliberate re-auth.
 - `capabilities.multimodal` — declares image input for endpoints without
   a catalog entry (openai-compat, custom); on catalog-backed endpoints
   `false` vetoes even a catalog grant. Absent = declared capability only

@@ -6,7 +6,7 @@ import {
   BUILTIN_PROVIDER_TYPES,
   KNOWN_COMPAT_ENDPOINTS,
   knownCompatEndpointMetadata,
-  isProviderProfile,
+  offersSubscriptionAuth,
   providerProfile,
   providerEndpointChoices,
   providerRequiresBaseUrlInput,
@@ -307,10 +307,14 @@ export function Onboarding({ cwd, home, env, tester = defaultTester(home), force
         if (key.return || input === "\n") {
           const type = BUILTIN_PROVIDER_TYPES[phase.cursor]!;
           applyWizard({ name: type, type });
-          // openai-compat has no subscription grant — the auth-method step
-          // is never shown (byte-identical path, issue #149).
           if (type === "opencode") return applyPhase({ kind: "opencode-product", cursor: 0 });
-          if (type === "openai-compat" || isProviderProfile(type)) {
+          // #1317: the auth-method step is only for kinds whose subscription
+          // grant the wizard offers — one predicate, shared with the CLI's
+          // `moh provider add` (core: auth/lifecycle). It never appears for
+          // openai-compat or the compat profiles (no grant, #149) and no
+          // longer for anthropic (withheld). Those kinds go straight to the
+          // api-key flow, byte-identical to before.
+          if (!offersSubscriptionAuth(type)) {
             setAuthKind("api-key");
             return applyPhase({ kind: "wizard-text", field: "model", value: providerProfile(type)?.defaultModel ?? "" });
           }

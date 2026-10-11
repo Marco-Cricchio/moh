@@ -46,8 +46,14 @@ describe("onboarding wizard — cursor race", () => {
       );
       const frame = () => stripAnsi(i.lastFrame() ?? "");
       await waitForFrame(frame, "Pick a provider type");
-      i.stdin.write("\r"); // anthropic
-      await waitForFrame(frame, "How does anthropic authenticate?");
+      // #1317: anthropic's subscription offer is withdrawn — drive a kind
+      // that still offers the choice.
+      for (const type of ["openai", "google"]) {
+        i.stdin.write("\x1b[B");
+        await waitForFrame(frame, `› ${type}`);
+      }
+      i.stdin.write("\r");
+      await waitForFrame(frame, "How does google authenticate?");
       i.stdin.write("\x1b[B"); // subscription
       await waitForFrame(frame, "› subscription");
       i.stdin.write("\r");
@@ -59,7 +65,7 @@ describe("onboarding wizard — cursor race", () => {
       i.stdin.write("\r");
       await waitForFrame(frame, "Pick your default model");
       expect(frame()).toContain("Pick your default model");
-      const down = subscriptionModelCatalog("anthropic").length;
+      const down = subscriptionModelCatalog("google").length;
       // Intentional rapid-key race: preserve a short inter-key delay to keep
       // multiple arrows inside the model-list mounting/render window.
       for (let d = 0; d < down; d++) {

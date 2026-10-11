@@ -1196,6 +1196,21 @@ export function projectTranscript(events: ReadonlyArray<AgentEvent>, options: { 
           lines: [sanitizeForDisplay(event.reason), BROWSER_SETUP_ACTION],
         });
         break;
+      case "endpoint_auth_withdrawn":
+        // #1317: the endpoint stores a subscription credential for a kind
+        // the onboarding wizard no longer offers (anthropic), so it cannot
+        // serve inference. Chrome only — the session runs fine — and the
+        // core's reason names the remedy. The core records it on every
+        // open, so the history block is never stale.
+        blocks.push({
+          key,
+          kind: "info",
+          glyph: "!",
+          type: "endpoint",
+          detail: `${event.endpoint} · subscription auth withdrawn`,
+          lines: [sanitizeForDisplay(event.reason)],
+        });
+        break;
       case "session_pinned":
         // Home pin chrome — the transcript has no projection; the Home
         // picker reads the pinned state through the session summaries.

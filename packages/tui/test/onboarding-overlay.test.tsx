@@ -158,8 +158,8 @@ describe("onboarding overlay (issue #33)", () => {
     await sleep(50);
     i.stdin.write("\r"); // provider type = anthropic (wizard opens, no env creds)
     await sleep(100);
-    i.stdin.write("\r"); // auth = api-key
-    await sleep(100);
+    // #1317: anthropic goes straight to the api-key flow — no auth-method
+    // step — so the model prompt is already up.
     i.stdin.write("qwen3"); await sleep(120);
     i.stdin.write("\r"); // model
     await sleep(250);
@@ -194,9 +194,7 @@ describe("onboarding overlay (issue #33)", () => {
     const home = tempHome();
     const i = render(<Onboarding cwd={cwd} home={home} env={{}} tester={okTester} onDone={() => {}} />);
     await sleep(30);
-    i.stdin.write("\r"); // select anthropic
-    await sleep(30);
-    i.stdin.write("\r"); // api-key (default) → model prompt
+    i.stdin.write("\r"); // select anthropic → the api-key flow's model prompt (#1317)
     await sleep(30);
     i.stdin.write("\r"); // empty model → stays
     await sleep(30);
