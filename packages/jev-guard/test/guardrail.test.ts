@@ -54,11 +54,12 @@ describe("guardrail decision rule (#786 thresholds)", () => {
     expect(decideGuardrail(signals({ destructive: t.askLow - 0.01 }), false).verdict).toBe("pass");
   });
 
-  test("risk bands: ask from 0.75, deny from 1.5", () => {
+  test("risk bands: ask from 1.0, deny from 1.5", () => {
+    const t = GUARDRAIL_THRESHOLDS;
     expect(decideGuardrail(signals({ riskLevel: 1.49 }), false).verdict).toBe("ask");
     expect(decideGuardrail(signals({ riskLevel: 1.5 }), false).verdict).toBe("deny");
-    expect(decideGuardrail(signals({ riskLevel: 0.75 }), false).verdict).toBe("ask");
-    expect(decideGuardrail(signals({ riskLevel: 0.74 }), false).verdict).toBe("pass");
+    expect(decideGuardrail(signals({ riskLevel: t.askRisk }), false).verdict).toBe("ask");
+    expect(decideGuardrail(signals({ riskLevel: t.askRisk - 0.01 }), false).verdict).toBe("pass");
   });
 
   test("lethal-only (yolo): never asks, only the two deny checks decide", () => {
@@ -161,7 +162,7 @@ describe("guardrail judge", () => {
   });
 
   test("ask carries the ratified badge and is served from cache too", async () => {
-    const { client, calls } = Object.assign(fakeClient([okOutcome({ destructive: { type: "noul", noul: 0.5 }, in_scope: { type: "noul", noul: 0.9 }, exfiltration: { type: "noul", noul: 0.05 }, risk_level: { type: "score", score: 0.6, legend: {}, probabilities: {}, confidence: 0.9 } })]), {});
+    const { client, calls } = Object.assign(fakeClient([okOutcome({ destructive: { type: "noul", noul: 0.65 }, in_scope: { type: "noul", noul: 0.9 }, exfiltration: { type: "noul", noul: 0.05 }, risk_level: { type: "score", score: 0.6, legend: {}, probabilities: {}, confidence: 0.9 } })]), {});
     const judge = createGuardrailJudge({ client, state: {}, gitRead: fakeGitRead }, { cwd: () => process.cwd() });
     const r1 = await judge.judge("c1", args);
     expect(r1.verdict.verdict).toBe("ask");
@@ -211,9 +212,9 @@ describe("guardrail judge", () => {
   });
 
   test("badge picks the highest-signal dimension", () => {
-    expect(askBadge(signals({ destructive: 0.5 })).badge).toBe("Jev: caso incerto (destructive 0.50)");
-    expect(askBadge(signals({ exfiltration: 0.5 })).badge).toBe("Jev: caso incerto (exfiltration 0.50)");
-    expect(askBadge(signals({ riskLevel: 1.0 })).badge).toContain("risk");
+    expect(askBadge(signals({ destructive: 0.65 })).badge).toBe("Jev: caso incerto (destructive 0.65)");
+    expect(askBadge(signals({ exfiltration: 0.65 })).badge).toBe("Jev: caso incerto (exfiltration 0.65)");
+    expect(askBadge(signals({ riskLevel: 1.1 })).badge).toContain("risk");
   });
 
   test("#867 contradiction carries a visible note; ordinary passes do not", async () => {

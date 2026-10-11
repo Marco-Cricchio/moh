@@ -288,7 +288,7 @@ consulted. The verdicts:
 - **pass** — nothing changes; your rules and modes decide as always. A
   pass leaves no line in the transcript: nothing happened to you. The
   judgment is still in the session log, with its verdict.
-- **ask** (either probability in 0.40–0.75, or risk in 0.75–1.5) — the
+- **ask** (either probability in 0.60–0.75, or risk in 1.0–1.5) — the
   call reaches the ordinary permission prompt even in auto-accept mode,
   marked **Jev: caso incerto (…)** with the key probability. The transcript
   shows one line — `jev · guardrail · ask (destructive 0.42)` — naming the
