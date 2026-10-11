@@ -962,7 +962,7 @@ describe("#1310: the edit tool shows its diff (kind: diff, revived)", () => {
     expect(diff).toBeDefined();
     expect(diff!.glyph).toBe("±");
     expect(diff!.type).toBe("edit");
-    expect(diff!.detail).toBe("src/foo.ts · +3 −3");
+    expect(diff!.detail).toBe("src/foo.ts · +1 −1");
     expect(diff!.lines).toEqual([
       " alpha",
       " beta",
@@ -986,7 +986,7 @@ describe("#1310: the edit tool shows its diff (kind: diff, revived)", () => {
   test("a long diff is capped at 40 body rows with a trailing count row", () => {
     const oldText = Array.from({ length: 60 }, (_, i) => `old ${i}`).join("\n");
     const newText = Array.from({ length: 60 }, (_, i) => `new ${i}`).join("\n");
-    const lines = editDiffLines(oldText, newText);
+    const lines = editDiffLines(oldText, newText).lines;
     expect(lines).toHaveLength(41);
     expect(lines[40]).toBe("… 80 more lines");
     expect(lines[0]!.startsWith("-")).toBe(true);

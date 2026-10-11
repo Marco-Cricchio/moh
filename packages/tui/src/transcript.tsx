@@ -231,7 +231,7 @@ const detailOf = (args: unknown, toolName?: string): string => {
 const DIFF_BODY_CAP = 40;
 const DIFF_CONTEXT = 3;
 
-export function editDiffLines(oldText: string, newText: string): string[] {
+export function editDiffLines(oldText: string, newText: string): { lines: string[]; removed: number; added: number } {
   const a = oldText.split("\n");
   const b = newText.split("\n");
   let start = 0;
@@ -239,6 +239,8 @@ export function editDiffLines(oldText: string, newText: string): string[] {
   let endA = a.length;
   let endB = b.length;
   while (endA > start && endB > start && a[endA - 1] === b[endB - 1]) { endA--; endB--; }
+  const removed = endA - start;
+  const added = endB - start;
   const lines: string[] = [];
   const push = (sign: string, text: string) => lines.push(`${sign}${sanitizeLine(text)}`);
   for (let i = Math.max(0, start - DIFF_CONTEXT); i < start; i++) push(" ", a[i]!);
@@ -248,9 +250,9 @@ export function editDiffLines(oldText: string, newText: string): string[] {
   if (lines.length > DIFF_BODY_CAP) {
     const kept = lines.slice(0, DIFF_BODY_CAP);
     kept.push(`… ${lines.length - DIFF_BODY_CAP} more lines`);
-    return kept;
+    return { lines: kept, removed, added };
   }
-  return lines;
+  return { lines, removed, added };
 }
 
 /** Preserve source identity when a projection starts inside an assistant run. */
@@ -839,15 +841,14 @@ export function projectTranscript(events: ReadonlyArray<AgentEvent>, options: { 
         if (event.name === "edit" && state === "ok" && result?.ok) {
           const args = event.args as { path?: unknown; oldText?: unknown; newText?: unknown };
           if (typeof args.oldText === "string" && typeof args.newText === "string") {
-            const removed = args.oldText.split("\n").length;
-            const added = args.newText.split("\n").length;
+            const diff = editDiffLines(args.oldText, args.newText);
             blocks.push({
               key: `${key}-diff`,
               kind: "diff",
               glyph: "±",
               type: "edit",
-              detail: `${detailOf(event.args, event.name)} · +${added} −${removed}`,
-              lines: editDiffLines(args.oldText, args.newText),
+              detail: `${detailOf(event.args, event.name)} · +${diff.added} −${diff.removed}`,
+              lines: diff.lines,
             });
           }
         }
