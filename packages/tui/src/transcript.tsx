@@ -1493,7 +1493,8 @@ export function blockTint(block: TranscriptBlock, theme: PaintableTheme): string
 }
 
 function Row({ width, bg, indent = 0, children }: { width: number; bg?: string; indent?: number; children: React.ReactNode }) {
-  return <Box width={Math.max(1, width - 1)} backgroundColor={bg} paddingLeft={indent} flexShrink={0}><Text>{children}</Text></Box>;
+  if (bg === undefined) return <Box width={Math.max(1, width - 1)} paddingLeft={indent} flexShrink={0}><Text>{children}</Text></Box>;
+  return <Box width={width} backgroundColor={bg} flexShrink={0}><Box backgroundColor={bg} marginLeft={indent} flexGrow={1}><Text>{children}</Text></Box></Box>;
 }
 
 const sameKinds = (a: readonly string[] | undefined, b: readonly string[] | undefined): boolean => {
@@ -1583,15 +1584,15 @@ export const TranscriptBlockView = React.memo(function TranscriptBlockView({ blo
   const timerLabel = blockTimerLabel(block, liveMeta);
   return (
     <Box flexDirection="column">
-      {/* One blank row separates blocks (not head from body): a block opens
-          with a top margin so the head sits directly above its body (#211). */}
-      {block.continuation ? null : <Text> </Text>}
+      {!block.continuation && bg !== undefined ? <Row width={width} bg={bg}> </Row> : null}
       {block.continuation ? null : (
         <>
           {timerLabel ? (
-            <Box width={Math.max(1, width - 1)} backgroundColor={bg} paddingLeft={1} paddingRight={1} justifyContent="space-between" flexShrink={0}>
-              <Text><SemanticText text={headLabel} color={color} />{detailLines[0] !== undefined && <Text color={theme.dim}> {detailLines[0]}</Text>}</Text>
-              <Text color={theme.dim}>{timerLabel}</Text>
+            <Box width={bg !== undefined ? width : Math.max(1, width - 1)} backgroundColor={bg} flexShrink={0}>
+              <Box backgroundColor={bg} marginLeft={1} flexGrow={1}>
+                <Text><SemanticText text={headLabel} color={color} />{detailLines[0] !== undefined && <Text color={theme.dim}> {detailLines[0]}</Text>}</Text>
+              </Box>
+              <Box backgroundColor={bg} paddingRight={1}><Text color={theme.dim}>{timerLabel}</Text></Box>
             </Box>
           ) : (
             <Row width={width} bg={bg}><SemanticText text={headLabel} color={color} />{detailLines[0] !== undefined && <Text color={theme.dim}> {detailLines[0]}</Text>}</Row>
@@ -1606,7 +1607,7 @@ export const TranscriptBlockView = React.memo(function TranscriptBlockView({ blo
           {/* Segments split exactly at blank lines (trimmed per segment),
               so restore the single GFM inter-block blank row here — heading
               and hr paragraphs get their spacing back without doubles. */}
-          {block.continuation && !block.tight ? <Box width={Math.max(1, width - 1)} backgroundColor={bg} flexShrink={0}><Text> </Text></Box> : null}
+          {block.continuation && !block.tight ? <Row width={width} bg={bg}> </Row> : null}
           {block.renderedMarkdownRows !== undefined
             ? <MarkdownRows rows={block.renderedMarkdownRows} rowWidth={width} bg={bg} />
             : block.markdown && markdown ? <Markdown text={block.markdown} md={markdown} width={contentWidth} rowWidth={width} bg={bg} /> : null}
@@ -1641,6 +1642,7 @@ export const TranscriptBlockView = React.memo(function TranscriptBlockView({ blo
           })}
         </React.Fragment>;
       })}
+      {!block.continuation && bg !== undefined ? <Row width={width} bg={bg}> </Row> : null}
     </Box>
   );
 }, (prev, next) => prev.width === next.width && sameBlock(prev.block, next.block)
