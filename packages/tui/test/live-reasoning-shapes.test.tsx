@@ -60,9 +60,9 @@ describe("live reasoning keeps the log's shape (#993)", () => {
     const ui = render(<Chat session={session} cwd={process.cwd()} mode="dev" modelLabel="reasoner" width={80} showReasoning />);
     const done = session.send("think");
     await nap(800);
-    const rows = stripAnsi(ui.frames.at(-1) ?? "").split("\n");
-    // The transcript's own layout uses single blank rows between blocks; a
-    // run is empty space a provider never wrote.
+    // Measure the neutral thinking body, not the tinted cards' deliberate
+    // lead-in and closing gaps elsewhere in the frame (#1305).
+    const rows = liveThinkingRows(ui.frames.at(-1) ?? "");
     let run = 0;
     let longest = 0;
     for (const row of rows) {
