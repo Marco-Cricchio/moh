@@ -92,7 +92,7 @@ export function MpmModal({ diagnostics: d, onClose }: MpmModalProps) {
       title=" project map "
       color={color}
       rows={rows}
-      footer={<Dim>metadata only — never source content · ↑↓ scroll · esc close</Dim>}
+      footer={<Dim>metadata only · ↑↓ scroll · esc close</Dim>}
     />
   );
 }
