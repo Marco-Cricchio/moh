@@ -8,7 +8,7 @@ import {
 } from "@moh/core";
 import { ArgError, parseArgs } from "./args";
 
-export const RETRO_USAGE = `usage: moh retro [--json] [--dismiss <signature>] [--apply <signature> [--yes]] [--cwd <dir>]
+export const RETRO_USAGE = `usage: moh retro [--json] [--dismiss <signature>] [--apply <signature> [--yes] [--create-missing]] [--cwd <dir>]
 
 Reviews the retro findings accumulated for this project (ADR-0075).
 Findings are ordered by confidence and each shows its category, evidence
@@ -64,7 +64,7 @@ export async function retroCommand({
 }: { argv: string[]; home?: string; cwd?: string }): Promise<number> {
   let parsed;
   try {
-    parsed = parseArgs(argv, { strings: ["cwd", "dismiss", "apply"], booleans: ["json", "yes"] });
+    parsed = parseArgs(argv, { strings: ["cwd", "dismiss", "apply"], booleans: ["json", "yes", "create-missing"] });
   } catch (error) {
     if (error instanceof ArgError) {
       process.stderr.write(`moh retro: ${error.message}\n`);
@@ -99,16 +99,17 @@ export async function retroCommand({
       process.stdout.write(`proposed: ${application.proposal}\n`);
       process.stdout.write(
         application.target
-          ? `target: ${application.target} — re-run with --yes to apply (existing prose is never edited)\n`
+          ? `target: ${application.target} — re-run with --yes to apply (existing prose is never edited; add --create-missing to create the file first)\n`
           : "this finding has no automatic target; apply it by hand\n",
       );
       return 0;
     }
-    const result = applyRetroApplication({ finding, projectRoot: root, confirm: true, application });
+    const result = applyRetroApplication({ finding, projectRoot: root, confirm: true, application, createMissing: parsed.booleans["create-missing"] === true });
     if (!result.ok) {
       process.stderr.write(`moh retro: ${result.error}\n`);
       return 2;
     }
+    if (result.ok && result.created) process.stdout.write(`created ${result.file}\n`);
     process.stdout.write(result.appended ? `applied to ${result.file}\n` : `already applied: ${result.file}\n`);
     return 0;
   }

@@ -3,7 +3,7 @@
  * command is a pure store read plus the gated apply, so no child process
  * is needed; the store is a real temp directory.
  */
-import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, test } from "bun:test";
@@ -162,5 +162,24 @@ describe("moh retro (#1275)", () => {
     const result = await run(["--apply", signature, "--yes"], { cwd, home });
     expect(result.code).toBe(2);
     expect(result.stderr).toContain("does not exist");
+  });
+});
+
+describe("retro --create-missing (#1343)", () => {
+  test("apply --yes --create-missing creates the steering file and appends", async () => {
+    const cwd = tempDir("cwd");
+    const home = tempDir("home");
+    const { signature } = seed(cwd, home, "coding-standards", "no guardrail caught this");
+    const first = await run(["--apply", signature, "--yes", "--create-missing"], { cwd, home });
+    expect(first.stdout).toContain("created");
+    expect(first.stdout).toContain("applied to");
+    const after = readFileSync(join(cwd, "CODING_STANDARDS.md"), "utf8");
+    expect(after).toContain("## Retro findings");
+    // --yes alone keeps the strict refusal on a still-missing target.
+    const other = tempDir("other");
+    const { signature: sig2 } = seed(other, home, "coding-standards", "another one");
+    const second = await run(["--apply", sig2, "--yes"], { cwd: other, home });
+    expect(`${second.stderr}${second.stdout}`).toContain("does not exist");
+    expect(existsSync(join(other, "CODING_STANDARDS.md"))).toBe(false);
   });
 });
