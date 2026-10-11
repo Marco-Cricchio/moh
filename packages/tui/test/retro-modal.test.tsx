@@ -134,3 +134,28 @@ describe("RetroModal", () => {
     instance.unmount();
   });
 });
+
+describe("RetroModal vertical fit", () => {
+  test("many long findings never render past the terminal height", async () => {
+    const cwd = tempDir("cwd");
+    const mohHome = tempDir("home");
+    const store = RetroStore.forProject(cwd, mohHome);
+    const long = "the same bash command was issued five times this session: `sleep 150; gh pr checks 871 2>&1 | awk '$2 != \"pass\" {print $1, $2}'` — a polling pattern the batch should notice and describe precisely";
+    const candidates = Array.from({ length: 30 }, (_, i) => ({
+      category: "tool-economy",
+      evidence: `${long} (#${i})`,
+      confidence: 0.5,
+      session: `s-${i}`,
+      signature: `sig-${i}`,
+    }));
+    store.append(candidates);
+    const instance = mount(cwd, mohHome);
+    await waitForFrame(() => stripAnsi(instance.lastFrame() ?? ""), "tool-economy");
+    const frame = instance.lastFrame() ?? "";
+    const rows = stripAnsi(frame).split("\n").length;
+    console.error("ROWS:", rows, "\n" + stripAnsi(frame));
+    // ink's default test viewport is 80x24: the whole dialog must fit.
+    expect(rows).toBeLessThanOrEqual(24);
+    instance.unmount();
+  });
+});
