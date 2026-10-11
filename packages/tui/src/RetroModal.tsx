@@ -91,9 +91,10 @@ export function RetroModal({ cwd, readReport, dismiss, onClose }: RetroModalProp
   });
 
   const viewport = useViewport();
-  // The wrapped width inside the dialog's paddingX=2 plus the one leading
-  // space each row carries.
-  const detailWidth = Math.max(20, dialogWidth(viewport) - 7);
+  // The wrapped width inside the dialog: paddingX=2 per side (4) plus the
+  // one leading space; rounding one line shorter than reality only costs
+  // one scroll row, an overestimate costs a border.
+  const detailWidth = Math.max(20, dialogWidth(viewport) - 14);
   const wrap = (text: string): string[] => wrapLines(text, detailWidth);
 
   const rows: ScrollRow[] = [];
@@ -162,14 +163,25 @@ export function RetroModal({ cwd, readReport, dismiss, onClose }: RetroModalProp
       </Dialog>
     );
   }
+  // The status joins the footer: ScrollDialog counts the footer in its
+  // chrome budget, a header line it does not — an uncounted row made the
+  // dialog brush the exact terminal height and lose both borders (#1343
+  // follow-up).
+  const footerWithStatus = status ? (
+    <>
+      <Text color={theme.warn}> {status}</Text>
+      {footer}
+    </>
+  ) : (
+    footer
+  );
   return (
     <ScrollDialog
       title=" retro findings "
       color={theme.accent}
       rows={rows}
       scrollHint={false}
-      header={status ? <Text color={theme.warn}> {status}</Text> : undefined}
-      footer={footer}
+      footer={footerWithStatus}
     />
   );
 }
