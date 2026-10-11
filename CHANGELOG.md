@@ -7,6 +7,16 @@ matching section here at tag time.
 
 ## [Unreleased]
 
+### Fixed
+
+- **Edit tool now shows its diff** (#1310): a successful `edit` in dev mode
+  renders a bounded `± diff` block beside the tool block — removed lines in
+  `err`, additions in `ok`, context dim — derived from the logged
+  `oldText`/`newText` args (no disk read), capped at 40 body rows with a
+  trailing `… N more lines` row. Failed edits keep the error block; vibe
+  mode is unchanged. The `diff` block kind, unreachable since #205, is
+  revived with its documented grammar.
+
 ## [0.62.0] - 2026-10-11
 
 ### Added
