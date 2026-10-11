@@ -25,12 +25,19 @@ failed attempt is persisted to `~/.moh/provider-test-failures.log`
 (bounded, never carrying credentials), so a failure stays diagnosable
 after the wizard is gone.
 
-The wizard first asks **API key or subscription**. A subscription login
-(Claude Pro/Max, ChatGPT Plus/Pro, personal Google) runs the provider's
-OAuth flow and stores its tokens in `~/.moh/config` — never in
-moh.json, never in logs. `moh provider login <name>` re-establishes
-tokens, `moh provider logout <name>` drops them, `moh provider status`
-shows per-endpoint auth state and plan usage. On the wizard's login
+The wizard first asks **API key or subscription** — for the providers
+whose subscription login moh offers (ChatGPT Plus/Pro, a personal Google
+account, GitHub Copilot, OpenRouter, xAI, Kimi). A subscription login
+runs the provider's OAuth flow and stores its tokens in `~/.moh/config`
+— never in moh.json, never in logs. **Anthropic is an exception: the
+wizard offers API key only.** Anthropic reserves subscription OAuth for
+Claude Code and its own clients, and the route does not serve inference;
+`moh provider login anthropic` still exists for anyone who reached it
+deliberately, and a session whose endpoint still carries those tokens
+records a visible `endpoint_auth_withdrawn` warning at start, naming the
+remedy. `moh provider login <name>` re-establishes tokens,
+`moh provider logout <name>` drops them, `moh provider status` shows
+per-endpoint auth state and plan usage. On the wizard's login
 screen the authorize URL can be wider than the dialog (the rendered line
 is truncated); press `c` to copy the full URL to the clipboard and open
 it in a browser. If the terminal refuses the clipboard write (OSC 52 may

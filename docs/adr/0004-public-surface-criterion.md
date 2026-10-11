@@ -318,3 +318,19 @@ about *ordering*, which a client cannot achieve from outside without the
 seam (`prepareProjectIdentityNow` pins the answer so the later synchronous
 read is memory-served; `isProjectIdentityPrepared` is the same
 pin's synchronous test).
+
+## Amendment — 2026-10-11, #1317 the wizard's subscription-offer predicate
+
+**New door**: `offersSubscriptionAuth(kind)` (`core/src/auth/lifecycle.ts`),
+consumed by `@moh/tui`'s wizard. Criterion 3 of #1317 requires one
+predicate to drive the `api-key | subscription` question in both clients,
+so the TUI cannot keep the answer private to the core: both wizards read
+this function and neither carries a provider-specific condition of its own.
+
+Sibling to the existing `isSubscriptionKind` export (same module, same
+kind vocabulary): the latter says a grant *exists*, the former says the
+wizard *offers* it, the difference being the withheld set the #1317
+decision introduced. Deliberately not exported: the reason text the
+startup diagnostic records (`withdrawnSubscriptionReason`) — it is core
+copy that reaches clients inside the `endpoint_auth_withdrawn` event, so
+it stays internal to its defining module.

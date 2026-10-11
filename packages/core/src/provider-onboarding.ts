@@ -10,7 +10,7 @@ import { defaultRegistry, resolveProvider, type ProviderRegistry } from "./provi
 import { endpointEnvVarName, resolveApiKey } from "./route";
 import { PROVIDER_PROFILES, isProviderProfile, providerEndpointChoices, providerProfile, providerRequiresBaseUrlInput } from "./provider-profiles";
 import { userConfigFile } from "./user-config";
-import { runSubscriptionLogin, isSubscriptionKind } from "./auth/lifecycle";
+import { runSubscriptionLogin, offersSubscriptionAuth } from "./auth/lifecycle";
 import { getStoredToken, getStoredApiKey, readAuthSection, bindStoredApiKeyOrigin, saveStoredApiKey, saveTokens } from "./auth/store";
 import type { SubscriptionKind } from "./auth/lifecycle";
 import { ANTHROPIC_OAUTH_BETA } from "./auth/anthropic";
@@ -146,10 +146,13 @@ export interface ProviderAddOptions {
 
 /** The guided flow. Throws OnboardingAborted when the user gives up
  * instead of passing the connection test. Subscription choice (spec
- * decision 3): built-in providers with a grant ask `api-key | subscription`
- * first, then branch — the api-key questions are unchanged; the
- * subscription branch runs the per-provider login (ToS first) and marks
- * the profile `auth: { kind: "subscription" }` (no key prompt). */
+ * decision 3): built-in providers whose grant the wizard offers ask
+ * `api-key | subscription` first, then branch — the api-key questions are
+ * unchanged; the subscription branch runs the per-provider login (ToS
+ * first) and marks the profile `auth: { kind: "subscription" }` (no key
+ * prompt). #1317: anthropic's grant is withheld from the wizard
+ * (`offersSubscriptionAuth`) — it goes straight to the api-key path, while
+ * `moh provider login anthropic` stays reachable. */
 export async function runProviderAdd(
   io: OnboardingIo,
   tester: ConnectionTester = minimalConnectionTest,
@@ -167,11 +170,12 @@ export async function runProviderAdd(
   if (!name) throw new OnboardingAborted("endpoint name cannot be empty");
 
   let authKind: "api-key" | "subscription" = "api-key";
-  if (isSubscriptionKind(type)) {
-    // Auth method is asked per capability: only kinds with a grant offer
-    // subscription (openai-compat and the not-yet-granted new providers
-    // never see the question — the api-key path is unchanged). The new
-    // providers join isSubscriptionKind as their grant tickets land.
+  if (offersSubscriptionAuth(type)) {
+    // Auth method is asked per capability: only kinds whose grant the
+    // wizard offers see the question (openai-compat and the not-yet-granted
+    // new providers have none; #1317 withholds anthropic's) — the api-key
+    // path is unchanged. The new providers join isSubscriptionKind as their
+    // grant tickets land.
     const answer = await askOneOf(io, "Auth method (api-key | subscription)", ["api-key", "subscription"]);
     authKind = answer as "api-key" | "subscription";
   }

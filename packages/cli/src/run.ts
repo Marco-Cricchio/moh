@@ -420,6 +420,14 @@ export async function runCommand(options: RunOptions): Promise<number> {
         if (event.type === "browser_unavailable") {
           err.write(`moh run: warning: browser tool unavailable — ${event.reason}\n`);
         }
+        // #1317: the endpoint's stored subscription login is one the wizard
+        // no longer offers and that does not serve inference. Headless has
+        // no transcript to warn in, so the core's own sentence (remedy
+        // included) is the whole line. One line, stderr only; a warning,
+        // never a failure.
+        if (event.type === "endpoint_auth_withdrawn") {
+          err.write(`moh run: warning: ${event.reason}\n`);
+        }
         // ADR-0049 (#986): the provider's own refusal declared a context
         // window, and moh now uses it for this session. One stderr line —
         // stdout stays pure JSONL — and no exit-code coupling: a

@@ -4,6 +4,11 @@
  * (authorize URL shown, browser opened via the openUrl seam, paste-code
  * input, completion), tokens + endpoint stub persisted right after login,
  * model + connection test as usual, and no token/code material on screen.
+ *
+ * #1317: anthropic no longer sees the auth-method step at all, so the
+ * flows here are driven on google — the live kind that behaves like it
+ * (native OAuth, paste-code, shipped catalog) — and one case asserts
+ * anthropic's path is the api-key one.
  */
 import { describe, expect, test } from "bun:test";
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -20,6 +25,20 @@ import { stripAnsi, waitForCondition, waitForFrame } from "./helpers";
 const tempHome = () => mkdtempSync(join(tmpdir(), "moh-sub-home-"));
 const tempCwd = () => mkdtempSync(join(tmpdir(), "moh-sub-"));
 const okTester = async () => ({ ok: true as const, modelId: "tested" });
+
+/** #1317: drives the wizard to a kind whose subscription offer is live —
+ * google, three rows down the type list (anthropic, openai, google). The
+ * per-row waits make a dropped keystroke visible instead of silently
+ * selecting the wrong kind. */
+const pickGoogle = async (i: ReturnType<typeof render>, frame: () => string): Promise<void> => {
+  await waitForFrame(frame, "Pick a provider type");
+  for (const type of ["openai", "google"]) {
+    i.stdin.write("\x1b[B");
+    await waitForFrame(frame, `› ${type}`);
+  }
+  i.stdin.write("\r");
+  await waitForFrame(frame, "How does google authenticate?");
+};
 
 const TOKEN: AuthToken = { accessToken: "at-secret-value", refreshToken: "rt-secret-value", updatedAt: 1 };
 
@@ -45,26 +64,36 @@ const browserWaitingLogin = async (io: AuthorizationIo): Promise<AuthToken> => {
 };
 
 
-describe("onboarding wizard — subscription branch (#149)", () => {
-  test("auth-method step appears for anthropic but never for openai-compat", async () => {
+describe("onboarding wizard — subscription branch (#149, #1317)", () => {
+  test("#1317: anthropic never shows the auth-method step; a live offer does; openai-compat never does", async () => {
+    // Anthropic has a grant but the wizard withholds the offer: selecting
+    // it lands straight on the api-key flow — never the ToS, login or
+    // subscription-model screens.
     const i1 = render(<Onboarding cwd={tempCwd()} home={tempHome()} env={{}} tester={okTester} onDone={() => {}} />);
     const frame1 = () => stripAnsi(i1.lastFrame() ?? "");
     await waitForFrame(frame1, "Pick a provider type");
     i1.stdin.write("\r"); // anthropic
-    await waitForFrame(frame1, "How does anthropic authenticate?");
+    await waitForFrame(frame1, "Default model");
+    expect(frame1()).not.toContain("authenticate?");
     i1.unmount();
 
+    // A kind whose offer is live still asks (google: the flows below).
     const i2 = render(<Onboarding cwd={tempCwd()} home={tempHome()} env={{}} tester={okTester} onDone={() => {}} />);
     const frame2 = () => stripAnsi(i2.lastFrame() ?? "");
-    await waitForFrame(frame2, "Pick a provider type");
-    for (const type of ["openai", "google", "openai-compat"]) {
-      i2.stdin.write("\x1b[B");
-      await waitForFrame(frame2, `› ${type}`);
-    }
-    i2.stdin.write("\r"); // openai-compat → model directly (byte-identical path)
-    await waitForFrame(frame2, "Default model");
-    expect(frame2()).not.toContain("authenticate?");
+    await pickGoogle(i2, frame2);
     i2.unmount();
+
+    const i3 = render(<Onboarding cwd={tempCwd()} home={tempHome()} env={{}} tester={okTester} onDone={() => {}} />);
+    const frame3 = () => stripAnsi(i3.lastFrame() ?? "");
+    await waitForFrame(frame3, "Pick a provider type");
+    for (const type of ["openai", "google", "openai-compat"]) {
+      i3.stdin.write("\x1b[B");
+      await waitForFrame(frame3, `› ${type}`);
+    }
+    i3.stdin.write("\r"); // openai-compat → model directly (no grant at all)
+    await waitForFrame(frame3, "Default model");
+    expect(frame3()).not.toContain("authenticate?");
+    i3.unmount();
   });
 
   test("full subscription flow: ToS → login → stub+tokens → model → test → user-level save", async () => {
@@ -92,9 +121,7 @@ describe("onboarding wizard — subscription branch (#149)", () => {
       />,
     );
     const frame = () => stripAnsi(i.lastFrame() ?? "");
-    await waitForFrame(frame, "Pick a provider type");
-    i.stdin.write("\r"); // anthropic
-    await waitForFrame(frame, "How does anthropic authenticate?");
+    await pickGoogle(i, frame);
     i.stdin.write("\x1b[B"); // down → subscription
     await waitForFrame(frame, "› subscription");
     i.stdin.write("\r");
@@ -127,8 +154,10 @@ describe("onboarding wizard — subscription branch (#149)", () => {
     // The catalog may have grown past the viewport (scrollable, "↓ N more"):
     // the manual row exists in the list but is not guaranteed visible.
     expect(modelFrame).toMatch(/enter a model id manually|↓ \d+ more/);
-    const first = subscriptionModelCatalog("anthropic")[0]!;
-    expect(modelFrame).toContain(first.id);
+    const first = subscriptionModelCatalog("google")[0]!;
+    // The row carries name · id and is right-truncated at this width; the
+    // name is the part the frame always shows.
+    expect(modelFrame).toContain(first.name);
     i.stdin.write("\r"); // select the first catalog entry
     // Selection goes straight to the connection test (no key, no base URL).
     await waitForFrame(frame, "Testing connection");
@@ -137,14 +166,14 @@ describe("onboarding wizard — subscription branch (#149)", () => {
       () => `onDone was not called; received: ${JSON.stringify(done)}`,
     );
 
-    expect(done).toEqual([`anthropic/${first.id}`]);
+    expect(done).toEqual([`google/${first.id}`]);
     expect(logins).toBe(1);
 
     // Tokens live in ~/.moh/config (never moh.json); endpoint completed.
     const user = readUserConfigFile(userFile);
-    expect(getStoredToken(userFile, "anthropic")?.accessToken).toBe("at-secret-value");
-    expect((user.endpoints as { name: string }[] ?? []).find((e) => e.name === "anthropic")).toMatchObject({
-      type: "anthropic",
+    expect(getStoredToken(userFile, "google")?.accessToken).toBe("at-secret-value");
+    expect((user.endpoints as { name: string }[] ?? []).find((e) => e.name === "google")).toMatchObject({
+      type: "google",
       auth: { kind: "subscription" },
       defaultModel: first.id,
     });
@@ -172,9 +201,7 @@ describe("onboarding wizard — subscription branch (#149)", () => {
         />,
       );
       const frame = () => stripAnsi(i.lastFrame() ?? "");
-      await waitForFrame(frame, "Pick a provider type");
-      i.stdin.write("\r");
-      await waitForFrame(frame, "How does anthropic authenticate?");
+      await pickGoogle(i, frame);
       i.stdin.write("\x1b[B\r");
       await waitForFrame(frame, "Terms of service");
       i.stdin.write("y");
@@ -209,9 +236,7 @@ describe("onboarding wizard — subscription branch (#149)", () => {
         />,
       );
       const frame = () => stripAnsi(i.lastFrame() ?? "");
-      await waitForFrame(frame, "Pick a provider type");
-      i.stdin.write("\r");
-      await waitForFrame(frame, "How does anthropic authenticate?");
+      await pickGoogle(i, frame);
       i.stdin.write("\x1b[B\r");
       await waitForFrame(frame, "Terms of service");
       i.stdin.write("y");
@@ -244,9 +269,7 @@ describe("onboarding wizard — subscription branch (#149)", () => {
         />,
       );
       const frame = () => stripAnsi(i.lastFrame() ?? "");
-      await waitForFrame(frame, "Pick a provider type");
-      i.stdin.write("\r");
-      await waitForFrame(frame, "How does anthropic authenticate?");
+      await pickGoogle(i, frame);
       i.stdin.write("\x1b[B\r");
       await waitForFrame(frame, "Terms of service");
       i.stdin.write("y");
@@ -278,9 +301,7 @@ describe("onboarding wizard — subscription branch (#149)", () => {
         />,
       );
       const frame = () => stripAnsi(i.lastFrame() ?? "");
-      await waitForFrame(frame, "Pick a provider type");
-      i.stdin.write("\r");
-      await waitForFrame(frame, "How does anthropic authenticate?");
+      await pickGoogle(i, frame);
       i.stdin.write("\x1b[B\r");
       await waitForFrame(frame, "Terms of service");
       i.stdin.write("y");
@@ -306,16 +327,14 @@ describe("onboarding wizard — subscription branch (#149)", () => {
         subscriptionLogin={async (io) => {
           // Stub + tokens must not exist before the login resolves (#150).
           const user = readUserConfigFile(userFile);
-          expect((user.endpoints as { name: string }[] ?? []).find((e) => e.name === "anthropic")).toBeUndefined();
+          expect((user.endpoints as { name: string }[] ?? []).find((e) => e.name === "google")).toBeUndefined();
           return scriptedLogin(io);
         }}
         onDone={() => {}}
       />,
     );
     const frame = () => stripAnsi(i.lastFrame() ?? "");
-    await waitForFrame(frame, "Pick a provider type");
-    i.stdin.write("\r");
-    await waitForFrame(frame, "How does anthropic authenticate?");
+    await pickGoogle(i, frame);
     i.stdin.write("\x1b[B");
     await waitForFrame(frame, "› subscription");
     i.stdin.write("\r");
@@ -330,8 +349,8 @@ describe("onboarding wizard — subscription branch (#149)", () => {
     // Right after login: stub + tokens are on disk even though the wizard
     // is still at the model prompt.
     const user = readUserConfigFile(userFile);
-    expect((user.endpoints as { name: string }[] ?? []).find((e) => e.name === "anthropic")).toMatchObject({ auth: { kind: "subscription" } });
-    expect(getStoredToken(userFile, "anthropic")).toBeDefined();
+    expect((user.endpoints as { name: string }[] ?? []).find((e) => e.name === "google")).toMatchObject({ auth: { kind: "subscription" } });
+    expect(getStoredToken(userFile, "google")).toBeDefined();
     expect(frame()).toContain("Pick your default model");
     i.unmount();
   });
@@ -350,9 +369,7 @@ describe("onboarding wizard — subscription branch (#149)", () => {
       />,
     );
     const frame = () => stripAnsi(i.lastFrame() ?? "");
-    await waitForFrame(frame, "Pick a provider type");
-    i.stdin.write("\r"); // anthropic
-    await waitForFrame(frame, "How does anthropic authenticate?");
+    await pickGoogle(i, frame);
     i.stdin.write("\x1b[B"); // subscription
     await waitForFrame(frame, "› subscription");
     i.stdin.write("\r");
@@ -376,14 +393,14 @@ describe("onboarding wizard — subscription branch (#149)", () => {
     i.stdin.write("\r"); // manual entry
     await waitForFrame(frame, "Default model");
     expect(frame()).toContain("Default model");
-    i.stdin.write("claude-sonnet-4-5");
-    await waitForFrame(frame, "› claude-sonnet-4-5");
+    i.stdin.write("gemini-3-pro");
+    await waitForFrame(frame, "› gemini-3-pro");
     i.stdin.write("\r");
     await waitForCondition(
       () => done.length > 0,
       () => `onDone was not called; received: ${JSON.stringify(done)}`,
     );
-    expect(done).toEqual(["anthropic/claude-sonnet-4-5"]);
+    expect(done).toEqual(["google/gemini-3-pro"]);
     i.unmount();
   });
 
@@ -404,15 +421,13 @@ describe("onboarding wizard — subscription branch (#149)", () => {
       />,
     );
     const frame = () => stripAnsi(i.lastFrame() ?? "");
-    await waitForFrame(frame, "Pick a provider type");
-    i.stdin.write("\r"); // anthropic
-    await waitForFrame(frame, "How does anthropic authenticate?");
+    await pickGoogle(i, frame);
     i.stdin.write("\x1b[B"); // subscription
     await waitForFrame(frame, "› subscription");
     i.stdin.write("\r");
     await waitForFrame(frame, "Terms of service");
     i.stdin.write("n"); // decline
-    await waitForFrame(frame, "How does anthropic authenticate?");
+    await waitForFrame(frame, "How does google authenticate?");
     expect(logins).toBe(0);
     // Cursor remembers the declined choice; switching to api-key works.
     i.stdin.write("\x1b[A"); // up → api-key
@@ -440,9 +455,7 @@ describe("onboarding wizard — subscription branch (#149)", () => {
       />,
     );
     const frame = () => stripAnsi(i.lastFrame() ?? "");
-    await waitForFrame(frame, "Pick a provider type");
-    i.stdin.write("\r");
-    await waitForFrame(frame, "How does anthropic authenticate?");
+    await pickGoogle(i, frame);
     i.stdin.write("\x1b[B");
     await waitForFrame(frame, "› subscription");
     i.stdin.write("\r");

@@ -7,6 +7,21 @@ matching section here at tag time.
 
 ## [Unreleased]
 
+### Changed
+
+- **Anthropic onboarding offers the API key only** (#1317): the wizard (TUI
+  and `moh provider add`) no longer offers Claude Pro/Max subscription
+  login. Anthropic reserves that route for Claude Code and its own clients,
+  and it does not serve inference; one capability predicate, shared by both
+  clients, keeps the offer away from anthropic while the other six OAuth
+  kinds are unchanged. `moh provider login|logout|status anthropic` (and
+  the proactive refresh) keep working. An endpoint whose stored auth is
+  still a subscription records one visible `endpoint_auth_withdrawn`
+  warning at session start — the transcript block, and one `moh run`
+  stderr line — naming the remedy: an API-key endpoint, and
+  `moh provider logout <name>` for the stored tokens. Nothing is
+  converted, deleted or called.
+
 ## [0.63.0] - 2026-10-11
 
 ### Fixed

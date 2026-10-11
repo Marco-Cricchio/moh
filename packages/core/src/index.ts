@@ -484,6 +484,7 @@ export {
 } from "./browser-toolchain";
 import {
   isSubscriptionKind,
+  offersSubscriptionAuth,
   providerLogin,
   providerLogout,
   providerStatus,
@@ -1118,6 +1119,7 @@ export {
   type OnboardingIo,
   type ProviderAddOptions,
   isSubscriptionKind,
+  offersSubscriptionAuth,
   providerLogin,
   providerLogout,
   providerStatus,
