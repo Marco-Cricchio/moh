@@ -581,6 +581,7 @@ const RESERVED_EVENT_NAMES: ReadonlySet<string> = new Set([
   "compaction",
   "declared_window",
   "done",
+  "endpoint_auth_withdrawn",
   "error",
   "extension_control",
   "extension_event",

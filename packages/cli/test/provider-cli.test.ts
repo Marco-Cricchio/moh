@@ -84,14 +84,16 @@ describe("moh provider", () => {
       account: { email: "dev@example.test" },
       updatedAt: 1_700_000_000_000,
     };
-    const io = wizardIo(["anthropic", "", "subscription", "claude-sonnet-4-5"], token);
-    const r = await run(["add"], { cwd, home, io, subscriptionLogin: async () => token, tester: async () => ({ ok: true, modelId: "claude-sonnet-4-5" }) });
+    // #1317: anthropic's subscription offer is withdrawn, so the CLI's
+    // subscription branch is exercised on a kind that still offers it.
+    const io = wizardIo(["google", "", "subscription", "gemini-3-pro"], token);
+    const r = await run(["add"], { cwd, home, io, subscriptionLogin: async () => token, tester: async () => ({ ok: true, modelId: "gemini-3-pro" }) });
     expect(r.code).toBe(0);
     const moh = JSON.parse(readFileSync(join(cwd, "moh.json"), "utf8"));
     expect(moh.endpoints[0].auth).toEqual({ kind: "subscription" });
-    expect(moh.provider).toBe("anthropic/claude-sonnet-4-5");
+    expect(moh.provider).toBe("google/gemini-3-pro");
     const user = JSON.parse(readFileSync(join(home, ".moh", "config"), "utf8"));
-    expect(user.auth.tokens.anthropic.accessToken).toBe("acc-xyz");
+    expect(user.auth.tokens.google.accessToken).toBe("acc-xyz");
     // redaction: the success output never echoes token material
     expect(r.out).not.toContain("acc-xyz");
     expect(r.out).not.toContain("ref-xyz");

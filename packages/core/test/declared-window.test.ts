@@ -14,6 +14,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "no
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { MockProvider, createSession } from "../src/index";
+import { sdkRetryWrapper } from "./helpers.sdk-retry-error";
 import { normalizeProviderError } from "../src/provider-errors";
 import { DeclaredWindows, DECLARED_WINDOW_FORMULAS, recognizeDeclaredWindow } from "../src/declared-window";
 import { CompactionRunner, contextWindowFor, type CompactionSummarizer } from "../src/compaction";
@@ -168,6 +169,20 @@ describe("normalizeProviderError (#986)", () => {
     const err = rawRefusal("invalid request", 400) as Error & { responseBody: string };
     err.responseBody = JSON.stringify({ error: { message: OPENROUTER_REFUSAL } });
     expect(normalizeProviderError(err).declaredWindow).toBe(131_072);
+  });
+
+  test("reads the window through the SDK retry wrapper (#1318)", () => {
+    // The refusal reached moh inside the retry wrapper's `lastError`, with
+    // the formula past the 300-character cap: recognition walks the
+    // wrapper too, so the window is still taught (ADR-0049).
+    const padding = "x".repeat(400);
+    const inner = rawRefusal(`${padding} ${OPENROUTER_REFUSAL}`, 400) as Error & { responseBody: string };
+    inner.responseBody = JSON.stringify({ error: { message: `${padding} ${OPENROUTER_REFUSAL}` } });
+    const wrapped = sdkRetryWrapper(inner);
+    const normalized = normalizeProviderError(wrapped);
+    expect(normalized.kind).toBe("context_length");
+    expect(normalized.declaredWindow).toBe(131_072);
+    expect(normalized.message.length).toBeLessThanOrEqual(301);
   });
 
   test("the kind classification: shipped-formula wordings are refusals (#1199)", () => {

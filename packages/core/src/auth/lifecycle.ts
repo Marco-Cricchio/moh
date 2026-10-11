@@ -31,6 +31,36 @@ export function isSubscriptionKind(kind: string): kind is SubscriptionKind {
   return (SUBSCRIPTION_KINDS as readonly string[]).includes(kind);
 }
 
+/**
+ * #1317: the kinds whose subscription grant moh's onboarding **withholds**
+ * from the wizard. Their grant stays reachable deliberately
+ * (`moh provider login <kind>`, below) but is never offered: Anthropic
+ * reserves subscription OAuth for Claude Code and its own clients, and the
+ * route does not serve inference (ADR-0010 amendment). One list, one
+ * predicate — both clients' wizards and the startup diagnostic read this.
+ */
+const WITHHELD_SUBSCRIPTION_KINDS: readonly SubscriptionKind[] = ["anthropic"];
+
+/** Whether the wizard offers the `api-key | subscription` choice for
+ * `kind`: a grant exists *and* is not withheld (#1317). */
+export function offersSubscriptionAuth(kind: string): kind is SubscriptionKind {
+  if (!isSubscriptionKind(kind)) return false;
+  return !WITHHELD_SUBSCRIPTION_KINDS.includes(kind);
+}
+
+/**
+ * #1317: the one-line reason an endpoint whose stored credential is a
+ * withheld subscription cannot serve inference, or `null` for every other
+ * endpoint (an api-key endpoint, an endpoint without credentials, or a kind
+ * the wizard still offers). The sentence names the remedy; the session
+ * records it once per open as an `endpoint_auth_withdrawn` chrome event.
+ */
+export function withdrawnSubscriptionReason(endpoint: Pick<EndpointProfile, "name" | "type" | "auth">): string | null {
+  if (endpoint.auth?.kind !== "subscription") return null;
+  if (!isSubscriptionKind(endpoint.type) || offersSubscriptionAuth(endpoint.type)) return null;
+  return `endpoint "${endpoint.name}" is authenticated with ${endpoint.type} subscription login, which moh's onboarding no longer offers and which does not serve inference — add an API-key endpoint instead (\`moh provider add\` → ${endpoint.type} → api-key) and drop the stored tokens with \`moh provider logout ${endpoint.name}\`.`;
+}
+
 /** Injected grant seam (tests script it; production runs the real flow). */
 export type SubscriptionLogin = (
   io: AuthorizationIo,

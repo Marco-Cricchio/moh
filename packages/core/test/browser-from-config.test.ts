@@ -9,6 +9,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { sessionFromConfig } from "../src/session/from-config";
+import { builtinTools } from "../src/builtin-tools";
 import type { AgentEvent } from "../src/types";
 import { browserAvailability } from "../src/browser";
 
@@ -72,6 +73,33 @@ describe("from-config browser wiring", () => {
       });
       if ("error" in result) throw new Error(result.error.message);
       await result.session.dispose();
+    } finally {
+      cleanup();
+    }
+  });
+
+  test("#1316: a client tools override keeps the core-registered browser tool", () => {
+    const { cwd, home, cleanup } = tempProject();
+    try {
+      const events: AgentEvent[] = [];
+      const result = sessionFromConfig({
+        cwd,
+        home,
+        config: { provider: "mock", browser: { enabled: true } },
+        overrides: { sink: (e) => events.push(e), tools: { todo: builtinTools().todo! } },
+      });
+      expect("error" in result).toBe(false);
+      if ("error" in result) return;
+      const available = browserAvailability({ cwd, home }).available;
+      if (available) {
+        // The client registry (a tracker-style overlay) must not silently
+        // drop the browser tool the same assembly just registered.
+        expect(result.session.tools.browser).toBeDefined();
+        expect(events.filter((e) => e.type === "browser_unavailable")).toHaveLength(0);
+      } else {
+        expect(result.session.tools.browser).toBeUndefined();
+      }
+      expect(result.session.tools.todo).toBeDefined();
     } finally {
       cleanup();
     }
