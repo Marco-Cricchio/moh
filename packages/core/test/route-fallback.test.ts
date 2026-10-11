@@ -5,6 +5,7 @@ import { classifyStatus, disambiguate429, normalizeProviderError } from "../src/
 import { ProviderError } from "../src/types";
 import type { Message, StreamEvent } from "../src/types";
 import type { RouteTarget } from "../src/route";
+import { apiCallError, RATE_LIMIT_BODY, sdkRetryWrapper } from "./helpers.sdk-retry-error";
 import { writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -474,6 +475,105 @@ describe("billing-error normalization (z.ai code 1113)", () => {
   test("'usage limit' classifies as quota_exhausted (#506)", () => {
     expect(classifyStatus(0, "", "Failed after 3 attempts. Last error: AI_APICallError: The usage limit has been reached")).toBe("quota_exhausted");
     expect(normalizeProviderError(new Error("Failed after 3 attempts. Last error: AI_APICallError: The usage limit has been reached")).kind).toBe("quota_exhausted");
+  });
+});
+
+// #1318: the AI SDK retry wrapper carries the real failure in
+// `lastError`/`errors` and sets no `cause` — `helpers.sdk-retry-error`
+// builds that exact shape rather than a hand-rolled `cause`.
+describe("SDK retry wrapper (#1318)", () => {
+  test("a wrapped 429 classifies from the wrapped status, not from the wrapper", () => {
+    const direct = normalizeProviderError(apiCallError(429, RATE_LIMIT_BODY));
+    const wrapped = normalizeProviderError(sdkRetryWrapper(apiCallError(429, RATE_LIMIT_BODY)));
+    expect(wrapped.kind).toBe("rate_limited");
+    expect(wrapped.details?.httpStatus).toBe(429);
+    // A wrapped failure is described exactly like a direct one: the
+    // provider's own message, never the wrapper's retelling.
+    expect(wrapped.message).toBe(direct.message);
+    expect(wrapped.message).not.toContain("Failed after");
+  });
+
+  test("the non-retryable wrapper shape is read too", () => {
+    const wrapped = normalizeProviderError(sdkRetryWrapper(apiCallError(429, RATE_LIMIT_BODY), { nonRetryable: true }));
+    expect(wrapped.kind).toBe("rate_limited");
+    expect(wrapped.details?.httpStatus).toBe(429);
+  });
+
+  test("a Retry-After inside the wrapper rides as details.retryAfterMs", () => {
+    const wrapped = normalizeProviderError(sdkRetryWrapper(apiCallError(429, RATE_LIMIT_BODY, { "retry-after": "30" })));
+    expect(wrapped.details).toEqual({ httpStatus: 429, retryAfterMs: 30_000 });
+  });
+
+  test("a wrapper that arrived as a plain record rides `errors` alone", () => {
+    // Not an Error instance and no `lastError`: the status and the
+    // description both come from the list of attempts.
+    const record = {
+      message: "Failed after 3 attempts. Last error: AI_APICallError: Error",
+      errors: [apiCallError(429, RATE_LIMIT_BODY)],
+    };
+    const normalized = normalizeProviderError(record);
+    expect(normalized.kind).toBe("rate_limited");
+    expect(normalized.details?.httpStatus).toBe(429);
+    expect(normalized.message).toBe(normalizeProviderError(apiCallError(429, RATE_LIMIT_BODY)).message);
+  });
+
+  test("the bounded message survives the wrapper", () => {
+    const verbose = apiCallError(429, JSON.stringify({ error: { message: "x".repeat(500) } }));
+    const wrapped = normalizeProviderError(sdkRetryWrapper(verbose));
+    expect(wrapped.message.length).toBeLessThanOrEqual(301);
+    expect(wrapped.message.endsWith("…")).toBe(true);
+  });
+
+  test("a wrapped 429 falls back and cools the failed target down as rate_limited", async () => {
+    const wrapper = sdkRetryWrapper(apiCallError(429, RATE_LIMIT_BODY));
+    const route = createRoute({
+      target: mockTarget("a"),
+      fallbacks: [mockTarget("b")],
+      retries: 0,
+      now: () => 0,
+      createStream: (target) =>
+        target.endpoint.name === "a"
+          ? async function* () { throw wrapper; }
+          : mockStreamOf([{ deltas: ["ok"], finish: "stop" }]),
+    });
+    const events: StreamEvent[] = [];
+    for await (const e of route.stream([{ role: "user", parts: [{ kind: "text", text: "hi" }] }], new AbortController().signal)) {
+      events.push(e);
+    }
+    expect(events.some((e) => e.type === "fallback" && e.reason === "rate_limited")).toBe(true);
+    expect(route.serving).toBe("b/model-b");
+    // The stop is cooled down as what it was — a transient rate limit, not
+    // the 15-minute invalid_request a misclassified wrapper would inherit.
+    expect(route.health()).toEqual([{ ref: "a/model-a", kind: "rate_limited", until: 60_000 }]);
+  });
+
+  test("a wrapped 429 on a fallback target cools it down as rate_limited, never invalid_request", async () => {
+    // The motivating case: the fallback stop is the one that gets probed
+    // after the primary's own failure. Misread as invalid_request it would
+    // be inherited as a 15-minute refusal — a transient rate limit treated
+    // as a deterministic one.
+    const wrapper = sdkRetryWrapper(apiCallError(429, RATE_LIMIT_BODY));
+    const route = createRoute({
+      target: mockTarget("a"),
+      fallbacks: [mockTarget("b")],
+      retries: 0,
+      now: () => 0,
+      createStream: (target) =>
+        target.endpoint.name === "a"
+          ? mockStreamOf([{ deltas: [], finish: "stop", error: { kind: "quota_exhausted", message: "quota" } }])
+          : async function* () { throw wrapper; },
+    });
+    let thrown: ProviderError | undefined;
+    try {
+      for await (const _ of route.stream([{ role: "user", parts: [{ kind: "text", text: "hi" }] }], new AbortController().signal)) void _;
+    } catch (err) {
+      thrown = err as ProviderError;
+    }
+    expect(thrown?.kind).toBe("rate_limited");
+    expect(route.health()).toEqual([
+      { ref: "a/model-a", kind: "quota_exhausted", until: 900_000 },
+      { ref: "b/model-b", kind: "rate_limited", until: 60_000 },
+    ]);
   });
 });
 

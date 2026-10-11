@@ -8,7 +8,16 @@ import { recognizeDeclaredWindow } from "./declared-window";
 export type AbortKind = "aborted";
 
 type ErrorRecord = Record<string, unknown>;
-const DETAIL_KEYS = ["message", "detail", "error_description", "responseBody", "error", "data", "cause"] as const;
+/** #1318: the AI SDK retry wrapper's own fields. The wrapper carries the
+ * real failure in `errors`, with `lastError` as its last entry
+ * (ai/src/util/retry-error.ts), and sets no `cause` — without these keys a
+ * 429 the SDK retried is unreachable, so its status, body and
+ * `Retry-After` all vanish. */
+const RETRY_KEYS = ["lastError", "errors"] as const;
+/** The carriers every walk descends through: the SDK error chain plus the
+ * retry wrapper's fields. */
+const NESTED_KEYS = ["error", "cause", "data", "response", ...RETRY_KEYS] as const;
+const DETAIL_KEYS = ["message", "detail", "error_description", "responseBody", "error", "data", "cause", ...RETRY_KEYS] as const;
 /** ADR-0049: total characters scanned for a declared window per failure.
  * Recognition must see the untruncated text, and a provider payload is
  * bounded by the transport long before this; the cap only stops a
@@ -68,7 +77,10 @@ export function normalizeProviderError(err: unknown, signal?: AbortSignal): Prov
     return fail("network", message);
   }
 
-    // SDK retry wrappers lose statusCode but keep the cause message; sniff it.
+  // No reachable status: the failure may still name itself in its text —
+  // a wrapper that carried the underlying error as a string only, or a
+  // provider that reports the kind in the message (billing wording, a
+  // declared-window formula). Sniff the message before giving up.
   const sniffed = classifyStatus(0, body, message);
   if (sniffed !== "invalid_request") return fail(sniffed, message);
 
@@ -151,6 +163,14 @@ function describe(err: unknown): string {
   return found ?? "Unknown provider error";
 }
 
+/** #1318: the failure a retry wrapper wrapped — `lastError` first (the SDK
+ * sets it to the last of `errors`), then the `errors` list, so a wrapper
+ * assembled without `lastError` is still read. */
+function describeWrapped(record: ErrorRecord, seen: Set<object>, depth: number): string | undefined {
+  return findDescription(record.lastError, seen, depth + 1)
+    ?? findDescription(record.errors, seen, depth + 1);
+}
+
 function findDescription(value: unknown, seen: Set<object>, depth: number): string | undefined {
   if (depth > 6 || value === null || value === undefined) return undefined;
   if (typeof value === "string") {
@@ -161,6 +181,14 @@ function findDescription(value: unknown, seen: Set<object>, depth: number): stri
   if (seen.has(value)) return undefined;
   seen.add(value);
   if (value instanceof Error) {
+    // #1318: the retry wrapper's own message is only a retelling
+    // ("Failed after 3 attempts. Last error: AI_APICallError: …") — the
+    // failure it wrapped rides `lastError`/`errors`. Describe through
+    // those, so a wrapped failure reads exactly like a direct one.
+    if (isRetryWrapperMessage(value.message)) {
+      const nested = describeWrapped(value as unknown as ErrorRecord, seen, depth);
+      if (nested) return nested;
+    }
     if (typeof value.message === "string" && value.message && value.message !== "[object Object]") {
       return boundedDescription(value.message);
     }
@@ -181,18 +209,35 @@ function findDescription(value: unknown, seen: Set<object>, depth: number): stri
 }
 
 function findRecordDescription(record: ErrorRecord, seen: Set<object>, depth: number): string | undefined {
+  // #1318: a wrapper that arrived as a plain record rather than an Error
+  // instance retells the failure in `message` too (DETAIL_KEYS reads
+  // `message` first) — read what it wrapped before the retelling.
+  if (isRetryWrapperMessage(record.message)) {
+    const nested = describeWrapped(record, seen, depth);
+    if (nested) return withParam(record, nested);
+  }
   for (const key of DETAIL_KEYS) {
     const found = findDescription(record[key], seen, depth + 1);
-    if (found) {
-      const param = findStringField(record, "param", new Set<object>(), 0);
-      return param && !found.includes(param) ? `${found} (param: ${param})` : found;
-    }
+    if (found) return withParam(record, found);
   }
   return undefined;
 }
 
+function withParam(record: ErrorRecord, found: string): string {
+  const param = findStringField(record, "param", new Set<object>(), 0);
+  return param && !found.includes(param) ? `${found} (param: ${param})` : found;
+}
+
 function boundedDescription(value: string): string {
   return value.length > 300 ? `${value.slice(0, 300)}…` : value;
+}
+
+/** #1318: the two message shapes the AI SDK retry wrapper builds
+ * (`Failed after N attempts. Last error: …` on the retry budget running
+ * out, `Failed after N attempts with non-retryable error: '…'` when the
+ * failure was not retried) — retry-with-exponential-backoff.ts:103,138. */
+function isRetryWrapperMessage(message: unknown): boolean {
+  return typeof message === "string" && /^Failed after \d+ attempts(\.| with non-retryable error:)/.test(message);
 }
 
 function parseBodyDescription(value: string, seen: Set<object>, depth: number): string | undefined {
@@ -208,14 +253,21 @@ function parseBodyDescription(value: string, seen: Set<object>, depth: number): 
 function findStatusCode(value: unknown, seen = new Set<object>(), depth = 0): number | undefined {
   if (depth > 6 || value === null || typeof value !== "object" || seen.has(value)) return undefined;
   seen.add(value);
-  if (!Array.isArray(value)) {
-    const record = value as ErrorRecord;
-    if (typeof record.statusCode === "number") return record.statusCode;
-    if (typeof record.status === "number") return record.status;
-    for (const key of ["error", "cause", "data", "response"] as const) {
-      const found = findStatusCode(record[key], seen, depth + 1);
+  if (Array.isArray(value)) {
+    // #1318: the wrapper's `errors` is an array — the status sits one
+    // level in, so arrays are walked like they are everywhere else here.
+    for (const item of value.slice(0, 5)) {
+      const found = findStatusCode(item, seen, depth + 1);
       if (found !== undefined) return found;
     }
+    return undefined;
+  }
+  const record = value as ErrorRecord;
+  if (typeof record.statusCode === "number") return record.statusCode;
+  if (typeof record.status === "number") return record.status;
+  for (const key of NESTED_KEYS) {
+    const found = findStatusCode(record[key], seen, depth + 1);
+    if (found !== undefined) return found;
   }
   return undefined;
 }
@@ -247,7 +299,7 @@ function findField(value: unknown, field: string, seen: Set<object>, depth: numb
   }
   const record = value as ErrorRecord;
   if (record[field] !== undefined) return record[field];
-  for (const key of ["error", "cause", "data", "response"] as const) {
+  for (const key of NESTED_KEYS) {
     const found = findField(record[key], field, seen, depth + 1);
     if (found !== undefined) return found;
   }

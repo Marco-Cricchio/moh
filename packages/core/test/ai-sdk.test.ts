@@ -3,6 +3,8 @@ import { simulateReadableStream } from "ai/test";
 import { aiSdkStreamFor } from "../src/providers/ai-sdk";
 import { Endpoint, type RouteTarget } from "../src/route";
 import type { LanguageModel } from "ai";
+import { ProviderError } from "../src/types";
+import { apiCallError, RATE_LIMIT_BODY } from "./helpers.sdk-retry-error";
 import type { Message, StreamEvent, ToolSpec } from "../src/types";
 
 type StreamPart = Record<string, unknown> & { type: string };
@@ -318,5 +320,41 @@ describe("#873 bug 1: double-encoded tool call arguments", () => {
     ]);
     const messages = h.calls[0]!.prompt;
     expect(messages[0].content[0]).toMatchObject({ type: "tool-call", toolName: "bash", input: { cmd: "ls" } });
+  });
+});
+
+// #1318: the SDK's own retry layer is off, so the Route is the single
+// owner of retries. With it on, its wrapper hid the status/body/Retry-After
+// of the failure it retried (they ride `lastError`, never `cause`), and a
+// real 429 reached moh as `invalid_request`.
+describe("SDK retry layering (#1318)", () => {
+  it("makes exactly one model call and hands the raw failure to the normalizer", async () => {
+    let calls = 0;
+    const rateLimited = apiCallError(429, RATE_LIMIT_BODY, { "retry-after": "1" });
+    const model = {
+      specificationVersion: "v4",
+      provider: "mock",
+      doStream: async () => {
+        calls += 1;
+        throw rateLimited;
+      },
+    } as unknown as LanguageModel;
+    const target: RouteTarget = {
+      endpoint: new Endpoint({ name: "t-openai", kind: "openai", apiKey: "k" }),
+      modelId: "m",
+    };
+    const stream = aiSdkStreamFor(target, "k", undefined, model);
+    let thrown: ProviderError | undefined;
+    try {
+      for await (const _ of stream([{ role: "user", parts: [{ kind: "text", text: "hi" }] }], new AbortController().signal)) void _;
+    } catch (err) {
+      thrown = err as ProviderError;
+    }
+    // One attempt: a retryable 429 is the Route's to retry, not the SDK's.
+    expect(calls).toBe(1);
+    // The transport facts survive to the session (#1099).
+    expect(thrown?.kind).toBe("rate_limited");
+    expect(thrown?.details).toEqual({ httpStatus: 429, retryAfterMs: 1_000 });
+    expect(thrown?.message).not.toContain("Failed after");
   });
 });
