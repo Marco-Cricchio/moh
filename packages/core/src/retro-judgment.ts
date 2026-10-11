@@ -15,6 +15,7 @@
  * process restarts and is testable without a model call.
  */
 import { existsSync } from "node:fs";
+import { join } from "node:path";
 import type { AgentEvent, Provider } from "./types";
 import { retroSignature, type RetroCandidate } from "./retro";
 import { PromptComposer } from "./prompt-composer";
@@ -177,10 +178,12 @@ export function selectJudgmentBatch(
   return chosen;
 }
 
-/** Reads the project's closed sessions, newest first, for the batch. */
-export function closedSessions(cwd: string, home: string): SessionSummary[] {
+/** Reads the project's closed sessions, newest first, for the batch.
+ * Speaks mohHome (the session's dotdir), like every other retro path:
+ * the chain below derives the user home from it once, here. */
+export function closedSessions(cwd: string, mohHome: string): SessionSummary[] {
   try {
-    return listSessionSummaries(cwd, home);
+    return listSessionSummaries(cwd, join(mohHome, ".."));
   } catch {
     return [];
   }

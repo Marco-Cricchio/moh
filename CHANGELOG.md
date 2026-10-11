@@ -7,6 +7,17 @@ matching section here at tag time.
 
 ## [Unreleased]
 
+## [0.64.4] - 2026-10-11
+
+### Fixed
+
+- **The retro judgement batch actually fires** (#1339, PR #1340): the
+  ADR-0075 batch had never run — the gate passed, but the batch selection
+  saw zero sessions because of a mohHome/user-home unit mismatch, then
+  exited silently (the counter grew to 94 with no `lastRunAt`, no event, no
+  trace). The selection now resolves the user home once, and a
+  `retro_batch_skipped` chrome event makes every future skip visible.
+
 ## [0.64.3] - 2026-10-11
 
 ### Fixed
@@ -2536,7 +2547,8 @@ security audit, each fixed behind its own PR.
   passed; a regression test pins the resolved path under
   `<home>/.moh/projects`.
 
-[Unreleased]: https://github.com/Marco-Cricchio/moh/compare/v0.64.3...develop
+[Unreleased]: https://github.com/Marco-Cricchio/moh/compare/v0.64.4...develop
+[0.64.4]: https://github.com/Marco-Cricchio/moh/compare/v0.64.3...v0.64.4
 [0.64.3]: https://github.com/Marco-Cricchio/moh/compare/v0.64.2...v0.64.3
 [0.64.2]: https://github.com/Marco-Cricchio/moh/compare/v0.64.1...v0.64.2
 [0.64.1]: https://github.com/Marco-Cricchio/moh/compare/v0.64.0...v0.64.1

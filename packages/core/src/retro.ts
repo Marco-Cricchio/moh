@@ -102,10 +102,12 @@ interface DigestState {
 }
 
 /** The judgement pipeline's threshold state (ADR-0075): closed sessions
- * counted since the last batch run, plus when that run happened. */
+ * counted since the last batch run, plus when that run (or the last
+ * rate-limited empty-selection report) happened. */
 interface JudgmentState {
   closedSinceBatch: number;
   lastRunAt?: string;
+  lastSkipAt?: string;
 }
 
 export interface RetroDismissal {
@@ -340,7 +342,7 @@ export class RetroStore {
       const closedSinceBatch = state.closedSinceBatch + 1;
       this.#writeAtomic(
         join(this.dir, JUDGMENT_FILE),
-        `${JSON.stringify({ version: 1, closedSinceBatch, ...(state.lastRunAt ? { lastRunAt: state.lastRunAt } : {}) }, null, 2)}\n`,
+        `${JSON.stringify(this.#judgmentFileBody(state, closedSinceBatch), null, 2)}\n`,
       );
       return closedSinceBatch;
     } catch {
@@ -370,12 +372,44 @@ export class RetroStore {
     }
   }
 
+  /**
+   * #1339: the batch gate passed but the selection came back empty — one
+   * rate-limited visible record instead of a silent exit. Returns whether
+   * the caller should emit the skip event (at most one per digest
+   * interval, durable across sessions); never throws.
+   */
+  noteJudgmentSkip(now = new Date()): boolean {
+    try {
+      const state = this.#readJudgment();
+      const stamp = now.toISOString();
+      const last = state.lastSkipAt !== undefined ? new Date(state.lastSkipAt).getTime() : NaN;
+      if (Number.isFinite(last) && now.getTime() - last < RETRO_DIGEST_INTERVAL_MS) return false;
+      this.#writeAtomic(
+        join(this.dir, JUDGMENT_FILE),
+        `${JSON.stringify({ ...this.#judgmentFileBody(state, state.closedSinceBatch), lastSkipAt: stamp }, null, 2)}\n`,
+      );
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  #judgmentFileBody(state: JudgmentState, closedSinceBatch: number): Record<string, unknown> {
+    return {
+      version: 1,
+      closedSinceBatch,
+      ...(state.lastRunAt ? { lastRunAt: state.lastRunAt } : {}),
+      ...(state.lastSkipAt ? { lastSkipAt: state.lastSkipAt } : {}),
+    };
+  }
+
   #readJudgment(): JudgmentState {
     try {
       const parsed = JSON.parse(readFileSync(join(this.dir, JUDGMENT_FILE), "utf8")) as JudgmentState;
       return {
         closedSinceBatch: typeof parsed.closedSinceBatch === "number" && parsed.closedSinceBatch >= 0 ? parsed.closedSinceBatch : 0,
         ...(typeof parsed.lastRunAt === "string" ? { lastRunAt: parsed.lastRunAt } : {}),
+        ...(typeof parsed.lastSkipAt === "string" ? { lastSkipAt: parsed.lastSkipAt } : {}),
       };
     } catch {
       return { closedSinceBatch: 0 };

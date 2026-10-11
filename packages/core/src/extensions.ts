@@ -614,6 +614,7 @@ const RESERVED_EVENT_NAMES: ReadonlySet<string> = new Set([
   "reasoning_end",
   "reasoning_start",
   "reasoning",
+  "retro_batch_skipped",
   "retro_digest",
   "retro_updated",
   "route_serving",
