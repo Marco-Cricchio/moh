@@ -334,6 +334,15 @@ export function aiSdkStreamFor(
           system: system ?? undefined,
           messages: aiMessages ?? [],
           abortSignal: signal,
+          // #1318: the SDK's own retry layer is off. It duplicates the
+          // Route's kind-aware retry (route.ts, `isRetryable`), and its
+          // wrapper hides the transport facts — status, response body,
+          // `Retry-After` — behind `lastError`, which is how a retried 429
+          // arrived classified `invalid_request`: neither retried nor
+          // fallback-worthy, and a 15-minute cooldown on a fallback target.
+          // One retry layer, the Route's: it owns the cooldowns, the
+          // fallback chain and the attempt telemetry.
+          maxRetries: 0,
           ...(aiTools ? { tools: aiTools, toolChoice: "auto" as const, stopWhen: stepCountIs(1) } : {}),
           ...(thinking ? { providerOptions: thinking.providerOptions as never } : {}),
           ...responsesStoreFalse,

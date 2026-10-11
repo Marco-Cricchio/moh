@@ -7,6 +7,19 @@ matching section here at tag time.
 
 ## [Unreleased]
 
+### Fixed
+
+- **Retried provider failures keep their HTTP status** (#1318): a provider
+  error the AI SDK retried arrived as an opaque `Failed after 3 attempts.
+  Last error: …` wrapper, so a real `429` was classified `invalid_request` —
+  the route neither retried it nor moved down the fallback chain, and a
+  fallback target inherited a 15-minute refusal cooldown from a transient
+  condition. The normalizer now reads the failure the wrapper carries in
+  `lastError`/`errors` (status, message, response body, `Retry-After`), so a
+  wrapped failure behaves exactly like a direct one. The SDK's own retry
+  layer is off: retries belong to the Route, which owns the cooldowns and
+  the fallback chain (one attempt per model call, no double retry).
+
 ### Changed
 
 - **Anthropic onboarding offers the API key only** (#1317): the wizard (TUI
