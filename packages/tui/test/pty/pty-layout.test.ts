@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test";
-import { hasPython, runPty } from "./pty-runner";
+import { hasPython, runPty, runPtyRaw } from "./pty-runner";
+import { startFakeOpenAiTurns } from "./fake-openai-turns";
 import { COMPOSER_READY } from "../helpers";
 
 /**
@@ -33,3 +34,35 @@ test.skipIf(!hasPython)("SIGWINCH reflows the live frame without widening post-r
   for (const line of lines.slice(inputIdx)) expect(line.width).toBeLessThanOrEqual(80);
   expect(lines.slice(inputIdx).some((line) => line.text.includes("model"))).toBe(true);
 }, 30_000);
+
+test.skipIf(!hasPython)("#1305 settled tinted cards never send the live frame fullscreen", async () => {
+  const { server, url } = startFakeOpenAiTurns(3);
+  const B = (s: string) => btoa(s);
+  try {
+    const meta = await runPtyRaw({
+      cols: 100, rows: 30,
+      config: {
+        onboarded: true, workflowOffered: true, mode: "dev", provider: "fake",
+        endpoints: [{ name: "fake", type: "openai-compat", baseUrl: url, apiKey: "test-key", defaultModel: "fake-model" }],
+      },
+      steps: [
+        { wait: 8, until: "New session", untilOnScreen: true },
+        { mark: true },
+        ...[1, 2, 3].flatMap((turn) => [
+          { wait: 0.3, send: B(`surface ${turn}`) },
+          { wait: 0.3, send: B("\r") },
+          { wait: 10, until: `TURN-${turn}-MARKER`, untilOnScreen: true },
+          { wait: 10, until: COMPOSER_READY, untilOnScreen: true },
+        ]),
+        { markEnd: true },
+      ],
+      tail: 30,
+    });
+    expect(meta.framesAfterMark).toBeGreaterThan(0);
+    expect(meta.fullscreenAfterMark).toBe(0);
+    // Static card rows can share a synchronized write with the live frame;
+    // record that combined span without mistaking it for volatile height.
+    console.log(`[block-surfaces PTY] maxFrameRows=${meta.maxFrameRows} maxFrameRowsAfterMark=${meta.maxFrameRowsAfterMark} fullscreenFrames=${meta.fullscreenFrames}`);
+    expect(meta.aliveAtEnd).toBe(true);
+  } finally { server.stop(true); }
+}, 45_000);
