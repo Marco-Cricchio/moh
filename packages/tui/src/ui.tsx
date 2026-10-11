@@ -1,5 +1,5 @@
-import React from "react";
-import { Box, Text } from "ink";
+import React, { useEffect, useState } from "react";
+import { Box, Text, useInput } from "ink";
 import { useTheme } from "./themes";
 import { colorEnabled } from "./color";
 import { pickRampPreset, rampLogoRows, type RampPresetName } from "./logo-ramp";
@@ -203,6 +203,100 @@ export function Dialog({
         {children}
       </Box>
     </Box>
+  );
+}
+
+/**
+ * One row of a ScrollDialog body: the node plus how many visual lines it
+ * occupies (a wrapped description counts its wrapped rows — computed by the
+ * caller with `wrapLines`, since only it knows the width).
+ */
+export interface ScrollRow {
+  node: React.ReactNode;
+  weight: number;
+}
+
+/**
+ * A read-only dialog whose body scrolls when it does not fit the viewport
+ * (the vertical-overflow guarantee): rows window inside the remaining
+ * height, `↑`/`↓`/`j`/`k` scroll one row at a time, and `↑ N more` /
+ * `↓ N more` indicators report what is hidden — the same vocabulary the
+ * height-aware menus already use (#64). Fixed header/footer nodes stay on
+ * screen; only the rows scroll.
+ */
+export function ScrollDialog({
+  title,
+  color,
+  width,
+  rows,
+  header,
+  footer,
+  scrollHint = true,
+}: {
+  title: string;
+  color?: string;
+  width?: number | string;
+  rows: ScrollRow[];
+  header?: React.ReactNode;
+  /** Fixed trailing node (hints, status): always visible, outside the window. */
+  footer?: React.ReactNode;
+  scrollHint?: boolean;
+}) {
+  const theme = useTheme();
+  const viewport = useViewport();
+  const [offset, setOffset] = useState(0);
+  // Dialog chrome: border (2) + title + spacer + the window's own more-
+  // indicator row + the fixed footer. Never less than one row of body.
+  const budget = Math.max(1, viewport.rows - 7);
+  const weights = rows.map((r) => r.weight);
+  const totalWeight = weights.reduce((a, w) => a + w, 0);
+  const clampedOffset = Math.min(offset, Math.max(0, rows.length - 1));
+  // Grow the window downward from the offset, then upward, until the budget
+  // is spent — the weight-aware mirror of LanesModal's windowFor.
+  let start = clampedOffset;
+  let end = start + 1;
+  let used = weights[start] ?? 0;
+  if (used > budget) used = budget;
+  for (;;) {
+    let grew = false;
+    if (end < rows.length && used + weights[end]! <= budget) {
+      used += weights[end]!;
+      end++;
+      grew = true;
+    }
+    if (start > 0 && used + weights[start - 1]! <= budget) {
+      start--;
+      used += weights[start]!;
+      grew = true;
+    }
+    if (!grew) break;
+  }
+  const aboveWeight = weights.slice(0, start).reduce((a, w) => a + w, 0);
+  const belowWeight = weights.slice(end).reduce((a, w) => a + w, 0);
+  const scrollable = totalWeight > budget;
+  React.useEffect(() => {
+    setOffset((o) => Math.min(o, Math.max(0, rows.length - 1)));
+    // Re-clamp when the row list shrinks (e.g. after a filter or refresh).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rows.length]);
+  useInput((input, key) => {
+    if (!scrollable) return;
+    if (key.upArrow || input === "k") setOffset((o) => Math.max(0, o - 1));
+    if (key.downArrow || input === "j") setOffset((o) => Math.min(Math.max(0, rows.length - 1), o + 1));
+  });
+  return (
+    <Dialog title={title} color={color} width={width}>
+      {header}
+      {aboveWeight > 0 && <Dim>{` ↑ ${aboveWeight} more`}</Dim>}
+      {rows.slice(start, end).map((row, i) => (
+        <React.Fragment key={start + i}>{row.node}</React.Fragment>
+      ))}
+      {belowWeight > 0 && (
+        <Dim>{` ↓ ${belowWeight} more${scrollHint && scrollable ? " (↑↓ scroll)" : ""}`}</Dim>
+      )}
+      <Text> </Text>
+      {footer}
+    </Dialog>
   );
 }
 
