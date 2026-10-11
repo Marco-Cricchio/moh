@@ -1,4 +1,6 @@
 import React, { useState } from "react";
+import { existsSync } from "node:fs";
+import { join } from "node:path";
 import { Text, useInput } from "ink";
 import {
   applyRetroApplication,
@@ -47,6 +49,7 @@ export function RetroModal({ cwd, readReport, dismiss, onClose }: RetroModalProp
   const [report, setReport] = useState<RetroReport | null>(() => readReport());
   const [index, setIndex] = useState(0);
   const [confirming, setConfirming] = useState<RetroFinding | null>(null);
+  const [createMissing, setCreateMissing] = useState(false);
   const [status, setStatus] = useState<string | null>(null);
 
   const findings = report?.findings ?? [];
@@ -87,6 +90,13 @@ export function RetroModal({ cwd, readReport, dismiss, onClose }: RetroModalProp
     if (input === "a") {
       setStatus(null);
       setConfirming(selected);
+      // #1343 follow-up: a missing steering file is not a dead end. The
+      // first `a` arms the normal confirm; when the target does not exist,
+      // the prompt says so and `y` consents to creating it too — same
+      // explicit gate, wider consent. The file lands in the project root
+      // (committable): that is where the model reads steering files.
+      const target = proposeRetroApplication(selected).target;
+      setCreateMissing(target !== "" && !existsSync(join(cwd, target)));
     }
   });
 
@@ -148,7 +158,8 @@ export function RetroModal({ cwd, readReport, dismiss, onClose }: RetroModalProp
   const footer = confirming ? (
     <Text color={theme.warn}>
       {" "}
-      apply to {proposeRetroApplication(confirming).target}? <Dim>y confirm · n cancel</Dim>
+      apply to {proposeRetroApplication(confirming).target}
+      {createMissing ? " (missing — y creates it)" : ""}? <Dim>y confirm · n cancel</Dim>
     </Text>
   ) : (
     <Dim> ↑/↓ select · a apply · d dismiss · esc close</Dim>

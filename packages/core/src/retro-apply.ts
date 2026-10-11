@@ -76,7 +76,7 @@ export function proposeRetroApplication(finding: RetroFinding): RetroApplication
 }
 
 export type RetroApplyResult =
-  | { ok: true; file: string; appended: boolean }
+  | { ok: true; file: string; appended: boolean; created: boolean }
   | { ok: false; error: string };
 
 /**
@@ -92,6 +92,12 @@ export function applyRetroApplication(opts: {
   finding: RetroFinding;
   projectRoot: string;
   confirm: boolean;
+  /** #1343 follow-up: when the target steering file does not exist, create
+   * it with the marked block instead of refusing. Still behind the same
+   * explicit confirm — the gate refuses automation, not the act; the file
+   * lands in the project (committable) because that is where the model
+   * reads steering files. Callers that omit it keep the strict refusal. */
+  createMissing?: boolean;
   application?: RetroApplication;
 }): RetroApplyResult {
   if (!opts.confirm) return { ok: false, error: "refused: applying a change requires explicit confirmation" };
@@ -101,17 +107,26 @@ export function applyRetroApplication(opts: {
   const file = resolve(root, application.target);
   const rel = relative(root, file);
   if (rel.startsWith("..") || isAbsolute(rel)) return { ok: false, error: "refused: target escapes the project root" };
-  if (!existsSync(file)) return { ok: false, error: `refused: ${application.target} does not exist` };
+  if (!existsSync(file)) {
+    if (!opts.createMissing) return { ok: false, error: `refused: ${application.target} does not exist` };
+    try {
+      writeFileSync(file, `# ${application.target.replace(/\.md$/, "")}\n`, { mode: 0o644 });
+    } catch (error) {
+      return { ok: false, error: `refused: ${error instanceof Error ? error.message : String(error)}` };
+    }
+    const appended = applyRetroApplication({ ...opts, application });
+    return appended.ok ? { ...appended, created: true } : appended;
+  }
   try {
     if (!statSync(file).isFile()) return { ok: false, error: `refused: ${application.target} is not a file` };
     const current = readFileSync(file, "utf8");
     const bullet = `- ${application.proposal} (retro ${opts.finding.signature})`;
-    if (current.includes(bullet)) return { ok: true, file, appended: false };
+    if (current.includes(bullet)) return { ok: true, file, appended: false, created: false };
     const block = current.includes(application.section)
       ? `${current.replace(/\s*$/, "")}\n${bullet}\n`
       : `${current.replace(/\s*$/, "")}\n\n${application.section}\n\n${bullet}\n`;
     writeFileSync(file, block);
-    return { ok: true, file, appended: true };
+    return { ok: true, file, appended: true, created: false };
   } catch (error) {
     return { ok: false, error: `refused: ${error instanceof Error ? error.message : String(error)}` };
   }
