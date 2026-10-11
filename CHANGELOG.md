@@ -7,6 +7,8 @@ matching section here at tag time.
 
 ## [Unreleased]
 
+## [0.64.1] - 2026-10-11
+
 ### Fixed
 
 - **Browser tool works on openai-chat providers** (#1324): the tool schema a
@@ -29,7 +31,11 @@ matching section here at tag time.
   stays above the new ask thresholds; the exfiltration rubric now also names
   `--body-file` authoring to the project's own tracker as ordinary. Deny
   thresholds and the yolo lethal-only rule are untouched.
->>>>>>> origin/develop
+- **Logo-intro PTY readiness window widened** (#1326): the splash intro test
+  waited a fixed 3 s for the home screen before reading the viewport — under
+  a loaded runner the wait could expire with the needle already on screen,
+  the known load flake rather than a regression. The window now matches the
+  harness default.
 
 ## [0.64.0] - 2026-10-11
 
@@ -2487,7 +2493,8 @@ security audit, each fixed behind its own PR.
   passed; a regression test pins the resolved path under
   `<home>/.moh/projects`.
 
-[Unreleased]: https://github.com/Marco-Cricchio/moh/compare/v0.64.0...develop
+[Unreleased]: https://github.com/Marco-Cricchio/moh/compare/v0.64.1...develop
+[0.64.1]: https://github.com/Marco-Cricchio/moh/compare/v0.64.0...v0.64.1
 [0.64.0]: https://github.com/Marco-Cricchio/moh/compare/v0.63.0...v0.64.0
 [0.63.0]: https://github.com/Marco-Cricchio/moh/compare/v0.62.0...v0.63.0
 [0.62.0]: https://github.com/Marco-Cricchio/moh/compare/v0.61.3...v0.62.0
