@@ -164,18 +164,19 @@ interface StatusProps {
  * widest → narrowest: full name + full id, full name + short id, elided
  * name + short id, short id alone. Nothing ever wraps: the right text is
  * fitted into whatever the version segment leaves of the row. */
-export function sessionIdentityText(width: number, sessionName: string | null | undefined, sessionId: string | undefined, rightBudget: number): string {
+export function sessionIdentityText(sessionName: string | null | undefined, sessionId: string | undefined, rightBudget: number): string {
   if (!sessionId) return "";
   const shortId = sessionId.replace(/^session-/, "");
   const name = (sessionName ?? "").trim();
   const join = (n: string, id: string) => (n ? `${n} · ${id}` : id);
   if (join(name, sessionId).length <= rightBudget) return join(name, sessionId);
   if (join(name, shortId).length <= rightBudget) return join(name, shortId);
-  const elided = name.length <= Math.max(3, rightBudget - shortId.length - 3)
+  const nameBudget = Math.max(2, rightBudget - shortId.length - 4);
+  const elided = name.length <= nameBudget
     ? name
     : // Head-anchored: a session name reads from its head (like a branch),
       // so the ellipsis closes it instead of cutting its middle.
-      `${name.slice(0, Math.max(2, rightBudget - shortId.length - 4))}…`;
+      `${name.slice(0, nameBudget - 1)}…`;
   return join(elided, shortId);
 }
 
@@ -549,7 +550,7 @@ function StatusRow(props: StatusProps) {
   // dropped) into whatever the version segment leaves.
   const versionText = props.appVersion ? footerVersionText(props.appVersion) : "";
   const identityBudget = Math.max(8, props.width - 4 - versionText.length - 1);
-  const identityText = sessionIdentityText(props.width, props.sessionName, props.sessionId, identityBudget);
+  const identityText = sessionIdentityText(props.sessionName, props.sessionId, identityBudget);
   return (
     <Box flexDirection="column" width={Math.max(1, props.width - 1)}>
       <Box justifyContent="space-between" flexWrap="nowrap" paddingX={1}>
@@ -569,7 +570,7 @@ function StatusRow(props: StatusProps) {
       {(versionText || identityText) && (
         <Box justifyContent="space-between" flexWrap="nowrap" paddingX={1}>
           {versionText && <Text color={theme.dim}>{versionText}</Text>}
-          {identityText && <Text color={theme.dim}>{identityText}</Text>}
+          {identityText && <Text color={theme.dim}>{sanitizeForDisplay(identityText)}</Text>}
         </Box>
       )}
     </Box>

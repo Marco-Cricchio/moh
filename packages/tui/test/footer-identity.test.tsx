@@ -75,13 +75,13 @@ describe("footer row 3 (#1355)", () => {
     }
     // The compact mock: the name elides (head kept, `…` closes it) and the
     // id shortens to its uuid tail.
-    expect(sessionIdentityText(50, "refactor-footer", "session-4f7a2b1c", 21)).toBe("refactor-… · 4f7a2b1c");
+    expect(sessionIdentityText("refactor-footer", "session-4f7a2b1c", 22)).toBe("refactor-… · 4f7a2b1c");
   });
 
   test("the identity fits whatever the version leaves of the row", () => {
-    expect(sessionIdentityText(110, null, "session-4f7a2b1c", 40)).toBe("session-4f7a2b1c");
-    expect(sessionIdentityText(110, "refactor-footer", "session-4f7a2b1c", 40)).toBe("refactor-footer · session-4f7a2b1c");
-    expect(sessionIdentityText(110, null, "session-4f7a2b1c", 8)).toBe("4f7a2b1c");
+    expect(sessionIdentityText(null, "session-4f7a2b1c", 40)).toBe("session-4f7a2b1c");
+    expect(sessionIdentityText("refactor-footer", "session-4f7a2b1c", 40)).toBe("refactor-footer · session-4f7a2b1c");
+    expect(sessionIdentityText(null, "session-4f7a2b1c", 8)).toBe("4f7a2b1c");
   });
 
   test("footerVersionText says `v` once", () => {
