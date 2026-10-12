@@ -5,7 +5,23 @@ All notable changes to moh are documented here. The format follows
 SemVer. Each release's GitHub Release description is extracted from the
 matching section here at tag time.
 
-## [Unreleased]
+## [0.64.7] - 2026-10-11
+
+### Added
+
+- **The `/notes` command** opens the project notes modal — the same surface
+  `ctrl+n` opens, from chat and home — as a typed fallback alongside the
+  shortcut; headless callers get an explanation instead. (#1352)
+
+### Fixed
+
+- **`ScrollDialog` measures rendered height — retro borders never clip**
+  (#1351, PR #1351): the weight-based height estimates disagreed with what
+  Ink actually renders — unmeasured rows wrap at the real dialog width,
+  the header was never counted, and the App overlay is one row/column
+  smaller than the terminal — so on a 70x16 terminal the `/retro` dialog
+  lost its top and bottom borders. The frame is now a hard height and the
+  rendered content is measured with `measureElement`, scrolling inside it.
 
 ## [0.64.6] - 2026-10-11
 
@@ -2578,7 +2594,8 @@ security audit, each fixed behind its own PR.
   passed; a regression test pins the resolved path under
   `<home>/.moh/projects`.
 
-[Unreleased]: https://github.com/Marco-Cricchio/moh/compare/v0.64.6...develop
+[Unreleased]: https://github.com/Marco-Cricchio/moh/compare/v0.64.7...develop
+[0.64.7]: https://github.com/Marco-Cricchio/moh/compare/v0.64.6...v0.64.7
 [0.64.6]: https://github.com/Marco-Cricchio/moh/compare/v0.64.5...v0.64.6
 [0.64.5]: https://github.com/Marco-Cricchio/moh/compare/v0.64.4...v0.64.5
 [0.64.4]: https://github.com/Marco-Cricchio/moh/compare/v0.64.3...v0.64.4

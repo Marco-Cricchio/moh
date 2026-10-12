@@ -103,6 +103,9 @@ export interface SlashContext {
   /** #619: opens the project-map inspection modal (/mpm). Absent
    * (headless): the command explains it needs the TUI. */
   onOpenMpm?: () => void;
+  /** Opens the project notes modal (/notes, ctrl+n). Absent (headless):
+   * the command explains it needs the TUI. */
+  onOpenNotes?: () => void;
   /** #767: opens the session analysis modal (/session). Absent
    * (headless): the command explains it needs the TUI. */
   onOpenSession?: () => void;
@@ -697,6 +700,19 @@ const themeCommand: SlashCommand = {
   },
 };
 
+/** The project notes modal, the same surface ctrl+n opens (no session
+ * required); the shortcut stays the primary door, the command is the
+ * typed fallback like /settings for ctrl+s. */
+const notesCommand: SlashCommand = {
+  name: "notes",
+  description: "project notes (free-text, shared across sessions)",
+  usage: "/notes",
+  run(ctx) {
+    if (!ctx.onOpenNotes) return ctx.notify("/notes needs the TUI (notes live in the notes modal, ctrl+n)");
+    ctx.onOpenNotes();
+  },
+};
+
 const settingsCommand: SlashCommand = {
   name: "settings",
   description: "open the settings panel",
@@ -827,6 +843,7 @@ export const BASE_COMMANDS: SlashCommand[] = [
   modeCommand,
   modelCommand,
   mpmCommand,
+  notesCommand,
   reloadCommand,
   renameCommand,
   retroCommand,
