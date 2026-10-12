@@ -70,7 +70,7 @@ describe("retro application proposals", () => {
 
     test("a confirmed apply writes an executable hook from repo state", () => {
       const root = tempDir();
-      writeFileSync(join(root, "package.json"), JSON.stringify({ scripts: { lint: "eslint .", test: "bun test" } }));
+      writeFileSync(join(root, "package.json"), JSON.stringify({ scripts: { lint: "eslint .", test: "bash scripts/test.sh" } }));
       writeFileSync(join(root, "bun.lock"), "{}");
       const result = applyRetroApplication({ finding: preCommit(), projectRoot: root, confirm: true });
       expect(result).toMatchObject({ ok: true, created: true });
@@ -84,6 +84,47 @@ describe("retro application proposals", () => {
       expect((statSync(hook).mode & 0o755) === 0o755).toBe(true);
       // The write stays gated: nothing is appended to markdown.
       expect(result.ok && result.appended).toBe(false);
+    });
+
+    test("a confirmed apply writes an executable hook from repo state", () => {
+      const root = tempDir();
+      writeFileSync(join(root, "package.json"), JSON.stringify({ scripts: { lint: "eslint .", test: "bun test" } }));
+      writeFileSync(join(root, "bun.lock"), "{}");
+      const result = applyRetroApplication({ finding: preCommit(), projectRoot: root, confirm: true });
+      expect(result).toMatchObject({ ok: true, created: true });
+      const hook = join(root, ".git", "hooks", "pre-commit");
+      expect(existsSync(hook)).toBe(true);
+      const content = readFileSync(hook, "utf8");
+      expect(content).toContain("#!/bin/sh");
+      expect(content).toContain("set -e");
+      expect(content).toContain("bun run lint");
+      // The bare "bun test" script is excluded (#1363); lint remains.
+      expect(content).not.toContain("test");
+      expect((statSync(hook).mode & 0o755) === 0o755).toBe(true);
+      // The write stays gated: nothing is appended to markdown.
+      expect(result.ok && result.appended).toBe(false);
+    });
+
+    test("a bare whole-tree test script (#1363) is not emitted: the hook keeps the derivable checks", () => {
+      const root = tempDir();
+      writeFileSync(join(root, "package.json"), JSON.stringify({ scripts: { lint: "eslint .", test: "bun test" } }));
+      writeFileSync(join(root, "bun.lock"), "{}");
+      const result = applyRetroApplication({ finding: preCommit(), projectRoot: root, confirm: true });
+      expect(result).toMatchObject({ ok: true, created: true });
+      const content = readFileSync(join(root, ".git", "hooks", "pre-commit"), "utf8");
+      expect(content).toContain("bun run lint");
+      expect(content).not.toContain("test");
+    });
+
+    test("a bare whole-tree test script as the only check is refused with the wiring hint (#1363)", () => {
+      const root = tempDir();
+      writeFileSync(join(root, "package.json"), JSON.stringify({ scripts: { test: "bun test" } }));
+      writeFileSync(join(root, "bun.lock"), "{}");
+      const result = applyRetroApplication({ finding: preCommit(), projectRoot: root, confirm: true });
+      expect(result.ok).toBe(false);
+      expect(result.ok === false && result.error).toContain("bare whole-tree");
+      expect(existsSync(join(root, ".git", "hooks", "pre-commit"))).toBe(false);
+      expect(preCommitHookContent(root)).toBeNull();
     });
 
     test("a hook that exists but is not executable is made executable, not overwritten", () => {
@@ -110,7 +151,7 @@ describe("retro application proposals", () => {
 
     test("the hook runner falls back to npm when no lockfile names one", () => {
       const root = tempDir();
-      writeFileSync(join(root, "package.json"), JSON.stringify({ scripts: { test: "vitest" } }));
+      writeFileSync(join(root, "package.json"), JSON.stringify({ scripts: { test: "bash scripts/test.sh" } }));
       expect(preCommitHookContent(root)).toBe("#!/bin/sh\nset -e\nnpm run test\n");
     });
 
