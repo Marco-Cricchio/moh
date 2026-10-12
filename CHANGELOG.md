@@ -7,6 +7,12 @@ matching section here at tag time.
 
 ## [Unreleased]
 
+### Added
+
+- **The `/notes` command** opens the project notes modal — the same surface
+  `ctrl+n` opens, from chat and home — as a typed fallback alongside the
+  shortcut; headless callers get an explanation instead.
+
 ## [0.64.6] - 2026-10-11
 
 ### Fixed

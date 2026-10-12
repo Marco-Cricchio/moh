@@ -1654,6 +1654,7 @@ function AppShell({
         onOpenCommands: () => setOverlay("commands"),
         onOpenManual: () => setOverlay("manual"),
         onOpenSettings: () => setOverlay("settings"),
+        onOpenNotes: () => setOverlay("notes"),
         onCycleMode: cycleMode,
         onCycleTheme: cycleTheme,
         onWorkflowToggle: (enabled) => setTracker(enabled ? resolveTrackerSync({ cwd }) : null),
