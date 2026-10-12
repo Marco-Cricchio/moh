@@ -584,7 +584,8 @@ export function moveStrandedSessions(dir: string): { moved: string[]; skipped: s
 
 /**
  * #1243 `d`: deletes the stranded source directory. Its session logs go to
- * the project trash (restorable with `moh trash restore`); every other
+ * the project trash (restorable with `moh trash restore`); the notes store
+ * goes to the trash too (#1349 — user data is never unlinked); every other
  * entry is removed from disk; the record is cleared so the warning goes
  * away. Refuses anything that is not a stranded directory under
  * `<home>/.moh/projects/` — never the live project directory itself.
@@ -599,7 +600,7 @@ export function deleteStrandedData(dir: string, cwd: string, home = homedir()): 
   const removed: string[] = [];
   for (const name of readdirSync(source)) {
     const from = join(source, name);
-    if (isSessionFile(name)) {
+    if (isSessionFile(name) || name === "notes.jsonl") {
       let to = join(trashDir, name);
       for (let n = 1; existsSync(to); n++) to = join(trashDir, `${name.slice(0, -".jsonl".length)}-${n}.jsonl`);
       moveStrandedFile(from, to);
