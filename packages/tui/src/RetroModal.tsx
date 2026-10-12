@@ -10,7 +10,6 @@ import {
 } from "@moh/core";
 import { useTheme } from "./themes";
 import { Dialog, Dim, ScrollDialog, type ScrollRow } from "./ui";
-import { dialogWidth, useViewport, wrapLines } from "./viewport";
 
 /**
  * The retro report surface (ADR-0075, #1275): opened with `/retro`. The
@@ -23,12 +22,8 @@ import { dialogWidth, useViewport, wrapLines } from "./viewport";
  * Opening the report suppresses this session's digest (the report
  * replaces it).
  *
- * #1341: the whole report is one ScrollDialog body — the list rows, the
- * selected finding's detail and its proposal are rows with measured
- * weights (wrapLines at the dialog's inner width, #1042's rule), so the
- * dialog always fits the terminal and scrolls instead of clipping its
- * borders. `↑`/`↓` move the selection; ScrollDialog's own scroller keeps
- * the selected rows in view.
+ * The report scrolls inside a bounded dialog body. ScrollDialog measures
+ * Ink's rendered content, including wrapped evidence and lineage rows.
  */
 export interface RetroModalProps {
   /** Project root — where a confirmed application is written. */
@@ -100,16 +95,9 @@ export function RetroModal({ cwd, readReport, dismiss, onClose }: RetroModalProp
     }
   });
 
-  const viewport = useViewport();
-  // The wrapped width inside the dialog: paddingX=2 per side (4) plus the
-  // one leading space; rounding one line shorter than reality only costs
-  // one scroll row, an overestimate costs a border.
-  const detailWidth = Math.max(20, dialogWidth(viewport) - 14);
-  const wrap = (text: string): string[] => wrapLines(text, detailWidth);
-
   const rows: ScrollRow[] = [];
-  const row = (node: React.ReactNode, weight = 1): void => {
-    rows.push({ node, weight });
+  const row = (node: React.ReactNode): void => {
+    rows.push({ node });
   };
 
   if (report === null) {
@@ -136,17 +124,14 @@ export function RetroModal({ cwd, readReport, dismiss, onClose }: RetroModalProp
         </Text>,
       );
       if (isSel) {
-        // The selected finding's detail rides the scroll: full evidence,
-        // lineage, and the proposed application — everything measured at
-        // its wrapped height so the dialog never clips (#1341).
-        for (const line of wrap(finding.evidence)) row(<Text> {line}</Text>);
+        row(<Text> {finding.evidence}</Text>);
         row(<Dim> session {finding.session} · appended {finding.appendedAt.slice(0, 10)}</Dim>);
         if (finding.lineage) row(<Dim> dismissed in similar form on {finding.lineage.slice(0, 10)}</Dim>);
         const application = proposeRetroApplication(finding);
         row(<Text> </Text>);
         row(<Text bold> proposed application</Text>);
         if (application.target) {
-          for (const line of wrap(application.proposal)) row(<Text> {line}</Text>);
+          row(<Text> {application.proposal}</Text>);
           row(<Dim> target {application.target}</Dim>);
         } else {
           row(<Dim> {application.proposal}</Dim>);
@@ -174,10 +159,6 @@ export function RetroModal({ cwd, readReport, dismiss, onClose }: RetroModalProp
       </Dialog>
     );
   }
-  // The status joins the footer: ScrollDialog counts the footer in its
-  // chrome budget, a header line it does not — an uncounted row made the
-  // dialog brush the exact terminal height and lose both borders (#1343
-  // follow-up).
   const footerWithStatus = status ? (
     <>
       <Text color={theme.warn}> {status}</Text>

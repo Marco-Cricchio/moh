@@ -1,3 +1,4 @@
+import "./faketty/ci-mask";
 /**
  * The retro report surface (ADR-0075, #1275): the pull-based door.
  * Component-level, in-process — the store is real (temp dirs), the
@@ -9,6 +10,9 @@ import { join } from "node:path";
 import { afterEach, describe, expect, test } from "bun:test";
 import React from "react";
 import { render } from "ink-testing-library";
+import { Box } from "ink";
+import { renderOnFakeTty } from "./faketty/render";
+import { useViewport } from "../src/viewport";
 import { RetroStore } from "@moh/core";
 import { RetroModal } from "../src/RetroModal";
 import { ThemeProvider, THEMES, DEFAULT_THEME } from "../src/themes";
@@ -159,30 +163,54 @@ describe("RetroModal vertical fit", () => {
   });
 });
 
-describe("RetroModal borders with a status line", () => {
-  test("apply refusal status keeps the frame within the viewport", async () => {
+function Overlay({ children }: { children: React.ReactNode }) {
+  const viewport = useViewport();
+  return <Box width={viewport.columns - 1} height={viewport.rows - 1} flexDirection="column">{children}</Box>;
+}
+
+describe("RetroModal terminal geometry", () => {
+  test("both borders survive scrolling, confirmation, status and resize", async () => {
     const cwd = tempDir("cwd");
     const mohHome = tempDir("home");
     const store = RetroStore.forProject(cwd, mohHome);
-    store.append([
-      { category: "coding-standards", evidence: "added a rule-shaped comment by hand", confidence: 0.7, session: "s-1", signature: "sig-cs" },
-      ...Array.from({ length: 20 }, (_, i) => ({
-        category: "tool-economy",
-        evidence: `the same bash command was issued 3 times this session: \`sleep 150; gh pr checks ${i} 2>&1\` — long evidence line to force wrapping`,
-        confidence: 0.5,
-        session: `s-${i}`,
-        signature: `sig-${i}`,
-      })),
-    ]);
-    const instance = mount(cwd, mohHome);
-    await waitForFrame(() => stripAnsi(instance.lastFrame() ?? ""), "coding-standards");
-    instance.stdin.write("a");
-    await sleep(40);
-    instance.stdin.write("y");
-    await sleep(60);
-    const frame = stripAnsi(instance.lastFrame() ?? "");
-    expect(frame).toContain("refused: CODING_STANDARDS.md does not exist");
-    const rows = frame.split("\n").length;
-    instance.unmount();
+    store.append(Array.from({ length: 30 }, (_, i) => ({
+      category: "coding-standards", evidence: `Repeated evidence ${"long observation ".repeat(12)} ${i}`,
+      confidence: 0.7, session: "session-with-a-long-identifier-that-wraps-at-narrow-widths", signature: `sig-${i}`,
+    })));
+    const tty = renderOnFakeTty(<ThemeProvider value={THEMES[DEFAULT_THEME]}><Overlay>
+      <RetroModal cwd={cwd} readReport={() => store.report()} dismiss={(signature, category) => store.dismiss(signature, { category })} onClose={() => {}} />
+    </Overlay></ThemeProvider>, { cols: 70, rows: 16 });
+    const check = async () => {
+      await tty.settle();
+      const frame = tty.screen.lines().join("\n");
+      expect(frame).toContain("╭");
+      expect(frame).toContain("╮");
+      expect(frame).toContain("╰");
+      expect(frame).toContain("╯");
+      const lines = frame.split("\n");
+      expect(lines.findIndex((line) => line.includes("╰")) - lines.findIndex((line) => line.includes("╭")) + 1).toBeLessThanOrEqual(tty.stdout.rows - 1);
+      expect(tty.maxFrameRows()).toBeLessThanOrEqual(tty.stdout.rows);
+      return frame;
+    };
+    try {
+      await check();
+      for (let i = 0; i < 8; i++) { tty.write("j"); await check(); }
+      tty.write("a");
+      expect(await check()).toContain("y creates it");
+      tty.write("y");
+      expect(await check()).toContain("refused:");
+      writeFileSync(join(cwd, "CODING_STANDARDS.md"), "# Coding standards\n");
+      tty.write("a");
+      await check();
+      tty.write("y");
+      expect(await check()).toContain("applied to");
+      expect(readFileSync(join(cwd, "CODING_STANDARDS.md"), "utf8")).toContain("Retro findings");
+      tty.resize(45, 16);
+      await check();
+      tty.resize(100, 24);
+      await check();
+      tty.resize(60, 12);
+      await check();
+    } finally { await tty.unmount(); }
   });
 });
