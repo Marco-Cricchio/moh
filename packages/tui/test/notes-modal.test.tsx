@@ -53,6 +53,18 @@ describe("notes store", () => {
     await rm(join(path, ".."), { recursive: true, force: true });
   });
 
+  test("write that empties a non-empty store backs the previous file up as .bak (#1349)", async () => {
+    const path = await tempPath();
+    await writeProjectNotes(path, [newNote("keep me")]);
+    await writeProjectNotes(path, []); // stale/empty list saved after a failed read
+    expect(await readProjectNotes(path)).toEqual([]);
+    expect(await readFile(`${path}.bak`, "utf8")).toContain("keep me");
+    await writeProjectNotes(path, []); // already empty: no backup churn
+    const bak = await readFile(`${path}.bak`, "utf8");
+    expect(bak).toContain("keep me");
+    await rm(join(path, ".."), { recursive: true, force: true });
+  });
+
   test("sort: pinned first, then most recently updated", () => {
     const a = { ...newNote("a"), updatedAt: 100 };
     const b = { ...newNote("b"), updatedAt: 300 };

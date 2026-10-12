@@ -7,7 +7,7 @@ import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, test } from "bun:test";
-import { RetroStore } from "@moh/core";
+import { RetroStore, retroSignature } from "@moh/core";
 import { retroCommand, RETRO_USAGE } from "../src/retro";
 
 const dirs: string[] = [];
@@ -42,11 +42,11 @@ async function run(argv: string[], opts: { cwd: string; home: string }) {
 
 /** Writes one finding into the project's store; the signature is read
  * back from the store, which owns the derivation. */
-function seed(cwd: string, home: string, category = "navigation", evidence = "spent 12 calls locating the store") {
+function seed(cwd: string, home: string, category = "navigation", evidence = "spent 12 calls locating the store", signatureOverride?: string) {
   // The CLI resolves the store from the user home (`~/.moh`); the seed
   // must land in the same place.
   const store = RetroStore.forProject(cwd, join(home, ".moh"));
-  store.append([{ category, evidence, confidence: 0.7, session: "s-1", signature: `${category}:${evidence}` }]);
+  store.append([{ category, evidence, confidence: 0.7, session: "s-1", signature: signatureOverride ?? `${category}:${evidence}` }]);
   return { store, signature: store.read()[0]!.signature };
 }
 
@@ -181,5 +181,36 @@ describe("retro --create-missing (#1343)", () => {
     const second = await run(["--apply", sig2, "--yes"], { cwd: other, home });
     expect(`${second.stderr}${second.stdout}`).toContain("does not exist");
     expect(existsSync(join(other, "CODING_STANDARDS.md"))).toBe(false);
+  });
+});
+
+describe("moh retro apply — pre-commit hook (#1356)", () => {
+  test("--apply --yes generates an executable hook from repo state", async () => {
+    const cwd = tempDir("hook");
+    const home = tempDir("hookhome");
+    writeFileSync(join(cwd, "package.json"), JSON.stringify({ scripts: { lint: "eslint ." } }));
+    writeFileSync(join(cwd, "bun.lock"), "{}");
+    const { signature } = seed(cwd, home, "missing-guardrail", "package.json defines `lint` but no pre-commit hook runs it", retroSignature("missing-guardrail", "pre-commit:unwired"));
+    const proposal = await run(["--apply", signature], { cwd, home });
+    expect(proposal.stdout).toContain(".git/hooks/pre-commit");
+    const result = await run(["--apply", signature, "--yes"], { cwd, home });
+    expect(result.code).toBe(0);
+    expect(result.stdout).toContain("created");
+    const hook = readFileSync(join(cwd, ".git", "hooks", "pre-commit"), "utf8");
+    expect(hook).toContain("#!/bin/sh");
+    expect(hook).toContain("bun run lint");
+  });
+
+  test("an existing hook is never overwritten", async () => {
+    const cwd = tempDir("hookkeep");
+    const home = tempDir("hookkeephome");
+    writeFileSync(join(cwd, "package.json"), JSON.stringify({ scripts: { lint: "eslint ." } }));
+    mkdirSync(join(cwd, ".git", "hooks"), { recursive: true });
+    writeFileSync(join(cwd, ".git", "hooks", "pre-commit"), "#!/bin/sh\necho custom\n", { mode: 0o755 });
+    const { signature } = seed(cwd, home, "missing-guardrail", "package.json defines `lint` but no pre-commit hook runs it", retroSignature("missing-guardrail", "pre-commit:unwired"));
+    const result = await run(["--apply", signature, "--yes"], { cwd, home });
+    expect(result.code).toBe(2);
+    expect(result.stderr).toContain("already exists");
+    expect(readFileSync(join(cwd, ".git", "hooks", "pre-commit"), "utf8")).toBe("#!/bin/sh\necho custom\n");
   });
 });

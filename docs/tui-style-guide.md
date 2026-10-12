@@ -58,10 +58,11 @@ Thinking labels are `·`, `🌱`, `⚙️`, `🧠✨`, `🧠🔥`. VS16 emoji ma
 
 ## 4. Bottom bar
 
-The status area is two logical rows (2A layout):
+The status area is three logical rows (the #1355 identity row added a third below the two status rows):
 
 - **Row 1 — session state**: left the liveness scanner + phase/progress while live (ADR-0042), otherwise ready/done and memory freshness, then the chips the session publishes — memory freshness, the MPM map status, one per ADR-0032 extension status, and the Jev chip (below); right context bar, token count, turns, model + thinking level, workflow flag. In vibe mode the numbers stay hidden (no token count or turn counter — "plain language, no numbers", #193) but the wordless context bar renders in both modes (#229).
 - **Row 2 — where you are**: the permission-mode lead on the left (below), then the right-aligned tail — cwd (`▣ <path>`), git branch (`⎇ <branch>`, filesystem-read from the session cwd, short sha when detached), the projection chip (`○ vibe`/`◉ dev`), in that order. The cwd is middle-elided to a width-class budget (18/30/44) so the head and — above all — the tail (the project directory) stay readable; the branch truncates only in the rare overflow left over. The tail is right-aligned in every combination: its justification follows the left slot, so an empty left slot (no mode to show, no notice) is simply empty.
+- **Row 3 — identity (#1355)**: standing chrome, not status — left the running moh version (`MoH - vX.Y.Z`, the cli → renderTui version seam), right the session name (only after a rename, never a placeholder) and the session id. The right side degrades instead of wrapping: full id → short id, the name elides head-anchored before it drops.
 
 The **permission mode** (#876) speaks in the row's left slot — the one the `⚠ YOLO` banner has always used — for all three values of `SessionMode` (ADR-0040: the mode is runtime-mutable — shift+tab rotates `normal → auto-accept → yolo → normal`). It is a statement about the session, not a property of where you are, so it never sits beside the projection chip. Copy is capitalized to stand apart from the rest of the bar, one semantic token each, and the text is the first thing the width class takes away:
 

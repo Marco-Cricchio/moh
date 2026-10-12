@@ -62,8 +62,20 @@ export async function readProjectNotes(path: string): Promise<ProjectNote[]> {
 }
 
 /** Rewrite the whole store (delete and edit are rewrites; JSONL stays the
- * on-disk shape for greppability). Atomic: tmp file + rename. */
+ * on-disk shape for greppability). Atomic: tmp file + rename. A write that
+ * empties the store backs the previous file up as `notes.jsonl.bak` first
+ * (#1349): user data never disappears without a trace — a stale/empty
+ * in-memory list saved after a failed read is a lost-update, not a delete. */
 export async function writeProjectNotes(path: string, notes: ProjectNote[]): Promise<void> {
+  if (notes.length === 0) {
+    let previous: string;
+    try {
+      previous = await Bun.file(path).text();
+    } catch {
+      previous = "";
+    }
+    if (previous.trim() !== "") await Bun.write(`${path}.bak`, previous);
+  }
   const body = notes.map((n) => JSON.stringify(n)).join("\n") + (notes.length ? "\n" : "");
   const tmp = `${path}.tmp`;
   await Bun.write(tmp, body);

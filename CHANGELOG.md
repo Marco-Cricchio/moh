@@ -5,6 +5,33 @@ All notable changes to moh are documented here. The format follows
 SemVer. Each release's GitHub Release description is extracted from the
 matching section here at tag time.
 
+## [0.65.0] - 2026-10-12
+
+### Added
+
+- **The footer gains a third, ambient identity row** (#1355): the running
+  moh version on the left (`MoH - vX.Y.Z`) and, on the right, the session
+  name — only after a rename, never a placeholder — plus the session id.
+  `AgentSession.id` is a new public getter for the `session-<uuid8>`
+  identity; the row never wraps and degrades to the short id before
+  dropping the name.
+- **Retro apply can generate a pre-commit hook** (#1356): the
+  missing-guardrail `pre-commit:unwired` finding gains a real apply
+  target — on confirmed apply moh generates an executable
+  `.git/hooks/pre-commit` from the checks `package.json` defines (runner
+  derived from the lockfiles, `set -e` so a failing check blocks). An
+  existing executable hook is never overwritten; a non-executable one is
+  made executable; with no derivable check the apply refuses rather than
+  write an always-passing hook. ADR-0077 records the deviation from
+  ADR-0075's review-only posture for hooks.
+
+### Fixed
+
+- **The notes store is never lost silently** (#1349): a write that
+  empties a non-empty `notes.jsonl` first backs the previous file up as
+  `notes.jsonl.bak`, and `deleteStrandedData` moves the notes store into
+  the project trash instead of unlinking it.
+
 ## [0.64.7] - 2026-10-11
 
 ### Added
