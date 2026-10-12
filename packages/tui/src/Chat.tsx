@@ -163,6 +163,12 @@ export interface ChatProps {
    * assembly (`session.rootOnWindowsMount`), so the footer never re-probes
    * the filesystem. */
   rootOnWindowsMount?: boolean;
+  /** #1355 footer row 3: the session id (`session.id`), the version, and
+   * the display name — computed by the client (the last non-empty
+   * `session_renamed`, null when never renamed). */
+  sessionId?: string;
+  sessionName?: string | null;
+  version?: string;
   submitSignal?: number;
   /** Unsent external composer draft. */
   prefill?: string;
@@ -253,6 +259,9 @@ export function Chat({
   onNotify,
   permissionMode = session.sessionMode,
   rootOnWindowsMount = session.rootOnWindowsMount,
+  sessionId,
+  sessionName,
+  version,
   commands = BASE_COMMANDS.map((command) => ({ name: `/${command.name}`, description: command.description, custom: false })),
 }: ChatProps) {
   const state = useSessionState(session);
@@ -1338,6 +1347,9 @@ export function Chat({
         laneLabel={laneLabel}
         permissionMode={permissionMode}
         rootOnWindowsMount={rootOnWindowsMount}
+        appVersion={version}
+        sessionId={sessionId}
+        sessionName={sessionName}
         focusedChip={focusedChip}
         focusedSubagent={focusedSubagent}
         subagentChips={subagents.length > 0 ? subagents.slice(0, 3).map((sub, index) => ({

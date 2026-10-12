@@ -38,6 +38,9 @@ a running turn:
   where-you-are row the branch drops whole before truncating and the cwd
   collapses to its tail (`…/moh`) before dropping. The mode glyph and the
   projection chip survive at every width.
+- The footer's last row is standing identity, not status: the running moh
+  version on the left (`MoH - vX.Y.Z`), the session name (only after a
+  rename with ctrl+r) and the session id on the right.
 
 ## Where your data lives
 

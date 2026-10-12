@@ -1591,6 +1591,9 @@ function AppShell({
       onToggleSubagentPanel={(index) => setPanelSubagent((prev) => prev === index ? null : index)}
       tokens={sidebar.tokens}
       contextLimit={contextLimit}
+      sessionId={session?.id}
+      sessionName={session ? ([...session.history()].reverse().find((event) => event.type === "session_renamed")?.name || null) : null}
+      version={version ?? MOH_VERSION}
       workflowOn={workflowOn}
       thinkingLevel={thinkingLevel}
       unsupportedThinkingLevel={thinkingStatus.unsupported}

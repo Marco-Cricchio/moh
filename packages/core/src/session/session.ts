@@ -2103,6 +2103,13 @@ export class AgentSession {
     return this.#permissions.mode;
   }
 
+  /** The session's own id (`session-<uuid8>`): the same identity the event
+   * log and the session store carry, exposed for client chrome (#1355 —
+   * the TUI footer names the session). */
+  get id(): string {
+    return this.#sessionId;
+  }
+
   /**
    * #849: rotates the permission mode in-session (`normal` → `auto-accept`
    * → `yolo`), effective from the very next tool decision: the gate and
