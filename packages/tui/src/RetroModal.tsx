@@ -61,7 +61,7 @@ export function RetroModal({ cwd, readReport, dismiss, onClose }: RetroModalProp
   useInput((input, key) => {
     if (confirming) {
       if (input === "y" || key.return) {
-        const result = applyRetroApplication({ finding: confirming, projectRoot: cwd, confirm: true });
+        const result = applyRetroApplication({ finding: confirming, projectRoot: cwd, confirm: true, createMissing });
         setStatus(result.ok ? (result.appended || result.created ? `applied to ${result.file}` : "already applied — nothing to do") : result.error);
         setConfirming(null);
         return;

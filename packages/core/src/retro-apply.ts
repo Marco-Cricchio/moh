@@ -16,7 +16,7 @@
  *   not exist here at all.
  */
 import { chmodSync, existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
-import { dirname, isAbsolute, relative, resolve } from "node:path";
+import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { retroSignature, type RetroFinding } from "./retro";
 
 /** What kind of change an application is (ADR-0075's three shapes). */
@@ -25,6 +25,23 @@ export type RetroApplicationKind = "coding-standards-rule" | "automated-check" |
 /** The one generated-file target (#1356, ADR-0077): the local git hook,
  * outside the project tree but inside the clone. */
 export const PRE_COMMIT_TARGET = ".git/hooks/pre-commit";
+
+/**
+ * The real shared git dir for the project root (`<main>/.git` even from a
+ * linked worktree — a lane's `.git` is a *file*, so an executable hook
+ * must land in the main checkout where every worktree sees it). Falls
+ * back to `<root>/.git` when git is unavailable or the root is not a
+ * repository (tests write to bare temp dirs).
+ */
+function gitDir(projectRoot: string): string {
+  const probe = Bun.spawnSync(["git", "rev-parse", "--path-format=absolute", "--git-common-dir"], {
+    cwd: projectRoot,
+    stdout: "pipe",
+    stderr: "ignore",
+  });
+  const out = probe.stdout?.toString().trim();
+  return probe.exitCode === 0 && out ? out : join(projectRoot, ".git");
+}
 
 /** The detector's fixed observation fingerprint for the pre-commit shape
  * (`retroSignature("missing-guardrail", "pre-commit:unwired")`) — the
@@ -41,20 +58,39 @@ export interface RetroApplication {
   section: string;
 }
 
-/** The check commands a generated pre-commit hook runs: the lint/test
- * scripts package.json defines, through the package manager the lockfiles
- * reveal. Deterministic from repo state; `set -e` so the first failing
- * check blocks the commit — a guardrail that does not block is cosmetic.
- * Returns null when no check is derivable (package.json unreadable or no
- * lint/test script): an always-passing hook would be worse than none. */
-export function preCommitHookContent(projectRoot: string): string | null {
-  let scripts: Record<string, unknown> = {};
+/** A `test` script that runs the whole tree in a single process — the
+ * shape a blocking pre-commit hook turns into a minutes-long gate (#1363):
+ * it is excluded from the generated checks, since the correct runner
+ * (scripts/test.sh-style phasing) is project-specific and never invented.
+ * Prefix match: `bun test .`, `vitest run`, `jest --runInBand` are the
+ * same hazard as the bare command. */
+const BARE_TEST_SCRIPT = /^(?:(?:bun|npm|pnpm|yarn)(?:\s+run)?\s+test|vitest|jest|node\s+--test)(\s|$)/;
+
+function isBareTestScript(value: string): boolean {
+  return BARE_TEST_SCRIPT.test(value.trim());
+}
+
+function packageScripts(projectRoot: string): Record<string, unknown> | null {
   try {
-    scripts = (JSON.parse(readFileSync(resolve(projectRoot, "package.json"), "utf8")) as { scripts?: Record<string, unknown> }).scripts ?? {};
+    return (JSON.parse(readFileSync(resolve(projectRoot, "package.json"), "utf8")) as { scripts?: Record<string, unknown> }).scripts ?? {};
   } catch {
     return null;
   }
-  const checks = ["lint", "test"].filter((s) => typeof scripts[s] === "string");
+}
+
+function derivableChecks(scripts: Record<string, unknown>): string[] {
+  return ["lint", "test"].filter(
+    (s) => typeof scripts[s] === "string" && (s !== "test" || !isBareTestScript(scripts[s] as string)),
+  );
+}
+
+/** The hook content, or null when no check is derivable (package.json
+ * unreadable, no lint/test script, or a test script that is only a bare
+ * whole-tree run — see BARE_TEST_SCRIPT). */
+export function preCommitHookContent(projectRoot: string): string | null {
+  const scripts = packageScripts(projectRoot);
+  if (!scripts) return null;
+  const checks = derivableChecks(scripts);
   if (checks.length === 0) return null;
   const run = existsSync(resolve(projectRoot, "bun.lockb")) || existsSync(resolve(projectRoot, "bun.lock"))
     ? "bun run"
@@ -162,7 +198,16 @@ export function applyRetroApplication(opts: {
   // what the never-overwrite rule guards against.
   if (application.target === PRE_COMMIT_TARGET) {
     const content = preCommitHookContent(root);
-    if (content === null) return { ok: false, error: "refused: no lint/test check derivable from package.json" };
+    if (content === null) {
+      // #1363: distinguish "nothing derivable" from "the only derivable
+      // check is a bare whole-tree run" — the refusal names the fix.
+      const scripts = packageScripts(root);
+      if (scripts && typeof scripts.test === "string" && isBareTestScript(scripts.test)) {
+        return { ok: false, error: "refused: the test script is a bare whole-tree run — wire scripts/test.sh first" };
+      }
+      return { ok: false, error: "refused: no lint/test check derivable from package.json" };
+    }
+    const hooks = join(gitDir(root), "hooks");
     try {
       if (existsSync(file)) {
         if ((statSync(file).mode & 0o111) === 0o111) {
@@ -171,9 +216,9 @@ export function applyRetroApplication(opts: {
         chmodSync(file, 0o755);
         return { ok: true, file, appended: false, created: false };
       }
-      mkdirSync(dirname(file), { recursive: true });
-      writeFileSync(file, content, { mode: 0o755 });
-      return { ok: true, file, appended: false, created: true };
+      mkdirSync(hooks, { recursive: true });
+      writeFileSync(join(hooks, "pre-commit"), content, { mode: 0o755 });
+      return { ok: true, file: join(hooks, "pre-commit"), appended: false, created: true };
     } catch (error) {
       return { ok: false, error: `refused: ${error instanceof Error ? error.message : String(error)}` };
     }
