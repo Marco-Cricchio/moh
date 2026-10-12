@@ -16,7 +16,7 @@
  *   not exist here at all.
  */
 import { chmodSync, existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
-import { dirname, isAbsolute, relative, resolve } from "node:path";
+import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { retroSignature, type RetroFinding } from "./retro";
 
 /** What kind of change an application is (ADR-0075's three shapes). */
@@ -25,6 +25,23 @@ export type RetroApplicationKind = "coding-standards-rule" | "automated-check" |
 /** The one generated-file target (#1356, ADR-0077): the local git hook,
  * outside the project tree but inside the clone. */
 export const PRE_COMMIT_TARGET = ".git/hooks/pre-commit";
+
+/**
+ * The real shared git dir for the project root (`<main>/.git` even from a
+ * linked worktree — a lane's `.git` is a *file*, so an executable hook
+ * must land in the main checkout where every worktree sees it). Falls
+ * back to `<root>/.git` when git is unavailable or the root is not a
+ * repository (tests write to bare temp dirs).
+ */
+function gitDir(projectRoot: string): string {
+  const probe = Bun.spawnSync(["git", "rev-parse", "--path-format=absolute", "--git-common-dir"], {
+    cwd: projectRoot,
+    stdout: "pipe",
+    stderr: "ignore",
+  });
+  const out = probe.stdout?.toString().trim();
+  return probe.exitCode === 0 && out ? out : join(projectRoot, ".git");
+}
 
 /** The detector's fixed observation fingerprint for the pre-commit shape
  * (`retroSignature("missing-guardrail", "pre-commit:unwired")`) — the
@@ -163,6 +180,7 @@ export function applyRetroApplication(opts: {
   if (application.target === PRE_COMMIT_TARGET) {
     const content = preCommitHookContent(root);
     if (content === null) return { ok: false, error: "refused: no lint/test check derivable from package.json" };
+    const hooks = join(gitDir(root), "hooks");
     try {
       if (existsSync(file)) {
         if ((statSync(file).mode & 0o111) === 0o111) {
@@ -171,9 +189,9 @@ export function applyRetroApplication(opts: {
         chmodSync(file, 0o755);
         return { ok: true, file, appended: false, created: false };
       }
-      mkdirSync(dirname(file), { recursive: true });
-      writeFileSync(file, content, { mode: 0o755 });
-      return { ok: true, file, appended: false, created: true };
+      mkdirSync(hooks, { recursive: true });
+      writeFileSync(join(hooks, "pre-commit"), content, { mode: 0o755 });
+      return { ok: true, file: join(hooks, "pre-commit"), appended: false, created: true };
     } catch (error) {
       return { ok: false, error: `refused: ${error instanceof Error ? error.message : String(error)}` };
     }

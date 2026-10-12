@@ -86,6 +86,24 @@ describe("retro application proposals", () => {
       expect(result.ok && result.appended).toBe(false);
     });
 
+    test("a confirmed apply writes an executable hook from repo state", () => {
+      const root = tempDir();
+      writeFileSync(join(root, "package.json"), JSON.stringify({ scripts: { lint: "eslint .", test: "bun test" } }));
+      writeFileSync(join(root, "bun.lock"), "{}");
+      const result = applyRetroApplication({ finding: preCommit(), projectRoot: root, confirm: true });
+      expect(result).toMatchObject({ ok: true, created: true });
+      const hook = join(root, ".git", "hooks", "pre-commit");
+      expect(existsSync(hook)).toBe(true);
+      const content = readFileSync(hook, "utf8");
+      expect(content).toContain("#!/bin/sh");
+      expect(content).toContain("set -e");
+      expect(content).toContain("bun run lint");
+      expect(content).toContain("bun run test");
+      expect((statSync(hook).mode & 0o755) === 0o755).toBe(true);
+      // The write stays gated: nothing is appended to markdown.
+      expect(result.ok && result.appended).toBe(false);
+    });
+
     test("a hook that exists but is not executable is made executable, not overwritten", () => {
       const root = tempDir();
       writeFileSync(join(root, "package.json"), JSON.stringify({ scripts: { lint: "eslint ." } }));
