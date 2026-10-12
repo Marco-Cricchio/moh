@@ -201,7 +201,7 @@ describe("RetroModal terminal geometry", () => {
       // #1364: the armed footer is honored — the missing steering file is
       // created, not refused.
       expect(await check()).toContain("applied to");
-      expect(await check()).toContain("applied to");
+      expect(await check()).not.toContain("y creates it");
       expect(readFileSync(join(cwd, "CODING_STANDARDS.md"), "utf8")).toContain("Retro findings");
       tty.resize(45, 16);
       await check();

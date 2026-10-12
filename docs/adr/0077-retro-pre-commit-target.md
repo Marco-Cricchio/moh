@@ -1,7 +1,7 @@
 # ADR-0077: Retro apply gains a generated pre-commit target
 
 Status: accepted · Date: 2026-10-12
-Related: ADR-0075 (retro findings — accumulation in core, consumption at consent), #1356
+Related: ADR-0075 (retro findings — accumulation in core, consumption at consent), #1356, #1362 (the hook's shared git dir), #1364 (placement, and the TUI create-missing grant)
 
 ## Context
 
