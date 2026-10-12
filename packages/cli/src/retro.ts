@@ -23,7 +23,10 @@ lineage, never hidden.
                       (a rule, a check, a navigation pointer); with --yes
                       the change is written, appended under a
                       "## Retro findings" heading — existing prose is
-                      never edited, and nothing is written without --yes
+                      never edited, and nothing is written without --yes.
+                      A missing pre-commit guardrail generates an
+                      executable .git/hooks/pre-commit (an existing hook
+                      is never overwritten)
   --cwd <dir>         the project root (default: process.cwd())
 
 Findings never reach the system prompt or a steering file on their own.
