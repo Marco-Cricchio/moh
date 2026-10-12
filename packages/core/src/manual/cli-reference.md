@@ -486,7 +486,8 @@ lineage, never hidden.
                       never edited, and nothing is written without --yes.
                       A missing pre-commit guardrail generates an
                       executable .git/hooks/pre-commit (an existing hook
-                      is never overwritten)
+                      is never overwritten; a bare whole-tree test
+                      script is refused — wire a phased runner first)
   --cwd <dir>         the project root (default: process.cwd())
 
 Findings never reach the system prompt or a steering file on their own.
