@@ -109,7 +109,11 @@ Nothing is applied by itself. Findings are consumed only when you ask:
   your explicit confirmation, per application, and lands as an appended
   bullet under a `## Retro findings` heading — existing prose is never
   edited, and a change that is not a prose append (a workflow job, a hook)
-  is proposed for you to make, never applied. Findings are never injected
+  is proposed for you to make, never applied — except the generated
+  pre-commit hook: moh writes it from the checks `package.json` defines
+  (`set -e`, first failing check blocks), never overwrites an existing
+  one, and refuses when the only derivable check is a bare whole-tree
+  test run — wire a phased runner (like `scripts/test.sh`) first. Findings are never injected
   into the system prompt.
 
 The only unprompted surface is a **digest**: one line at session start

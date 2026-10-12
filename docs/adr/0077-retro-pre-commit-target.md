@@ -38,6 +38,18 @@ target: `.git/hooks/pre-commit`, generated on confirmed apply.
   is untracked, so a local hook is the correct default; a committed-hook
   strategy (husky etc.) remains the user's choice. moh writes the hook and
   never executes it.
+- **Bare whole-tree test runs are never generated (#1363):** a `test`
+  script whose value is a bare single-process whole-tree run (`bun test`,
+  `npm test`, a bare `vitest`/`jest`/`node --test`) is excluded from the
+  derived checks — inside a blocking pre-commit hook it is exactly the
+  minutes-long gate such projects document against. When a phased test
+  script exists it is emitted as-is (the repo's own script decides the
+  phasing); when the bare script is the only derivable check, apply
+  refuses with "the test script is a bare whole-tree run — wire
+  scripts/test.sh first" rather than write a hook that blocks commits or
+  an always-passing one. The correct runner is project-specific and is
+  never invented here; in this repository the local hook was replaced by
+  hand with `scripts/test.sh`.
 - **Placement (decided 2026-10-12, issue #1364 discussion):** the two
   target kinds follow their nature. Markdown steering files are project
   *source* — they write into the session's worktree (a lane included) and
