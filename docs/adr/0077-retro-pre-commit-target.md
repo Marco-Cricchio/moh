@@ -38,6 +38,17 @@ target: `.git/hooks/pre-commit`, generated on confirmed apply.
   is untracked, so a local hook is the correct default; a committed-hook
   strategy (husky etc.) remains the user's choice. moh writes the hook and
   never executes it.
+- **Placement (decided 2026-10-12, issue #1364 discussion):** the two
+  target kinds follow their nature. Markdown steering files are project
+  *source* — they write into the session's worktree (a lane included) and
+  reach the whole project through the lane's own branch, like any other
+  change; the retro store is project-keyed, so an abandoned lane loses
+  nothing: the finding re-surfaces. The generated git hook is git
+  *infrastructure* — it writes into the shared git dir (#1362). CODING_STANDARDS.md
+  stays a committed source file (never gitignored): a coding standard is
+  by definition shared with anyone who produces code in the repository.
+- The TUI footer's "(missing — y creates it)" is a real grant: when armed,
+  the modal passes `createMissing` to the apply gate (#1364).
 - The project-root escape check in `applyRetroApplication` gains one
   exact-path carve-out: `.git/hooks/pre-commit` (a generated hook outside
   the project tree but inside the clone). Every other outside-root target

@@ -4,7 +4,7 @@ import "./faketty/ci-mask";
  * Component-level, in-process — the store is real (temp dirs), the
  * subagent is never involved (the findings are seeded directly).
  */
-import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, test } from "bun:test";
@@ -198,11 +198,9 @@ describe("RetroModal terminal geometry", () => {
       tty.write("a");
       expect(await check()).toContain("y creates it");
       tty.write("y");
-      expect(await check()).toContain("refused:");
-      writeFileSync(join(cwd, "CODING_STANDARDS.md"), "# Coding standards\n");
-      tty.write("a");
-      await check();
-      tty.write("y");
+      // #1364: the armed footer is honored — the missing steering file is
+      // created, not refused.
+      expect(await check()).toContain("applied to");
       expect(await check()).toContain("applied to");
       expect(readFileSync(join(cwd, "CODING_STANDARDS.md"), "utf8")).toContain("Retro findings");
       tty.resize(45, 16);
@@ -235,6 +233,31 @@ describe("RetroModal — pre-commit hook apply (#1356)", () => {
     expect(hook).toContain("npm run lint");
     expect((await import("node:fs")).statSync(join(cwd, ".git", "hooks", "pre-commit")).mode & 0o755).toBe(0o755);
     void signature;
+    instance.unmount();
+  });
+});
+
+describe("RetroModal — create-missing consent (#1364)", () => {
+  test("the armed footer is honored: y creates the missing steering file and appends", async () => {
+    const cwd = tempDir("cs");
+    const mohHome = tempDir("cshome");
+    const { store, signature } = seed(cwd, mohHome, "coding-standards", "naming follows the domain glossary");
+    const instance = mount(cwd, mohHome);
+    await waitForFrame(() => stripAnsi(instance.lastFrame() ?? ""), "coding-standards");
+    expect(existsSync(join(cwd, "CODING_STANDARDS.md"))).toBe(false);
+    instance.stdin.write("a");
+    await sleep(40);
+    const frame = stripAnsi(instance.lastFrame() ?? "");
+    expect(frame).toContain("apply to CODING_STANDARDS.md");
+    expect(frame).toContain("(missing — y creates it)");
+    instance.stdin.write("y");
+    await sleep(60);
+    expect(stripAnsi(instance.lastFrame() ?? "")).toContain("applied to");
+    const after = readFileSync(join(cwd, "CODING_STANDARDS.md"), "utf8");
+    expect(after).toContain("## Retro findings");
+    expect(after).toContain("add a rule: naming follows the domain glossary");
+    // The store finding is still open: application, not dismissal.
+    expect(store.report().findings.map((f) => f.signature)).toContain(signature);
     instance.unmount();
   });
 });
