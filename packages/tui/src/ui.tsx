@@ -1,10 +1,10 @@
-import React, { useEffect, useState } from "react";
-import { Box, Text, useInput } from "ink";
+import React, { useEffect, useRef, useState } from "react";
+import { Box, Text, useInput, measureElement, type DOMElement } from "ink";
 import { useTheme } from "./themes";
 import { colorEnabled } from "./color";
 import { pickRampPreset, rampLogoRows, type RampPresetName } from "./logo-ramp";
 
-import { dialogWidth, useViewport, wrapLines } from "./viewport";
+import { dialogWidth, useViewport } from "./viewport";
 import { sanitizeForDisplay } from "./render-sanitize";
 
 /** pi-style labelled message box: single round border, label row inside. */
@@ -206,33 +206,16 @@ export function Dialog({
   );
 }
 
-/**
- * Flattens a fixed React node into its text for height measurement
- * (#1343): the footer may wrap (a long status under the hints), and the
- * windowing budget must count its rendered rows, not a fixed 1.
- */
-function footerText(node: React.ReactNode): string {
-  if (node === null || node === undefined || typeof node === "boolean") return "";
-  if (typeof node === "string" || typeof node === "number") return String(node);
-  if (Array.isArray(node)) return node.map(footerText).join("");
-  const el = node as { props?: { children?: React.ReactNode } };
-  return el.props ? footerText(el.props.children) : "";
-}
-
-/**
- * One row of a ScrollDialog body: the node plus how many visual lines it
- * occupies (a wrapped description counts its wrapped rows — computed by the
- * caller with `wrapLines`, since only it knows the width).
- */
+/** One body item. Legacy callers may still supply a weight; layout is measured by Ink. */
 export interface ScrollRow {
   node: React.ReactNode;
-  weight: number;
+  weight?: number;
 }
 
 /**
  * A read-only dialog whose body scrolls when it does not fit the viewport
  * (the vertical-overflow guarantee): rows window inside the remaining
- * height, `↑`/`↓`/`j`/`k` scroll one row at a time, and `↑ N more` /
+ * height, `↑`/`↓`/`j`/`k` scroll one rendered line at a time, and `↑ N more` /
  * `↓ N more` indicators report what is hidden — the same vocabulary the
  * height-aware menus already use (#64). Fixed header/footer nodes stay on
  * screen; only the rows scroll.
@@ -258,61 +241,51 @@ export function ScrollDialog({
   const theme = useTheme();
   const viewport = useViewport();
   const [offset, setOffset] = useState(0);
-  // Dialog chrome: border (2) + title + spacer + the window's own more-
-  // indicator row + the fixed footer. Never less than one row of body.
-  // #1343: the footer may wrap (a long status under the hints) — count
-  // its rendered height, not a fixed 1, so the frame cannot overflow.
-  const footerRows = footer === undefined ? 0 : wrapLines(footerText(footer), Math.max(20, dialogWidth(viewport) - 5)).length;
-  const budget = Math.max(1, viewport.rows - 7 - Math.max(0, footerRows - 1));
-  const weights = rows.map((r) => r.weight);
-  const totalWeight = weights.reduce((a, w) => a + w, 0);
-  const clampedOffset = Math.min(offset, Math.max(0, rows.length - 1));
-  // Grow the window downward from the offset, then upward, until the budget
-  // is spent — the weight-aware mirror of LanesModal's windowFor.
-  let start = clampedOffset;
-  let end = start + 1;
-  let used = weights[start] ?? 0;
-  if (used > budget) used = budget;
-  for (;;) {
-    let grew = false;
-    if (end < rows.length && used + weights[end]! <= budget) {
-      used += weights[end]!;
-      end++;
-      grew = true;
-    }
-    if (start > 0 && used + weights[start - 1]! <= budget) {
-      start--;
-      used += weights[start]!;
-      grew = true;
-    }
-    if (!grew) break;
-  }
-  const aboveWeight = weights.slice(0, start).reduce((a, w) => a + w, 0);
-  const belowWeight = weights.slice(end).reduce((a, w) => a + w, 0);
-  const scrollable = totalWeight > budget;
-  React.useEffect(() => {
-    setOffset((o) => Math.min(o, Math.max(0, rows.length - 1)));
-    // Re-clamp when the row list shrinks (e.g. after a filter or refresh).
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [rows.length]);
+  // Measure the unconstrained content inside its Yoga-sized clipping window.
+  // Text flattening cannot account for separate blocks or actual terminal wrapping.
+  const windowRef = useRef<DOMElement | null>(null);
+  const contentRef = useRef<DOMElement | null>(null);
+  const [geometry, setGeometry] = useState({ visible: 0, total: 0 });
+  useEffect(() => {
+    if (!windowRef.current || !contentRef.current) return;
+    const visible = measureElement(windowRef.current).height;
+    const total = measureElement(contentRef.current).height;
+    setGeometry((previous) => previous.visible === visible && previous.total === total ? previous : { visible, total });
+  });
+  const maximum = Math.max(0, geometry.total - geometry.visible);
+  const scrollable = maximum > 0;
+  const top = Math.min(offset, maximum);
+  useEffect(() => { setOffset((previous) => Math.min(previous, maximum)); }, [maximum]);
   useInput((input, key) => {
-    if (!scrollable) return;
-    if (key.upArrow || input === "k") setOffset((o) => Math.max(0, o - 1));
-    if (key.downArrow || input === "j") setOffset((o) => Math.min(Math.max(0, rows.length - 1), o + 1));
+    if (key.upArrow || input === "k") setOffset((previous) => Math.max(0, previous - 1));
+    if (key.downArrow || input === "j") setOffset((previous) => Math.min(maximum, previous + 1));
   });
   return (
-    <Dialog title={title} color={color} width={width}>
-      {header}
-      {aboveWeight > 0 && <Dim>{` ↑ ${aboveWeight} more`}</Dim>}
-      {rows.slice(start, end).map((row, i) => (
-        <React.Fragment key={start + i}>{row.node}</React.Fragment>
-      ))}
-      {belowWeight > 0 && (
-        <Dim>{` ↓ ${belowWeight} more${scrollHint && scrollable ? " (↑↓ scroll)" : ""}`}</Dim>
-      )}
-      <Text> </Text>
-      {footer}
-    </Dialog>
+    <Box width="100%" height="100%" alignItems="center" justifyContent="center" flexDirection="column">
+      <Box
+        borderStyle="round" borderColor={color} backgroundColor={theme.surface}
+        width={width ?? Math.min(dialogWidth(viewport), Math.max(1, viewport.columns - 1))}
+        height={Math.max(1, viewport.rows - 1)}
+        paddingX={2} flexDirection="column" flexShrink={0} overflow="hidden"
+      >
+        <Box flexDirection="column" flexShrink={0}>
+          <Text color={color} bold>{title}</Text>
+          <Text> </Text>
+          {header}
+        </Box>
+        {scrollable && <Box flexShrink={0}><Text color={theme.dim} wrap="truncate-end">{top > 0 ? ` ↑ ${top} more` : " "}</Text></Box>}
+        <Box ref={windowRef} flexDirection="column" flexGrow={1} flexShrink={1} minHeight={0} overflow="hidden">
+          <Box ref={contentRef} flexDirection="column" flexShrink={0} marginTop={-top}>
+            {rows.map((row, i) => <React.Fragment key={i}>{row.node}</React.Fragment>)}
+          </Box>
+        </Box>
+        {scrollable && <Box flexShrink={0}><Text color={theme.dim} wrap="truncate-end">{maximum > top ? ` ↓ ${maximum - top} more${scrollHint ? " (↑↓ scroll)" : ""}` : " "}</Text></Box>}
+        <Box flexDirection="column" flexShrink={0}>
+          <Text> </Text>
+          {footer}
+        </Box>
+      </Box>
+    </Box>
   );
 }
 
