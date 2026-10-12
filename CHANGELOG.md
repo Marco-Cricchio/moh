@@ -5,6 +5,33 @@ All notable changes to moh are documented here. The format follows
 SemVer. Each release's GitHub Release description is extracted from the
 matching section here at tag time.
 
+## [0.65.1] - 2026-10-12
+
+### Fixed
+
+- **The generated pre-commit hook lands in the shared git dir**
+  (#1356, PR #1362): from a linked worktree (a lane) `<root>/.git` is a
+  file, so creating `.git/hooks` failed with `ENOTDIR` — and even a
+  successful write would sit in a disposable checkout. The hook path is
+  now resolved with `git rev-parse --git-common-dir` (fallback
+  `<root>/.git`), so it lands in the main checkout every worktree sees.
+- **The `/retro` modal honors the create-missing consent** (#1364, PR
+  #1365): the footer armed `missing — y creates it` but never passed
+  `createMissing` to `applyRetroApplication`, so a missing markdown
+  steering file was refused right after the footer promised to create
+  it. The CLI path (`--create-missing`) was already correct. ADR-0077
+  also records the placement rule: markdown steering files are project
+  source written in the worktree, generated git hooks write into the
+  shared git dir.
+- **A bare whole-tree test script generates no hook** (#1363, PR
+  #1366): a `test` script whose value is a single-process whole-tree
+  run (`bun test`, `npm test`, bare vitest/jest/node --test, including
+  arged forms) is excluded from the checks the generated pre-commit
+  hook derives; when it is the only derivable check, apply refuses
+  with a wire-a-phased-runner message instead of writing a
+  minutes-long commit gate. Phased runners (`scripts/test.sh`,
+  `test:ci`) are preferred when present.
+
 ## [0.65.0] - 2026-10-12
 
 ### Added
@@ -2621,7 +2648,9 @@ security audit, each fixed behind its own PR.
   passed; a regression test pins the resolved path under
   `<home>/.moh/projects`.
 
-[Unreleased]: https://github.com/Marco-Cricchio/moh/compare/v0.64.7...develop
+[Unreleased]: https://github.com/Marco-Cricchio/moh/compare/v0.65.1...develop
+[0.65.1]: https://github.com/Marco-Cricchio/moh/compare/v0.65.0...v0.65.1
+[0.65.0]: https://github.com/Marco-Cricchio/moh/compare/v0.64.7...v0.65.0
 [0.64.7]: https://github.com/Marco-Cricchio/moh/compare/v0.64.6...v0.64.7
 [0.64.6]: https://github.com/Marco-Cricchio/moh/compare/v0.64.5...v0.64.6
 [0.64.5]: https://github.com/Marco-Cricchio/moh/compare/v0.64.4...v0.64.5
