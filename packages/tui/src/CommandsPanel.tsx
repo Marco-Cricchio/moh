@@ -59,6 +59,7 @@ export const COMMANDS: ReadonlyArray<{ area: string; keys: ReadonlyArray<[string
       ["/lanes", "parallel development lanes (feature groups, worktrees)"],
       ["/mode", "switch vibe / dev mode"],
       ["/model", "model picker (r refreshes live model lists)"],
+      ["/notes", "project notes (free-text, shared across sessions)"],
       ["/reload", "hot-reload moh.json + user config"],
       ["/rename `<name>`", "rename the current session"],
       ["/retro", "retro findings report (review, dismiss, apply)"],

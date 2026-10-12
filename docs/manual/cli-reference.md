@@ -468,7 +468,7 @@ options:
 ## moh retro
 
 ```
-usage: moh retro [--json] [--dismiss <signature>] [--apply <signature> [--yes]] [--cwd <dir>]
+usage: moh retro [--json] [--dismiss <signature>] [--apply <signature> [--yes] [--create-missing]] [--cwd <dir>]
 
 Reviews the retro findings accumulated for this project (ADR-0075).
 Findings are ordered by confidence and each shows its category, evidence
