@@ -5,6 +5,7 @@ import { Text, useInput } from "ink";
 import {
   applyRetroApplication,
   proposeRetroApplication,
+  PRE_COMMIT_TARGET,
   type RetroFinding,
   type RetroReport,
 } from "@moh/core";
@@ -61,7 +62,7 @@ export function RetroModal({ cwd, readReport, dismiss, onClose }: RetroModalProp
     if (confirming) {
       if (input === "y" || key.return) {
         const result = applyRetroApplication({ finding: confirming, projectRoot: cwd, confirm: true });
-        setStatus(result.ok ? (result.appended ? `applied to ${result.file}` : "already applied — nothing to do") : result.error);
+        setStatus(result.ok ? (result.appended || result.created ? `applied to ${result.file}` : "already applied — nothing to do") : result.error);
         setConfirming(null);
         return;
       }
@@ -91,7 +92,10 @@ export function RetroModal({ cwd, readReport, dismiss, onClose }: RetroModalProp
       // explicit gate, wider consent. The file lands in the project root
       // (committable): that is where the model reads steering files.
       const target = proposeRetroApplication(selected).target;
-      setCreateMissing(target !== "" && !existsSync(join(cwd, target)));
+      // #1356: the generated git hook is not a "missing steering file" —
+      // creating it IS the write. Only markdown targets arm the
+      // create-missing consent.
+      setCreateMissing(target !== "" && !target.startsWith(PRE_COMMIT_TARGET) && !existsSync(join(cwd, target)));
     }
   });
 

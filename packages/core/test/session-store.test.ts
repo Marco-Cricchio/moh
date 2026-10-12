@@ -417,6 +417,7 @@ describe("session store", () => {
     const uuidDir = join(home, ".moh", "projects", uuidSlug);
     mkdirSync(join(uuidDir, "memory"), { recursive: true });
     writeFileSync(join(uuidDir, "20260101T000000000Z-deadbeef.jsonl"), "uuid-session");
+    writeFileSync(join(uuidDir, "notes.jsonl"), "user note");
     writeFileSync(join(uuidDir, "session.md"), "notes");
     writeFileSync(join(uuidDir, "memory", "facts.md"), "fact");
     writeFileSync(join(uuidDir, "migration.log"), "note");
@@ -428,13 +429,14 @@ describe("session store", () => {
     writeFileSync(join(remote, "20260202T000000000Z-cafebab0.jsonl"), "remote-session");
     const dir = join(home, ".moh", "projects", projectSlug(cwd, home));
     const result = deleteStrandedData(dir, cwd, home);
-    expect(result.trashed).toBe(1);
+    expect(result.trashed).toBe(2);
     expect(result.removed.sort()).toEqual([".DS_Store", "memory", "migration.log", "session.md"]);
     expect(existsSync(uuidDir)).toBe(false);
     expect(existsSync(join(dir, "stranded-data.json"))).toBe(false);
     expect(readStrandedDataRecord(dir)).toBeNull();
     const trash = projectTrashDir(cwd, home);
     expect(readFileSync(join(trash, "20260101T000000000Z-deadbeef.jsonl"), "utf8")).toBe("uuid-session");
+    expect(readFileSync(join(trash, "notes.jsonl"), "utf8")).toBe("user note");
     // Refusal: a record pointing outside ~/.moh/projects/ is never deleted.
     const outsider = mkdtempSync(join(tmpdir(), "moh-stranded-outsider-"));
     writeFileSync(join(outsider, "20260404T000000000Z-aaaaaa11.jsonl"), "x");

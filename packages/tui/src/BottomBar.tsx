@@ -148,6 +148,42 @@ interface StatusProps {
   /** #328: active update notice — left-aligned on row 2; the right-aligned
    * cwd/branch/mode tail is never displaced or dropped (the notice elides). */
   updateMessage?: string;
+  /** #1355 footer row 3: the running moh version (`MoH - vX.Y.Z`, left).
+   * Absent = the segment does not render (never a guessed version). */
+  appVersion?: string;
+  /** #1355 footer row 3: the session's display name — the last non-empty
+   * `session_renamed` (null when the session was never renamed: the id
+   * renders alone, never a placeholder). */
+  sessionName?: string | null;
+  /** #1355 footer row 3: the session id (`session-<uuid8>`), right. */
+  sessionId?: string;
+}
+
+/** #1355: the footer's third row — version on the left, the session name
+ * (only when renamed) and the session id on the right. Degradation ladder,
+ * widest → narrowest: full name + full id, full name + short id, elided
+ * name + short id, short id alone. Nothing ever wraps: the right text is
+ * fitted into whatever the version segment leaves of the row. */
+export function sessionIdentityText(sessionName: string | null | undefined, sessionId: string | undefined, rightBudget: number): string {
+  if (!sessionId) return "";
+  const shortId = sessionId.replace(/^session-/, "");
+  const name = (sessionName ?? "").trim();
+  const join = (n: string, id: string) => (n ? `${n} · ${id}` : id);
+  if (join(name, sessionId).length <= rightBudget) return join(name, sessionId);
+  if (join(name, shortId).length <= rightBudget) return join(name, shortId);
+  const nameBudget = Math.max(2, rightBudget - shortId.length - 4);
+  const elided = name.length <= nameBudget
+    ? name
+    : // Head-anchored: a session name reads from its head (like a branch),
+      // so the ellipsis closes it instead of cutting its middle.
+      `${name.slice(0, nameBudget - 1)}…`;
+  return join(elided, shortId);
+}
+
+/** #1355: the version segment's text — `MoH - vX.Y.Z`, tolerant of a ref
+ * that already carries the `v` (a seam passing `v0.64.7` says it once). */
+export function footerVersionText(version: string): string {
+  return `MoH - v${version.replace(/^v/, "")}`;
 }
 
 /** #619: the MPM status chip on the first status row, next to memory.
@@ -507,6 +543,14 @@ function StatusRow(props: StatusProps) {
       ? props.updateMessage
       : `${props.updateMessage.slice(0, noticeBudget - 1)}…`
     : null;
+  // ── Row 3 (#1355): the version on the left (`MoH - vX.Y.Z`), the session
+  // name (only when renamed) and the id on the right. Ambient identity, not
+  // live status — its own row, fitted so it can never push row 2's tail or
+  // wrap: the right side degrades (full id → short id, name elided →
+  // dropped) into whatever the version segment leaves.
+  const versionText = props.appVersion ? footerVersionText(props.appVersion) : "";
+  const identityBudget = Math.max(8, props.width - 4 - versionText.length - 1);
+  const identityText = sessionIdentityText(props.sessionName, props.sessionId, identityBudget);
   return (
     <Box flexDirection="column" width={Math.max(1, props.width - 1)}>
       <Box justifyContent="space-between" flexWrap="nowrap" paddingX={1}>
@@ -521,6 +565,12 @@ function StatusRow(props: StatusProps) {
           <Box justifyContent="flex-end" flexWrap="nowrap">
             <Text>{row2.map((text, index) => <React.Fragment key={index}>{index > 0 ? " " : ""}<Text color={row2Color(text)}>{text}</Text></React.Fragment>)}</Text>
           </Box>
+        </Box>
+      )}
+      {(versionText || identityText) && (
+        <Box justifyContent="space-between" flexWrap="nowrap" paddingX={1}>
+          {versionText && <Text color={theme.dim}>{versionText}</Text>}
+          {identityText && <Text color={theme.dim}>{sanitizeForDisplay(identityText)}</Text>}
         </Box>
       )}
     </Box>

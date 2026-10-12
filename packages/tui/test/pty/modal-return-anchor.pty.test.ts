@@ -92,8 +92,9 @@ describe.skipIf(!hasPython)("modal open/close keeps the session frame anchored (
       }
       expect(chipsRow).toBeGreaterThanOrEqual(lines.length - 2);
       // …and the input row must sit inside the bottom chrome (separator,
-      // input, separator, spacer, status, chips) — never near the top.
-      expect(inputRow).toBeGreaterThanOrEqual(lines.length - 8);
+      // input, separator, spacer, status rows, #1355 identity row, chips) —
+      // never near the top.
+      expect(inputRow).toBeGreaterThanOrEqual(lines.length - 9);
       expect(inputRow).toBeLessThan(chipsRow); // input above the chips
       // The transcript survived the cycle: earlier replies still fill the
       // screen above the frame — not erased by a wrongly-anchored repaint.

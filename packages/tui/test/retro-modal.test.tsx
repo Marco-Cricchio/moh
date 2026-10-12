@@ -13,7 +13,7 @@ import { render } from "ink-testing-library";
 import { Box } from "ink";
 import { renderOnFakeTty } from "./faketty/render";
 import { useViewport } from "../src/viewport";
-import { RetroStore } from "@moh/core";
+import { RetroStore, retroSignature } from "@moh/core";
 import { RetroModal } from "../src/RetroModal";
 import { ThemeProvider, THEMES, DEFAULT_THEME } from "../src/themes";
 import { stripAnsi, waitForFrame } from "./helpers";
@@ -51,9 +51,9 @@ function mount(cwd: string, mohHome: string) {
 
 /** Seeds one finding and returns the store plus the signature it was
  * stamped with (the store owns the signature derivation). */
-function seed(cwd: string, mohHome: string, category = "navigation", evidence = "spent 12 calls locating the session store") {
+function seed(cwd: string, mohHome: string, category = "navigation", evidence = "spent 12 calls locating the session store", signatureOverride?: string) {
   const store = RetroStore.forProject(cwd, mohHome);
-  store.append([{ category, evidence, confidence: 0.7, session: "s-1", signature: `${category}:${evidence}` }]);
+  store.append([{ category, evidence, confidence: 0.7, session: "s-1", signature: signatureOverride ?? `${category}:${evidence}` }]);
   return { store, signature: store.read()[0]!.signature };
 }
 
@@ -212,5 +212,29 @@ describe("RetroModal terminal geometry", () => {
       tty.resize(60, 12);
       await check();
     } finally { await tty.unmount(); }
+  });
+});
+
+describe("RetroModal — pre-commit hook apply (#1356)", () => {
+  test("a confirmed apply generates the hook and the store finding closes via dismissal", async () => {
+    const cwd = tempDir("hook");
+    const mohHome = tempDir("hookhome");
+    writeFileSync(join(cwd, "package.json"), JSON.stringify({ scripts: { lint: "eslint ." } }));
+    const { store, signature } = seed(cwd, mohHome, "missing-guardrail", "package.json defines `lint` but no pre-commit hook runs it", retroSignature("missing-guardrail", "pre-commit:unwired"));
+    const instance = mount(cwd, mohHome);
+    await waitForFrame(() => stripAnsi(instance.lastFrame() ?? ""), "missing-guardrail");
+    expect(stripAnsi(instance.lastFrame() ?? "")).toContain(".git/hooks/pre-commit");
+    instance.stdin.write("a");
+    await sleep(40);
+    expect(stripAnsi(instance.lastFrame() ?? "")).toContain("apply to .git/hooks/pre-commit");
+    instance.stdin.write("y");
+    await sleep(60);
+    expect(stripAnsi(instance.lastFrame() ?? "")).toContain("applied to");
+    const hook = readFileSync(join(cwd, ".git", "hooks", "pre-commit"), "utf8");
+    expect(hook).toContain("#!/bin/sh");
+    expect(hook).toContain("npm run lint");
+    expect((await import("node:fs")).statSync(join(cwd, ".git", "hooks", "pre-commit")).mode & 0o755).toBe(0o755);
+    void signature;
+    instance.unmount();
   });
 });

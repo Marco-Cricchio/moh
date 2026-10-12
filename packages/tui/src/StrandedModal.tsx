@@ -111,7 +111,7 @@ export function StrandedModal({ dir, home, onClose }: StrandedModalProps) {
       {confirming ? (
         <>
           <Text color={theme.warn}>Delete the whole old directory? </Text>
-          <Dim>{"session logs go to the project trash · memory, notes and the rest are removed"}</Dim>
+          <Dim>{"session logs and notes go to the project trash · memory and the rest are removed"}</Dim>
           <Text color={theme.dim}>y confirm · n/esc cancel ▊</Text>
         </>
       ) : (
