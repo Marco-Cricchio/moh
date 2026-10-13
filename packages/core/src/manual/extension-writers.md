@@ -173,9 +173,9 @@ in the core, and no consent can authorize them.
   are normal outcomes, never exceptions.
 - `ctx.spawnSubagent(spec)`, `ctx.subagentActivity(callId)`,
   `ctx.steerSubagent(callId, message)`, `ctx.stopSubagents()` — the
-  delegation envelope: at most ten children per session, each within the
-  session's iteration ceiling, no grandchildren. A callId you did not spawn
-  resolves to `null` — members never address each other.
+  delegation envelope: at most ten children per extension per session,
+  each within the session's iteration ceiling, no grandchildren. A callId
+  you did not spawn resolves to `null` — members never address each other.
 - `ctx.requestTurn(text)` — one synthetic correction turn, marked in the
   log, capped at 2 consecutive; the core owns the cap.
 
