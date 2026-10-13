@@ -384,6 +384,12 @@ def main() -> None:
     # startup modal cannot consume their scripted keystrokes; focused Ink
     # tests cover the offer itself.
     project = {"handoff": {"transport": "none"}}
+    # B5 harness option (ablation baseline): the default pins the handoff
+    # offer off; scripts that must see the first-project handoff offer ask
+    # for a bare project (no `handoff` key at all — a shallow merge cannot
+    # remove the default's `transport`).
+    if spec.get("bareProject"):
+        project = {}
     if isinstance(spec.get("project"), dict):
         project.update(spec["project"])
     with open(os.path.join(cwd, "moh.json"), "w") as f:
@@ -684,7 +690,7 @@ def main() -> None:
     window = screen.windows[mark:end]
     fullscreen_after_mark = sum(1 for _, is_fullscreen in window if is_fullscreen)
     rows_after_mark = [height for height, is_fullscreen in window if not is_fullscreen]
-    payload = {"lines": out, "scrollback": screen.scrollback_view, "checkpoints": checkpoints, "exited": proc.poll() is not None, "exitCode": proc.returncode, "aliveAtEnd": alive_at_end, "maxFrameRows": screen.max_frame_rows, "frames": len(screen.frames), "fullscreenFrames": screen.fullscreen_frames, "framesAfterMark": len(window), "maxFrameRowsAfterMark": max(rows_after_mark) if rows_after_mark else 0, "fullscreenAfterMark": fullscreen_after_mark}
+    payload = {"lines": out, "home": home, "cwd": cwd, "scrollback": screen.scrollback_view, "checkpoints": checkpoints, "exited": proc.poll() is not None, "exitCode": proc.returncode, "aliveAtEnd": alive_at_end, "maxFrameRows": screen.max_frame_rows, "frames": len(screen.frames), "fullscreenFrames": screen.fullscreen_frames, "framesAfterMark": len(window), "maxFrameRowsAfterMark": max(rows_after_mark) if rows_after_mark else 0, "fullscreenAfterMark": fullscreen_after_mark}
     json.dump(payload, sys.stdout)
 
 

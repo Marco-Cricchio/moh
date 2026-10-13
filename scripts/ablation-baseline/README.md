@@ -40,6 +40,8 @@ else — a reworded user-visible string MUST flip the compare.
 - `cli.ts` — B3 CLI transcripts (fixture home, every subcommand, blocked
   network for `update`/`provider login`);
 - `serve.ts` — B4 `moh serve` conversations (RPC v1);
+- `tui.ts` — B5 TUI frame scripts (PTY harness): overlay walk, Settings
+  sub-modal return, permission prompt, `!` command, `@file` mention;
 - `compare.ts` — standalone tree comparator for any baseline output
   (imports nothing from the packages: a broken build must not break the
   comparator).
@@ -48,5 +50,12 @@ else — a reworded user-visible string MUST flip the compare.
 bun scripts/ablation-baseline/surface.ts <outDir>
 bun scripts/ablation-baseline/cli.ts <outDir>
 bun scripts/ablation-baseline/serve.ts <outDir>
+bun scripts/ablation-baseline/tui.ts <outDir>
 bun scripts/ablation-baseline/compare.ts <dirA> <dirB>
 ```
+
+B5 needs python3 (the PTY harness) and runs one PTY at a time. It waits
+the random startup intro out (~3.15 s) and settles before every
+checkpoint, so frames are stable across runs; `pty-runner.ts` gained two
+additive options for it (`bareProject`, `timeoutMs`) and `harness.py`
+reports the temp home/cwd it created so frames can normalize them.

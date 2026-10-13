@@ -26,6 +26,8 @@ const ISO_RE = /\b\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z\b/g;
 const DATE_RE = /\b\d{4}-\d{2}-\d{2}\b/g;
 const CLOCK_RE = /\b\d{2}:\d{2}(?::\d{2})? UTC\b/g;
 const MS_KEY_RE = /("[A-Za-z0-9_]+Ms)":(-?\d+(?:\.\d+)?)/g;
+/** Durations in rendered prose (`wall 77ms`, `· 0s`). */
+const PROSE_DURATION_RE = /\b\d+(?:\.\d+)?(ms|s)\b/g;
 const SESSION_FILE_RE = /\b\d{8}T\d{6}\d{3}Z-([0-9a-f]{8})\b/g;
 const SESSION_ID_RE = /\bsession-([0-9a-f]{8})\b/g;
 const SUBAGENT_CALL_RE = /\bsubagent-([0-9a-f]{8})\b/g;
@@ -42,6 +44,16 @@ const UUID8_RE = /\b[0-9a-f]{8}\b(?=-)/g;
  * realpath hash) differs per temp cwd; one project per scenario, so a
  * constant placeholder keeps the shape. */
 const SLUG_RE = /\bproject-[0-9a-f]{16}\b/g;
+/** The status row's project path (the harness's temp cwd, elided by width):
+ * `▣ <path> ◉` — UI glyphs frame it, so nothing else can match. */
+const IDENTITY_PATH_RE = /(▣ )[^◉]*(◉)/g;
+/** The same row when a modal covers its left part: only the elided path
+ * tail and the trailing glyph survive (`│wd-XXXXXXXX ◉ dev`). */
+const IDENTITY_TAIL_RE = /\b[a-z]{0,5}-[A-Za-z0-9_]{8}(?= ◉)/g;
+/** The elided tail of the harness's temp dirs (`…y-home-XXXXXXXX`). */
+const PTY_DIR_RE = /y-(home|cwd)-[a-z0-9]{8}\b/g;
+/** `session started prompt <8 hex>` — a session id. */
+const PROMPT_ID_RE = /\bprompt ([0-9a-f]{8})\b/g;
 
 export interface NormalizerOptions {
   home: string;
@@ -92,11 +104,16 @@ export class Normalizer {
     out = out.replace(SESSION_ID_RE, (sid) => this.#token("session", sid));
     out = out.replace(SUBAGENT_CALL_RE, (sc) => this.#token("subagent", sc));
     out = out.replace(SLUG_RE, () => "<slug>");
+    out = out.replace(IDENTITY_PATH_RE, (_m, pre: string, post: string) => `${pre}<path>${post}`);
+    out = out.replace(IDENTITY_TAIL_RE, () => "<path>");
+    out = out.replace(PTY_DIR_RE, (_m, which: string) => `<pty-${which}>`);
+    out = out.replace(PROMPT_ID_RE, () => "prompt <prompt-id>");
     out = out.replace(UUID8_RE, (u) => this.#token("uuid8", u));
     out = out.replace(ISO_RE, () => "<iso>");
     out = out.replace(DATE_RE, () => "<date>");
     out = out.replace(CLOCK_RE, () => "<clock>");
     out = out.replace(MS_KEY_RE, (_m, key: string) => `${key}":<ms>`);
+    out = out.replace(PROSE_DURATION_RE, () => "<dur>");
     return out;
   }
 

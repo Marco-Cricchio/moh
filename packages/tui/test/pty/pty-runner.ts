@@ -16,6 +16,12 @@ export interface PtySpec {
   meta?: boolean;
   /** Optional project moh.json written to the temp cwd. */
   project?: Record<string, unknown>;
+  /** Harness budget override (default 45s): long key-sequence scripts
+   * (ablation B5 overlay walks) need more than one modal cycle. */
+  timeoutMs?: number;
+  /** Ablation B5: write a bare project moh.json (no default `handoff`
+   * key), so the first-project handoff offer can trigger. */
+  bareProject?: boolean;
   /** Optional path to dump the raw PTY byte stream. */
   rawDump?: string;
   /** Extra environment variables for the child (#490 image-preview
@@ -49,6 +55,9 @@ export async function runPty(spec: PtySpec): Promise<PtyLine[]> {
 
 export interface PtyMeta {
   lines: PtyLine[];
+  /** The harness's temp home/cwd (B5 frame normalization). */
+  home?: string;
+  cwd?: string;
   /** Rows that left the main screen through native terminal scrolling. */
   scrollback?: string[];
   exited: boolean;
@@ -91,14 +100,14 @@ export async function runPtyRaw(spec: PtySpec): Promise<PtyMeta> {
     stderr: "pipe",
   });
   let timedOut = false;
-  const timer = setTimeout(() => { timedOut = true; proc.kill("SIGKILL"); }, 45_000);
+  const timer = setTimeout(() => { timedOut = true; proc.kill("SIGKILL"); }, spec.timeoutMs ?? 45_000);
   const [stdout, stderr, exitCode] = await Promise.all([
     new Response(proc.stdout).text(),
     new Response(proc.stderr).text(),
     proc.exited,
   ]);
   clearTimeout(timer);
-  if (timedOut) throw new Error("pty harness timed out after 45000ms");
+  if (timedOut) throw new Error(`pty harness timed out after ${spec.timeoutMs ?? 45_000}ms`);
   if (exitCode !== 0) {
     throw new Error(`pty harness failed (${exitCode}): ${stderr}`);
   }
