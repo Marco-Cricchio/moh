@@ -11,8 +11,10 @@ extension does is additive and can only make moh more careful, never less.
 
 This page is the *user's* side of that contract: where extensions come
 from, what you are asked before one runs, and what happens when one breaks.
-If you want to *write* one, read the chapter for extension writers in the
-repository (`docs/extending/extensions.md`).
+If you want to *write* one, the manual carries a writer-side companion:
+`moh manual extension-writers` (this build's version of the contract).
+The full chapter lives in the repository
+(`docs/extending/extensions.md`).
 
 ## Two sources
 
