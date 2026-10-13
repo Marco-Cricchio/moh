@@ -76,10 +76,12 @@ function buildFixture(base: string): Fixture {
   mkdirSync(projectDir, { recursive: true, mode: 0o700 });
   const sessionA = join(projectDir, "20260101T000000000Z-11111111.jsonl");
   const sessionB = join(projectDir, "20260102T000000000Z-22222222.jsonl");
+  const sessionC = join(projectDir, "20260103T000000000Z-44444444.jsonl");
   seedSession(sessionA, "alpha seeded session");
   seedSession(sessionB, "beta seeded session", [
     JSON.stringify({ type: "assistant_delta", text: "seeded reply", id: SEED_ULIDS[2], parentId: SEED_ULIDS[1] }),
   ]);
+  seedSession(sessionC, "gamma seeded session");
   const trashDir = join(home, ".moh", "trash", "projects", slug);
   mkdirSync(trashDir, { recursive: true, mode: 0o700 });
   const trashed = join(trashDir, "20251231T000000000Z-33333333.jsonl");
@@ -92,6 +94,8 @@ interface CliRun {
   args: string[];
   fixture: Fixture;
   env?: Record<string, string>;
+  /** Scripted stdin (confirmation prompts); closed immediately after. */
+  stdin?: string;
 }
 
 async function runCli(run: CliRun): Promise<{ stdout: string; stderr: string; exit: number }> {
@@ -106,7 +110,14 @@ async function runCli(run: CliRun): Promise<{ stdout: string; stderr: string; ex
     },
     stdout: "pipe",
     stderr: "pipe",
+    stdin: run.stdin !== undefined ? "pipe" : "ignore",
   });
+  if (run.stdin !== undefined) {
+    const sink = proc.stdin as unknown as { write(s: string): number; flush(): void; end(): void };
+    sink.write(run.stdin);
+    sink.flush();
+    sink.end();
+  }
   const timer = setTimeout(() => proc.kill("SIGKILL"), 30_000);
   const [stdout, stderr, exit] = await Promise.all([
     new Response(proc.stdout).text(),
@@ -167,8 +178,8 @@ async function main(): Promise<number> {
   const runsFixture = buildFixture(runsBase);
 
   const commands: CliRun[] = [];
-  const add = (slug: string, args: string[], env?: Record<string, string>): void => {
-    commands.push({ slug, args, fixture: seedFixture, env });
+  const add = (slug: string, args: string[], env?: Record<string, string>, stdin?: string): void => {
+    commands.push({ slug, args, fixture: seedFixture, env, stdin });
   };
 
   // Help surfaces + top-level errors.
@@ -189,6 +200,8 @@ async function main(): Promise<number> {
 
   // Sessions (id = file name stem, per SESSIONS_USAGE).
   const idA = "20260101T000000000Z-11111111";
+  const idB = "20260102T000000000Z-22222222";
+  const idC = "20260103T000000000Z-44444444";
   add("sessions-analyze", ["sessions", "analyze", idA]);
   add("sessions-analyze-json", ["sessions", "analyze", idA, "--json"]);
   add("sessions-tree", ["sessions", "tree", idA]);
@@ -197,6 +210,8 @@ async function main(): Promise<number> {
   add("sessions-bookmark-name", ["sessions", "switch", idA, "seed-bookmark"]);
   add("sessions-switch-ulid", ["sessions", "switch", idA, SEED_ULIDS[1]]);
   add("sessions-delete-yes", ["sessions", "delete", idA, "--yes"]);
+  add("sessions-delete-declined", ["sessions", "delete", idB]);
+  add("sessions-delete-confirmed", ["sessions", "delete", idC], undefined, "y\n");
   add("sessions-unknown", ["sessions", "analyze", "20990101T000000000Z-ffffffff"]);
 
   // Trash.
