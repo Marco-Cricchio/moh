@@ -5,6 +5,19 @@ All notable changes to moh are documented here. The format follows
 SemVer. Each release's GitHub Release description is extracted from the
 matching section here at tag time.
 
+## [Unreleased]
+
+### Fixed
+
+- **Installed user extensions load at runtime, not only in `moh extension
+  list`** (#1373): a package installed into `~/.moh/extensions/<name>/` is
+  now discovered at session start through its `moh.extension.json` and
+  loads through the same consent as a loose file; a package with a missing
+  or malformed manifest is a visible load failure instead of a silent
+  absence, and a project declaration with the same manifest name wins over
+  the user-dotdir copy (the precedence `moh extension list` already
+  showed).
+
 ## [0.65.2] - 2026-10-13
 
 ### Added

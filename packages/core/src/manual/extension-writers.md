@@ -192,8 +192,9 @@ in the core, and no consent can authorize them.
 
 ## Shipping it
 
-- `~/.moh/extensions/` — drop the folder (manifest + entry file) in; every
-  extension there loads at session start.
+- `~/.moh/extensions/<name>/` — what `moh extension add` installs; a
+  package subdirectory (manifest + entry file) is discovered at session
+  start and loads through the same consent as a loose file.
 - `moh.json` `"extensions"` — declare the path for everyone working on the
   project.
 - Verify with `/extensions` (or `moh extension list`): it shows each

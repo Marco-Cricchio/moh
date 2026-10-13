@@ -88,7 +88,7 @@ const failedEvents = (events: readonly AgentEvent[]) =>
   events.filter((e): e is Extract<AgentEvent, { type: "extension_failed" }> => e.type === "extension_failed");
 
 describe("extensionSourceFiles (#834)", () => {
-  test("the dotdir is sorted, filtered to loadable modules, and never walks directories", () => {
+  test("the dotdir is sorted and filtered to loadable modules; a manifest directory is a package", () => {
     const { cwd, mohHome } = tempProject();
     writeModule(join(mohHome, "extensions", "b-second.mjs"), "export default {};");
     writeModule(join(mohHome, "extensions", "a-first.ts"), "export default {};");
@@ -97,9 +97,13 @@ describe("extensionSourceFiles (#834)", () => {
     writeModule(join(mohHome, "extensions", ".hidden.mjs"), "export default {};");
     writeModule(join(mohHome, "extensions", "nested", "c-nested.mjs"), "export default {};");
 
+    // #1373: a subdirectory with a valid manifest is an installed package,
+    // so its entry loads — after the dotdir's loose files. A directory
+    // without one would still contribute nothing loadable here.
     expect(extensionSourceFiles({ mohHome, cwd })).toEqual([
       canonical(join(mohHome, "extensions", "a-first.ts")),
       canonical(join(mohHome, "extensions", "b-second.mjs")),
+      canonical(join(mohHome, "extensions", "nested", "c-nested.mjs")),
     ]);
   });
 
@@ -132,6 +136,167 @@ describe("extensionSourceFiles (#834)", () => {
     // The alias is not a second module, and neither is the project naming
     // the same file again.
     expect(extensionSourceFiles({ mohHome, cwd, declared: [real] })).toEqual([canonical(real)]);
+  });
+});
+
+describe("installed packages (#1373)", () => {
+  /** An installed package: the layout `moh extension add` produces — a
+   * package directory with its manifest and entry file(s); `vendor/` is
+   * the dependency payload that must never load. */
+  const writePackage = (mohHome: string, name: string, entry: string[], extra: Record<string, unknown> = {}) => {
+    const dir = join(mohHome, "extensions", name);
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(
+      join(dir, "moh.extension.json"),
+      JSON.stringify({ name, version: "0.1.0", entry, capabilities: [], ...extra }, null, 2),
+    );
+    const files = entry.map((e) => {
+      writeFileSync(join(dir, e), vetoExtension(name));
+      return canonical(join(dir, e));
+    });
+    return { dir, files };
+  };
+
+  test("a package subdirectory contributes exactly its manifest's entry files, never vendor/", () => {
+    const { cwd, mohHome } = tempProject();
+    const pkg = writePackage(mohHome, "tool-monitor", ["index.mjs"]);
+    mkdirSync(join(pkg.dir, "vendor"), { recursive: true });
+    // Raw writes: these must NOT enter the package manifest (writeModule
+    // would rewrite it to name them).
+    writeFileSync(join(pkg.dir, "vendor", "moh-extension.mjs"), "export default {};");
+    writeFileSync(join(pkg.dir, "not-an-entry.mjs"), "export default {};");
+
+    expect(extensionSourceFiles({ mohHome, cwd })).toEqual(pkg.files);
+  });
+
+  test("order is deterministic: loose files sorted, then packages sorted by directory name", () => {
+    const { cwd, mohHome } = tempProject();
+    const zebra = writePackage(mohHome, "zebra-pkg", ["index.mjs"]);
+    const alpha = writePackage(mohHome, "alpha-pkg", ["main.mjs"]);
+    const loose = canonical(writeModule(join(mohHome, "extensions", "b-loose.mjs"), "export default {};"));
+
+    expect(extensionSourceFiles({ mohHome, cwd })).toEqual([loose, ...alpha.files, ...zebra.files]);
+  });
+
+  test("a declared (project) copy wins over a user-dotdir package with the same manifest name", () => {
+    const { cwd, mohHome } = tempProject();
+    writePackage(mohHome, "shared", ["index.mjs"]);
+    const declaredDir = join(cwd, "extensions", "shared-declared");
+    mkdirSync(declaredDir, { recursive: true });
+    writeFileSync(
+      join(declaredDir, "moh.extension.json"),
+      JSON.stringify({ name: "shared", version: "1.0.0", entry: ["index.mjs"], capabilities: [] }),
+    );
+    writeFileSync(join(declaredDir, "index.mjs"), vetoExtension("shared"));
+    const declared = canonical(join(declaredDir, "index.mjs"));
+    writeFileSync(join(cwd, "moh.json"), JSON.stringify({ extensions: ["./extensions/shared-declared/index.mjs"] }));
+
+    expect(extensionSourceFiles({ mohHome, cwd, declared: ["./extensions/shared-declared/index.mjs"] })).toEqual([declared]);
+  });
+
+  test("a symlinked package directory is still a package", () => {
+    const { cwd, mohHome } = tempProject();
+    const elsewhere = join(mohHome, "elsewhere");
+    const pkg = writePackage(mohHome, "linked", ["index.mjs"]);
+    rmSync(pkg.dir, { recursive: true });
+    mkdirSync(elsewhere, { recursive: true });
+    writeFileSync(join(elsewhere, "moh.extension.json"), JSON.stringify({ name: "linked", version: "0.1.0", entry: ["index.mjs"], capabilities: [] }));
+    writeFileSync(join(elsewhere, "index.mjs"), vetoExtension("linked"));
+    try {
+      symlinkSync(elsewhere, join(mohHome, "extensions", "linked"));
+    } catch {
+      return; // a filesystem without symlinks: nothing to pin
+    }
+    expect(extensionSourceFiles({ mohHome, cwd })).toEqual([canonical(join(elsewhere, "index.mjs"))]);
+  });
+
+  test("a package with a missing or malformed manifest still yields its top-level loadable files, so the refusal is visible", () => {
+    const { cwd, mohHome } = tempProject();
+    const missing = join(mohHome, "extensions", "no-manifest");
+    mkdirSync(missing, { recursive: true });
+    writeFileSync(join(missing, "index.mjs"), "export default {};");
+    const malformedDir = join(mohHome, "extensions", "bad-manifest");
+    mkdirSync(malformedDir, { recursive: true });
+    writeFileSync(join(malformedDir, "moh.extension.json"), "{ not json");
+    writeFileSync(join(malformedDir, "index.mjs"), "export default {};");
+
+    const sources = extensionSourceFiles({ mohHome, cwd });
+    expect(sources).toEqual([
+      canonical(join(malformedDir, "index.mjs")),
+      canonical(join(missing, "index.mjs")),
+    ]);
+    // A manifest that is valid JSON but does not describe a package (no
+    // name) is the same story: the entry file reaches the runtime, which
+    // refuses it by its manifest rules.
+    writeFileSync(join(malformedDir, "moh.extension.json"), JSON.stringify({ version: "1.0.0" }));
+    expect(extensionSourceFiles({ mohHome, cwd })).toEqual(sources);
+  });
+});
+
+describe("sessionFromConfig loads installed packages (#1373)", () => {
+  /** An installed package: the layout `moh extension add` produces. */
+  const writePackage = (mohHome: string, name: string, entry: string[]) => {
+    const dir = join(mohHome, "extensions", name);
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(
+      join(dir, "moh.extension.json"),
+      JSON.stringify({ name, version: "0.1.0", entry, capabilities: [] }, null, 2),
+    );
+    const files = entry.map((e) => {
+      writeFileSync(join(dir, e), vetoExtension(name));
+      return canonical(join(dir, e));
+    });
+    return { dir, files };
+  };
+
+  test("a package installed the documented way is asked about, loads, and its hooks run", async () => {
+    const { cwd, home, mohHome } = tempProject();
+    writePackage(mohHome, "tool-monitor", ["index.mjs"]);
+    const asked: ExtensionConsentRequest[] = [];
+    await withSession(
+      assemble({
+        cwd,
+        home,
+        provider: turnOnEcho(),
+        consent: {
+          onExtensionConsent: (request) => {
+            asked.push(request);
+            return true;
+          },
+        },
+      }),
+      async (session) => {
+        const turn = await session.send("go");
+        expect(asked).toHaveLength(1);
+        expect(session.history().find((e) => e.type === "extension_loaded")).toMatchObject({
+          name: "tool-monitor",
+        });
+        expect(session.history().find((e) => e.type === "permission_denied")).toMatchObject({
+          tool: "echo",
+          reason: "extension",
+        });
+        expect(turn.status).toBe("done");
+      },
+    );
+  });
+
+  test("a package with a malformed manifest is one visible refusal, and the session continues", async () => {
+    const { cwd, home, mohHome } = tempProject();
+    const bad = join(mohHome, "extensions", "bad");
+    mkdirSync(bad, { recursive: true });
+    writeFileSync(join(bad, "moh.extension.json"), "{ not json");
+    writeFileSync(join(bad, "index.mjs"), "export default {};");
+    writePackage(mohHome, "good-pkg", ["index.mjs"]);
+    await withSession(
+      assemble({ cwd, home, provider: turnOnEcho(), consent: { onExtensionConsent: () => true } }),
+      async (session) => {
+        const turn = await session.send("go");
+        expect(turn.status).toBe("done");
+        const failure = failedEvents(session.history()).find((e) => e.reason === "manifest");
+        expect(failure).toMatchObject({ name: "index.mjs" });
+        expect(session.history().find((e) => e.type === "extension_loaded")).toMatchObject({ name: "good-pkg" });
+      },
+    );
   });
 });
 

@@ -16,7 +16,7 @@
  * network at all.
  */
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, statSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { MANIFEST_FILE, readExtensionManifest, type ExtensionManifest } from "./extension-manifest";
 import { PATH_SCOPE_PREFIX, HOST_SCOPE_PREFIX, validatePathScope, validateHostScope } from "./host-scope";
@@ -391,7 +391,12 @@ export function registryRoots(options: { mohHome: string; cwd: string }): { scop
 function installedPackageDirs(root: string): string[] {
   try {
     return readdirSync(root, { withFileTypes: true })
-      .filter((e) => e.isDirectory() && !e.name.startsWith("."))
+      .filter(
+        (e) =>
+          !e.name.startsWith(".") &&
+          // A symlinked package dir (dotfiles managers) is still installed.
+          (e.isDirectory() || (e.isSymbolicLink() && statSync(join(root, e.name)).isDirectory())),
+      )
       .map((e) => e.name)
       .sort();
   } catch {
