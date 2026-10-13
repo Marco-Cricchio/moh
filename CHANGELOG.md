@@ -5,6 +5,21 @@ All notable changes to moh are documented here. The format follows
 SemVer. Each release's GitHub Release description is extracted from the
 matching section here at tag time.
 
+## [0.65.2] - 2026-10-13
+
+### Added
+
+- **An extension-writers' guide ships with the binary** (#1369, PR
+  #1370): a writer-side companion page in the bundled user manual so an
+  author with only the moh binary can write and ship an extension
+  without cloning the repository — minimal runnable example, manifest
+  schema, capability slots with their consent effect sentences, hook
+  signatures and ordering, the host seam, versioning policy and
+  distribution. Registered in the manual page registry (`moh manual`,
+  TUI `ctrl+h`, `/ask-moh`) and mirrored to `docs/manual/`; the
+  user-facing Extensions page points at it, and anti-drift tests pin
+  the guide to the `@moh/extension` contract.
+
 ## [0.65.1] - 2026-10-12
 
 ### Fixed
