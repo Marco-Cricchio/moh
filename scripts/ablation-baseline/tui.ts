@@ -155,6 +155,10 @@ const scenarios: Scenario[] = [
         { wait: 0.5 }, // settle: capture a repaint that finished
         { checkpoint: "commands" },
         { wait: 0.5, send: B("\x1b") },
+        { wait: 0.4, send: B("\x1b[104;5u") }, // CSI-u ctrl+h → manual (0x08 is backspace on legacy terms)
+        { wait: 8.0, until: "type to filter", untilFromBuffer: true },
+        { checkpoint: "manual" },
+        { wait: 0.5, send: B("\x1b") },
         { wait: 0.4, send: B("\x0e") }, // ctrl+n → notes
         { wait: 8.0, until: "no notes yet", untilFromBuffer: true },
         { wait: 0.5 }, // settle: capture a repaint that finished
@@ -218,6 +222,12 @@ const scenarios: Scenario[] = [
         { wait: 8.0, until: "extensions", untilOnScreen: true },
         { wait: 0.5 }, // settle: capture a repaint that finished
         { checkpoint: "extensions" },
+        { wait: 0.5, send: B("\x1b") },
+        { wait: 1.0, send: B("/browser") },
+        { wait: 1.0, send: B("\r") },
+        { wait: 0.6, send: B("\r") },
+        { wait: 8.0, until: "browser setup", untilFromBuffer: true },
+        { checkpoint: "browser" },
         { wait: 0.5, send: B("\x1b") },
         { wait: 0.4, send: B("\x11") }, // ctrl+q → quota
         { wait: 8.0, until: "usage quota", untilFromBuffer: true },

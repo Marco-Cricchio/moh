@@ -264,16 +264,31 @@ export function buildScenarios(): Scenario[] {
   });
 
   list.push({
+    name: "g1-reasoning",
+    group: 1,
+    assemble: () =>
+      RecordingProvider.scripted([
+        {
+          deltas: ["the answer"],
+          finish: "stop",
+          reasoning: { deltas: ["think one ", "think two"], continuation: { opaque: "sig" } },
+        },
+      ]),
+    body: async (_ctx, run) => {
+      run.results.push({ label: "send", result: await run.session.send("reason with me") });
+    },
+  });
+
+  list.push({
     name: "g1-ask-user",
     group: 1,
-    assemble: () => {
-      return RecordingProvider.scripted([
+    assemble: () =>
+      RecordingProvider.scripted([
         tool("ask_user", {
           questions: [{ header: "Flavor", question: "Which?", options: [{ label: "a", description: "first" }, { label: "b", description: "second" }], suggested: "a" }],
         }),
         text("going with the answer"),
-      ]);
-    },
+      ]),
     body: async (ctx, run) => {
       void ctx;
       run.results.push({ label: "send", result: await run.session.send("decide") });
