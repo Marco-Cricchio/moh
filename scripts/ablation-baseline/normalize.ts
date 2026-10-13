@@ -24,6 +24,7 @@ const ULID_RE = /\b[0-9A-HJKMNP-TV-Z]{26}\b/g;
 const HASH_KEY_RE = /("(?:hash|prevHash)":")([0-9a-f]{64})(")/g;
 const ISO_RE = /\b\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z\b/g;
 const DATE_RE = /\b\d{4}-\d{2}-\d{2}\b/g;
+const CLOCK_RE = /\b\d{2}:\d{2}(?::\d{2})? UTC\b/g;
 const MS_KEY_RE = /("[A-Za-z0-9_]+Ms)":(-?\d+(?:\.\d+)?)/g;
 const SESSION_FILE_RE = /\b\d{8}T\d{6}\d{3}Z-([0-9a-f]{8})\b/g;
 const SESSION_ID_RE = /\bsession-([0-9a-f]{8})\b/g;
@@ -94,6 +95,7 @@ export class Normalizer {
     out = out.replace(UUID8_RE, (u) => this.#token("uuid8", u));
     out = out.replace(ISO_RE, () => "<iso>");
     out = out.replace(DATE_RE, () => "<date>");
+    out = out.replace(CLOCK_RE, () => "<clock>");
     out = out.replace(MS_KEY_RE, (_m, key: string) => `${key}":<ms>`);
     return out;
   }

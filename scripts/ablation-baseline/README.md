@@ -35,7 +35,18 @@ else — a reworded user-visible string MUST flip the compare.
   format, per 00 § 2 B2);
 - `scenarios.ts` — the ten scenario groups;
 - `normalize.ts` — the normalizer;
-- `b2.ts` — runner + `compare` mode.
+- `b2.ts` — B2 runner (`compare` subcommand);
+- `surface.ts` — B1 public-surface snapshot (TypeScript 5.9 compiler API);
+- `cli.ts` — B3 CLI transcripts (fixture home, every subcommand, blocked
+  network for `update`/`provider login`);
+- `serve.ts` — B4 `moh serve` conversations (RPC v1);
+- `compare.ts` — standalone tree comparator for any baseline output
+  (imports nothing from the packages: a broken build must not break the
+  comparator).
 
-S0.2 adds `surface.ts` (B1), `cli.ts` (B3), `serve.ts` (B4); S0.3 adds
-`tui.ts` (B5).
+```sh
+bun scripts/ablation-baseline/surface.ts <outDir>
+bun scripts/ablation-baseline/cli.ts <outDir>
+bun scripts/ablation-baseline/serve.ts <outDir>
+bun scripts/ablation-baseline/compare.ts <dirA> <dirB>
+```
