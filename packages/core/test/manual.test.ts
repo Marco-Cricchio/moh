@@ -21,6 +21,7 @@ describe("manual assets (#457)", () => {
       "permissions",
       "jev",
       "extensions",
+      "extension-writers",
       "mcp",
       "skills-and-workflow",
       "memory-and-compaction",
@@ -63,6 +64,65 @@ describe("manual assets (#457)", () => {
     expect(manualSubsetViolations("heading\n======")).toHaveLength(1);
     expect(manualSubsetViolations("```\n<div>verbatim is fine</div>\n```")).toEqual([]);
     expect(manualSubsetViolations("plain paragraph with `code` and `<ref>` inside backticks")).toEqual([]);
+  });
+});
+
+describe("extension-writers guide (#1369)", () => {
+  // The guide documents the @moh/extension contract; these pins fail when
+  // the contract gains a hook or a capability-gated method, telling the
+  // editor to cover it in the bundled guide (same pattern as the config
+  // page's pinned schema keys).
+  const guide = manualPage("extension-writers")?.body ?? "";
+  const REQUIRED_HOOKS = [
+    "onSessionStart",
+    "onSessionEnd",
+    "beforeTurn",
+    "beforeModelCall",
+    "onToolCall",
+    "onToolResult",
+    "onModelError",
+    "onCompaction",
+    "onEvent",
+    "afterTurn",
+  ];
+  const REQUIRED_GATED_METHODS = [
+    "registerCommand",
+    "registerPanel",
+    "registerOverlay",
+    "registerTool",
+    "spawnSubagent",
+    "subagentActivity",
+    "steerSubagent",
+    "stopSubagents",
+    "requestTurn",
+  ];
+  const REQUIRED_SECTIONS = [
+    "MOH_EXTENSION_API_VERSION",
+    "defineExtension",
+    "moh.extension.json",
+    "replace-prompt-section",
+    "contribute-tool:",
+    "endpoint:",
+    "credential:",
+    "host:",
+    "path:",
+    "setPromptNote",
+    "appendToPrompt",
+    "appendEvent",
+    "setStatus",
+    "ctx.host",
+  ];
+
+  test("the setup context's hooks are all named in the guide", () => {
+    for (const hook of REQUIRED_HOOKS) expect(guide).toContain(hook);
+  });
+
+  test("the capability-gated methods are all named in the guide", () => {
+    for (const method of REQUIRED_GATED_METHODS) expect(guide).toContain(method);
+  });
+
+  test("the contract anchors (manifest, scopes, prompt doors) are all named in the guide", () => {
+    for (const anchor of REQUIRED_SECTIONS) expect(guide).toContain(anchor);
   });
 });
 
