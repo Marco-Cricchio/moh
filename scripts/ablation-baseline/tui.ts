@@ -244,6 +244,29 @@ const scenarios: Scenario[] = [
     }),
   },
   {
+    name: "stranded",
+    spec: () => ({
+      cols: 100,
+      rows: 30,
+      config: { ...DEV_CONFIG },
+      seedStranded: true,
+      fixedTempNames: true,
+      steps: [
+        { wait: 5.0 }, // let the random startup intro settle
+        { wait: 8.0, until: "older data kept in", untilFromBuffer: true },
+        { wait: 0.5 }, // settle: capture a repaint that finished
+        { checkpoint: "stranded-row" },
+        { wait: 0.4, send: B("\x1b[B") }, // row 0 "New session" → the warning row
+        { wait: 0.4, send: B("\r") },
+        { wait: 8.0, until: "older project data", untilFromBuffer: true },
+        { wait: 0.5 }, // settle: capture a repaint that finished
+        { checkpoint: "stranded-modal" },
+        { wait: 0.5, send: B("\x1b") },
+      ],
+      tail: 30,
+    }),
+  },
+  {
     name: "settings-submodal-return",
     spec: ({ url }) => ({
       cols: 100,

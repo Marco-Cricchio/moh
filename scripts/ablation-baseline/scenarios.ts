@@ -53,7 +53,9 @@ export interface ScenarioRun {
 export interface Scenario {
   name: string;
   group: number;
-  assemble: (ctx: ScenarioContext) => Provider;
+  /** `undefined` = no pre-built provider: assembly resolves the reference
+   * in `ctx.config.provider` (openai-compat endpoints, real wire). */
+  assemble: (ctx: ScenarioContext) => Provider | undefined;
   body: (ctx: ScenarioContext, run: ScenarioRun) => Promise<void>;
 }
 
@@ -260,6 +262,61 @@ export function buildScenarios(): Scenario[] {
     },
     body: async (_ctx, run) => {
       run.results.push({ label: "send", result: await run.session.send("read both and ping") });
+    },
+  });
+
+  list.push({
+    name: "g1-reasoning-wire",
+    group: 1,
+    assemble: (ctx) => {
+      // A real openai-compat wire (local SSE server): the reasoning-aware
+      // adapter is opted in by the endpoint's declared thinking capability
+      // (#262/#895), and `reasoning_content` deltas (DeepSeek/Z.AI shape)
+      // must fold into the `reasoning` event like any provider's would.
+      const encoder = new TextEncoder();
+      let call = 0;
+      const server = Bun.serve({
+        port: 0,
+        fetch() {
+          call += 1;
+          const chunk = (delta: Record<string, unknown>, finish: string | null = null): Uint8Array =>
+            encoder.encode(
+              `data: ${JSON.stringify({ id: `t${call}`, object: "chat.completion.chunk", choices: [{ index: 0, delta, finish_reason: finish }] })}\n\n`,
+            );
+          const stream = new ReadableStream({
+            start(controller) {
+              controller.enqueue(chunk({ role: "assistant" }));
+              controller.enqueue(chunk({ reasoning_content: "wire thought one " }));
+              controller.enqueue(chunk({ reasoning_content: "wire thought two" }));
+              controller.enqueue(chunk({ content: "wire answer" }));
+              controller.enqueue(chunk({}, "stop"));
+              controller.enqueue(encoder.encode("data: [DONE]\n\n"));
+              controller.close();
+            },
+          });
+          return new Response(stream, { headers: { "content-type": "text/event-stream" } });
+        },
+      });
+      ctx.vars.set("stop", () => server.stop(true));
+      ctx.config.endpoints = [
+        {
+          name: "wire",
+          type: "openai-compat",
+          baseUrl: `http://127.0.0.1:${server.port}/v1`,
+          apiKey: "test-key",
+          defaultModel: "wire-model",
+          capabilities: { thinking: { format: "openai-effort", levels: ["low", "medium", "high"] } },
+        },
+      ];
+      ctx.config.provider = "wire/wire-model";
+      return undefined;
+    },
+    body: async (ctx, run) => {
+      try {
+        run.results.push({ label: "send", result: await run.session.send("reason over the wire") });
+      } finally {
+        (ctx.vars.get("stop") as () => void)();
+      }
     },
   });
 

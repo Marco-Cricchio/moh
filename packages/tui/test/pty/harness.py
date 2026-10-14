@@ -377,6 +377,18 @@ def main() -> None:
         pass
     home = tempfile.mkdtemp(prefix="moh-pty-home-")
     cwd = tempfile.mkdtemp(prefix="moh-pty-cwd-")
+    # Ablation B5 (stranded): frames that print absolute paths wrap them
+    # mid-token, so a random mkdtemp suffix would leak into the normalized
+    # frames line by line. A fixed pair of names keeps every wrap point —
+    # and thus every fragment — identical across runs. B5 runs sequentially,
+    # and a stale pair from an earlier run is removed first.
+    if spec.get("fixedTempNames"):
+        home = os.path.join(tempfile.gettempdir(), "moh-pty-home-b5")
+        cwd = os.path.join(tempfile.gettempdir(), "moh-pty-cwd-b5")
+        shutil.rmtree(home, ignore_errors=True)
+        shutil.rmtree(cwd, ignore_errors=True)
+        os.makedirs(home)
+        os.makedirs(cwd)
     # Optional user-config injection (~/.moh/config): lets tests pin TUI
     # settings (mode, onboarding flags) instead of scripting overlays.
     # PTY fixtures exercise established Home/chat behaviour, not the
@@ -443,6 +455,29 @@ def main() -> None:
                 for event in events:
                     f.write(json.dumps(event) + "\n")
             stamp += 1
+    # Ablation B5 (#1217 stranded data): seed the exact on-disk state
+    # readStrandedDataRecord reports — a live directory (the declared
+    # identity's uuid slug) holding stranded-data.json, and a source
+    # directory under ~/.moh/projects/ with real entries. The fixed uuid
+    # makes the live slug computable here (sha256[:16], as identitySlug).
+    if spec.get("seedStranded"):
+        ident_id = "11111111-2222-4333-8444-555555555555"
+        os.makedirs(os.path.join(cwd, ".moh"), exist_ok=True)
+        with open(os.path.join(cwd, ".moh", "project.json"), "w") as f:
+            json.dump({"id": ident_id}, f)
+        live = os.path.join(home, ".moh", "projects",
+                            "project-" + hashlib.sha256(ident_id.encode()).hexdigest()[:16])
+        os.makedirs(live, exist_ok=True)
+        source = os.path.join(home, ".moh", "projects", "project-deadbeefdeadbeef")
+        os.makedirs(source, exist_ok=True)
+        with open(os.path.join(source, "20240101T000000.000Z-seed.jsonl"), "w") as f:
+            f.write(json.dumps({"type": "session_start", "schemaVersion": 1}) + "\n")
+        with open(os.path.join(live, "stranded-data.json"), "w") as f:
+            json.dump({
+                "source": source,
+                "destination": live,
+                "recordedAt": "2026-01-01T00:00:00.000Z",
+            }, f)
     master, slave = pty.openpty()
     fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack("HHHH", rows, cols, 0, 0))
     # CI=true silences Ink entirely (it detects CI environments and skips

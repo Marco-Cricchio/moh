@@ -147,7 +147,7 @@ async function runOne(outDir: string, name: string, home: string, cwd: string): 
   const assembled = sessionFromConfig({
     cwd,
     home,
-    provider,
+    ...(provider ? { provider } : {}),
     config: ctx.config,
     consent: ctx.consent as never,
     overrides: ctx.overrides as never,

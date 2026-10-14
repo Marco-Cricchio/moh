@@ -6,7 +6,7 @@
 // and bad version, early send, ping, happy-path send, busy + interrupt,
 // permission round-trip, session resume), recording the normalized
 // stdout lines of each conversation under <outDir>/serve/.
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { Normalizer } from "./normalize";
@@ -245,6 +245,114 @@ const CONVERSATIONS: Conv[] = [
       lines.push(`<replayed:${events.length}>`);
       second.closeStdin();
       lines.push(`<exit:${await second.exited}>`);
+      return lines;
+    },
+  },
+  {
+    name: "run-equivalence",
+    run: async ({ base }) => {
+      const lines: string[] = [];
+      const textCassette = join(base, "text.json");
+      const toolCassette = join(base, "tool.json");
+      // The serve session is one process: its cassette holds both turns in
+      // order (plain text, then the tool call and its answer). The two run
+      // invocations are separate processes with their own one-turn cassettes.
+      const serveCassette = join(base, "serve.json");
+      const textTurn = { deltas: ["all done"], finish: "stop" };
+      const toolTurns = [
+        { deltas: ["trying "], finish: "tool_calls", toolCalls: [{ name: "bash", args: { command: "echo equiv-ran" } }] },
+        { deltas: ["all done"], finish: "stop" },
+      ];
+      writeFileSync(textCassette, JSON.stringify([textTurn]));
+      writeFileSync(toolCassette, JSON.stringify(toolTurns));
+      writeFileSync(serveCassette, JSON.stringify([textTurn, ...toolTurns]));
+      // Two isolated roots with the same layout (home + project): the two
+      // doors never share state, and every path token each normalizer
+      // replaces maps to the same placeholder.
+      const serveRoot = fixture(join(base, "serve-root"));
+      const runRoot = fixture(join(base, "run-root"));
+      // Compare raw-line-filtered, then normalized: filtering after
+      // normalization would leave the kept events' id/hash ordinals
+      // shifted by the removed ones.
+      const normLines = (root: { home: string; cwd: string }, ls: string[]): string[] => {
+        const norm = new Normalizer({ home: root.home, cwd: root.cwd });
+        return ls.filter((l) => l.trim() !== "").map((l) => norm.text(l));
+      };
+      const readLines = (file: string): string[] => readFileSync(file, "utf8").split("\n").filter((l) => l.trim() !== "");
+      const CHROME = new Set(["permission_requested", "permission_granted", "permission_denied", "permission_rule_added", "session_resumed"]);
+      const stripChrome = (ls: string[]): string[] => ls.filter((l) => !CHROME.has(String(JSON.parse(l).type)));
+      const runCli = (args: string[]): Promise<number> => {
+        const proc = Bun.spawn([process.execPath, CLI, "run", ...args], {
+          cwd: runRoot.cwd,
+          env: { ...process.env, HOME: runRoot.home, TZ: "UTC", MOH_ENDPOINT_TEST_API_KEY: "" },
+          stdout: "pipe",
+          stderr: "pipe",
+        });
+        return proc.exited;
+      };
+      const findLog = (root: { home: string }): string => {
+        const found: string[] = [];
+        const visit = (dir: string) => {
+          for (const entry of readdirSync(dir, { withFileTypes: true })) {
+            if (entry.isDirectory()) visit(join(dir, entry.name));
+            else if (entry.name.endsWith(".jsonl")) found.push(join(dir, entry.name));
+          }
+        };
+        visit(join(root.home, ".moh", "projects"));
+        if (found.length !== 1) throw new Error(`expected exactly one session log, found ${found.length}`);
+        return found[0]!;
+      };
+      // Turn 1 — plain text: the two doors must write identical logs.
+      const c = spawnServe(serveRoot.cwd, serveRoot.home, ["--cassette", serveCassette]);
+      c.writeLine(INIT);
+      const ready = await readUntil(c, (m) => m.type === "ready");
+      const serveFile = String((ready as { sessionFile?: unknown }).sessionFile);
+      c.writeLine(JSON.stringify({ type: "send", id: 1, text: "run it" }));
+      await readUntil(c, (m) => m.type === "result");
+      const run1 = await runCli(["--cassette", textCassette, "run it"]);
+      const runLog0 = findLog(runRoot);
+      const turn1Equal =
+        JSON.stringify(normLines(serveRoot, readLines(serveFile))) ===
+        JSON.stringify(normLines(runRoot, readLines(runLog0)));
+      lines.push(`<turn1-exit:${run1}>`, `<turn1-logs-equal:${turn1Equal}>`);
+      // Turn 2 — a bash tool call: serve is asked and grants once; run gets
+      // the same grant as a standing --allow rule. The core events must
+      // match; the `permission_*` chrome is each door's own consent record,
+      // and `session_resumed` is the cross-process resume fact itself (run
+      // reopens the log with --session, serve never left its process).
+      c.writeLine(JSON.stringify({ type: "send", id: 2, text: "use the tool" }));
+      const req = await readUntil(c, (m) => m.type === "permission_request");
+      c.writeLine(JSON.stringify({ type: "permission_response", id: req.id, decision: "yes" }));
+      await readUntil(c, (m) => m.type === "result");
+      const runFile = findLog(runRoot);
+      const run2 = await runCli(["--cassette", toolCassette, "--allow", "bash", "--session", runFile, "use the tool"]);
+      c.closeStdin();
+      lines.push(`<serve-exit:${await c.exited}>`, `<turn2-exit:${run2}>`);
+      const serveLines = stripChrome(readLines(serveFile));
+      const runLines = stripChrome(readLines(runFile));
+      // The hash chains genuinely diverge: run's `session_resumed` (removed
+      // above) inserts a link, so every later event's parentId/prevHash/id
+      // reference it even though its own line is gone. Payload equivalence —
+      // every field except the chain fields — is the honest claim; turn 1
+      // above already pins the byte-level one.
+      const payload = (ls: string[]): string[] =>
+        ls.map((l) => {
+          const o = JSON.parse(l) as Record<string, unknown>;
+          delete o.id; delete o.parentId; delete o.prevHash; delete o.hash;
+          return JSON.stringify(o, Object.keys(o).sort());
+        });
+      // Chain fields are dropped from the RAW lines (before normalization —
+      // normalized tokens are not parseable JSON).
+      const serveLog = normLines(serveRoot, payload(serveLines));
+      const runLog = normLines(runRoot, payload(runLines));
+      const turn2Equal = JSON.stringify(serveLog) === JSON.stringify(runLog);
+      lines.push(`<turn2-logs-equal:${turn2Equal}>`);
+      if (!turn1Equal || !turn2Equal) {
+        lines.push("<serve-log>");
+        lines.push(...serveLog);
+        lines.push("<run-log>");
+        lines.push(...runLog);
+      }
       return lines;
     },
   },

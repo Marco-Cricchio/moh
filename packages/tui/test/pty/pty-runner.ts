@@ -33,6 +33,15 @@ export interface PtySpec {
   /** #1023: number of seeded existing sessions in the temp project's
    * session directory, so the Home list has rows. */
   seedSessions?: number;
+  /** Ablation B5: seed the #1217 stranded-data state — a declared
+   * `.moh/project.json` identity whose live directory holds a
+   * `stranded-data.json` record plus a source directory with data — so
+   * Home's warning row and the resolution overlay are reachable. */
+  seedStranded?: boolean;
+  /** Ablation B5 (stranded): use fixed temp home/cwd names — the frames
+   * under test print absolute paths that wrap, and a random mkdtemp
+   * suffix would leak into the normalized frames at the wrap points. */
+  fixedTempNames?: boolean;
   /** `checkpoint` snapshots physical screen + native scrollback after this
    * step, letting one script assert a mid-stream viewport and final settle. */
   steps: ReadonlyArray<{ wait?: number; send?: string; until?: string; untilOnScreen?: boolean; untilFromBuffer?: boolean; checkpoint?: string; mark?: boolean; markEnd?: boolean }>;

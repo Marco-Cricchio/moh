@@ -52,6 +52,9 @@ const IDENTITY_PATH_RE = /(▣ )[^◉]*(◉)/g;
 const IDENTITY_TAIL_RE = /\b[a-z]{0,5}-[A-Za-z0-9_]{8}(?= ◉)/g;
 /** The elided tail of the harness's temp dirs (`…y-home-XXXXXXXX`). */
 const PTY_DIR_RE = /y-(home|cwd)-[a-z0-9]{8}\b/g;
+/** Local fake-wire server endpoint (`http://127.0.0.1:<port>/v1`): the
+ * ephemeral port is per-run and lands verbatim in `model_call` events. */
+const LOOPBACK_URL_RE = /http:\/\/127\.0\.0\.1:\d{4,5}\b/g;
 /** `session started prompt <8 hex>` — a session id. */
 const PROMPT_ID_RE = /\bprompt ([0-9a-f]{8})\b/g;
 
@@ -107,6 +110,7 @@ export class Normalizer {
     out = out.replace(IDENTITY_PATH_RE, (_m, pre: string, post: string) => `${pre}<path>${post}`);
     out = out.replace(IDENTITY_TAIL_RE, () => "<path>");
     out = out.replace(PTY_DIR_RE, (_m, which: string) => `<pty-${which}>`);
+    out = out.replace(LOOPBACK_URL_RE, () => "<loopback>");
     out = out.replace(PROMPT_ID_RE, () => "prompt <prompt-id>");
     out = out.replace(UUID8_RE, (u) => this.#token("uuid8", u));
     out = out.replace(ISO_RE, () => "<iso>");

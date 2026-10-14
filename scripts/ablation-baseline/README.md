@@ -58,4 +58,18 @@ B5 needs python3 (the PTY harness) and runs one PTY at a time. It waits
 the random startup intro out (~3.15 s) and settles before every
 checkpoint, so frames are stable across runs; `pty-runner.ts` gained two
 additive options for it (`bareProject`, `timeoutMs`) and `harness.py`
-reports the temp home/cwd it created so frames can normalize them.
+reports the temp home/cwd it created so frames can normalize them. Two
+more additive options close the `stranded` gap: `seedStranded` (seeds
+the #1217 on-disk state — declared identity, live dir with
+`stranded-data.json`, source dir with data) and `fixedTempNames` (fixed
+temp home/cwd names: the warning row and modal print absolute paths that
+wrap mid-token, and a random mkdtemp suffix would leak at every wrap
+point).
+
+Known residual gaps: `skill-chooser` (needs a claimed tracker issue),
+`skill-updates` (needs pending upstream updates), `cold-wizard` (needs a
+gist scan) — all three need network/auth state the harness cannot seed
+deterministically; scripted retro extraction (no seam in moh.json);
+network *blocking* is proven only via the dead proxy, not positively.
+B2's `g1-reasoning-wire` covers reasoning over a real (local SSE)
+openai-compat wire; a remote wire is intentionally out of scope.
