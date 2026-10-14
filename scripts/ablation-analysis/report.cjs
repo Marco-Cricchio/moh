@@ -5,7 +5,7 @@ const mode = process.argv[2];
 const src = rows.filter((r) => r.srcFile);
 const fmt = (r) => `${r.file}:${r.line} ${r.kind} ${r.owner ? r.owner + "." : ""}${r.name}`;
 if (mode === "check") {
-  for (const n of process.argv.slice(3)) for (const r of rows.filter((x) => x.name === n)) console.log(fmt(r), JSON.stringify({ own: r.ownUses, src: r.extSrc, test: r.extTest, re: r.reexportVia, calls: r.calls }));
+  for (const n of process.argv.slice(3)) for (const r of rows.filter((x) => x.name === n)) console.log(fmt(r), JSON.stringify({ own: r.ownUses, src: r.extSrc, test: r.extTest, example: r.extExample, re: r.reexportVia, calls: r.calls }));
 }
 if (mode === "dead") {
   // exported top-level, no use anywhere outside own file, and no own use
@@ -14,8 +14,13 @@ if (mode === "dead") {
   console.error("count", d.length);
 }
 if (mode === "testonly") {
-  const d = src.filter((r) => r.exported && r.extSrc.length === 0 && r.extTest.length > 0 && r.ownUses === 0);
-  for (const r of d) console.log(fmt(r) + "  tests=" + r.extTest.length + (r.reexportVia.length ? "  [re: " + r.reexportVia.join(",") + "]" : ""));
+  const d = src.filter((r) => r.exported && r.extSrc.length === 0 && r.extTest.length > 0 && r.extExample.length === 0 && r.ownUses === 0);
+  for (const r of d) console.log(fmt(r) + "  tests=" + r.extTest.length + (r.extExample.length ? "  ex=" + r.extExample.length : "") + (r.reexportVia.length ? "  [re: " + r.reexportVia.join(",") + "]" : ""));
+  console.error("count", d.length);
+}
+if (mode === "exampleonly") {
+  const d = src.filter((r) => r.exported && r.extSrc.length === 0 && r.extTest.length === 0 && r.extExample.length > 0 && r.ownUses === 0);
+  for (const r of d) console.log(fmt(r) + "  examples=" + r.extExample.join(","));
   console.error("count", d.length);
 }
 if (mode === "localonly") {

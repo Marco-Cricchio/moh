@@ -60,7 +60,7 @@ rm -rf "$component_cov"
 
 # --- Phase 2: PTY files, one process per file (scripts/test-pty-parallel.sh,
 # batched by MOH_PTY_JOBS) ---------------------------------------------------
-pty_cov_root="$OUT/pty"
+pty_cov_root="$OUT/pty-collections"
 mkdir -p "$pty_cov_root"
 JOBS=${MOH_PTY_JOBS:-2}
 LOG_DIR=$(mktemp -d "${TMPDIR:-/tmp}/moh-pty-cov.XXXXXX")
@@ -109,6 +109,8 @@ done
 echo "--- PTY logs: $LOG_DIR"
 
 # --- Summary: per-file totals across all profiles ---------------------------
+# (summary rows outside packages/ and scripts/ — temp fixtures loaded from
+# outside the repo — are excluded from the map)
 python3 - "$OUT" <<'PYEOF'
 import glob, os, sys
 from collections import defaultdict

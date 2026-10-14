@@ -18,6 +18,10 @@ function walk(dir, acc) {
 const files = [];
 for (const pkg of fs.readdirSync(path.join(root, "packages"))) walk(path.join(root, "packages", pkg), files);
 walk(path.join(root, "scripts"), files);
+// Runnable library-user examples (C7 referrers, tracked separately, not source).
+const exampleFiles = [];
+walk(path.join(root, "docs", "extending", "examples"), exampleFiles);
+files.push(...exampleFiles);
 files.push(path.join(root, "packages/core/src/assets.d.ts"));
 
 const program = ts.createProgram(files, {
@@ -35,7 +39,9 @@ const program = ts.createProgram(files, {
 });
 const checker = program.getTypeChecker();
 const rel = (f) => path.relative(root, f);
-const isTest = (f) => /\.test\.|\/test\/|\/scripts\/|\/evals\//.test(rel(f)) || rel(f).startsWith("scripts/");
+const examplesDir = path.join(root, "docs", "extending", "examples") + path.sep;
+const isTest = (f) => !f.startsWith(examplesDir) && (/\.test\.|\/test\/|\/scripts\/|\/evals\//.test(rel(f)) || rel(f).startsWith("scripts/"));
+const isExample = (f) => f.startsWith(examplesDir);
 const isOurs = (f) => f.startsWith(root) && !f.includes("node_modules");
 
 // declKey -> info
@@ -104,7 +110,7 @@ for (const sf of program.getSourceFiles()) {
             const info = decls.get(keyOf(dd));
             if (!info) continue;
             const kind = inExport ? "reexport" : inImport ? "import" : "use";
-            const r = info.refs.get(sf.fileName) || { use: 0, import: 0, reexport: 0 };
+            const r = info.refs.get(sf.fileName) || { use: 0, import: 0, reexport: 0, example: 0 };
             r[kind]++;
             info.refs.set(sf.fileName, r);
             // call-site arg counts
@@ -127,10 +133,11 @@ for (const sf of program.getSourceFiles()) {
 const rows = [];
 for (const info of decls.values()) {
   const refFiles = [...info.refs.entries()];
-  const own = info.refs.get(info.file) || { use: 0, import: 0, reexport: 0 };
+  const own = info.refs.get(info.file) || { use: 0, import: 0, reexport: 0, example: 0 };
   const external = refFiles.filter(([f, r]) => f !== info.file && r.use > 0);
-  const extSrc = external.filter(([f]) => !isTest(f));
+  const extSrc = external.filter(([f]) => !isTest(f) && !isExample(f));
   const extTest = external.filter(([f]) => isTest(f));
+  const extExample = external.filter(([f]) => isExample(f));
   const reexportOnly = refFiles.filter(([f, r]) => f !== info.file && r.use === 0);
   // params
   let params = null;
@@ -141,10 +148,41 @@ for (const info of decls.values()) {
   }
   rows.push({
     file: rel(info.file), line: info.line, end: info.node.getSourceFile().getLineAndCharacterOfPosition(info.node.getEnd()).line + 1, name: info.name, kind: info.kind, exported: info.exported, top: info.top, owner: info.owner,
-    ownUses: own.use, extSrc: extSrc.map(([f, r]) => rel(f)), extTest: extTest.map(([f]) => rel(f)), reexportVia: reexportOnly.map(([f]) => rel(f)),
-    calls: info.calls, callArgCounts: info.callArgCounts, params, srcFile: !isTest(info.file),
+    ownUses: own.use, extSrc: extSrc.map(([f, r]) => rel(f)), extTest: extTest.map(([f]) => rel(f)), extExample: extExample.map(([f]) => rel(f)), reexportVia: reexportOnly.map(([f]) => rel(f)),
+    calls: info.calls, callArgCounts: info.callArgCounts, params, srcFile: !isTest(info.file) && !isExample(info.file),
   });
 }
 fs.mkdirSync(out, { recursive: true });
 fs.writeFileSync(path.join(out, "refs.json"), JSON.stringify(rows));
-console.log("decls", rows.length);
+
+// Docs-prose search: every declaration name as a bare word over docs/**
+// markdown. Textual evidence only — a prose hit is a referrer to check by
+// hand (E2), never proof of liveness. Written to <outDir>/docs-mentions.txt.
+const docNames = new Map();
+for (const r of rows) {
+  if (!docNames.has(r.name)) docNames.set(r.name, []);
+  docNames.get(r.name).push(`${r.file}:${r.line} ${r.kind}${r.owner ? " " + r.owner + "." : ""}${r.name}`);
+}
+const docHits = [];
+(function walkDocs(dir) {
+  let entries;
+  try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch { return; }
+  for (const e of entries) {
+    if (e.name.startsWith(".")) continue;
+    const p = path.join(dir, e.name);
+    if (e.isDirectory()) walkDocs(p);
+    else if (/\.(md|mdx)$/.test(e.name)) {
+      const text = fs.readFileSync(p, "utf8");
+      const seen = new Set();
+      for (const [name, locs] of docNames) {
+        if (seen.has(name)) continue;
+        if (new RegExp(`(?<![\\w$])${name.replace(/\$/g, "\\$")}(?![\\w$])`).test(text)) {
+          seen.add(name);
+          docHits.push(`${rel(p)}\t${locs.join("; ")}`);
+        }
+      }
+    }
+  }
+})(path.join(root, "docs"));
+fs.writeFileSync(path.join(out, "docs-mentions.txt"), docHits.sort().join("\n") + "\n");
+console.log("decls", rows.length, "| docs-mentions", docHits.length);
