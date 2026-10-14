@@ -76,6 +76,87 @@ export function stripAnsi(s: string): string {
   // eslint-disable-next-line no-control-regex
   return s.replace(/\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])/g, "");
 }
+
+/**
+ * Ink's `useInput` re-subscribes its handler in a `useEffect`, so for a
+ * moment after a surface paints, a key still reaches the previous surface's
+ * handler (#1466). React's scheduler flushes passive effects on the
+ * `setImmediate` queue, which already holds that flush once a frame is
+ * observed: two turns of it leave the new handler attached.
+ */
+export const effectsFlushed = (): Promise<void> =>
+  new Promise<void>((r) => setImmediate(() => setImmediate(r)));
+
+/** The minimal surface of an `ink-testing-library` render the waits read. */
+type Rendered = { lastFrame: () => string | undefined; stdin: { write: (data: string) => void } };
+
+/**
+ * Waits for `condition` within a deadline, then for passive effects, so the
+ * next key reaches the surface the condition describes. A step that never
+ * happens fails as `stuck at step "<step>"` with the last frame, instead of a
+ * fixed sleep letting a later assertion read a stale frame (#1473). The
+ * default deadline stays under bun's 5 s test timeout, so a stuck step is
+ * reported by name rather than as a bare timeout.
+ */
+export async function waitStep(
+  view: Pick<Rendered, "lastFrame">,
+  condition: () => boolean,
+  step: string,
+  { timeoutMs = 3_000 }: { timeoutMs?: number } = {},
+): Promise<void> {
+  try {
+    await waitForCondition(condition, () => `for ${step}. Last frame:\n${stripAnsi(view.lastFrame() ?? "")}`, { timeoutMs });
+  } catch (e) {
+    throw new Error(`stuck at step "${step}": ${e instanceof Error ? e.message : String(e)}`);
+  }
+  await effectsFlushed();
+}
+
+/** `waitStep` on the stripped frame containing (or, with `absent`, losing) `expected`. */
+export function waitText(
+  view: Pick<Rendered, "lastFrame">,
+  expected: string,
+  step: string,
+  { absent = false, timeoutMs }: { absent?: boolean; timeoutMs?: number } = {},
+): Promise<void> {
+  return waitStep(
+    view,
+    () => stripAnsi(view.lastFrame() ?? "").includes(expected) !== absent,
+    `${step} (frame ${absent ? "without" : "containing"} ${JSON.stringify(expected)})`,
+    timeoutMs === undefined ? {} : { timeoutMs },
+  );
+}
+
+/**
+ * Writes a key and waits for the commit that carries it, then for passive
+ * effects — for keys whose effect leaves no text to wait on (a focus move
+ * under the tests' colorless output). `ink-testing-library` renders in debug
+ * mode, where Ink writes a frame on every commit even when its text is
+ * unchanged, and the key's state update lands in the first commit after the
+ * write: a new entry in `frames` is that commit (#1473). React's `act()` does
+ * not cover Ink's renderer, and one fixed-turn flush is not always enough.
+ */
+export async function pressCommitted(view: Rendered & { frames: readonly string[] }, key: string, step: string): Promise<void> {
+  const before = view.frames.length;
+  view.stdin.write(key);
+  await waitStep(view, () => view.frames.length > before, `${step} (a commit after the key)`);
+}
+
+/**
+ * Sends one prompt through the chat composer (#1471): type only once the
+ * composer has mounted, press Enter only once the prompt has echoed. The
+ * composer mounts after the App's first async render, which can take well
+ * over 100 ms on a busy machine.
+ */
+export async function sendPrompt(view: Rendered, text: string): Promise<void> {
+  const frame = () => stripAnsi(view.lastFrame() ?? "");
+  await waitStep(view, () => frame().includes(COMPOSER_READY), "the composer mounted");
+  view.stdin.write(text);
+  // The composer wraps a long prompt: its first word is enough to see the echo.
+  const head = text.split(" ")[0]!;
+  await waitStep(view, () => frame().includes(head) && !frame().includes(COMPOSER_READY), "the prompt echoed in the composer");
+  view.stdin.write("\r");
+}
 import type { AgentSession, SessionStore } from "@moh/core";
 
 /** Test helper: makeSession returns a result union; tests with an explicit provider always succeed. */

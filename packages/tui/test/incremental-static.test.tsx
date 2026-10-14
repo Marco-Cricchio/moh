@@ -10,43 +10,10 @@ import { MockProvider } from "@moh/core";
 import { App } from "../src/App";
 import { settledBoundary } from "../src/Chat";
 import { projectTranscript } from "../src/transcript";
-import { COMPOSER_READY, stripAnsi, waitForCondition } from "./helpers";
+import { sendPrompt, stripAnsi, waitStep } from "./helpers";
 import { DevelopmentLaneService } from "@moh/core";
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
-
-type Ink = ReturnType<typeof render>;
-
-/** Waits for `condition` within a deadline and fails naming the step that
- * never happened, with the last frame. */
-async function waitFor(ink: Ink, condition: () => boolean, step: string, timeoutMs = 5_000): Promise<void> {
-  try {
-    await waitForCondition(condition, () => `for ${step}. Last frame:\n${stripAnsi(ink.lastFrame() ?? "")}`, { timeoutMs });
-  } catch (e) {
-    throw new Error(`App stuck at step "${step}": ${e instanceof Error ? e.message : String(e)}`);
-  }
-  // Ink's useInput re-subscribes in a useEffect; React's scheduler flushes
-  // passive effects on the setImmediate queue, so two turns of it leave the
-  // newly painted surface's key handler attached.
-  await new Promise<void>((r) => setImmediate(() => setImmediate(r)));
-}
-
-/**
- * #1471: sends one prompt through the composer. The composer mounts after the
- * App's first async render, which can take well over 100 ms on a busy
- * machine: a prompt typed after a fixed 30 ms pause went nowhere, the turn
- * never started, and every assertion after it failed. Type only once the
- * composer is ready, and press Enter only once the prompt has echoed.
- */
-async function sendPrompt(ink: Ink, text: string): Promise<void> {
-  const frame = () => stripAnsi(ink.lastFrame() ?? "");
-  await waitFor(ink, () => frame().includes(COMPOSER_READY), "the composer mounted");
-  ink.stdin.write(text);
-  // The composer wraps a long prompt: its first word is enough to see the echo.
-  const head = text.split(" ")[0]!;
-  await waitFor(ink, () => frame().includes(head) && !frame().includes(COMPOSER_READY), "the prompt echoed in the composer");
-  ink.stdin.write("\r");
-}
 
 // "Should not already be working" race and then hangs the bun process.
 
@@ -227,7 +194,7 @@ describe("open-turn scrollback is scrollable mid-turn (#194)", () => {
       await sleep(50);
     }
     expect(midTurn).toBeTruthy();
-    await waitFor(ink, () => stripAnsi(ink.lastFrame() ?? "").includes("✓ done"), "the turn finished", 10_000);
+    await waitStep(ink, () => stripAnsi(ink.lastFrame() ?? "").includes("✓ done"), "the turn finished", { timeoutMs: 10_000 });
     const settled = stripAnsi(ink.lastFrame() ?? "");
     // After settle, exactly one promoted tool block — no Static duplication.
     expect(settled.split("looked for files").length - 1).toBe(1);
@@ -382,7 +349,7 @@ describe("ADR-0060 decision: the first prompt never names the lane", () => {
     await sendPrompt(ink, "se controlli i comandi bash che ho eseguito ce ne sono alcuni che non danno output");
     // The prompt must really reach a finished turn: before #1471 it was typed
     // before the composer mounted and this assertion passed vacuously.
-    await waitFor(ink, () => stripAnsi(ink.lastFrame() ?? "").includes("✓ done"), "the turn finished", 10_000);
+    await waitStep(ink, () => stripAnsi(ink.lastFrame() ?? "").includes("✓ done"), "the turn finished", { timeoutMs: 10_000 });
     const after = registry.listLanes().find((lane) => lane.id === laneId);
     expect(after?.label).toBe("team-chosen label");
     ink.unmount();
