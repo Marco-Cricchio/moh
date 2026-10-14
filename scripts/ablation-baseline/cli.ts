@@ -270,7 +270,7 @@ async function main(): Promise<number> {
     try {
       const { stdout, stderr, exit } = await runCli(run);
       const norm = new Normalizer({ home: run.fixture.home, cwd: run.fixture.cwd });
-      const text = (s: string): string => s.split("\n").map((l) => norm.text(l)).join("\n");
+      const text = (s: string): string => s.split("\n").map((l) => norm.text(l, "display")).join("\n");
       writeFileSync(
         join(outDir, "cli", `${run.slug}.txt`),
         [

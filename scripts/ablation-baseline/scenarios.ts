@@ -65,6 +65,26 @@ const OFF: MohConfig = {
   handoff: { transport: "none" },
 };
 
+/** Writes a file-source extension fixture the runtime will actually load:
+ * the module plus the `moh.extension.json` consent reads (ADR-0061 — a
+ * file without one refuses with `extension_failed: manifest`, which is
+ * how every g6 fixture originally slipped through unexercised). */
+function writeExtension(
+  ctx: ScenarioContext,
+  file: string,
+  code: string,
+  capabilities: readonly string[],
+): void {
+  const dir = join(ctx.home, ".moh", "extensions");
+  mkdirSync(dir, { recursive: true });
+  const name = file.replace(/\.[a-z]+$/, "");
+  writeFileSync(join(dir, file), code);
+  writeFileSync(
+    join(dir, "moh.extension.json"),
+    JSON.stringify({ name, version: "1.0.0", entry: file, capabilities }, null, 2) + "\n",
+  );
+}
+
 const text = (s: string): MockTurnScript => ({ deltas: [s], finish: "stop" });
 const tool = (name: string, args: unknown): MockTurnScript => ({
   deltas: [],
@@ -78,7 +98,13 @@ const MEMORY_JSON = '[{"topic":"ablation","fact":"the golden harness records pro
 
 /** Extension fixture bodies (written under `<home>/.moh/extensions/`). */
 
-const FIXTURE_VETO = `import { defineExtension, MOH_EXTENSION_API_VERSION } from "@moh/extension";
+/** Fixtures live under the temp home, where a bare "@moh/extension"
+ * specifier cannot resolve (no node_modules chain). They import the
+ * repo's own package source by absolute path — constant across runs,
+ * so the recorded fixture bytes stay deterministic. */
+const EXT_IMPORT = `${join(import.meta.dir, "..", "..", "packages/extension/src/index.ts")}`;
+
+const FIXTURE_VETO = `import { defineExtension, MOH_EXTENSION_API_VERSION } from "${EXT_IMPORT}";
 export default defineExtension({
   name: "baseline-veto",
   version: "1.0.0",
@@ -94,55 +120,50 @@ export default defineExtension({
     });
     ctx.onToolResult(({ name, output }) => {
       if (name === "bash" && String(output ?? "").includes("withhold-me")) {
-        return { withhold: true };
+        return { withhold: { reason: "baseline-veto: withhold the result" } };
       }
     });
   },
 });
 `;
 
-const FIXTURE_HOSTOPS = `import { defineExtension, MOH_EXTENSION_API_VERSION } from "@moh/extension";
+const FIXTURE_HOSTOPS = `import { defineExtension, MOH_EXTENSION_API_VERSION } from "${EXT_IMPORT}";
 export default defineExtension({
   name: "baseline-hostops",
   version: "1.0.0",
   apiVersion: MOH_EXTENSION_API_VERSION,
+  capabilities: ["path:notes.txt", "tool:bash"],
   setup(ctx) {
-    ctx.onEvent(({ event }) => {
-      if (event.type !== "user_message") return;
-      void event.text;
+    ctx.appendEvent({ name: "saw-open", payload: { at: "open" } });
+    ctx.onEvent(async ({ event }) => {
+      if (event.type !== "user_message" || event.text !== "host ops") return;
+      const host = ctx.host!;
+      const results = [
+        ["read", (await host.readFile("notes.txt")).ok],
+        ["write-denied", (await host.writeFile("/etc/baseline-denied.txt", "x")).ok],
+        ["run-tool", (await host.runTool("bash", { command: "echo via-host" })).ok],
+      ];
+      ctx.appendEvent({ name: "host-ops-done", payload: { results } });
     });
-    ctx.appendEvent("saw-open", { at: "open" });
-    if (ctx.host) {
-      ctx.state.results ??= [];
-      ctx.onEvent(({ event }) => {
-        if (event.type !== "user_message" || event.text !== "host ops") return;
-        void (async () => {
-          const R = ctx.state.results as unknown[];
-          R.push(["read", await ctx.host.read("notes.txt").then((r) => r.ok, (e) => String(e))]);
-          R.push(["write-denied", await ctx.host.write("/etc/baseline-denied.txt", "x").then((r) => r.ok, (e) => String(e))]);
-          R.push(["run-tool", await ctx.host.runTool("bash", { command: "echo via-host" }).then((r) => r.ok, (e) => String(e))]);
-          ctx.appendEvent("host-ops-done", { results: R });
-        })();
-      });
-    }
   },
 });
 `;
 
-const FIXTURE_SECTION = `import { defineExtension, MOH_EXTENSION_API_VERSION } from "@moh/extension";
+const FIXTURE_SECTION = `import { defineExtension, MOH_EXTENSION_API_VERSION } from "${EXT_IMPORT}";
 export default defineExtension({
   name: "baseline-section",
   version: "1.0.0",
   apiVersion: MOH_EXTENSION_API_VERSION,
+  capabilities: ["replace-prompt-section:environment"],
   setup(ctx) {
-    ctx.beforeModelCall(({ replaceSection }) => {
-      replaceSection?.("environment", "## Environment\\n\\n(replaced by baseline-section)");
-    });
+    ctx.beforeModelCall(() => ({
+      sections: { environment: "## Environment\\n\\n(replaced by baseline-section)" },
+    }));
   },
 });
 `;
 
-const FIXTURE_TURN = `import { defineExtension, MOH_EXTENSION_API_VERSION } from "@moh/extension";
+const FIXTURE_TURN = `import { defineExtension, MOH_EXTENSION_API_VERSION } from "${EXT_IMPORT}";
 export default defineExtension({
   name: "baseline-turn",
   version: "1.0.0",
@@ -165,7 +186,7 @@ export default defineExtension({
 });
 `;
 
-const FIXTURE_TIMEOUT = `import { defineExtension, MOH_EXTENSION_API_VERSION } from "@moh/extension";
+const FIXTURE_TIMEOUT = `import { defineExtension, MOH_EXTENSION_API_VERSION } from "${EXT_IMPORT}";
 export default defineExtension({
   name: "baseline-timeout",
   version: "1.0.0",
@@ -177,7 +198,7 @@ export default defineExtension({
 });
 `;
 
-const FIXTURE_APPEND_OVERFLOW = `import { defineExtension, MOH_EXTENSION_API_VERSION } from "@moh/extension";
+const FIXTURE_APPEND_OVERFLOW = `import { defineExtension, MOH_EXTENSION_API_VERSION } from "${EXT_IMPORT}";
 const LIMIT = 200;
 export default defineExtension({
   name: "baseline-append",
@@ -187,23 +208,21 @@ export default defineExtension({
     ctx.onEvent(({ event }) => {
       if (event.type !== "user_message") return;
       for (let i = 0; i < LIMIT; i++) {
-        const ok = ctx.appendEvent("spurious-" + i, { i });
-        if (!ok && !(ctx.state as { capped?: boolean }).capped) {
-          (ctx.state as { capped?: boolean }).capped = true;
-        }
+        ctx.appendEvent({ name: "spurious-" + i, payload: { i } });
       }
     });
   },
 });
 `;
 
-const FIXTURE_STATE = `import { defineExtension, MOH_EXTENSION_API_VERSION } from "@moh/extension";
+const FIXTURE_STATE = `import { defineExtension, MOH_EXTENSION_API_VERSION } from "${EXT_IMPORT}";
 export default defineExtension({
   name: "baseline-state",
   version: "1.0.0",
   apiVersion: MOH_EXTENSION_API_VERSION,
   setup(ctx) {
-    ctx.setExtensionState?.({ marker: "baseline-state-on" });
+    ctx.state.marker = "baseline-state-on";
+    ctx.appendEvent({ name: "state-set", payload: { marker: ctx.state.marker } });
   },
 });
 `;
@@ -755,14 +774,20 @@ export function buildScenarios(): Scenario[] {
     name: "g6-veto-ask-withhold",
     group: 6,
     assemble: (ctx) => {
-      mkdirSync(join(ctx.home, ".moh", "extensions"), { recursive: true });
-      writeFileSync(join(ctx.home, ".moh", "extensions", "baseline-veto.ts"), FIXTURE_VETO);
+      writeExtension(ctx, "baseline-veto.ts", FIXTURE_VETO, []);
       ctx.consent.onExtensionConsent = () => true;
+      // In `assemble`, not `body`: the consent seams are captured at
+      // assembly time, so a seam assigned later is headless silence.
+      // "no" answers the extension's `ask` (the veto's own kills need
+      // no answer); the allow rule lets the withheld call actually run.
+      ctx.overrides.permissionFlags = overridesFromFlags(["bash:echo withhold-me"], []);
+      ctx.consent.onPermissionRequest = () => "no";
       return RecordingProvider.scripted([
         {
           deltas: [],
           finish: "tool_calls",
           toolCalls: [
+            { name: "bash", args: { command: "rm -rf /" } },
             { name: "bash", args: { command: "echo withhold-me" } },
             { name: "bash", args: { command: "echo ask-me" } },
           ],
@@ -770,9 +795,8 @@ export function buildScenarios(): Scenario[] {
         text("one withheld one asked"),
       ]);
     },
-    body: async (ctx, run) => {
-      ctx.consent.onPermissionRequest = () => "no";
-      run.results.push({ label: "send", result: await run.session.send("run both commands") });
+    body: async (_ctx, run) => {
+      run.results.push({ label: "send", result: await run.session.send("run all three") });
     },
   });
 
@@ -781,19 +805,14 @@ export function buildScenarios(): Scenario[] {
     group: 6,
     assemble: (ctx) => {
       ctx.file("notes.txt", "host ops note\n");
-      mkdirSync(join(ctx.home, ".moh", "extensions"), { recursive: true });
-      writeFileSync(join(ctx.home, ".moh", "extensions", "baseline-hostops.ts"), FIXTURE_HOSTOPS);
+      writeExtension(ctx, "baseline-hostops.ts", FIXTURE_HOSTOPS, ["path:notes.txt", "tool:bash"]);
       ctx.consent.onExtensionConsent = () => true;
-      return RecordingProvider.scripted([
-        { deltas: [], finish: "stop" },
-        text("host ops observed"),
-      ]);
+      ctx.overrides.permissionFlags = overridesFromFlags(["bash:echo via-host"], []);
+      return RecordingProvider.scripted([text("host ops observed")]);
     },
     body: async (_ctx, run) => {
-      // First turn carries an empty completion so the second (real) turn
-      // runs after the extension is fully loaded.
-      await run.session.send("warm up");
-      await run.session.send("host ops");
+      await run.session.extensionsReady();
+      run.results.push({ label: "send", result: await run.session.send("host ops") });
     },
   });
 
@@ -801,8 +820,7 @@ export function buildScenarios(): Scenario[] {
     name: "g6-section-replacement",
     group: 6,
     assemble: (ctx) => {
-      mkdirSync(join(ctx.home, ".moh", "extensions"), { recursive: true });
-      writeFileSync(join(ctx.home, ".moh", "extensions", "baseline-section.ts"), FIXTURE_SECTION);
+      writeExtension(ctx, "baseline-section.ts", FIXTURE_SECTION, ["replace-prompt-section:environment"]);
       ctx.consent.onExtensionConsent = () => true;
       return RecordingProvider.scripted([text("section replaced")]);
     },
@@ -815,11 +833,10 @@ export function buildScenarios(): Scenario[] {
     name: "g6-turn-model-requestTurn",
     group: 6,
     assemble: (ctx) => {
-      mkdirSync(join(ctx.home, ".moh", "extensions"), { recursive: true });
-      writeFileSync(join(ctx.home, ".moh", "extensions", "baseline-turn.ts"), FIXTURE_TURN);
+      writeExtension(ctx, "baseline-turn.ts", FIXTURE_TURN, []);
       ctx.consent.onExtensionConsent = () => true;
       ctx.consent.onConfirmTurn = () => "send" as const;
-      ctx.vars.set("needEndpoint", true);
+      ctx.config.endpoints = [{ name: "baseline-ep", type: "mock", defaultModel: "other-model" }];
       return RecordingProvider.scripted([
         text("first confirmed"),
         text("second with model switch"),
@@ -837,11 +854,13 @@ export function buildScenarios(): Scenario[] {
     name: "g6-hook-timeout",
     group: 6,
     assemble: (ctx) => {
-      mkdirSync(join(ctx.home, ".moh", "extensions"), { recursive: true });
-      writeFileSync(join(ctx.home, ".moh", "extensions", "baseline-timeout.ts"), FIXTURE_TIMEOUT);
+      writeExtension(ctx, "baseline-timeout.ts", FIXTURE_TIMEOUT, []);
       ctx.consent.onExtensionConsent = () => true;
-      ctx.config.hookTimeoutMs = 200;
-      return RecordingProvider.scripted([text("hooks timed out but turn proceeds")]);
+      // No hookTimeoutMs override: the scenario pins the DEFAULT ceiling
+      // (DEFAULT_HOOK_TIMEOUT_MS renders verbatim in the hook_timeout
+      // message), so a change to that constant must flip the compare.
+      ctx.overrides.permissionFlags = overridesFromFlags(["bash:echo after-timeout"], []);
+      return RecordingProvider.scripted([tool("bash", { command: "echo after-timeout" }), text("hooks timed out but turn proceeds")]);
     },
     body: async (_ctx, run) => {
       run.results.push({ label: "send", result: await run.session.send("stall the hooks") });
@@ -852,8 +871,7 @@ export function buildScenarios(): Scenario[] {
     name: "g6-append-overflow",
     group: 6,
     assemble: (ctx) => {
-      mkdirSync(join(ctx.home, ".moh", "extensions"), { recursive: true });
-      writeFileSync(join(ctx.home, ".moh", "extensions", "baseline-append.ts"), FIXTURE_APPEND_OVERFLOW);
+      writeExtension(ctx, "baseline-append.ts", FIXTURE_APPEND_OVERFLOW, []);
       ctx.consent.onExtensionConsent = () => true;
       return RecordingProvider.scripted([text("append overflow attempted")]);
     },
@@ -866,8 +884,7 @@ export function buildScenarios(): Scenario[] {
     name: "g6-state",
     group: 6,
     assemble: (ctx) => {
-      mkdirSync(join(ctx.home, ".moh", "extensions"), { recursive: true });
-      writeFileSync(join(ctx.home, ".moh", "extensions", "baseline-state.ts"), FIXTURE_STATE);
+      writeExtension(ctx, "baseline-state.ts", FIXTURE_STATE, []);
       ctx.consent.onExtensionConsent = () => true;
       return RecordingProvider.scripted([text("state set")]);
     },

@@ -130,6 +130,7 @@ const scenarios: Scenario[] = [
       cols: 100,
       rows: 30,
       timeoutMs: 150_000,
+      fixedTempNames: true,
       config: {
         ...DEV_CONFIG,
         // Workflow on: the frontier overlay (ctrl+f) needs it.
@@ -166,7 +167,7 @@ const scenarios: Scenario[] = [
         { wait: 0.5, send: B("\x1b") },
         { wait: 0.4, send: B("\x0c") }, // ctrl+l → model picker
         { wait: 8.0, until: "filter:", untilFromBuffer: true },
-        { wait: 0.5 }, // settle: capture a repaint that finished
+        { wait: 1.5 }, // live catalog refresh changes the picker layout
         { checkpoint: "model" },
         { wait: 0.5, send: B("\x1b") },
         { wait: 0.4, send: B("\x06") }, // ctrl+f → frontier (workflow on in dev mode)
@@ -433,7 +434,7 @@ async function main(): Promise<number> {
         const norm = new Normalizer({ home: meta.home ?? "/\u0000none", cwd: meta.cwd ?? "/\u0000none" });
         const frames: Record<string, string[]> = {};
         for (const [name, snap] of Object.entries(meta.checkpoints ?? {})) {
-          frames[name] = snap.lines.map((l) => norm.text(l.text));
+          frames[name] = snap.lines.map((l) => norm.text(l.text, "display"));
         }
         const payload = {
           scenario: scenario.name,

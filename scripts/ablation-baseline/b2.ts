@@ -163,6 +163,7 @@ async function runOne(outDir: string, name: string, home: string, cwd: string): 
     results: [],
   };
   try {
+    await run.session.extensionsReady();
     await spec.body(ctx, run);
   } finally {
     try {
