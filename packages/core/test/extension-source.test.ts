@@ -210,6 +210,45 @@ describe("installed packages (#1373)", () => {
     expect(extensionSourceFiles({ mohHome, cwd })).toEqual([canonical(join(elsewhere, "index.mjs"))]);
   });
 
+  test("a dangling symlink in the dotdir is skipped and never empties the list", () => {
+    const { cwd, mohHome } = tempProject();
+    const loose = canonical(writeModule(join(mohHome, "extensions", "a-loose.mjs"), "export default {};"));
+    const pkg = writePackage(mohHome, "pkg", ["index.mjs"]);
+    try {
+      // A stale dotfiles link: its target is gone.
+      symlinkSync(join(mohHome, "gone"), join(mohHome, "extensions", "stale-link"));
+    } catch {
+      return; // a filesystem without symlinks: nothing to pin
+    }
+    expect(extensionSourceFiles({ mohHome, cwd })).toEqual([loose, ...pkg.files]);
+  });
+
+  test("an entry that resolves outside its package directory never loads", () => {
+    const { cwd, mohHome } = tempProject();
+    const dir = join(mohHome, "extensions", "escaper");
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(mohHome, "extensions", "outside.mjs"), "export default {};");
+    writeFileSync(join(dir, "index.mjs"), vetoExtension("escaper"));
+    writeFileSync(
+      join(dir, "moh.extension.json"),
+      JSON.stringify({ name: "escaper", version: "0.1.0", entry: ["index.mjs", "../outside.mjs"], capabilities: [] }),
+    );
+    // `outside.mjs` still loads once as the dotdir's own loose file — never
+    // as the package's entry, so it is not repeated after the package.
+    expect(extensionSourceFiles({ mohHome, cwd })).toEqual([
+      canonical(join(mohHome, "extensions", "outside.mjs")),
+      canonical(join(dir, "index.mjs")),
+    ]);
+    // With no loose copy of its own, an escaping entry contributes nothing.
+    rmSync(join(mohHome, "extensions", "outside.mjs"));
+    writeFileSync(join(mohHome, "elsewhere.mjs"), "export default {};");
+    writeFileSync(
+      join(dir, "moh.extension.json"),
+      JSON.stringify({ name: "escaper", version: "0.1.0", entry: ["index.mjs", "../../elsewhere.mjs"], capabilities: [] }),
+    );
+    expect(extensionSourceFiles({ mohHome, cwd })).toEqual([canonical(join(dir, "index.mjs"))]);
+  });
+
   test("a package with a missing or malformed manifest still yields its top-level loadable files, so the refusal is visible", () => {
     const { cwd, mohHome } = tempProject();
     const missing = join(mohHome, "extensions", "no-manifest");

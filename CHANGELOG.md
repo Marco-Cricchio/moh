@@ -16,7 +16,9 @@ matching section here at tag time.
   or malformed manifest is a visible load failure instead of a silent
   absence, and a project declaration with the same manifest name wins over
   the user-dotdir copy (the precedence `moh extension list` already
-  showed).
+  showed). A broken symlink in `~/.moh/extensions/` is skipped instead of
+  hiding every other extension, and a package only ever loads entry files
+  inside its own folder.
 
 ## [0.65.2] - 2026-10-13
 

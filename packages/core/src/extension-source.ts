@@ -18,8 +18,8 @@
  * `extension_failed { reason: "consent" }` and the session continues.
  * There is no sandbox: an extension runs with the same privileges as moh.
  */
-import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
-import { basename, dirname, isAbsolute, join } from "node:path";
+import { existsSync, readFileSync, readdirSync, statSync, type Dirent } from "node:fs";
+import { basename, isAbsolute, join, sep } from "node:path";
 import { canonicalModulePath } from "./extensions";
 import { MANIFEST_FILE, readExtensionManifest } from "./extension-manifest";
 
@@ -33,6 +33,22 @@ function isLoadableModule(name: string): boolean {
   if (name.startsWith(".")) return false;
   if (name.endsWith(".d.ts")) return false; // type declarations are not modules
   return LOADABLE.some((ext) => name.endsWith(ext));
+}
+
+/**
+ * A dotdir entry that is a directory, through a symlink too (dotfiles
+ * managers, cross-device installs). A dangling link is not one — and must
+ * not throw: a single broken link in `~/.moh/extensions` would otherwise
+ * empty the whole list, loose files included.
+ */
+function isDirectoryEntry(dir: string, entry: Dirent): boolean {
+  if (entry.isDirectory()) return true;
+  if (!entry.isSymbolicLink()) return false;
+  try {
+    return statSync(join(dir, entry.name)).isDirectory();
+  } catch {
+    return false;
+  }
 }
 
 /**
@@ -68,9 +84,13 @@ function packageEntryFiles(dir: string): { files: string[]; name?: string } {
     (e): e is string => typeof e === "string" && e.length > 0,
   );
   const files: string[] = [];
+  const root = canonicalModulePath(dir);
   for (const entry of entries) {
     if (isAbsolute(entry)) continue;
     const file = canonicalModulePath(join(dir, entry));
+    // Only the package's own files load: an entry that resolves outside
+    // its directory (`../other.mjs`, or a link leading out) is skipped.
+    if (!file.startsWith(root + sep)) continue;
     // A declared entry that does not exist is skipped here on purpose:
     // the runtime's refusal is keyed to a file's bytes, so there is
     // nothing it could name — and the installer's static checks already
@@ -116,13 +136,7 @@ export function extensionSourceFiles(options: {
     try {
       entries = readdirSync(dir, { withFileTypes: true })
         .filter((e) => !e.name.startsWith("."))
-        .map((e) => ({
-          name: e.name,
-          // A symlinked package dir (dotfiles managers, cross-device
-          // installs) is a package: stat through the link, the way the
-          // loose-file path already accepts symlinks.
-          isDir: e.isDirectory() || (e.isSymbolicLink() && statSync(join(dir, e.name)).isDirectory()),
-        }))
+        .map((e) => ({ name: e.name, isDir: isDirectoryEntry(dir, e) }))
         .sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
     } catch {
       entries = []; // an unreadable dir is "no extensions", never a session error

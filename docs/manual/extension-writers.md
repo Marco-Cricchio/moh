@@ -59,7 +59,7 @@ point, naming the file:
 | --- | --- | --- |
 | `name` | `string` | the extension's identity, shown in the consent question |
 | `version` | `string` | the extension's own version |
-| `entry` | `string` or `string[]` | the module file(s) this manifest speaks for |
+| `entry` | `string` or `string[]` | the module file(s) this manifest speaks for, relative to the manifest's folder (an installed package never loads an entry outside it) |
 | `capabilities` | `string[]` | the capability slots the user is asked to grant |
 | `dependencies` | `Record<string, string>` | optional npm packages moh installs for you — **exact versions only** (`"3.23.8"`, never `"^3.23.8"`) |
 

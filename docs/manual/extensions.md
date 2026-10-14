@@ -22,8 +22,9 @@ The full chapter lives in the repository
   `.mts`, `.js` or `.mjs` file directly inside it is loaded, sorted by file
   name; every subdirectory with a `moh.extension.json` is an installed
   package and contributes exactly the entry files its manifest declares
-  (what `moh extension add <ref> --user` installs). Create the folder and
-  drop a file or a package in.
+  inside its own folder (what `moh extension add <ref> --user` installs).
+  A broken symlink in the folder is skipped. Create the folder and drop a
+  file or a package in.
 - **`moh.json` `"extensions": ["./extensions/team-rules.ts"]`** — the
   project declares extensions for everyone who works on it. Paths are
   relative to the project root (absolute paths work too). A declaration

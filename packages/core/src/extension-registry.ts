@@ -387,6 +387,15 @@ export function registryRoots(options: { mohHome: string; cwd: string }): { scop
   ];
 }
 
+/** A symlink that resolves to a directory; a dangling link is `false`, never a throw. */
+function isDirectoryThroughLink(path: string): boolean {
+  try {
+    return statSync(path).isDirectory();
+  } catch {
+    return false;
+  }
+}
+
 /** The installed package directories under one root, sorted; hidden dirs (the staging dir) are never packages. */
 function installedPackageDirs(root: string): string[] {
   try {
@@ -394,8 +403,9 @@ function installedPackageDirs(root: string): string[] {
       .filter(
         (e) =>
           !e.name.startsWith(".") &&
-          // A symlinked package dir (dotfiles managers) is still installed.
-          (e.isDirectory() || (e.isSymbolicLink() && statSync(join(root, e.name)).isDirectory())),
+          // A symlinked package dir (dotfiles managers) is still installed;
+          // a dangling link is not, and never empties the whole listing.
+          (e.isDirectory() || (e.isSymbolicLink() && isDirectoryThroughLink(join(root, e.name)))),
       )
       .map((e) => e.name)
       .sort();
