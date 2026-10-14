@@ -7,8 +7,40 @@ import { join } from "node:path";
 import { MockProvider } from "@moh/core";
 import { App } from "../src/App";
 import { userConfigFile } from "../src/user-config";
+import { pressSettled, sendPrompt, stripAnsi, waitStep } from "./helpers";
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+type View = ReturnType<typeof render>;
+const last = (i: View) => stripAnsi(i.frames.at(-1) ?? "");
+/** The settings cursor row, read inside the dialog box only: the overlay is
+ * transparent, so a dialog row shares its line with the transcript or the
+ * composer, whose "› you" and "› /ask-moh" carry the same glyph. */
+const cursorRow = (i: View) =>
+  last(i).split("\n").map((l) => l.split("│")[1] ?? "").find((cell) => cell.includes("› ")) ?? "";
+
+/** #1474: sends the prompt and waits for the settled turn (was fixed 50 + 150 + 300 ms). */
+async function settledTurn(i: View): Promise<void> {
+  await sendPrompt(i, "hello");
+  await waitStep(i, () => (i.frames.at(-1) ?? "").includes("ANSWERMARKER"), "the turn answered");
+}
+
+/** The index of the last write that flips back to the main buffer, or -1. */
+const lastFlip = (frames: readonly string[]) => frames.reduce((at, frame, index) => (frame.includes("\x1b[?1049l") ? index : at), -1);
+
+/**
+ * Waits for the close choreography to finish: a flip back to the main buffer
+ * after `fromIndex`, then the transcript re-emitted after it (was a fixed
+ * 200 ms "outlast the 40 ms flip + throttle"). The ordering assertions that
+ * follow stay exactly as they were; a repaint that races the flip never
+ * satisfies this wait either, so the test still fails, by name.
+ */
+async function closeChoreography(i: View, fromIndex: number, step: string): Promise<void> {
+  await waitStep(i, () => {
+    const flip = lastFlip(i.frames);
+    return flip > fromIndex && i.frames.some((frame, index) => index > flip && frame.includes("ANSWERMARKER"));
+  }, step);
+}
 
 /**
  * #330: toggling Provider reasoning in the Settings overlay arms a
@@ -32,13 +64,21 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
  */
 async function openProviderReasoning(i: ReturnType<typeof render>): Promise<void> {
   i.stdin.write("\x13"); // ctrl+s
-  await sleep(150);
+  await waitStep(i, () => last(i).includes("Default permission mode"), "the settings overlay opened");
   for (let n = 0; n < 24; n++) {
-    if ((i.frames.at(-1) ?? "").includes("› " + "Provider reasoning")) return;
+    if (last(i).includes("› " + "Provider reasoning")) return;
+    // One confirmed press at a time: wait for the cursor to reach another row.
+    const before = cursorRow(i);
     i.stdin.write("\x1b[B");
-    await sleep(20);
+    await waitStep(i, () => cursorRow(i) !== before, "walking down to Provider reasoning");
   }
   throw new Error("the Provider reasoning row was not reachable");
+}
+
+/** Toggles the selected Provider reasoning row and waits for its new value. */
+async function toggleReasoning(i: View, to: "show" | "hide"): Promise<void> {
+  i.stdin.write("\r");
+  await waitStep(i, () => cursorRow(i).includes("Provider reasoning") && cursorRow(i).includes(to), `the reasoning row reading "${to}"`);
 }
 
 describe("deferred transcript repaint vs alternate-screen close (#330)", () => {
@@ -52,11 +92,7 @@ describe("deferred transcript repaint vs alternate-screen close (#330)", () => {
     // The alternate-screen choreography is TTY-gated; the harness stdout
     // reports as non-TTY unless marked here.
     Object.defineProperty(i.stdout, "isTTY", { value: true });
-    await sleep(50);
-    i.stdin.write("hello");
-    await sleep(150);
-    i.stdin.write("\r");
-    await sleep(300);
+    await settledTurn(i);
     expect((i.frames.at(-1) ?? "").includes("ANSWERMARKER")).toBe(true);
 
     // Settings → Provider reasoning row → toggle (default hide → show).
@@ -65,13 +101,12 @@ describe("deferred transcript repaint vs alternate-screen close (#330)", () => {
     // highlight entries shift it further), and a fixed count ages into a
     // false failure. Walk until the row is selected, then toggle.
     await openProviderReasoning(i);
-    i.stdin.write("\r"); // toggle show
-    await sleep(150);
+    await toggleReasoning(i, "show"); // toggle show
     const frameBefore = i.frames.at(-1) ?? "";
     expect(frameBefore).toContain("show");
     const escAt = i.frames.length;
     i.stdin.write("\x1b"); // esc → close (arms the deferred repaint)
-    await sleep(200); // outlast the flip delay (40ms) + throttle
+    await closeChoreography(i, escAt, "the close flip and the reprint after it");
 
     // The flip back to the main buffer must be written by the close
     // choreography (TTY path active in the harness).
@@ -104,20 +139,13 @@ describe("deferred transcript repaint vs alternate-screen close (#330)", () => {
     ]);
     const i = render(<App intro={false} cwd={cwd} home={home} provider={provider} startInChat skipOnboarding />);
     Object.defineProperty(i.stdout, "isTTY", { value: true });
-    await sleep(50);
-    i.stdin.write("hello");
-    await sleep(150);
-    i.stdin.write("\r");
-    await sleep(300);
+    await settledTurn(i);
 
-    i.stdin.write("\x13"); // ctrl+s
-    await sleep(150);
     await openProviderReasoning(i);
-    i.stdin.write("\r"); // toggle hide
-    await sleep(150);
+    await toggleReasoning(i, "hide"); // toggle hide
     const escAt = i.frames.length;
     i.stdin.write("\x1b"); // esc → close
-    await sleep(200);
+    await closeChoreography(i, escAt, "the close flip and the reprint after it");
 
     const frames = i.frames;
     const flipIndex = frames.reduce((last, frame, index) => (frame.includes("\x1b[?1049l") ? index : last), -1);
@@ -141,24 +169,22 @@ describe("deferred transcript repaint vs alternate-screen close (#330)", () => {
     ]);
     const i = render(<App intro={false} cwd={cwd} home={home} provider={provider} startInChat skipOnboarding />);
     Object.defineProperty(i.stdout, "isTTY", { value: true });
-    await sleep(50);
-    i.stdin.write("hello");
-    await sleep(150);
-    i.stdin.write("\r");
-    await sleep(300);
+    await settledTurn(i);
 
-    i.stdin.write("\x13"); // ctrl+s
-    await sleep(150);
     await openProviderReasoning(i);
-    i.stdin.write("\r"); // toggle show → arms the deferred repaint
-    await sleep(150);
-    i.stdin.write("\x1b"); // esc → close, flip timer armed
-    await sleep(10); // still inside the 40ms flip window (scheduling may
-    // still let the timer win — the invariant below tolerates both)
+    await toggleReasoning(i, "show"); // toggle show → arms the deferred repaint
+    // esc → close, flip timer armed. Written inside act(): the close's passive
+    // effects (App's re-subscribed key handler) run before the reopen below,
+    // or a loaded runner hands ctrl+s to the pre-close handler and drops it.
+    // act() does not advance timers, so the 40 ms flip timer still races.
+    await pressSettled(i, "\x1b");
+    await sleep(10); // deliberate: still inside the 40ms flip window (scheduling
+    // may still let the timer win — the invariant below tolerates both)
     i.stdin.write("\x13"); // ctrl+s → reopen, cancels any pending flip
-    await sleep(150);
+    await waitStep(i, () => last(i).includes("Default permission mode"), "the settings overlay reopened");
+    const finalEscAt = i.frames.length;
     i.stdin.write("\x1b"); // final close
-    await sleep(250);
+    await closeChoreography(i, finalEscAt, "the final close flip and the reprint after it");
 
     // Invariant: a whole-transcript repaint clear (2J/3J) is never
     // written while the alternate buffer is active — track buffer state

@@ -1,5 +1,6 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { act } from "react";
 import { teamManifestAuthority } from "@moh/team";
 
 /**
@@ -140,6 +141,27 @@ export async function pressCommitted(view: Rendered & { frames: readonly string[
   const before = view.frames.length;
   view.stdin.write(key);
   await waitStep(view, () => view.frames.length > before, `${step} (a commit after the key)`);
+}
+
+/**
+ * Writes a key inside React's `act()`. Ink renders on a LegacyRoot, so the
+ * key's render is synchronous inside the write and its passive effects land
+ * in `act`'s queue, which runs them before this resolves. Use it where the
+ * NEXT key reads state an effect republishes — e.g. the composer's
+ * `canClear` handle (#1009), re-published in a `useEffect` after every
+ * render: a ctrl+c written before that effect ran saw an empty draft and
+ * armed the exit instead of clearing (3/6 under CPU load; 0/6 with this).
+ */
+export async function pressSettled(view: Pick<Rendered, "stdin">, key: string): Promise<void> {
+  const env = globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean };
+  const previous = env.IS_REACT_ACT_ENVIRONMENT;
+  env.IS_REACT_ACT_ENVIRONMENT = true;
+  try {
+    await act(async () => { view.stdin.write(key); });
+  } finally {
+    if (previous === undefined) delete env.IS_REACT_ACT_ENVIRONMENT;
+    else env.IS_REACT_ACT_ENVIRONMENT = previous;
+  }
 }
 
 /**
