@@ -1,36 +1,41 @@
 B6 coverage reference snapshot (#1387)
 
-Run commit: f083de0f (the coverage script at its first committed state;
-the script logic that produced the raw profiles is identical at dc24ca37
-— the only later change, 91afcb12, filters the summary rows, and the
-summary.txt below was regenerated with it).
+Analysis tooling and outputs (refs.cjs, report.cjs, metrics.cjs,
+out/refs.json, out/docs-mentions.txt, out/b6/*) were last regenerated at
+the commit that last wrote out/refs.json — resolve it with
+`git log -1 --format=%H -- scripts/ablation-analysis/out/refs.json`
+on branch ablation/1387-s0.4. The regeneration is deterministic:
+`node scripts/ablation-analysis/refs.cjs . <fresh>/out` reproduces the
+committed refs.json and docs-mentions.txt byte-identically at any later
+head of the PR branch.
 
-Summary regeneration command (run after the collection, from the repo
-root, using the committed script's summary logic):
-  python3 - scripts/ablation-analysis/out/b6 <<'PY'   # see scripts/ablation-coverage.sh, "Summary" step
-(the committed script re-derives summary.txt from *.info with the same
-code; the raw lcov profiles were not committed)
-
-Commit: f083de0f74bedfc6db11ce1381ab5e1cef143a3a (branch ablation/1387-s0.4)
+Coverage run (raw profiles): commit f083de0f (branch ablation/1387-s0.4,
+script at its first committed state; the only later collector change
+moved the summary step into scripts/ablation-b6-summary.py, byte-for-byte
+the same logic).
 Bun: 1.2.19 (aad3abea)
 TypeScript (analysis tooling): 5.9.3 (packages/core/node_modules/typescript)
 Python: 3.15.0
 Node: v22.23.2
 Terminal note: PTY scenarios run sequentially, batches of MOH_PTY_JOBS=2
 
-Exact commands (repo root, branch ablation/1387-s0.4 @ f083de0f):
+Exact commands (repo root, branch ablation/1387-s0.4):
   scripts/ablation-coverage.sh ~/moh-ablation-baselines/1387-b6
   # component phase:  bun test --coverage --coverage-reporter=lcov --coverage-dir=<out>/component packages/*/test scripts
   #   (packages/tui/test non-pty files enumerated individually; PTY files excluded)
-  # pty phase:        bun test --coverage --coverage-reporter=lcov --coverage-dir=<out>/pty/<file> packages/tui/test/pty/<file>.test.ts  (per file, batches of 2)
-  # summary:          regenerated from the profiles by the script's python step, then re-run once after 91afcb12 to apply the repo-path filter
+  # pty phase:        bun test --coverage --coverage-reporter=lcov --coverage-dir=<out>/pty-collections/<file> packages/tui/test/pty/<file>.test.ts  (per file, batches of 2)
+  # summary:          python3 scripts/ablation-b6-summary.py ~/moh-ablation-baselines/1387-b6
+  #                   (verified: regenerates the committed out/b6/summary.txt byte-identically — cmp)
 
-Result: 312 repo files in the map (15 test-support/helper files under
-`packages/*/test/` and 1 `scripts/ablation-baseline/` file included;
-4 source files absent — type-only/index files with no instrumented
-statements), 42103/46744 lines hit (90.1%).
-Source-only view (excluding those 15 support files): 297 files,
-41281/45888 (90.0%).
+Result (summary.txt): 312 repo files in the map, 42103/46744 lines hit
+(90.1%). The map includes 14 test-support files under packages/*/test/
+and 3 scripts/ files (ablation-baseline/normalize.ts, build.ts,
+close-delivered-issues.ts).
+Source-only view (packages/*/src rows only): 295 files, 41196/45721
+(90.1%) — reproduce with:
+  awk -F'\t' 'NR>1 && $1!~/\/test\// && $1!~/^scripts\//{n++;l+=$4;h+=$5} END{print n,h"/"l}' scripts/ablation-analysis/out/b6/summary.txt
+4 source files are absent from the map (type-only/index files with no
+instrumented statements).
 
 Run health: component phase 2 failures under instrumentation —
   - packages/team/test/team-extension.test.ts (stop-all timing): passed
@@ -44,6 +49,8 @@ Run health: component phase 2 failures under instrumentation —
     are missing from the map; run the file without --coverage to cover them.
   PTY phase: 6/6 files green under coverage.
 
-Raw lcov profiles (not committed; ~100 KB total):
-  ~/moh-ablation-baselines/1387-b6/component-lcov.info
-  ~/moh-ablation-baselines/1387-b6/pty-<file>-<n>.info (6 files)
+Raw lcov profiles (not committed): ~/moh-ablation-baselines/1387-b6/
+  component-lcov.info          487,004 bytes
+  pty-*.info (6 files)          11,188 bytes
+  total                        498,192 bytes (du -sk of the 7 .info: 508 KiB)
+These profiles are the only input that can regenerate the map.

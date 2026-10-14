@@ -110,7 +110,7 @@ for (const sf of program.getSourceFiles()) {
             const info = decls.get(keyOf(dd));
             if (!info) continue;
             const kind = inExport ? "reexport" : inImport ? "import" : "use";
-            const r = info.refs.get(sf.fileName) || { use: 0, import: 0, reexport: 0, example: 0 };
+            const r = info.refs.get(sf.fileName) || { use: 0, import: 0, reexport: 0 };
             r[kind]++;
             info.refs.set(sf.fileName, r);
             // call-site arg counts
@@ -133,7 +133,7 @@ for (const sf of program.getSourceFiles()) {
 const rows = [];
 for (const info of decls.values()) {
   const refFiles = [...info.refs.entries()];
-  const own = info.refs.get(info.file) || { use: 0, import: 0, reexport: 0, example: 0 };
+  const own = info.refs.get(info.file) || { use: 0, import: 0, reexport: 0 };
   const external = refFiles.filter(([f, r]) => f !== info.file && r.use > 0);
   const extSrc = external.filter(([f]) => !isTest(f) && !isExample(f));
   const extTest = external.filter(([f]) => isTest(f));

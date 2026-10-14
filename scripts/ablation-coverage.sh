@@ -6,8 +6,10 @@
 #   scripts/ablation-coverage.sh <outDir>
 #
 # Writes per-phase lcov profiles under <outDir>/ (one file per process:
-# `component-NNN.info`, `pty-<file>.info`) plus `summary.txt` (per-file
-# totals) and `MANIFEST.txt` (commit, tool versions, exact commands).
+# `component-lcov.info`, `pty-<file>-<n>.info` — the counter distinguishes
+# multiple profiles a single PTY file may emit) plus `summary.txt`
+# (per-file totals, via scripts/ablation-b6-summary.py) and `MANIFEST.txt`
+# (commit, tool versions, exact commands).
 # The profiles stay in lcov form; merge/derive reports from them with any
 # lcov tooling — this script never runs one whole-tree bun test process.
 set -uo pipefail
@@ -109,61 +111,6 @@ done
 echo "--- PTY logs: $LOG_DIR"
 
 # --- Summary: per-file totals across all profiles ---------------------------
-# (summary rows outside packages/ and scripts/ — temp fixtures loaded from
-# outside the repo — are excluded from the map)
-python3 - "$OUT" <<'PYEOF'
-import glob, os, sys
-from collections import defaultdict
-
-out = sys.argv[1]
-# DA line hits accumulate across processes; FN/FNF/FNH per record.
-lines = {}  # (sf, ln) -> max hits seen
-funcs_found = defaultdict(set)
-funcs_hit = defaultdict(set)
-for path in sorted(glob.glob(os.path.join(out, "*.info"))):
-    sf = None
-    for raw in open(path):
-        line = raw.rstrip("\n")
-        if line.startswith("SF:"):
-            sf = line[3:]
-        elif line.startswith("FN:") and sf is not None:
-            ln, name = line[3:].split(",", 1)
-            funcs_found[sf].add(int(ln))
-        elif line.startswith("FNDA:") and sf is not None:
-            ln, name = line[5:].split(",", 1)
-            if int(line[5:].split(",")[0]) > 0:
-                funcs_hit[sf].add(int(ln))
-        elif line.startswith("DA:") and sf is not None:
-            ln, hits = line[3:].split(",", 1)
-            key = (sf, int(ln))
-            h = int(hits)
-            if key not in lines or h > lines[key]:
-                lines[key] = h
-        elif line == "end_of_record":
-            sf = None
-
-by_file = defaultdict(lambda: [0, 0, 0, 0])  # found, hit, lines, lines-hit
-for (sf, ln), h in lines.items():
-    by_file[sf][2] += 1
-    if h > 0:
-        by_file[sf][3] += 1
-for sf, lns in funcs_found.items():
-    by_file[sf][0] += len(lns)
-    by_file[sf][1] += len(funcs_hit[sf] & {l for l in funcs_found[sf]})
-
-rows = []
-for sf, (ff, fh, lf, lh) in by_file.items():
-    if not sf.startswith(("packages/", "scripts/")):
-        continue  # temp fixtures outside the repo are not part of the map
-    rows.append((sf, ff, fh, lf, lh))
-rows.sort()
-with open(os.path.join(out, "summary.txt"), "w") as w:
-    w.write("file\tfuncs\tfuncs_hit\tlines\tlines_hit\n")
-    for sf, ff, fh, lf, lh in rows:
-        w.write(f"{sf}\t{ff}\t{fh}\t{lf}\t{lh}\n")
-total_l = sum(r[3] for r in rows)
-total_lh = sum(r[4] for r in rows)
-print(f"summary: {len(rows)} files, {total_lh}/{total_l} lines hit ({100.0*total_lh/max(total_l,1):.1f}%)")
-print(f"summary written: {os.path.join(out, 'summary.txt')}")
-PYEOF
+# (rows outside packages/ and scripts/ are excluded; see the script header)
+python3 scripts/ablation-b6-summary.py "$OUT"
 echo "--- done: profiles + summary.txt + MANIFEST.txt in $OUT"
