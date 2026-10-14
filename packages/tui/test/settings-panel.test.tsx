@@ -8,9 +8,7 @@ import { loadMohConfig, readUserProviderConfig, upsertUserEndpoint } from "@moh/
 import { SettingsPanel } from "../src/SettingsPanel";
 import { DEFAULT_USER_CONFIG, type UserConfig } from "../src/user-config";
 import { ThemeProvider, THEMES, DEFAULT_THEME, THEME_ORDER } from "../src/themes";
-import { actUntilFrame, stripAnsi, waitForCondition, waitForFrame } from "./helpers";
-
-const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+import { stripAnsi, waitForCondition, waitForFrame } from "./helpers";
 
 function setupCwd(): string {
   const cwd = mkdtempSync(join(tmpdir(), "moh-set-"));
@@ -54,11 +52,70 @@ function mount(cwd: string, overrides: Partial<Parameters<typeof SettingsPanel>[
   return { i, changes, switched, toasts, wizardCount: () => wizard };
 }
 
-const down = async (i: ReturnType<typeof render>, n: number) => {
-  for (let k = 0; k < n; k++) {
-    i.stdin.write("\x1b[B");
-    await sleep(30);
+type View = ReturnType<typeof render>;
+
+const frameOf = (i: View) => stripAnsi(i.lastFrame() ?? "");
+
+/**
+ * #1466: Ink's `useInput` re-subscribes its handler in a `useEffect`, so for a
+ * moment after a level paints, a key still reaches the previous level's
+ * handler (with the previous state) — the race every fixed sleep in this file
+ * was papering over. React's scheduler flushes passive effects on the
+ * `setImmediate` queue, which is already holding that flush by the time a
+ * frame is observed: two turns of it leave the new handler attached.
+ */
+const effectsFlushed = () => new Promise<void>((r) => setImmediate(() => setImmediate(r)));
+
+const stuck = (step: string, e: unknown) =>
+  new Error(`settings panel stuck at step "${step}": ${e instanceof Error ? e.message : String(e)}`);
+
+/** Waits for `condition` (a deadline, never a fixed pause) and fails naming the step. */
+const until = async (i: View, condition: () => boolean, step: string) => {
+  try {
+    await waitForCondition(condition, () => `for ${step}. Last frame:\n${frameOf(i)}`, { timeoutMs: 3_000 });
+  } catch (e) {
+    throw stuck(step, e);
   }
+  await effectsFlushed();
+};
+
+/** Waits for the frame to contain (or, with `absent`, to lose) `expected`. */
+const settle = (i: View, expected: string, step: string, { absent = false } = {}) =>
+  until(i, () => frameOf(i).includes(expected) !== absent, `${step} (frame ${absent ? "without" : "containing"} ${JSON.stringify(expected)})`);
+
+/** The settings list has painted and its keyboard handler is attached. */
+const mounted = (i: View) => settle(i, "Mode", "settings list rendered");
+
+/**
+ * The cursor row's label: the text after the first `›`, up to the value
+ * column. A value that repaints in place (an earlier toggle still landing)
+ * does not change it; moving the cursor to another row does.
+ */
+const cursorLabel = (i: View) => {
+  const line = frameOf(i).split("\n").find((l) => l.includes("›")) ?? "";
+  return (line.split("›")[1] ?? "").replace(/[│]/g, "").trim().split(/\s{2,}/)[0] ?? "";
+};
+
+/**
+ * Presses a cursor key and waits until the cursor has moved to another row,
+ * so the next key never lands inside the same commit window (and is never
+ * lost under load). A key that moves nothing is reported as a stuck step.
+ */
+const press = async (i: View, key: string, step: string) => {
+  const before = cursorLabel(i);
+  i.stdin.write(key);
+  await until(i, () => cursorLabel(i) !== before, `${step} (cursor leaving "${before}")`);
+};
+
+/** Presses a key that repaints in place (a slider, a toggle) and waits for the repaint. */
+const repaint = async (i: View, key: string, step: string) => {
+  const before = i.lastFrame();
+  i.stdin.write(key);
+  await until(i, () => i.lastFrame() !== before, `${step} (frame repaint)`);
+};
+
+const down = async (i: View, n: number) => {
+  for (let k = 0; k < n; k++) await press(i, "\x1b[B", `arrow down ${k + 1}/${n}`);
 };
 
 /**
@@ -70,50 +127,51 @@ const overline = (raw: string) =>
   stripAnsi(raw).split("\n").find((l) => l.includes("›") && (l.includes("📌") || l.includes("· —"))) ?? "<no sub-menu cursor row — is the list open?>";
 
 /**
- * Moves the settings cursor onto the row whose label starts with `label`.
+ * Moves the cursor onto the row whose label starts with `label`.
  * Navigating by label instead of by a fixed count keeps these tests honest
  * when a row is inserted: an off-by-one otherwise silently drives a
  * neighbouring setting (which is how a new row broke 13 tests at once).
+ * The walk first climbs to the list's first row (`top`, "Mode" on the
+ * settings list) one confirmed press at a time, then walks down the same way.
  */
-const gotoRow = async (i: ReturnType<typeof render>, label: string) => {
-  const on = () => stripAnsi(i.lastFrame() ?? "").split("\n").some((l) => l.includes("›") && l.includes(label));
-  // Reset to the first row first: the walk is downward-only, so a cursor
-  // already below the target would otherwise never reach it.
-  for (let k = 0; k < 24; k++) {
-    i.stdin.write("\x1b[A");
-    await sleep(15);
+const gotoRow = async (i: View, label: string, { top = "Mode" }: { top?: string } = {}) => {
+  const on = () => frameOf(i).split("\n").some((l) => l.includes("›") && l.includes(label));
+  for (let k = 0; k < 40 && !cursorLabel(i).startsWith(top); k++) {
+    await press(i, "\x1b[A", `climbing to "${top}" before walking to "${label}"`);
   }
-  for (let k = 0; k < 24; k++) {
+  for (let k = 0; k < 40; k++) {
     if (on()) return;
-    i.stdin.write("\x1b[B");
-    await sleep(30);
+    await press(i, "\x1b[B", `walking down to the row "${label}"`);
   }
   throw new Error(`settings row not reachable by label: ${label}`);
 };
 
+const toasted = (i: View, toasts: string[], text: string) =>
+  until(i, () => toasts.some((t) => t.includes(text)), `the toast ${JSON.stringify(text)}`);
+
 describe("settings panel ToS card (#444)", () => {
   test("pressing t on an endpoint shows the full ToS card with disclaimer, links and verification date", async () => {
     const cwd = setupCwd();
-    const { i } = mount(cwd);
-    await sleep(30);
+    const { i, toasts } = mount(cwd);
+    await mounted(i);
     await gotoRow(i, "Provider");
     i.stdin.write("\r");
-    await sleep(30);
+    await settle(i, "› mock", "endpoint level opened");
     i.stdin.write("t"); // ToS for mock: toast, no card
-    await sleep(30);
+    await toasted(i, toasts, 'no bundled ToS summary for "mock"');
     let frame = stripAnsi(i.lastFrame() ?? "");
     // First row is mock: no bundled card, just a toast.
     expect(frame).not.toContain("Machine-written informational summary");
     await down(i, 1); // anthropic endpoint
     i.stdin.write("t");
-    await sleep(30);
+    await settle(i, "Machine-written informational summary", "ToS card for anthropic");
     frame = stripAnsi(i.lastFrame() ?? "");
     expect(frame).toContain("Machine-written informational summary"); // disclaimer
     expect(frame).toContain("Terms of Service — anthropic (verified 2026-09)");
     expect(frame).toContain("Terms of Service: https://www.anthropic.com/legal/com…");
     expect(frame).toContain("Data retention:");
     i.stdin.write("\x1b"); // back
-    await sleep(30);
+    await settle(i, "Machine-written informational summary", "back from the ToS card", { absent: true });
     frame = stripAnsi(i.lastFrame() ?? "");
     expect(frame).toContain("anthropic"); // endpoint list again
     i.unmount();
@@ -123,7 +181,7 @@ describe("settings panel ToS card (#444)", () => {
 describe("settings panel (issue #33)", () => {
   test("renders every setting row with current values", async () => {
     const i = mount(setupCwd());
-    await sleep(30);
+    await mounted(i.i);
     const frame = stripAnsi(i.i.lastFrame() ?? "");
     for (const label of [
       "Mode",
@@ -151,19 +209,19 @@ describe("settings panel (issue #33)", () => {
 
   test("enter toggles fields and persists via onChange", async () => {
     const { i, changes } = mount(setupCwd());
-    await sleep(30);
+    await mounted(i);
     i.stdin.write("\r"); // mode → dev
-    await sleep(10);
+    await until(i, () => changes.some((c) => c.mode === "dev"), "the mode change");
     await gotoRow(i, "Theme");
     i.stdin.write("\r"); // theme → opens the theme picker
-    await sleep(30);
-    i.stdin.write("\x1b[B"); // catppuccin
-    await sleep(30);
+    await settle(i, "enter apply", "theme picker opened");
+    await press(i, "\x1b[B", "picker cursor to catppuccin");
     i.stdin.write("\r"); // apply catppuccin (picker closes, cursor stays on theme row)
-    await sleep(30);
+    await until(i, () => changes.some((c) => c.theme === "catppuccin"), "the theme change");
+    await settle(i, "enter change · esc close", "theme picker closed");
     await gotoRow(i, "Icons");
     i.stdin.write("\r"); // icons off
-    await sleep(10);
+    await until(i, () => changes.some((c) => c.icons === false), "the icons change");
     expect(changes).toContainEqual({ mode: "dev" });
     expect(changes).toContainEqual({ theme: "catppuccin" });
     expect(changes).toContainEqual({ icons: false });
@@ -174,22 +232,22 @@ describe("settings panel (issue #33)", () => {
     const cwd = setupCwd();
     let opened = 0;
     const { i } = mount(cwd, { onConfigureHandoff: () => { opened += 1; } });
-    await sleep(30);
+    await mounted(i);
     expect(stripAnsi(i.lastFrame() ?? "")).toContain("Session handoff");
     expect(stripAnsi(i.lastFrame() ?? "")).toContain("Not Set");
     await gotoRow(i, "Session handoff");
     i.stdin.write("\r");
-    await sleep(30);
+    await until(i, () => opened > 0, "the handoff chooser callback");
     expect(opened).toBe(1);
     i.unmount();
   });
 
   test("provider reasoning sets the persisted global display default", async () => {
     const { i, changes } = mount(setupCwd());
-    await sleep(30);
+    await mounted(i);
     await gotoRow(i, "Provider reasoning");
     i.stdin.write("\r");
-    await sleep(10);
+    await until(i, () => changes.some((c) => "showReasoning" in c), "the reasoning change");
     expect(changes).toContainEqual({ showReasoning: true });
     i.unmount();
   });
@@ -197,32 +255,30 @@ describe("settings panel (issue #33)", () => {
   test("provider switch is hierarchical: endpoint → model, rewrites defaultModel + provider in moh.json", async () => {
     const cwd = setupCwd();
     const { i, switched, toasts } = mount(cwd);
-    await sleep(30);
+    await mounted(i);
     await gotoRow(i, "Provider");
     i.stdin.write("\r");
-    await sleep(30);
+    await settle(i, "› mock", "endpoint level opened");
     let frame = stripAnsi(i.lastFrame() ?? "");
     expect(frame).toContain("mock");
     expect(frame).toContain("anthropic");
     expect(frame).toContain("openai");
     await down(i, 2); // openai endpoint
+    await settle(i, "› openai", "cursor on the openai endpoint");
     i.stdin.write("\r");
-    await sleep(30);
+    await settle(i, "type to filter", "model level opened");
     frame = stripAnsi(i.lastFrame() ?? "");
     expect(frame).toContain("ctx "); // model rows with context windows
     // type a model id → the free-text row commits it
     i.stdin.write("gpt-5.4");
-    await sleep(30);
+    await settle(i, '+ use "gpt-5.4"', "free-text row for the typed model id");
     // The filtered catalog ends with the free-text row; walk to the last row
     // by label rather than by a hand-counted number of presses.
-    for (let k = 0; k < 20; k++) {
-      const f = stripAnsi(i.lastFrame() ?? "");
-      if (f.includes("› + use \"gpt-5.4\"")) break;
-      i.stdin.write("\x1b[B");
-      await sleep(30);
+    for (let k = 0; k < 20 && !frameOf(i).includes('› + use "gpt-5.4"'); k++) {
+      await press(i, "\x1b[B", 'walking down to the row `+ use "gpt-5.4"`');
     }
     i.stdin.write("\r");
-    await sleep(30);
+    await until(i, () => switched.length > 0, "the provider switch callback");
     expect(switched).toEqual(["openai/gpt-5.4"]);
     expect(toasts.some((t) => t.includes("openai/gpt-5.4"))).toBe(true);
     const config = loadMohConfig(join(cwd, "moh.json"));
@@ -231,22 +287,22 @@ describe("settings panel (issue #33)", () => {
     i.unmount();
   });
 
-test("ADR-0049: the model rows show a provider-declared window next to the catalog one", async () => {
+  test("ADR-0049: the model rows show a provider-declared window next to the catalog one", async () => {
     const cwd = setupCwd();
     const { i } = mount(cwd, {
       // The session learned this window from a refusal for that reference
       // alone (a sibling model on the same endpoint declared nothing).
       declaredWindow: (ref) => (ref === "anthropic/claude-fable-5" ? 131_072 : undefined),
     });
-    await sleep(30);
+    await mounted(i);
     await gotoRow(i, "Provider");
     i.stdin.write("\r");
-    await sleep(30);
+    await settle(i, "› mock", "endpoint level opened");
     await down(i, 1); // anthropic endpoint
     i.stdin.write("\r");
-    await sleep(30);
+    await settle(i, "type to filter", "model level opened");
     i.stdin.write("fable"); // narrow to the two rows the assertion names
-    await sleep(30);
+    await settle(i, '+ use "fable"', "the fable filter applied");
     const frame = stripAnsi(i.lastFrame() ?? "");
     // Declared first (the number every context decision uses), catalog
     // second. The dialog clips at its width; `windowText` pins the rest.
@@ -260,21 +316,17 @@ test("ADR-0049: the model rows show a provider-declared window next to the catal
     const cwd = setupCwd();
     const { i } = mount(cwd);
     const frame = () => stripAnsi(i.lastFrame() ?? "");
-    await sleep(30);
+    await mounted(i);
     await gotoRow(i, "Provider");
     i.stdin.write("\r");
     // #1042: navigation is keyed off the rendered cursor row, so each step
     // waits for its commit instead of a fixed sleep (under suite load a
     // fixed pause can drop an arrow or type into the previous level).
-    await waitForCondition(() => frame().includes("› mock"), () => "for the endpoint level");
-    for (const endpoint of ["anthropic", "openai"]) {
-      await waitForCondition(() => frame().includes(endpoint), () => `for ${endpoint}`);
-      i.stdin.write("\x1b[B");
-      await waitForCondition(() => frame().includes(`› ${endpoint}`), () => `for the cursor on ${endpoint}`);
-    }
+    await settle(i, "› mock", "endpoint level opened");
+    await down(i, 2); // openai endpoint
+    await settle(i, "› openai", "cursor on the openai endpoint");
     i.stdin.write("\r");
-    await waitForCondition(() => frame().includes("type to filter"), () => "for the model level");
-    await sleep(60); // let the model level's own state settle before typing
+    await settle(i, "type to filter", "model level opened");
     i.stdin.write("mini");
     // #1042: the model list windows to the terminal height now, so a slow
     // keystroke commit can show one filtered row next to unfiltered ones —
@@ -291,14 +343,13 @@ test("ADR-0049: the model rows show a provider-declared window next to the catal
   test("provider remove deletes the endpoint from moh.json", async () => {
     const cwd = setupCwd();
     const { i, toasts } = mount(cwd);
-    await sleep(30);
+    await mounted(i);
     await gotoRow(i, "Remove provider");
     i.stdin.write("\r");
-    await sleep(30);
+    await settle(i, "› anthropic", "remove list opened");
     await down(i, 1); // openai
-    await sleep(30); // let Ink commit the submenu cursor before selecting
     i.stdin.write("\r");
-    await sleep(30);
+    await toasted(i, toasts, "removed endpoint openai");
     const config = loadMohConfig(join(cwd, "moh.json"));
     expect(config.endpoints?.map((e) => e.name)).toEqual(["anthropic"]);
     expect(toasts.some((t) => t.includes("removed endpoint openai"))).toBe(true);
@@ -307,23 +358,23 @@ test("ADR-0049: the model rows show a provider-declared window next to the catal
 
   test("removing the active endpoint resets the default provider to a remaining one", async () => {
     const cwd = setupCwd();
-    const { i } = mount(cwd);
-    await sleep(30);
+    const { i, toasts } = mount(cwd);
+    await mounted(i);
     await gotoRow(i, "Remove provider");
     i.stdin.write("\r");
-    await sleep(30);
+    await settle(i, "› anthropic", "remove list opened");
     i.stdin.write("\r"); // first option = anthropic (the active one)
-    await sleep(30);
+    await toasted(i, toasts, "removed endpoint anthropic");
     expect(loadMohConfig(join(cwd, "moh.json")).provider).toBe("openai/gpt-5");
     i.unmount();
   });
 
   test("add provider opens the wizard overlay", async () => {
     const h = mount(setupCwd());
-    await sleep(30);
+    await mounted(h.i);
     await gotoRow(h.i, "Add provider");
     h.i.stdin.write("\r");
-    await sleep(30);
+    await until(h.i, () => h.wizardCount() > 0, "the wizard callback");
     expect(h.wizardCount()).toBe(1);
     h.i.unmount();
   });
@@ -331,16 +382,16 @@ test("ADR-0049: the model rows show a provider-declared window next to the catal
   test("esc closes; submenus back out with esc first", async () => {
     let closed = 0;
     const { i } = mount(setupCwd(), { onClose: () => (closed += 1) });
-    await sleep(30);
+    await mounted(i);
     await gotoRow(i, "Provider");
     i.stdin.write("\r");
-    await sleep(30);
+    await settle(i, "› mock", "endpoint level opened");
     i.stdin.write("\x1b"); // leave submenu, not the panel
-    await sleep(30);
+    await settle(i, "› mock", "back out of the endpoint level", { absent: true });
     expect(stripAnsi(i.lastFrame() ?? "")).toContain("enter change · esc close");
     expect(closed).toBe(0);
     i.stdin.write("\x1b");
-    await sleep(30);
+    await until(i, () => closed > 0, "the close callback");
     expect(closed).toBe(1);
     i.unmount();
   });
@@ -359,16 +410,15 @@ describe("merged provider endpoints (#129)", () => {
     });
     const { i } = mount(cwd, { home });
     const frame = () => stripAnsi(i.lastFrame() ?? "");
-    await sleep(30);
+    await mounted(i);
     await gotoRow(i, "Provider");
     i.stdin.write("\r");
-    await waitForFrame(frame, "switch endpoint");
-    // Wait for each React commit before the next key: under suite load a
-    // fixed 30ms pause can drop one arrow and leave the cursor on openai.
+    await settle(i, "› mock", "endpoint level opened");
+    // One confirmed press per row (#1466): the cursor must land on each
+    // endpoint in turn, never skip one.
     for (const endpoint of ["anthropic", "openai", "zai (user)"]) {
-      // Under CI load an arrow can be dropped while the list is scrollable
-      // (↓ n more): repeat the key until the cursor lands (actUntilFrame).
-      await actUntilFrame(() => i.stdin.write("\x1b[B"), frame, `› ${endpoint}`);
+      await press(i, "\x1b[B", `cursor to ${endpoint}`);
+      await settle(i, `› ${endpoint}`, `cursor on ${endpoint}`);
     }
     expect(frame()).toContain("zai (user)");
     i.unmount();
@@ -393,23 +443,25 @@ describe("merged provider endpoints (#129)", () => {
     });
     try {
       const { i, switched } = mount(cwd, { home });
-      await sleep(30);
+      await mounted(i);
       await gotoRow(i, "Provider");
       i.stdin.write("\r");
-      await sleep(30);
+      await settle(i, "› mock", "endpoint level opened");
       await down(i, 3); // zai (user)
+      await settle(i, "› zai (user)", "cursor on zai (user)");
       i.stdin.write("\r");
-      await sleep(30);
       // model level: fetched list arrives asynchronously
-      await sleep(120);
+      await settle(i, "glm-5.3-air", "the live model list fetched");
       const frame = stripAnsi(i.lastFrame() ?? "");
       expect(frame).toContain("glm-5.3-air");
       i.stdin.write("air");
-      await sleep(30);
-      i.stdin.write("\x1b[B"); // free-text row (filter narrowed to nothing)
-      await sleep(30);
+      await settle(i, '+ use "air"', "free-text row for the typed model id");
+      // The free-text row closes the filtered list: walk to it by label.
+      for (let k = 0; k < 20 && !frameOf(i).includes('› + use "air"'); k++) {
+        await press(i, "\x1b[B", 'walking down to the row `+ use "air"`');
+      }
       i.stdin.write("\r");
-      await sleep(30);
+      await until(i, () => switched.length > 0, "the provider switch callback");
       expect(switched).toEqual(["zai/air"]);
       expect(loadMohConfig(join(cwd, "moh.json")).provider).toBe("zai/air");
       // user endpoint: its defaultModel is never rewritten here
@@ -433,13 +485,13 @@ describe("merged provider endpoints (#129)", () => {
       apiKey: "key",
     });
     const { i, toasts } = mount(cwd, { home });
-    await sleep(30);
+    await mounted(i);
     await gotoRow(i, "Remove provider");
     i.stdin.write("\r");
-    await sleep(30);
+    await settle(i, "› anthropic", "remove list opened");
     await down(i, 2); // anthropic, openai, then zai
     i.stdin.write("\r");
-    await sleep(30);
+    await toasted(i, toasts, "removed endpoint zai");
     expect(readUserProviderConfig(userFile).endpoints?.some((e) => e.name === "zai")).toBe(false);
     expect(toasts.some((t) => t.includes("removed endpoint zai"))).toBe(true);
     i.unmount();
@@ -456,10 +508,18 @@ describe("fallback models screen (ADR-0012 preferred model)", () => {
     return { cwd, home };
   }
 
+  /** Opens the fallback list with its cursor on the first stop (anthropic). */
+  async function openFallback(i: View) {
+    await mounted(i);
+    await gotoRow(i, "Fallback models");
+    i.stdin.write("\r");
+    await settle(i, "› anthropic · 📌 claude-sonnet-4-5", "fallback list opened");
+  }
+
   test("the row summarises how many endpoints can serve as fallback stops", async () => {
     const { cwd, home } = fallbackSetup();
     const i = mount(cwd, { home });
-    await sleep(30);
+    await mounted(i.i);
     const frame = stripAnsi(i.i.lastFrame() ?? "");
     expect(frame).toContain("Fallback models");
     // anthropic + openai (project) + zai (user) all carry a preferred model.
@@ -476,13 +536,7 @@ describe("fallback models screen (ADR-0012 preferred model)", () => {
       JSON.stringify({ ...moh, endpoints: [...(moh.endpoints ?? []), { name: "mine", type: "my-factory" }] }),
     );
     const i = mount(cwd, { home });
-    await sleep(30);
-    await gotoRow(i.i, "Fallback models");
-    i.i.stdin.write("\r");
-    // #930: both reads below gate assertions. `down()` paces keystrokes with a
-    // 30 ms sleep, which is under the TUI's 33 ms coalescing window, so the
-    // frame read must wait for the row instead of for a fixed delay.
-    await waitForFrame(() => stripAnsi(i.i.lastFrame() ?? ""), "anthropic · 📌 claude-sonnet-4-5");
+    await openFallback(i.i);
     let frame = stripAnsi(i.i.lastFrame() ?? "");
     expect(frame).toContain("anthropic · 📌 claude-sonnet-4-5");
     expect(frame).toContain("openai · 📌 gpt-5");
@@ -490,11 +544,9 @@ describe("fallback models screen (ADR-0012 preferred model)", () => {
     expect(frame).toContain("mine · — no preferred model (provider type \"my-facto");
     expect(frame).toContain("c clear");
     // The user-level endpoint is in the same list (one screen, one chain).
-    // Walk by label, not by a counted `down(3)`: a counted walk also folds in a
-    // second, separate race (a press delivered before the level has a committed
-    // frame can be lost), which this assertion is not about. The row still has
-    // to be the one under the cursor, not merely painted.
-    await gotoRow(i.i, "zai");
+    // Walk by label, not by a counted `down(3)`. The row still has to be the
+    // one under the cursor, not merely painted.
+    await gotoRow(i.i, "zai", { top: "anthropic" });
     await waitForFrame(() => overline(i.i.lastFrame() ?? ""), "zai · 📌 glm-5.3-flash");
     frame = stripAnsi(i.i.lastFrame() ?? "");
     expect(frame).toContain("zai · 📌 glm-5.3-flash");
@@ -504,19 +556,15 @@ describe("fallback models screen (ADR-0012 preferred model)", () => {
   test("a burst of arrow presses inside one commit window moves the cursor every time (#930)", async () => {
     const { cwd, home } = fallbackSetup();
     const i = mount(cwd, { home });
-    await sleep(30);
     // Navigate by label, not by a counted walk: the subject here is the burst
     // inside one commit window, not the separate lost-press race above.
-    await gotoRow(i.i, "Fallback models");
-    i.i.stdin.write("\r");
-    await waitForFrame(() => stripAnsi(i.i.lastFrame() ?? ""), "anthropic · 📌 claude-sonnet-4-5");
+    await openFallback(i.i);
     // Three presses before Ink paints once — what a loaded runner delivers when
     // the keys pile up inside one commit window. Every press must move the
     // cursor: read from a closure, each one recomputes from the same sub-menu
     // cursor, the burst advances by one row and the last stop never reaches the
     // viewport (the CI flake #930 — the frame was honest, the cursor really was
     // one short).
-    await sleep(30); // let the opened level's first frame commit
     i.i.stdin.write("\x1b[B");
     i.i.stdin.write("\x1b[B");
     i.i.stdin.write("\x1b[B");
@@ -530,19 +578,14 @@ describe("fallback models screen (ADR-0012 preferred model)", () => {
   test("picking a model writes the preferred model and NEVER switches the active provider", async () => {
     const { cwd, home } = fallbackSetup();
     const i = mount(cwd, { home });
-    await sleep(30);
-    await gotoRow(i.i, "Fallback models");
-    i.i.stdin.write("\r"); // fallback list
-    await sleep(40);
-    i.i.stdin.write("\x1b[B"); // to openai
-    await sleep(30);
+    await openFallback(i.i); // fallback list
+    await press(i.i, "\x1b[B", "cursor to openai"); // to openai
     i.i.stdin.write("\r"); // its model list
-    await sleep(60);
+    await settle(i.i, "type to filter", "openai model list opened");
     // The model list opens on the endpoint's current model; pick another row.
-    i.i.stdin.write("\x1b[B");
-    await sleep(30);
+    await press(i.i, "\x1b[B", "cursor to another model");
     i.i.stdin.write("\r");
-    await sleep(80);
+    await toasted(i.i, i.toasts, "fallback: openai →");
     // The project endpoint's defaultModel changed in moh.json…
     const project = loadMohConfig(join(cwd, "moh.json"));
     const openai = project.endpoints!.find((e) => e.name === "openai")!;
@@ -558,20 +601,13 @@ describe("fallback models screen (ADR-0012 preferred model)", () => {
   test("picking a preferred model for a USER endpoint writes ~/.moh/config, not moh.json", async () => {
     const { cwd, home } = fallbackSetup();
     const i = mount(cwd, { home });
-    await sleep(30);
-    await gotoRow(i.i, "Fallback models");
+    await openFallback(i.i);
+    await down(i.i, 2); // to zai (third row)
     i.i.stdin.write("\r");
-    await sleep(40);
-    i.i.stdin.write("\x1b[B");
-    await sleep(20);
-    i.i.stdin.write("\x1b[B"); // to zai (third row)
-    await sleep(30);
+    await settle(i.i, "type to filter", "zai model list opened");
+    await press(i.i, "\x1b[B", "cursor to another model");
     i.i.stdin.write("\r");
-    await sleep(60);
-    i.i.stdin.write("\x1b[B");
-    await sleep(30);
-    i.i.stdin.write("\r");
-    await sleep(80);
+    await toasted(i.i, i.toasts, "fallback: zai →");
     // The user-level endpoint is writable now (it used to be display-only).
     const user = readUserProviderConfig(join(home, ".moh", "config"));
     const zai = user.endpoints!.find((e) => e.name === "zai")!;
@@ -586,12 +622,10 @@ describe("fallback models screen (ADR-0012 preferred model)", () => {
   test("`x` excludes the whole provider while keeping its preferred model, and puts it back", async () => {
     const { cwd, home } = fallbackSetup();
     const i = mount(cwd, { home });
-    await sleep(30);
-    await gotoRow(i.i, "Fallback models");
-    i.i.stdin.write("\r");
-    await sleep(40);
+    await openFallback(i.i);
     i.i.stdin.write("x"); // exclude the first row (anthropic)
-    await sleep(60);
+    await toasted(i.i, i.toasts, "anthropic excluded from the chain");
+    await settle(i.i, "anthropic · ✗ excluded", "the excluded row repainted");
     const project = loadMohConfig(join(cwd, "moh.json"));
     const anthropic = project.endpoints!.find((e) => e.name === "anthropic")!;
     // The exclusion is the whole-provider switch: the preferred model stays.
@@ -601,12 +635,12 @@ describe("fallback models screen (ADR-0012 preferred model)", () => {
     expect(stripAnsi(i.i.lastFrame() ?? "")).toContain("anthropic · ✗ excluded · 📌 claude-sonnet-4-5");
     // …and the summary drops it from the eligible count.
     i.i.stdin.write("\x1b"); // back to the settings list
-    await sleep(40);
+    await settle(i.i, "› Fallback models", "back on the settings list");
     expect(stripAnsi(i.i.lastFrame() ?? "")).toContain("Fallback models");
     i.i.stdin.write("\r"); // re-enter and put it back
-    await sleep(40);
+    await settle(i.i, "› anthropic · ✗ excluded", "fallback list reopened");
     i.i.stdin.write("x");
-    await sleep(60);
+    await toasted(i.i, i.toasts, "anthropic back in the chain");
     const after = loadMohConfig(join(cwd, "moh.json")).endpoints!.find((e) => e.name === "anthropic")!;
     // Re-including removes the key instead of writing `true`.
     expect("fallbackEligible" in after).toBe(false);
@@ -617,16 +651,10 @@ describe("fallback models screen (ADR-0012 preferred model)", () => {
   test("`x` on a USER endpoint writes ~/.moh/config", async () => {
     const { cwd, home } = fallbackSetup();
     const i = mount(cwd, { home });
-    await sleep(30);
-    await gotoRow(i.i, "Fallback models");
-    i.i.stdin.write("\r");
-    await sleep(40);
-    i.i.stdin.write("\x1b[B");
-    await sleep(20);
-    i.i.stdin.write("\x1b[B"); // zai (user-level, third row)
-    await sleep(30);
+    await openFallback(i.i);
+    await down(i.i, 2); // zai (user-level, third row)
     i.i.stdin.write("x");
-    await sleep(60);
+    await toasted(i.i, i.toasts, "zai excluded from the chain");
     const user = readUserProviderConfig(join(home, ".moh", "config"));
     const zai = user.endpoints!.find((e) => e.name === "zai")!;
     expect(zai.fallbackEligible).toBe(false);
@@ -639,12 +667,10 @@ describe("fallback models screen (ADR-0012 preferred model)", () => {
   test("`c` clears the preferred model and drops the endpoint out of the chain", async () => {
     const { cwd, home } = fallbackSetup();
     const i = mount(cwd, { home });
-    await sleep(30);
-    await gotoRow(i.i, "Fallback models");
-    i.i.stdin.write("\r");
-    await sleep(40);
+    await openFallback(i.i);
     i.i.stdin.write("c"); // clear the first row (anthropic)
-    await sleep(60);
+    await toasted(i.i, i.toasts, "removed from the chain");
+    await settle(i.i, "anthropic · — no preferred model", "the cleared row repainted");
     const project = loadMohConfig(join(cwd, "moh.json"));
     const anthropic = project.endpoints!.find((e) => e.name === "anthropic")!;
     // Cleared means ABSENT, not empty: the chain tests `!== undefined`.
@@ -655,30 +681,33 @@ describe("fallback models screen (ADR-0012 preferred model)", () => {
   });
 });
 
+/** The max-iterations toast for one value (the exact text: 50 is a prefix of 500). */
+const iterToast = (value: string) => `max iterations: ${value} (new sessions)`;
+
 describe("max iterations row (#498)", () => {
   test("cycles presets forward on enter and persists to moh.json; unlimited shows warning once", async () => {
     const cwd = setupCwd();
     const { i, toasts } = mount(cwd);
-    await sleep(30);
+    await mounted(i);
     await gotoRow(i, "Max iterations/turn");
     expect(stripAnsi(i.lastFrame() ?? "")).toContain("Max iterations/turn");
     i.stdin.write("\r"); // 50 → 100
-    await sleep(30);
+    await toasted(i, toasts, iterToast("100"));
     i.stdin.write("\r"); // 100 → 200
-    await sleep(30);
+    await toasted(i, toasts, iterToast("200"));
     expect(loadMohConfig(join(cwd, "moh.json")).maxIterations).toBe(200);
     // → unlimited (three more: 300? no: 200 → 500 → unlimited)
     i.stdin.write("\r"); // 200 → 500
-    await sleep(30);
+    await toasted(i, toasts, iterToast("500"));
     i.stdin.write("\r"); // 500 → unlimited
-    await sleep(30);
+    await toasted(i, toasts, iterToast("unlimited"));
+    await settle(i, "unlimited", "the unlimited value painted");
     expect(loadMohConfig(join(cwd, "moh.json")).maxIterations).toBe(0);
     let frame = stripAnsi(i.lastFrame() ?? "");
     expect(frame).toContain("unlimited");
     expect(frame).toContain("anti-runaway");
     // Any keypress dismisses the warning; it stays dismissed on revisit.
-    i.stdin.write("\x1b[B");
-    await sleep(30);
+    await press(i, "\x1b[B", "cursor off the max iterations row");
     frame = stripAnsi(i.lastFrame() ?? "");
     expect(frame).not.toContain("anti-runaway");
     expect(toasts.some((t) => t.includes("unlimited"))).toBe(true);
@@ -687,33 +716,33 @@ describe("max iterations row (#498)", () => {
 
   test("cycles backward on shift+tab (wraps unlimited → 500)", async () => {
     const cwd = setupCwd();
-    const { i } = mount(cwd);
-    await sleep(30);
+    const { i, toasts } = mount(cwd);
+    await mounted(i);
     await gotoRow(i, "Max iterations/turn");
-    await sleep(30);
     // shift+tab from 50 wraps back to unlimited (warning shows).
     i.stdin.write("\x1b[Z");
-    await sleep(30);
+    await toasted(i, toasts, iterToast("unlimited"));
+    await settle(i, "unlimited", "the unlimited value painted");
     expect(loadMohConfig(join(cwd, "moh.json")).maxIterations).toBe(0);
     expect(stripAnsi(i.lastFrame() ?? "")).toContain("anti-runaway");
     i.stdin.write("\x1b[Z"); // unlimited → 500
-    await sleep(30);
+    await toasted(i, toasts, iterToast("500"));
     expect(loadMohConfig(join(cwd, "moh.json")).maxIterations).toBe(500);
     i.unmount();
   });
 
   test("warning re-arms after leaving unlimited and returning", async () => {
     const cwd = setupCwd();
-    const { i } = mount(cwd);
-    await sleep(30);
+    const { i, toasts } = mount(cwd);
+    await mounted(i);
     await gotoRow(i, "Max iterations/turn");
-    await sleep(30);
     i.stdin.write("\r"); // 50 → 100
-    await sleep(30);
+    await toasted(i, toasts, iterToast("100"));
     i.stdin.write("\x1b[Z"); // back to 50 (dismiss-armed reset happens on non-unlimited)
-    await sleep(30);
+    await toasted(i, toasts, iterToast("50"));
     i.stdin.write("\x1b[Z"); // 50 → unlimited (wrap): warning must appear
-    await sleep(30);
+    await toasted(i, toasts, iterToast("unlimited"));
+    await settle(i, "unlimited", "the unlimited value painted");
     expect(stripAnsi(i.lastFrame() ?? "")).toContain("anti-runaway");
     i.unmount();
   });
@@ -726,7 +755,7 @@ describe("max iterations row (#498)", () => {
       maxIterations: 0,
     }));
     const { i } = mount(cwd);
-    await sleep(30);
+    await mounted(i);
     // The row can sit below the visible window (the settings list scrolls):
     // walk to it by label, as every other row test does, then read it.
     await gotoRow(i, "Max iterations/turn");
@@ -739,15 +768,14 @@ describe("max iterations row (#498)", () => {
 describe("max iterations row (#498) — right arrow", () => {
   test("→ cycles presets forward like enter", async () => {
     const cwd = setupCwd();
-    const { i } = mount(cwd);
-    await sleep(30);
+    const { i, toasts } = mount(cwd);
+    await mounted(i);
     await gotoRow(i, "Max iterations/turn");
-    await sleep(30);
     i.stdin.write("\x1b[C"); // →: 50 → 100
-    await sleep(30);
+    await toasted(i, toasts, iterToast("100"));
     expect(loadMohConfig(join(cwd, "moh.json")).maxIterations).toBe(100);
     i.stdin.write("\x1b[C"); // →: 100 → 200
-    await sleep(30);
+    await toasted(i, toasts, iterToast("200"));
     expect(loadMohConfig(join(cwd, "moh.json")).maxIterations).toBe(200);
     i.unmount();
   });
@@ -755,23 +783,26 @@ describe("max iterations row (#498) — right arrow", () => {
   test("MPM row (ADR-0026): cycles inherit → on → off → inherit and persists to moh.json", async () => {
     const cwd = setupCwd();
     const { i, toasts } = mount(cwd);
-    await sleep(30);
+    await mounted(i);
     await gotoRow(i, "Moh Project Map");
-    await sleep(30);
     expect(stripAnsi(i.lastFrame() ?? "")).toContain("Moh Project Map");
     expect(stripAnsi(i.lastFrame() ?? "")).toContain("inherit (global default)");
+    // Each press toasts once: wait for the next toast before reading the file.
+    const next = async (step: string) => {
+      const before = toasts.length;
+      i.stdin.write("\r");
+      await until(i, () => toasts.length > before, step);
+    };
     // inherit → on: writes mpm.enabled true into moh.json.
-    i.stdin.write("\r");
-    await sleep(30);
+    await next("the MPM toggle to on");
     expect(loadMohConfig(join(cwd, "moh.json")).mpm?.enabled).toBe(true);
     expect(toasts.some((t) => t.includes("moh project map: on"))).toBe(true);
     // on → off.
-    i.stdin.write("\r");
-    await sleep(30);
+    await next("the MPM toggle to off");
     expect(loadMohConfig(join(cwd, "moh.json")).mpm?.enabled).toBe(false);
     // off → inherit: the mpm section is removed entirely.
-    i.stdin.write("\r");
-    await sleep(30);
+    await next("the MPM toggle back to inherit");
+    await settle(i, "inherit (global default)", "the inherit value painted");
     expect(loadMohConfig(join(cwd, "moh.json")).mpm).toBeUndefined();
     expect(stripAnsi(i.lastFrame() ?? "")).toContain("inherit (global default)");
     i.unmount();
@@ -784,15 +815,22 @@ describe("max iterations row (#498) — right arrow", () => {
       mpm: { enabled: false },
     }));
     const { i } = mount(cwd);
-    await sleep(30);
+    await mounted(i);
     await gotoRow(i, "Moh Project Map");
-    await sleep(30);
     expect(stripAnsi(i.lastFrame() ?? "")).toContain("off (this project)");
     i.unmount();
   });
 });
 
 describe("user themes in settings (#749)", () => {
+  /** Opens the theme studio from the "My themes…" row, input handler attached. */
+  async function openStudio(i: View) {
+    await mounted(i);
+    await gotoRow(i, "My themes");
+    i.stdin.write("\r");
+    await settle(i, "theme studio", "theme studio opened");
+  }
+
   test("theme row opens a picker with source labels; enter applies a user:<id> ref", async () => {
     const cwd = setupCwd();
     const home = mkdtempSync(join(tmpdir(), "moh-home-"));
@@ -802,15 +840,18 @@ describe("user themes in settings (#749)", () => {
       colors: { accent: "#b983ff" },
     }));
     const { i, changes } = mount(cwd, { home });
-    await sleep(30);
+    await mounted(i);
     const frame = () => stripAnsi(i.lastFrame() ?? "");
     await down(i, 1);
     i.stdin.write("\r"); // open theme picker
-    await waitForFrame(frame, "My Violet [u]");
+    await settle(i, "My Violet [u]", "theme picker opened");
     expect(frame()).toContain("[s]");
-    await down(i, THEME_ORDER.length); // first user theme (built-ins before it)
+    // First user theme (the built-ins come before it), reached by label.
+    for (let k = 0; k <= THEME_ORDER.length && !cursorLabel(i).startsWith("My Violet"); k++) {
+      await press(i, "\x1b[B", "walking to the first user theme");
+    }
     i.stdin.write("\r");
-    await waitForFrame(frame, "enter change · esc close");
+    await settle(i, "enter change · esc close", "theme picker closed");
     expect(changes).toContainEqual({ theme: "user:my-violet" });
     i.unmount();
   });
@@ -819,18 +860,17 @@ describe("user themes in settings (#749)", () => {
     const cwd = setupCwd();
     const home = mkdtempSync(join(tmpdir(), "moh-home-"));
     const { i, changes, toasts } = mount(cwd, { home });
-    await sleep(30);
     const frame = () => stripAnsi(i.lastFrame() ?? "");
-    await down(i, 2);
-    i.stdin.write("\r"); // My themes… → studio modal (mode0 theme1 themes2)
-    await waitForFrame(frame, "theme studio");
+    await openStudio(i);
     // studio rows: hue(0) brightness(1) — adjust hue then rename+save
-    i.stdin.write("\x1b[C"); await sleep(40); // hue +6°
-    i.stdin.write("n"); await sleep(60); // name & save
-    await waitForCondition(() => frame().includes("theme name:"), () => `for name prompt; frame: ${frame()}`);
+    // The hue only recolors the preview (no visible text change under the
+    // test's colorless output); the studio's handler is already attached.
+    i.stdin.write("\x1b[C"); // hue +6°
+    i.stdin.write("n"); // name & save
+    await settle(i, "theme name:", "the name prompt");
     i.stdin.write("My Neon");
-    await waitForCondition(() => frame().includes("My Neon"), () => `for name echo; frame: ${frame()}`);
-    i.stdin.write("\r"); await sleep(60); // save & apply
+    await settle(i, "My Neon", "the typed name echoed");
+    i.stdin.write("\r"); // save & apply
     await waitForCondition(
       () => changes.some((c) => "theme" in c),
       () => `for theme change; toasts: ${JSON.stringify(toasts)}`,
@@ -848,18 +888,14 @@ describe("user themes in settings (#749)", () => {
     const cwd = setupCwd();
     const home = mkdtempSync(join(tmpdir(), "moh-home-"));
     const { i, changes } = mount(cwd, { home });
-    await sleep(30);
     const frame = () => stripAnsi(i.lastFrame() ?? "");
-    await down(i, 2);
-    i.stdin.write("\r");
-    await waitForFrame(frame, "theme studio");
-    await sleep(100); // the studio's useInput mounts a frame after its first paint
-    i.stdin.write("s"); await sleep(60); // split on → focus lands on 'ok'
-    await waitForCondition(() => frame().includes("split"), () => `for split; frame: ${frame()}`);
+    await openStudio(i);
+    i.stdin.write("s"); // split on → focus lands on 'ok'
+    await settle(i, "› ✓ ok", "split mode, focus on the first override");
     expect(frame().includes("› ✓ ok")).toBe(true); // focus moved to the first override
-    i.stdin.write("\x1b[C"); await sleep(60); // pick first basic color
-    await waitForCondition(() => frame().includes("red"), () => `for red pick; frame: ${frame()}`);
-    i.stdin.write("\r"); await sleep(80); // enter → back to auto, NOT close
+    await repaint(i, "\x1b[C", "pick the first basic color"); // pick first basic color
+    await settle(i, "red", "the red pick");
+    await repaint(i, "\r", "enter on the override row"); // enter → back to auto, NOT close
     expect(frame()).toContain("theme studio");
     expect(frame()).toContain("auto");
     expect(changes.every((c) => !("theme" in c))).toBe(true); // nothing applied
@@ -870,15 +906,14 @@ describe("user themes in settings (#749)", () => {
     const cwd = setupCwd();
     const home = mkdtempSync(join(tmpdir(), "moh-home-"));
     const { i, changes } = mount(cwd, { home });
-    await sleep(30);
     const frame = () => stripAnsi(i.lastFrame() ?? "");
-    await down(i, 2);
-    i.stdin.write("\r");
-    await waitForFrame(frame, "theme studio");
-    i.stdin.write("s"); await sleep(60); // split mode, focus on 'ok' override
-    i.stdin.write("n"); await sleep(60); // 'n' must NOT be swallowed here
-    await waitForCondition(() => frame().includes("theme name:"), () => `for name prompt; frame: ${frame()}`);
-    i.stdin.write("\x1b"); await sleep(60); // esc → back to the studio, not settings
+    await openStudio(i);
+    i.stdin.write("s"); // split mode, focus on 'ok' override
+    await settle(i, "› ✓ ok", "split mode, focus on the first override");
+    i.stdin.write("n"); // 'n' must NOT be swallowed here
+    await settle(i, "theme name:", "the name prompt");
+    i.stdin.write("\x1b"); // esc → back to the studio, not settings
+    await settle(i, "theme name:", "esc out of the name prompt", { absent: true });
     expect(frame()).toContain("theme studio");
     expect(changes.every((c) => !("theme" in c))).toBe(true);
     i.unmount();
@@ -888,28 +923,24 @@ describe("user themes in settings (#749)", () => {
     const cwd = setupCwd();
     const home = mkdtempSync(join(tmpdir(), "moh-home-"));
     const { i, changes } = mount(cwd, { home });
-    await sleep(30);
     const frame = () => stripAnsi(i.lastFrame() ?? "");
-    await down(i, 2);
-    i.stdin.write("\r");
-    await waitForFrame(frame, "theme studio");
-    // The studio's useInput mounts a frame after its first paint (#749 CI
-    // flake, same class as the tree-panel name prompt): typing into it
-    // before that loses the first keystroke and the name prompt never opens.
-    await sleep(100);
-    i.stdin.write("n"); await sleep(60);
+    await openStudio(i);
+    i.stdin.write("n");
+    await settle(i, "theme name:", "the name prompt");
     i.stdin.write("Temp");
-    await waitForCondition(() => frame().includes("Temp"), () => `for name; frame: ${frame()}`);
-    i.stdin.write("\r"); await sleep(60);
-    await waitForCondition(() => changes.some((c) => "theme" in c), () => "for save");
+    await settle(i, "Temp", "the typed name echoed");
+    i.stdin.write("\r");
+    await until(i, () => changes.some((c) => "theme" in c), "the save");
     expect(existsSync(join(home, ".moh", "themes", "temp.json"))).toBe(true);
     // back into settings → studio → manage view → delete
-    i.stdin.write("\x1b"); await sleep(40); // studio → settings
-    i.stdin.write("\r"); await sleep(60); // settings → studio again
-    i.stdin.write("r"); await sleep(60);
-    await waitForCondition(() => frame().includes("my themes"), () => `for manage; frame: ${frame()}`);
+    i.stdin.write("\x1b"); // studio → settings
+    await settle(i, "enter change · esc close", "back on the settings list");
+    i.stdin.write("\r"); // settings → studio again
+    await settle(i, "theme studio", "theme studio reopened");
+    i.stdin.write("r");
+    await settle(i, "my themes", "the manage view");
     expect(frame()).toContain("Temp");
-    i.stdin.write("d"); await sleep(80); // delete the active theme
+    i.stdin.write("d"); // delete the active theme
     await waitForCondition(
       () => !existsSync(join(home, ".moh", "themes", "temp.json")),
       () => `for deletion; frame: ${frame()}`,
@@ -923,15 +954,11 @@ describe("user themes in settings (#749)", () => {
     mkdirSync(join(home, ".moh", "themes"), { recursive: true });
     writeFileSync(join(home, ".moh", "themes", "live.json"), JSON.stringify({ version: 1, id: "live", name: "Live", extends: "candy", colors: {} }));
     const { i, changes } = mount(cwd, { home, config: { ...DEFAULT_USER_CONFIG, theme: "user:live" } });
-    await sleep(30);
     const frame = () => stripAnsi(i.lastFrame() ?? "");
-    await down(i, 2);
-    i.stdin.write("\r");
-    await waitForFrame(frame, "theme studio");
-    await sleep(100); // the studio's useInput mounts a frame after its first paint
+    await openStudio(i);
     i.stdin.write("r");
     // wait for the manage view to actually LIST the theme, not just for the heading
-    await waitForCondition(() => frame().includes("› Live"), () => `for manage list; frame: ${frame()}`);
+    await settle(i, "› Live", "the manage list");
     i.stdin.write("d");
     await waitForCondition(
       () => !existsSync(join(home, ".moh", "themes", "live.json")),
@@ -950,12 +977,16 @@ describe("user themes in settings (#749)", () => {
       version: 1, id: "gone", name: "Gone", extends: "candy", colors: {},
     }));
     const { i, changes } = mount(cwd, { home, config: { ...DEFAULT_USER_CONFIG, theme: "user:gone" } });
-    await sleep(30);
     const frame = () => stripAnsi(i.lastFrame() ?? "");
+    await mounted(i);
     await down(i, 1);
     i.stdin.write("\r"); // picker
-    await waitForFrame(frame, "Gone [u]");
-    await down(i, THEME_ORDER.length); // first user theme: "Gone"
+    await settle(i, "Gone [u]", "theme picker opened");
+    // First user theme: "Gone" (the picker opens on the active theme, which
+    // is this one; walk by label so a clamped press never stalls the test).
+    for (let k = 0; k <= THEME_ORDER.length && !cursorLabel(i).startsWith("Gone"); k++) {
+      await press(i, "\x1b[B", "walking to the first user theme");
+    }
     i.stdin.write("d");
     await waitForFrame(frame, "enter change · esc close");
     expect(existsSync(join(home, ".moh", "themes", "gone.json"))).toBe(false);
