@@ -9,9 +9,22 @@ committed refs.json and docs-mentions.txt byte-identically at any later
 head of the PR branch.
 
 Coverage run (raw profiles): commit f083de0f (branch ablation/1387-s0.4,
-script at its first committed state; the only later collector change
-moved the summary step into scripts/ablation-b6-summary.py, byte-for-byte
-the same logic).
+script at its first committed state). Collector changes since f083de0f
+(git log f083de0f..HEAD -- scripts/ablation-coverage.sh
+scripts/ablation-b6-summary.py):
+  - 91afcb12  summary restricted to repo rows (packages/, scripts/)
+  - cd42b408  PTY collection dir renamed pty/ -> pty-collections/;
+              header comment updated
+  - 164b6914  summary step extracted into scripts/ablation-b6-summary.py
+              (its FNDA parsing was also changed)
+  - this PR's final fix: function columns removed from the summary
+              (see below); output-path argument added.
+Summary logic changed since the profiles were produced, but regenerating
+from these profiles gives the same line data: the line columns (lines,
+lines_hit) and the totals (312 files, 42103/46744) are unchanged; only
+the all-zero funcs/funcs_hit columns were dropped.
+Line coverage only: Bun 1.2.19 lcov emits no FN/FNDA records (0 FN:/FNDA:
+lines in all 7 profiles), so the summary has no function columns.
 Bun: 1.2.19 (aad3abea)
 TypeScript (analysis tooling): 5.9.3 (packages/core/node_modules/typescript)
 Python: 3.15.0
@@ -22,9 +35,9 @@ Exact commands (repo root, branch ablation/1387-s0.4):
   scripts/ablation-coverage.sh ~/moh-ablation-baselines/1387-b6
   # component phase:  bun test --coverage --coverage-reporter=lcov --coverage-dir=<out>/component packages/*/test scripts
   #   (packages/tui/test non-pty files enumerated individually; PTY files excluded)
-  # pty phase:        bun test --coverage --coverage-reporter=lcov --coverage-dir=<out>/pty-collections/<file> packages/tui/test/pty/<file>.test.ts  (per file, batches of 2)
-  # summary:          python3 scripts/ablation-b6-summary.py ~/moh-ablation-baselines/1387-b6
-  #                   (verified: regenerates the committed out/b6/summary.txt byte-identically — cmp)
+  # pty phase:        bun test --coverage --coverage-reporter=lcov --coverage-dir=<out>/pty/<file> packages/tui/test/pty/<file>.test.ts  (per file, batches of 2; <out>/pty/ as run at f083de0f — renamed pty-collections/ by cd42b408, profiles then moved to <out>/pty-<file>-<n>.info)
+  # summary:          python3 scripts/ablation-b6-summary.py ~/moh-ablation-baselines/1387-b6 <fresh>/summary.txt
+  #                   (writes into a new dir, never into the profile dir; verified: cmp with the committed out/b6/summary.txt)
 
 Result (summary.txt): 312 repo files in the map, 42103/46744 lines hit
 (90.1%). The map includes 14 test-support files under packages/*/test/
@@ -32,7 +45,7 @@ and 3 scripts/ files (ablation-baseline/normalize.ts, build.ts,
 close-delivered-issues.ts).
 Source-only view (packages/*/src rows only): 295 files, 41196/45721
 (90.1%) — reproduce with:
-  awk -F'\t' 'NR>1 && $1!~/\/test\// && $1!~/^scripts\//{n++;l+=$4;h+=$5} END{print n,h"/"l}' scripts/ablation-analysis/out/b6/summary.txt
+  awk -F'\t' 'NR>1 && $1!~/\/test\// && $1!~/^scripts\//{n++;l+=$2;h+=$3} END{print n,h"/"l}' scripts/ablation-analysis/out/b6/summary.txt
 4 source files are absent from the map (type-only/index files with no
 instrumented statements).
 

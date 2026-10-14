@@ -6,7 +6,7 @@
 `node scripts/ablation-analysis/metrics.cjs` run from the repo root
 (after `node scripts/ablation-analysis/refs.cjs .
 scripts/ablation-analysis/out`); the B6 rows additionally by
-`python3 scripts/ablation-b6-summary.py ~/moh-ablation-baselines/1387-b6`.
+`python3 scripts/ablation-b6-summary.py ~/moh-ablation-baselines/1387-b6 <fresh>/summary.txt`.
 The regeneration is deterministic and reproduces byte-identically at any
 later head of this PR branch.
 
@@ -33,10 +33,10 @@ remeasured, never chased.
 | core source files | 143 (153) | distinct `file` values under `packages/core/src/` in refs.json | `node scripts/ablation-analysis/metrics.cjs` |
 | source files excluding tests | 305 | `git ls-files -- "packages/*.ts" "packages/*.tsx" "scripts/*.ts"`, excluding `*.test.*`, `*/test/*`, `*.d.ts` | `node scripts/ablation-analysis/metrics.cjs` |
 | source lines excluding tests | 90139 (~88k) | `split("\n")` line count (= `wc -l` + 1 per file with a final unterminated line) over the same file set; plain `wc -l` gives 89834 | `node scripts/ablation-analysis/metrics.cjs` |
-| provider-kind lists (7 OAuth kinds) | 7–13 files per kind (six lists) | `packages/core/src` non-test files containing the kind as an exact TS string literal (TS AST), per kind: anthropic 8, openai 7, google 10, github-copilot 13, openrouter 10, kimi-coding 13, xai 8 | `node scripts/ablation-analysis/metrics.cjs` |
-| atomic write sites | **50 occurrences in 20 files** (15) | every non-test occurrence of `renameSync` under `packages/*/src` | `grep -rn "renameSync" packages/*/src \| grep -v /test/` |
-| per-file line coverage (B6, phased runner) — all rows | 312 repo files, 42103/46744 (90.1%) | `out/b6/summary.txt` rows: repo files incl. 14 test-support files under `packages/*/test/` and 3 `scripts/` files (`ablation-baseline/normalize.ts`, `build.ts`, `close-delivered-issues.ts`) | `python3 scripts/ablation-b6-summary.py ~/moh-ablation-baselines/1387-b6` |
-| per-file line coverage (B6) — source-only view | **295 files, 41196/45721 (90.1%)** | `out/b6/summary.txt` rows under `packages/*/src` only (all `scripts/` rows and test-support rows excluded) | `awk -F'\t' 'NR>1 && $1!~/\/test\// && $1!~/^scripts\//{n++;l+=$4;h+=$5} END{print n,h"/"l}' scripts/ablation-analysis/out/b6/summary.txt` |
+| provider-kind lists (7 OAuth kinds) | 7-13 (files per kind; six lists) | `packages/core/src` non-test files containing the kind as an exact TS string literal (TS AST), per kind: anthropic 8, openai 7, google 10, github-copilot 13, openrouter 10, kimi-coding 13, xai 8 | `node scripts/ablation-analysis/metrics.cjs` |
+| atomic write sites | **20 files, 50 occurrences** (15) | every non-test occurrence of `renameSync` under `packages/*/src` | `grep -rn "renameSync" packages/*/src \| grep -v /test/` |
+| per-file line coverage (B6, phased runner) — all rows | 312 files, 42103/46744 lines hit (90.1%) | `out/b6/summary.txt` rows: repo files, line coverage only (Bun 1.2.19 lcov emits no FN/FNDA records). Breakdown: 14 test-support files, 3 scripts files — 14 under `packages/*/test/`, 3 under `scripts/` (`ablation-baseline/normalize.ts`, `build.ts`, `close-delivered-issues.ts`) | `python3 scripts/ablation-b6-summary.py ~/moh-ablation-baselines/1387-b6 <fresh>/summary.txt` |
+| per-file line coverage (B6) — source-only view | **295 files, 41196/45721 lines hit (90.1%)** | `out/b6/summary.txt` rows under `packages/*/src` only (all `scripts/` rows and test-support rows excluded) | `awk -F'\t' 'NR>1 && $1!~/\/test\// && $1!~/^scripts\//{n++;l+=$2;h+=$3} END{print n,h"/"l}' scripts/ablation-analysis/out/b6/summary.txt` |
 
 ## Withdrawn metric: duck-typing sites
 
@@ -53,7 +53,7 @@ note in the README.
 node scripts/ablation-analysis/refs.cjs . scripts/ablation-analysis/out
 node scripts/ablation-analysis/metrics.cjs
 cd scripts/ablation-analysis && node report.cjs dead|testonly|exampleonly|localonly|privatedead|optional|single|fanin
-python3 scripts/ablation-b6-summary.py ~/moh-ablation-baselines/1387-b6
+python3 scripts/ablation-b6-summary.py ~/moh-ablation-baselines/1387-b6 <fresh>/summary.txt   # new dir: never writes into the profile dir
 ```
 
 Blind spots carried forward (apply #1378 section 4 E1–E6 before deleting

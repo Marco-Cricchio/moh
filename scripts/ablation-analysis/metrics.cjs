@@ -1,8 +1,10 @@
 #!/usr/bin/env node
 // S0.4 starting-metrics calculator: prints every STARTING-METRICS.md row
 // with its definition and the measured value (#1387). Standalone — reads
-// only the repo tree and scripts/ablation-analysis/out/refs.json (run
-// refs.cjs first for the rows that need it; rows report "n/a" without it).
+// the repo tree, scripts/ablation-analysis/out/refs.json (run refs.cjs
+// first for the rows that need it; rows report "n/a" without it) and
+// scripts/ablation-analysis/out/b6/summary.txt (the B6 rows are skipped
+// when it is absent).
 //
 //   node scripts/ablation-analysis/metrics.cjs
 //
@@ -36,7 +38,6 @@ let refs = null;
 try {
   refs = JSON.parse(fs.readFileSync(path.join(__dirname, "out", "refs.json"), "utf8"));
 } catch {}
-const isTestRef = (f) => /(\.test\.|\/test\/|\/scripts\/|\/evals\/)/.test(f) || f.startsWith("scripts/");
 
 function reportCount(mode) {
   if (!refs) return "n/a";
@@ -189,7 +190,7 @@ if (fs.existsSync(summaryPath)) {
   const srows = fs.readFileSync(summaryPath, "utf8").trim().split("\n").slice(1);
   const sum = (pred) => {
     const r = srows.filter(pred);
-    return [r.length, r.reduce((a, x) => a + parseInt(x.split("\t")[4], 10), 0), r.reduce((a, x) => a + parseInt(x.split("\t")[3], 10), 0)];
+    return [r.length, r.reduce((a, x) => a + parseInt(x.split("\t")[2], 10), 0), r.reduce((a, x) => a + parseInt(x.split("\t")[1], 10), 0)];
   };
   const all = sum(() => true);
   const testFiles = sum((r) => r.startsWith("packages/") && r.includes("/test/"));
@@ -198,7 +199,7 @@ if (fs.existsSync(summaryPath)) {
   row("B6 map (all rows)",
     "out/b6/summary.txt rows: repo files incl. test-support and scripts support files",
     `${all[0]} files, ${all[1]}/${all[2]} lines hit (${(100.0 * all[1] / all[2]).toFixed(1)}%)`,
-    "python3 scripts/ablation-b6-summary.py ~/moh-ablation-baselines/1387-b6");
+    "python3 scripts/ablation-b6-summary.py ~/moh-ablation-baselines/1387-b6 <fresh>/summary.txt");
   row("B6 map breakdown",
     "rows under packages/*/test/ vs rows under scripts/",
     `${testFiles[0]} test-support files, ${scriptsFiles[0]} scripts files`,
@@ -206,7 +207,7 @@ if (fs.existsSync(summaryPath)) {
   row("B6 map source-only view",
     "rows under packages/*/src only",
     `${srcOnly[0]} files, ${srcOnly[1]}/${srcOnly[2]} lines hit (${(100.0 * srcOnly[1] / srcOnly[2]).toFixed(1)}%)`,
-    "awk -F'\\t' 'NR>1 && $1!~/\\/test\\// && $1!~/^scripts\\//{n++;l+=$4;h+=$5} END{print n,h\"/\"l}' scripts/ablation-analysis/out/b6/summary.txt");
+    "awk -F'\\t' 'NR>1 && $1!~/\\/test\\// && $1!~/^scripts\\//{n++;l+=$2;h+=$3} END{print n,h\"/\"l}' scripts/ablation-analysis/out/b6/summary.txt");
 }
 
 console.log("S0.4 starting metrics (definitions inline) — run from the repo root");

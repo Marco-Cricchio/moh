@@ -21,7 +21,8 @@ Node v22.23.2, Bun 1.2.19 (aad3abea). Coverage run versions: see
 
 ## Coverage map (B6) — `scripts/ablation-coverage.sh`
 
-Collects per-file line/function coverage through the repository's phased
+Collects per-file line coverage (line coverage only: Bun 1.2.19 lcov emits no
+FN/FNDA records) through the repository's phased
 runner: the component phase (packages/*/test plus scripts/) in one bounded
 `bun test --coverage` process, then each `packages/tui/test/pty/*.test.ts`
 file in its own process (batched by `MOH_PTY_JOBS`, default 2) — the phases
@@ -39,10 +40,12 @@ Outputs in `<outDir>`:
   only the test process, not the spawned `moh` process, so lines
   reachable only across the process boundary show as uncovered
   (conservative).
-- `summary.txt` — per repo file: funcs, funcs hit, lines, lines hit,
-  regenerated from the profiles by the standalone step:
-  `python3 scripts/ablation-b6-summary.py <outDir>` (the same script the
-  collector calls). Rows outside `packages/` and `scripts/` are excluded.
+- `summary.txt` — per repo file: lines, lines hit (line coverage only;
+  no function columns). Regenerate it from the profiles into a NEW
+  directory, without writing into the profile dir:
+  `python3 scripts/ablation-b6-summary.py <outDir> <fresh>/summary.txt`
+  (the same script the collector calls; the optional second argument is
+  the output path, default `<outDir>/summary.txt`). Rows outside `packages/` and `scripts/` are excluded.
 - `component.log`, `pty-results.tsv` (exit codes + logs), `MANIFEST.txt`.
 
 Reference snapshot for #1387: committed under `out/b6/` (summary +
