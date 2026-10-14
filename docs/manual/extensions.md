@@ -20,14 +20,22 @@ The full chapter lives in the repository
 
 - **`~/.moh/extensions/`** — your own extension folder. Every `.ts`,
   `.mts`, `.js` or `.mjs` file directly inside it is loaded, sorted by file
-  name. Create the folder and drop a file in.
+  name; every subdirectory with a `moh.extension.json` is an installed
+  package and contributes exactly the entry files its manifest declares
+  inside its own folder (what `moh extension add <ref> --user` installs).
+  A broken symlink in the folder is skipped. Create the folder and drop a
+  file or a package in.
 - **`moh.json` `"extensions": ["./extensions/team-rules.ts"]`** — the
   project declares extensions for everyone who works on it. Paths are
-  relative to the project root (absolute paths work too).
+  relative to the project root (absolute paths work too). A declaration
+  whose manifest name matches an installed user package wins over it —
+  the same precedence `moh extension list` shows.
 
-Order matters: the files in `~/.moh/extensions/` load first (sorted), then
-the project's declarations in the order it lists them. When two extensions
-disagree about a tool call, the first one wins.
+Order matters: the loose files in `~/.moh/extensions/` load first (sorted),
+then the installed packages (sorted by folder name), then the project's
+declarations in the order it lists them. When two extensions disagree about
+a tool call, the first one wins. A package folder with a missing or
+malformed manifest is a visible load failure, never a silent absence.
 
 ## The first load asks you
 

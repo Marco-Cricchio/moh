@@ -16,7 +16,7 @@
  * network at all.
  */
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, statSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { MANIFEST_FILE, readExtensionManifest, type ExtensionManifest } from "./extension-manifest";
 import { PATH_SCOPE_PREFIX, HOST_SCOPE_PREFIX, validatePathScope, validateHostScope } from "./host-scope";
@@ -387,11 +387,26 @@ export function registryRoots(options: { mohHome: string; cwd: string }): { scop
   ];
 }
 
+/** A symlink that resolves to a directory; a dangling link is `false`, never a throw. */
+function isDirectoryThroughLink(path: string): boolean {
+  try {
+    return statSync(path).isDirectory();
+  } catch {
+    return false;
+  }
+}
+
 /** The installed package directories under one root, sorted; hidden dirs (the staging dir) are never packages. */
 function installedPackageDirs(root: string): string[] {
   try {
     return readdirSync(root, { withFileTypes: true })
-      .filter((e) => e.isDirectory() && !e.name.startsWith("."))
+      .filter(
+        (e) =>
+          !e.name.startsWith(".") &&
+          // A symlinked package dir (dotfiles managers) is still installed;
+          // a dangling link is not, and never empties the whole listing.
+          (e.isDirectory() || (e.isSymbolicLink() && isDirectoryThroughLink(join(root, e.name)))),
+      )
       .map((e) => e.name)
       .sort();
   } catch {

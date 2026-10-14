@@ -7,7 +7,7 @@
  */
 import { afterEach, describe, expect, test } from "bun:test";
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -338,6 +338,21 @@ describe("listInstalledExtensions / removeInstalledExtension", () => {
     writePkg(join(cwd, "extensions"), "project-ext");
     const all = listInstalledExtensions({ mohHome: join(home, ".moh"), cwd });
     expect(all.map((e) => `${e.name}:${e.scope}`).sort()).toEqual(["project-ext:project", "user-ext:user"]);
+  });
+
+  test("a dangling symlink in a root is skipped; the other packages still list (#1373)", () => {
+    const home = tempDir();
+    const cwd = tempDir();
+    const root = join(home, ".moh", "extensions");
+    mkdirSync(root, { recursive: true });
+    writePkg(root, "user-ext");
+    try {
+      symlinkSync(join(home, "gone"), join(root, "stale-link"));
+    } catch {
+      return; // a filesystem without symlinks: nothing to pin
+    }
+    const all = listInstalledExtensions({ mohHome: join(home, ".moh"), cwd });
+    expect(all.map((e) => e.name)).toEqual(["user-ext"]);
   });
 
   test("same identity in both scopes: project wins, the dotdir copy is visibly reported, no error", () => {
