@@ -151,6 +151,8 @@ for sf, lns in funcs_found.items():
 
 rows = []
 for sf, (ff, fh, lf, lh) in by_file.items():
+    if not sf.startswith(("packages/", "scripts/")):
+        continue  # temp fixtures outside the repo are not part of the map
     rows.append((sf, ff, fh, lf, lh))
 rows.sort()
 with open(os.path.join(out, "summary.txt"), "w") as w:
