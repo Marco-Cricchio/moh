@@ -15,9 +15,9 @@ scripts/ablation-b6-summary.py):
   - 91afcb12  summary restricted to repo rows (packages/, scripts/)
   - cd42b408  PTY collection dir renamed pty/ -> pty-collections/;
               header comment updated
-  - d34a740a  summary step extracted into scripts/ablation-b6-summary.py
+  - 164b6914  summary step extracted into scripts/ablation-b6-summary.py
               (its FNDA parsing was also changed)
-  - this PR's final fix: function columns removed from the summary
+  - d34a740a  function columns removed from the summary
               (see below); output-path argument added.
 Summary logic changed since the profiles were produced, but regenerating
 from these profiles gives the same line data: the line columns (lines,
