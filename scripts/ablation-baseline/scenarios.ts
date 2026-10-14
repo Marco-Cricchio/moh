@@ -135,8 +135,12 @@ export default defineExtension({
   capabilities: ["path:notes.txt", "tool:bash"],
   setup(ctx) {
     ctx.appendEvent({ name: "saw-open", payload: { at: "open" } });
-    ctx.onEvent(async ({ event }) => {
-      if (event.type !== "user_message" || event.text !== "host ops") return;
+    // \`beforeTurn\` is awaited by the loop before the \`user_message\` is
+    // logged and the provider is read, so the three host operations land in
+    // a fixed position. An \`onEvent\` handler is dispatched off the event
+    // queue and races the scripted model turn (#1478).
+    ctx.beforeTurn(async ({ text }) => {
+      if (text !== "host ops") return;
       const host = ctx.host!;
       const results = [
         ["read", (await host.readFile("notes.txt")).ok],
