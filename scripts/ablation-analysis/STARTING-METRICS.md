@@ -1,6 +1,6 @@
 # S0.4 starting metrics — measured "before" column (#1387)
 
-**Last regenerated at: 164b6914** — the commit containing the final
+**Last regenerated at: d34a740a** — the commit containing the final
 `refs.cjs` + `metrics.cjs` and the committed outputs (`out/refs.json`,
 `out/docs-mentions.txt`, `out/b6/*`). Every value below is produced by
 `node scripts/ablation-analysis/metrics.cjs` run from the repo root
