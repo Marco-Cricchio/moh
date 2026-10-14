@@ -8,10 +8,8 @@ Dev-only evidence tooling for the ablation plan (#1387, procedure in the
 
 The analysis tooling (`refs.cjs`, `report.cjs`, `metrics.cjs`) and the
 committed outputs (`out/refs.json`, `out/docs-mentions.txt`,
-`out/b6/*`) were last regenerated at the commit that last wrote
-`out/refs.json` — resolve it with
-`git log -1 --format=%H -- scripts/ablation-analysis/out/refs.json`.
-The regeneration is
+`out/b6/*`) were last regenerated at commit **164b6914** (the commit
+containing the final scripts). The regeneration is
 deterministic: `node scripts/ablation-analysis/refs.cjs . <fresh>/out`
 reproduces `out/refs.json` and `out/docs-mentions.txt` byte-identically
 at any later head of this PR branch (verified at each regeneration; the

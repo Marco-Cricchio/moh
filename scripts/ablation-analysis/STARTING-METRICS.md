@@ -1,10 +1,8 @@
 # S0.4 starting metrics — measured "before" column (#1387)
 
-**Last regenerated at: the commit that last wrote `out/refs.json`** —
-resolve it with
-`git log -1 --format=%H -- scripts/ablation-analysis/out/refs.json`
-(it contains the final `refs.cjs` + `metrics.cjs` and the committed
-`out/refs.json`, `out/docs-mentions.txt`, `out/b6/*`). Every value below is produced by
+**Last regenerated at: 164b6914** — the commit containing the final
+`refs.cjs` + `metrics.cjs` and the committed outputs (`out/refs.json`,
+`out/docs-mentions.txt`, `out/b6/*`). Every value below is produced by
 `node scripts/ablation-analysis/metrics.cjs` run from the repo root
 (after `node scripts/ablation-analysis/refs.cjs .
 scripts/ablation-analysis/out`); the B6 rows additionally by
