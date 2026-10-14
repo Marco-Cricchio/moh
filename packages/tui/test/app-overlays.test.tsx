@@ -6,11 +6,15 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { listSessionSummaries, loadMohConfig, MockProvider, type Provider } from "@moh/core";
 import { App } from "../src/App";
-import { COMPOSER_READY, grantTeamExtension, stripAnsi, waitForCondition, waitForFrame } from "./helpers";
+import { COMPOSER_READY, grantTeamExtension, pressCommitted, stripAnsi, waitForCondition, waitForFrame, waitStep, waitText } from "./helpers";
 import { installAiSdkWarningSink } from "../src/ai-sdk-warnings";
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const tempHome = () => { const h = mkdtempSync(join(tmpdir(), "moh-app-ov-")); grantTeamExtension(h); return h; };
+/** The settled home screen's search row. */
+const HOME_READY = "search or start something new";
+/** A sentinel only the settings dialog renders (its title is a common word). */
+const SETTINGS_OPEN = "Default permission mode";
 
 /** Push a toast through App's own channel with no keystroke involved (the
  * SDK warning sink), so the intro is still on screen when it lands. */
@@ -75,12 +79,12 @@ describe("App overlays (issue #33)", () => {
     const cwd = mkdtempSync(join(tmpdir(), "moh-app-cwd-"));
     const home = tempHome();
     const withKey = render(<App intro={false} cwd={cwd} home={home} env={{ ANTHROPIC_API_KEY: "sk-test-236" }} />);
-    await sleep(50);
+    await waitText(withKey, "s skip", "the onboarding overlay (with a key in env)");
     expect(stripAnsi(withKey.lastFrame() ?? "")).toContain("connect a provider");
     withKey.unmount();
     const fresh = tempHome();
     const clean = render(<App intro={false} cwd={mkdtempSync(join(tmpdir(), "moh-app-cwd-"))} home={fresh} env={{}} />);
-    await sleep(50);
+    await waitText(clean, "s skip", "the onboarding overlay (clean env)");
     const frame = stripAnsi(clean.lastFrame() ?? "");
     expect(frame).toContain("connect a provider");
     // A fresh environment never offers a detected candidate — wizard phase.
@@ -93,15 +97,15 @@ describe("App overlays (issue #33)", () => {
     const cwd = mkdtempSync(join(tmpdir(), "moh-app-cwd-"));
     const home = tempHome();
     const i = render(<App intro={false} cwd={cwd} home={home} env={{}} />);
-    await sleep(50);
+    await waitText(i, "s skip", "the onboarding overlay");
     // Either the env-detect list or the wizard — never the home screen.
     expect(stripAnsi(i.lastFrame() ?? "")).toContain("connect a provider");
     i.stdin.write("s"); // skip (works in both phases)
-    await sleep(50);
+    await waitText(i, "enter/y enable · n skip", "the handoff offer");
     i.stdin.write("n"); // dismiss the per-project handoff offer
-    await sleep(50);
+    await waitText(i, "base behavior unchanged", "the workflow offer");
     i.stdin.write("n"); // skip the workflow offer revealed by correct overlay layering
-    await sleep(50);
+    await waitText(i, "base behavior unchanged", "the workflow offer closed", { absent: true });
     const frame = stripAnsi(i.lastFrame() ?? "");
     expect(frame).toContain("search or start something new");
     i.unmount();
@@ -111,18 +115,22 @@ describe("App overlays (issue #33)", () => {
     const cwd = mkdtempSync(join(tmpdir(), "moh-app-cwd-"));
     writeFileSync(join(cwd, "moh.json"), JSON.stringify({ handoff: { onboarding: "dismissed" } }));
     const i = render(<App intro={false} cwd={cwd} home={tempHome()} provider={MockProvider.demo()} skipOnboarding />);
-    await sleep(50);
+    await waitText(i, HOME_READY, "the home screen");
     i.stdin.write("n"); // new session
-    await sleep(50);
+    await waitText(i, COMPOSER_READY, "the new session's composer");
     i.unmount();
-    await sleep(30);
+    // The reminder is written as the session ends (on unmount).
+    await waitForCondition(
+      () => loadMohConfig(join(cwd, "moh.json")).handoff?.onboarding === "reminded",
+      () => `the handoff reminder was not recorded: ${JSON.stringify(loadMohConfig(join(cwd, "moh.json")).handoff)}`,
+    );
     expect(loadMohConfig(join(cwd, "moh.json")).handoff).toEqual({ onboarding: "reminded" });
   });
 
   test("direct chat skips the handoff offer", async () => {
     const cwd = mkdtempSync(join(tmpdir(), "moh-app-cwd-"));
     const i = render(<App intro={false} cwd={cwd} home={tempHome()} provider={MockProvider.demo()} startInChat />);
-    await sleep(50);
+    await waitText(i, COMPOSER_READY, "the chat composer");
     expect(stripAnsi(i.lastFrame() ?? "")).toContain(COMPOSER_READY);
     expect(stripAnsi(i.lastFrame() ?? "")).not.toContain("session handoff");
     i.unmount();
@@ -131,7 +139,7 @@ describe("App overlays (issue #33)", () => {
   test("a configured provider skips onboarding entirely", async () => {
     const cwd = mkdtempSync(join(tmpdir(), "moh-app-cwd-"));
     const i = render(<App intro={false} cwd={cwd} home={tempHome()} provider={MockProvider.demo()} skipOnboarding />);
-    await sleep(50);
+    await waitText(i, HOME_READY, "the home screen");
     expect(stripAnsi(i.lastFrame() ?? "")).toContain("search or start something new");
     i.unmount();
   });
@@ -139,18 +147,18 @@ describe("App overlays (issue #33)", () => {
   test("? opens the all-commands panel, esc closes; s opens settings", async () => {
     const cwd = mkdtempSync(join(tmpdir(), "moh-app-cwd-"));
     const i = render(<App intro={false} cwd={cwd} home={tempHome()} provider={MockProvider.demo()} skipOnboarding />);
-    await sleep(50);
+    await waitText(i, HOME_READY, "the home screen");
     i.stdin.write("?");
-    await sleep(50);
+    await waitText(i, "all commands", "the commands panel");
     expect(stripAnsi(i.lastFrame() ?? "")).toContain("all commands");
     i.stdin.write("\x1b"); // esc closes
-    await sleep(50);
+    await waitText(i, "all commands", "the commands panel closed", { absent: true });
     expect(stripAnsi(i.lastFrame() ?? "")).not.toContain("all commands");
     i.stdin.write("s"); // settings from home
-    await sleep(50);
+    await waitText(i, SETTINGS_OPEN, "the settings panel");
     expect(stripAnsi(i.lastFrame() ?? "")).toContain("settings");
     i.stdin.write("\x1b");
-    await sleep(50);
+    await waitText(i, SETTINGS_OPEN, "the settings panel closed", { absent: true });
     expect(stripAnsi(i.lastFrame() ?? "")).not.toContain("Default permission mode");
     i.unmount();
   });
@@ -158,12 +166,12 @@ describe("App overlays (issue #33)", () => {
   test("ctrl+n opens the project notes modal from home, esc closes", async () => {
     const cwd = mkdtempSync(join(tmpdir(), "moh-app-cwd-"));
     const i = render(<App intro={false} cwd={cwd} home={tempHome()} provider={MockProvider.demo()} skipOnboarding />);
-    await sleep(50);
+    await waitText(i, HOME_READY, "the home screen");
     i.stdin.write("\x0e"); // ctrl+n
-    await sleep(80);
+    await waitText(i, "no notes yet", "the notes modal");
     expect(stripAnsi(i.lastFrame() ?? "")).toContain("no notes yet");
     i.stdin.write("\x1b");
-    await sleep(70);
+    await waitText(i, "no notes yet", "the notes modal closed", { absent: true });
     expect(stripAnsi(i.lastFrame() ?? "")).not.toContain("no notes yet");
     i.unmount();
   });
@@ -171,15 +179,15 @@ describe("App overlays (issue #33)", () => {
   test("ctrl+s and ctrl+k open the panels from home too", async () => {
     const cwd = mkdtempSync(join(tmpdir(), "moh-app-cwd-"));
     const i = render(<App intro={false} cwd={cwd} home={tempHome()} provider={MockProvider.demo()} skipOnboarding />);
-    await sleep(50);
+    await waitText(i, HOME_READY, "the home screen");
     i.stdin.write("\x13"); // ctrl+s
-    await sleep(50);
+    await waitText(i, SETTINGS_OPEN, "the settings panel");
     expect(stripAnsi(i.lastFrame() ?? "")).toContain("settings");
     i.stdin.write("\x1b");
     // Closing an alternate-buffer modal includes a bounded 40ms flip.
-    await sleep(70);
+    await waitText(i, SETTINGS_OPEN, "the settings panel closed", { absent: true });
     i.stdin.write("\x0b"); // ctrl+k
-    await sleep(50);
+    await waitText(i, "all commands", "the commands panel");
     expect(stripAnsi(i.lastFrame() ?? "")).toContain("all commands");
     i.unmount();
   });
@@ -190,13 +198,13 @@ describe("App overlays (issue #33)", () => {
     Object.defineProperty(i.stdout, "columns", { value: 100, configurable: true });
     Object.defineProperty(i.stdout, "rows", { value: 40, configurable: true });
     i.stdout.emit("resize");
-    await sleep(50);
+    await waitStep(i, () => stripAnsi(i.lastFrame() ?? "").includes(COMPOSER_READY) && stripAnsi(i.lastFrame() ?? "").includes("· ready"), "the ready chat composer");
     const before = stripAnsi(i.lastFrame() ?? "");
     expect(before).toContain(COMPOSER_READY);
     expect(before).toContain("· ready");
 
     i.stdin.write("\x13"); // ctrl+s
-    await sleep(50);
+    await waitText(i, SETTINGS_OPEN, "the settings dialog");
     const during = stripAnsi(i.lastFrame() ?? "").split("\n");
     expect(during.some((line) => line.includes("settings"))).toBe(true);
     expect(during.some((line) => line.includes(COMPOSER_READY))).toBe(true);
@@ -207,15 +215,15 @@ describe("App overlays (issue #33)", () => {
   test("in chat, ? on an empty draft opens commands, then closes", async () => {
     const cwd = mkdtempSync(join(tmpdir(), "moh-app-cwd-"));
     const i = render(<App intro={false} cwd={cwd} home={tempHome()} provider={MockProvider.demo()} skipOnboarding />);
-    await sleep(50);
+    await waitText(i, HOME_READY, "the home screen");
     i.stdin.write("n"); // new session → chat
-    await sleep(50);
+    await waitText(i, COMPOSER_READY, "the new session's composer");
     expect(stripAnsi(i.lastFrame() ?? "")).toContain(COMPOSER_READY);
     i.stdin.write("?");
-    await sleep(50);
+    await waitText(i, "all commands", "the commands panel");
     expect(stripAnsi(i.lastFrame() ?? "")).toContain("all commands");
     i.stdin.write("\x1b");
-    await sleep(50);
+    await waitText(i, "all commands", "the commands panel closed", { absent: true });
     const frame = stripAnsi(i.lastFrame() ?? "");
     expect(frame).not.toContain("all commands");
     expect(frame).toContain(COMPOSER_READY); // chat still alive under the closed overlay
@@ -228,19 +236,19 @@ describe("in-session rename modal (#534)", () => {
     const cwd = mkdtempSync(join(tmpdir(), "moh-app-cwd-"));
     const home = tempHome();
     const i = render(<App intro={false} cwd={cwd} home={home} provider={MockProvider.demo()} startInChat skipOnboarding />);
-    await sleep(50);
+    await waitText(i, COMPOSER_READY, "the chat composer");
     i.stdin.write("\x12"); // ctrl+r
-    await sleep(50);
+    await waitText(i, "rename session", "the rename modal");
     expect(stripAnsi(i.lastFrame() ?? "")).toContain("rename session");
     i.stdin.write("Release checklist");
-    await sleep(30);
+    await waitText(i, "Release checklist", "the typed name echoed");
     i.stdin.write("\r");
-    await sleep(70);
+    await waitStep(i, () => listSessionSummaries(cwd, home)[0]?.title === "Release checklist", "the rename saved");
     expect(listSessionSummaries(cwd, home)[0]?.title).toBe("Release checklist");
     i.unmount();
 
     const reopened = render(<App intro={false} cwd={cwd} home={home} provider={MockProvider.demo()} skipOnboarding />);
-    await sleep(50);
+    await waitText(reopened, "Release checklist", "the renamed session on home");
     expect(stripAnsi(reopened.lastFrame() ?? "")).toContain("Release checklist");
     reopened.unmount();
   });
@@ -249,21 +257,24 @@ describe("in-session rename modal (#534)", () => {
     const cwd = mkdtempSync(join(tmpdir(), "moh-app-cwd-"));
     const home = tempHome();
     const i = render(<App intro={false} cwd={cwd} home={home} provider={MockProvider.demo()} startInChat skipOnboarding />);
-    await sleep(50);
+    await waitText(i, COMPOSER_READY, "the chat composer");
     i.stdin.write("\x12");
-    await sleep(50);
+    await waitText(i, "rename session", "the rename modal");
     expect(stripAnsi(i.lastFrame() ?? "")).not.toContain("name: Name");
     i.stdin.write("Name");
-    await sleep(30);
+    // The modal's input row (the frame is "renamed Name" too once saved).
+    await waitText(i, "│  Name ", "the typed name echoed");
     i.stdin.write("\r");
-    await sleep(50);
+    await waitStep(i, () => listSessionSummaries(cwd, home)[0]?.title === "Name", "the rename saved");
+    // The confirmation toast lands after the save; reopen once it is up.
+    await waitText(i, "renamed Name", "the rename toast");
     i.stdin.write("\x12");
-    await sleep(50);
+    await waitText(i, "rename session", "the rename modal reopened");
     expect(stripAnsi(i.lastFrame() ?? "")).toContain("renamed Name");
     i.stdin.write("\x1b[3~".repeat(4));
-    await sleep(30);
+    await waitText(i, "│  Name ", "the name deleted", { absent: true });
     i.stdin.write("\r");
-    await sleep(50);
+    await waitStep(i, () => listSessionSummaries(cwd, home)[0]?.title === "(empty session)", "the name reset");
     expect(listSessionSummaries(cwd, home)[0]?.title).toBe("(empty session)");
     i.unmount();
   });
@@ -271,11 +282,12 @@ describe("in-session rename modal (#534)", () => {
   test("ctrl+r opens while an action chip is focused", async () => {
     const cwd = mkdtempSync(join(tmpdir(), "moh-app-cwd-"));
     const i = render(<App intro={false} cwd={cwd} home={tempHome()} provider={MockProvider.demo()} startInChat skipOnboarding />);
-    await sleep(50);
-    i.stdin.write("\t");
-    await sleep(30);
+    await waitText(i, COMPOSER_READY, "the chat composer");
+    // The chip focus paints nothing in the colorless frame: wait for the
+    // commit that carries it.
+    await pressCommitted(i, "\t", "tab into the action chips");
     i.stdin.write("\x12");
-    await sleep(50);
+    await waitText(i, "rename session", "the rename modal");
     expect(stripAnsi(i.lastFrame() ?? "")).toContain("rename session");
     i.unmount();
   });
@@ -362,19 +374,19 @@ describe("in-session rename modal (#534)", () => {
     const cwd = mkdtempSync(join(tmpdir(), "moh-app-cwd-"));
     const home = tempHome();
     const i = render(<App intro={false} cwd={cwd} home={home} provider={MockProvider.demo()} startInChat skipOnboarding />);
-    await sleep(50);
+    await waitText(i, COMPOSER_READY, "the chat composer");
     i.stdin.write("\x12");
-    await sleep(50);
+    await waitText(i, "rename session", "the rename modal");
     i.stdin.write("Keep me");
-    await sleep(30);
+    await waitText(i, "Keep me", "the typed name echoed");
     i.stdin.write("\r");
-    await sleep(50);
+    await waitStep(i, () => listSessionSummaries(cwd, home)[0]?.title === "Keep me", "the rename saved");
     i.stdin.write("\x12");
-    await sleep(50);
+    await waitText(i, "rename session", "the rename modal reopened");
     i.stdin.write(" changed");
-    await sleep(30);
+    await waitText(i, "Keep me changed", "the edit echoed");
     i.stdin.write("\x1b");
-    await sleep(50);
+    await waitText(i, "rename session", "the rename modal cancelled", { absent: true });
     expect(listSessionSummaries(cwd, home)[0]?.title).toBe("Keep me");
     i.unmount();
   });
@@ -384,14 +396,14 @@ describe("usage quota modal (#499)", () => {
   test("ctrl+q opens the modal from chat, esc closes", async () => {
     const cwd = mkdtempSync(join(tmpdir(), "moh-app-cwd-"));
     const i = render(<App intro={false} cwd={cwd} home={tempHome()} provider={MockProvider.demo()} startInChat skipOnboarding />);
-    await sleep(50);
+    await waitText(i, COMPOSER_READY, "the chat composer");
     expect(stripAnsi(i.lastFrame() ?? "")).not.toContain("usage quota");
     i.stdin.write("\x11"); // ctrl+q
-    await sleep(80);
+    await waitText(i, "local measured", "the usage quota modal");
     expect(stripAnsi(i.lastFrame() ?? "")).toContain("usage quota");
     expect(stripAnsi(i.lastFrame() ?? "")).toContain("local measured");
     i.stdin.write("\x1b"); // esc
-    await sleep(70); // 40ms alt-buffer flip
+    await waitText(i, "usage quota", "the usage quota modal closed", { absent: true }); // 40ms alt-buffer flip
     expect(stripAnsi(i.lastFrame() ?? "")).not.toContain("usage quota");
     i.unmount();
   });
@@ -401,21 +413,21 @@ describe("project map modal (#619)", () => {
   test("/mpm opens the inspection modal from chat, esc closes", async () => {
     const cwd = mkdtempSync(join(tmpdir(), "moh-app-cwd-"));
     const i = render(<App intro={false} cwd={cwd} home={tempHome()} provider={MockProvider.demo()} startInChat skipOnboarding />);
-    await sleep(50);
+    await waitText(i, COMPOSER_READY, "the chat composer");
     expect(stripAnsi(i.lastFrame() ?? "")).not.toContain("project map");
     i.stdin.write("/mpm");
-    await sleep(60);
+    await waitText(i, "▶ /mpm", "the slash popup");
     // The slash popup's first enter accepts the suggestion, the second sends.
     i.stdin.write("\r");
-    await sleep(80);
+    await waitText(i, "▶ /mpm", "the suggestion accepted", { absent: true });
     i.stdin.write("\r");
-    await sleep(120);
+    await waitText(i, "esc close", "the project map modal");
     const frame = stripAnsi(i.lastFrame() ?? "");
     expect(frame).toContain("project map");
     // Metadata only, in every state.
     expect(frame).toContain("esc close");
     i.stdin.write("\x1b"); // esc
-    await sleep(70);
+    await waitText(i, "project map", "the project map modal closed", { absent: true });
     expect(stripAnsi(i.lastFrame() ?? "")).not.toContain("project map");
     i.unmount();
   });
