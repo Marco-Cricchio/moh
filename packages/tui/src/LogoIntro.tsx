@@ -185,8 +185,11 @@ function pulseFrames(banner: string[]): Frame[] {
     const mid = (rows - 1) / 2;
     frames.push(
       banner.map((_, y) => {
+        // `proximity` is 1 only on an exact middle row and stays above 0 at
+        // the edges, so a row shows once `level` reaches `1 - proximity`:
+        // low levels light the center, level 1 lights every row (#1467).
         const proximity = 1 - Math.abs(y - mid) / ((rows + 1) / 2);
-        return proximity >= level ? banner[y]! : "";
+        return proximity >= 1 - level ? banner[y]! : "";
       }),
     );
   }
@@ -218,7 +221,8 @@ function waveFrames(banner: string[]): Frame[] {
   return frames;
 }
 
-const STYLES = [
+/** Exported for the settle invariant test: every style ends on the banner. */
+export const STYLES = [
   { name: "scatter", make: scatterFrames },
   { name: "typewriter", make: typewriterFrames },
   { name: "glitch", make: glitchFrames },
