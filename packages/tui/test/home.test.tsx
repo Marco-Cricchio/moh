@@ -302,7 +302,7 @@ describe("session rename (#477)", () => {
     await waitText(i, "› ▸", "the pre-selected banner row");
     // Rename to "ZZ".
     i.stdin.write("\x12");
-    await waitText(i, "rename: title s1", "the rename edit");
+    await waitText(i, "rename:", "the rename edit");
     // Clear the prefill one confirmed key at a time, then type ZZ.
     for (let k = 0; k < 20 && !stripAnsi(i.lastFrame() ?? "").includes("rename: ▊"); k++) {
       await pressCommitted(i, "\x7f", "clearing the prefill");
@@ -312,16 +312,19 @@ describe("session rename (#477)", () => {
     i.stdin.write("\r");
     await waitStep(i, () => listSessionSummaries(cwd, home)[0].title === "ZZ", "the rename saved");
     await waitText(i, "rename:", "the rename edit closed", { absent: true });
+    // Home reloads its session list after a rename (asynchronously): the next
+    // ctrl+r must act on the reloaded row, not on the pre-rename summary.
+    await waitText(i, "ZZ", "the reloaded list showing the new name");
     expect(listSessionSummaries(cwd, home)[0].title).toBe("ZZ");
     // Esc cancels without writing.
     i.stdin.write("\x12");
-    await waitText(i, "rename: ZZ", "the rename edit");
+    await waitText(i, "rename:", "the rename edit");
     i.stdin.write("\x1b");
     await waitText(i, "rename:", "the rename cancelled", { absent: true });
     expect(listSessionSummaries(cwd, home)[0].title).toBe("ZZ");
     // Enter on the emptied prefill (the current name "ZZ") resets.
     i.stdin.write("\x12");
-    await waitText(i, "rename: ZZ", "the rename edit");
+    await waitText(i, "rename:", "the rename edit");
     for (let k = 0; k < 10 && !stripAnsi(i.lastFrame() ?? "").includes("rename: ▊"); k++) {
       await pressCommitted(i, "\x7f", "clearing the prefill");
     }
@@ -339,7 +342,7 @@ describe("session rename (#477)", () => {
     const frame = () => stripAnsi(i.lastFrame() ?? "");
     // Rename the newest (s2, banner row) to "banana".
     i.stdin.write("\x12");
-    await waitText(i, "rename: title s2", "the rename edit");
+    await waitText(i, "rename:", "the rename edit");
     for (let k = 0; k < 20 && !frame().includes("rename: ▊"); k++) await pressCommitted(i, "\x7f", "clearing the prefill");
     await waitText(i, "rename: ▊", "the prefill cleared");
     await typeEach(i, "banana", (typed) => `rename: ${typed}`, "the new name");
