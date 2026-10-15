@@ -482,4 +482,25 @@ describe("/model modal: the endpoints prop changing identity (#1497)", () => {
     expect(frame).not.toContain("fetching models");
     i.unmount();
   });
+
+  test("a fetch in flight when the endpoints array changes identity still lands", async () => {
+    const server = Bun.serve({
+      port: 0,
+      async fetch() {
+        await sleep(150);
+        return Response.json({ data: [{ id: "glm-5.3" }] });
+      },
+    });
+    try {
+      const pick = (): EndpointPick[] => [{ name: "zai", type: "openai-compat", baseUrl: `http://localhost:${server.port}/v1`, apiKey: "k", catalog: [] }];
+      const i = render(element(pick()));
+      await waitText(i, "fetching models", "fetch in flight");
+      i.rerender(element(pick()));
+      await waitText(i, "zai · glm-5.3", "in-flight list shown", { timeoutMs: 3000 });
+      expect(stripAnsi(i.lastFrame() ?? "")).not.toContain("fetching models");
+      i.unmount();
+    } finally {
+      server.stop(true);
+    }
+  });
 });
