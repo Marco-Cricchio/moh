@@ -39,3 +39,25 @@ test("ISO timestamps normalize before the run date, fixed dates survive", () => 
   expect(n.text('Date: 2020-01-02')).toBe('Date: 2020-01-02');
   expect(n.text(`${today}9`)).toBe(`${today}9`);
 });
+
+test("display rows without an elapsed rendering stay byte-identical, borders and padding included", () => {
+  const n = normalizer();
+  const rows = [
+    "───────────────────│   usage by model                                           │──────────────────",
+    "───────────────────│   0 tokens · no pricing for 1      │──────────────────",
+    "  tokens · wall 5ms",
+    "│   wall 850ms · tools 1.2s      │",
+    "x  ",
+  ];
+  for (const r of rows) expect(n.text(r, "display")).toBe(r);
+  const multi = rows.join("\n");
+  expect(n.text(multi, "display")).toBe(multi);
+});
+
+test("display rows without a border keep their text around the masked durations", () => {
+  const n = normalizer();
+  expect(n.text("  12 tokens · wall 850ms · tools 1.2s · no pricing for 1  ", "display")).toBe(
+    "  12 tokens · wall <dur> · tools <dur> · no pricing for 1  ",
+  );
+  expect(n.text("  12 tokens · wall 12m 5s · model-serving tools 7s", "display")).toBe("  12 tokens · wall <dur> · model-serving tools <dur>");
+});
