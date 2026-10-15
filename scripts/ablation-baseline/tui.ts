@@ -167,7 +167,10 @@ const scenarios: Scenario[] = [
         { wait: 0.5, send: B("\x1b") },
         { wait: 0.4, send: B("\x0c") }, // ctrl+l → model picker
         { wait: 8.0, until: "filter:", untilFromBuffer: true },
-        { wait: 1.5 }, // live catalog refresh changes the picker layout
+        // The picker's list fetch and the live refresh change its layout while
+        // they run ("fetching models…"): wait for the settled picker.
+        { wait: 8.0, until: "no list from fake", untilOnScreen: true },
+        { wait: 8.0, until: "nothing to refresh", untilOnScreen: true },
         { checkpoint: "model" },
         { wait: 0.5, send: B("\x1b") },
         { wait: 0.4, send: B("\x06") }, // ctrl+f → frontier (workflow on in dev mode)
