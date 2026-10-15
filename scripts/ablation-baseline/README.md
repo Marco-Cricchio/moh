@@ -90,6 +90,32 @@ network *blocking* is proven only via the dead proxy, not positively.
 B2's `g1-reasoning-wire` covers reasoning over a real (local SSE)
 openai-compat wire; a remote wire is intentionally out of scope.
 
+## Known B5 flake: `permission-prompt` / `permission-allowed` (#1482)
+
+The `permission-allowed` frame in `tui/permission-prompt.json` is not
+deterministic. Measured on `ef00d3c6` (unmodified harness, sequential runs of
+`bun scripts/ablation-baseline/tui.ts <fresh-dir> --only permission-prompt`):
+10 of 60 recordings differed from the reference (about 1 in 6), in 3 distinct
+variants; the `permission-prompt` frame was identical in the one differing
+file that was diffed.
+
+Cause (measured, not fixed): the frame shape is fixed by the first repaint
+after the modal closes (`ESC[?1049l`). In some runs that repaint redraws only
+the composer and footer; in others it still redraws the tool and permission
+rows (and sometimes the assistant block). The shape then never changes (20
+runs sampled every 0.25 s for 6 s), so no longer settle or other readiness
+condition on this screen can select one. Replaying the raw bytes through
+`harness.py` `Screen` (whole, and in 7-byte chunks) reproduced the live shape
+in 13 of 13 runs, so the emulator is not the source: the difference is in the
+bytes the TUI emits (paint/promotion order, out of scope for the harness).
+
+Rule: a B5 difference **only** in `permission-prompt` / `permission-allowed`
+is not a regression by itself. Re-record that scenario in a fresh directory
+(`bun scripts/ablation-baseline/tui.ts <fresh-dir> --only permission-prompt`,
+about 14 s per attempt) and compare it with `current`; count it as a
+regression only if the difference is not one of the known shapes, or any other
+B5 file differs. Never run two B5 recordings at once (fixed temp names).
+
 ## B7 — Manual smoke checklist
 
 Run after each phase with a real terminal and credentials:
