@@ -209,8 +209,14 @@ export default defineExtension({
   version: "1.0.0",
   apiVersion: MOH_EXTENSION_API_VERSION,
   setup(ctx) {
-    ctx.onEvent(({ event }) => {
-      if (event.type !== "user_message") return;
+    // \`beforeTurn\` is awaited by the loop before the \`user_message\` is
+    // logged and the provider is read, so the flood lands in a fixed
+    // position. An \`onEvent\` handler on \`user_message\` ran either
+    // re-entrantly inside the session's append (dispatch queue idle), before
+    // the turn pin advanced, or later (queue busy): the \`parentId\` of the
+    // flood varied with that timing (#1481, runtime side #1487). The
+    // per-turn budget resets at dispatch entry.
+    ctx.beforeTurn(() => {
       for (let i = 0; i < LIMIT; i++) {
         ctx.appendEvent({ name: "spurious-" + i, payload: { i } });
       }
