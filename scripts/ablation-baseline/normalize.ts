@@ -12,7 +12,9 @@
  *   (computed at process startup), so fixture-fixed dates
  *   (a seeded `recordedAt`, a legacy session id) stay byte-compared;
  * - **measured** durations only: the whitelisted `*Ms` keys below and
- *   the anchored `wall …` elapsed renderings → `<ms>`/`<dur>`.
+ *   the anchored `wall …` elapsed renderings → `<ms>`/`<dur>`. A rendering
+ *   inside a bordered box row is re-padded (see `maskElapsedRow`) so the
+ *   row does not depend on the length of the original duration text.
  *   CONFIGURED limits are never touched: `timeoutMs`, `hookTimeoutMs`,
  *   `retryAfterMs`, `resetMs`, "default 30s" in a tool description,
  *   "within 30000ms" in a hook-timeout message (C2/C9/C11) all stay
@@ -46,6 +48,30 @@ const MS_KEY_RE = /("([A-Za-z0-9_]+Ms)":\s*)(-?\d+(?:\.\d+)?)/g;
  * descriptions: `30s`, `600000`, `within 30000ms` are configured limits
  * and must survive byte-for-byte. */
 const WALL_ELAPSED_RE = /(\btokens · wall )(?:\d+m \d+s|\d+(?:\.\d+)?(?:ms|s))( · (?:model-serving )?tools )(?:\d+m \d+s|\d+(?:\.\d+)?(?:ms|s))\b/g;
+/** Masks the elapsed renderings of ONE display row. A box row is padded to
+ * a fixed width by the renderer, so the spaces before its closing border
+ * depend on the length of the original text (`850ms` vs `1.2s`); masking
+ * to `<dur>` alone would leave the row's width, and the border column,
+ * dependent on the measured time. When a rendering was replaced, the run
+ * of spaces immediately before the first `│` after the last replacement is
+ * resized so the row keeps its pre-mask width. If the masked content no
+ * longer fits that width the run becomes a single space. A row with no
+ * replacement is returned untouched; so is a row with no border after the
+ * replacement. */
+function maskElapsedRow(line: string): string {
+  const matches = [...line.matchAll(WALL_ELAPSED_RE)];
+  if (matches.length === 0) return line;
+  const masked = line.replace(WALL_ELAPSED_RE, (_m, wall: string, tools: string) => `${wall}<dur>${tools}<dur>`);
+  const last = matches[matches.length - 1]!;
+  const tailStart = masked.length - (line.length - (last.index! + last[0].length));
+  const tail = masked.slice(tailStart);
+  const border = tail.indexOf("│");
+  if (border === -1) return masked;
+  const run = /( *)$/.exec(tail.slice(0, border))![1]!.length;
+  const want = run + (line.length - masked.length);
+  const padded = " ".repeat(want >= 0 ? want : 1);
+  return masked.slice(0, tailStart) + tail.slice(0, border - run) + padded + tail.slice(border);
+}
 const SESSION_FILE_RE = /\b\d{8}T\d{6}\d{3}Z-([0-9a-f]{8})\b/g;
 const SESSION_ID_RE = /\bsession-([0-9a-f]{8})\b/g;
 const SUBAGENT_CALL_RE = /\bsubagent-([0-9a-f]{8})\b/g;
@@ -137,7 +163,7 @@ export class Normalizer {
     out = out.replace(CLOCK_RE, () => "<clock>");
     out = out.replace(MS_KEY_RE, (m, pre: string, key: string) => (MEASURED_MS_KEYS.has(key) ? `${pre}<ms>` : m));
     if (context === "display") {
-      out = out.replace(WALL_ELAPSED_RE, (_m, wall: string, tools: string) => `${wall}<dur>${tools}<dur>`);
+      out = out.split("\n").map(maskElapsedRow).join("\n");
     }
     return out;
   }
