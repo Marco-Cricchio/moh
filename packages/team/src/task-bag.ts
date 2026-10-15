@@ -42,7 +42,6 @@ export interface BagEvent {
 
 export class TaskBag {
   readonly tasks = new Map<string, BagTask>();
-  #seq = 0;
 
   /** Validates refs against the whole plan up front — a bag is created whole or not at all. */
   static planIds(count: number): string[] {
