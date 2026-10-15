@@ -1,7 +1,6 @@
 // Package-entry surface lock (#1388). Every name exported by an entry of
-// @moh/core, @moh/tui and @moh/extension (the `exports` map subpaths of each
-// package.json) is committed in entry-surface/<package>[.<subpath>].txt, sorted,
-// one name per line. Adding or removing an export fails here until the list is
+// every workspace package that has an `exports` map (each subpath) is
+// committed in entry-surface/<package>[.<subpath>].txt, sorted, one name per line. Adding or removing an export fails here until the list is
 // updated in the same change, so a surface change is a visible diff line.
 // This test does not judge whether an export is justified (#1396).
 //
@@ -16,7 +15,13 @@ const PACKAGES = join(import.meta.dir, "..", "..");
 const LISTS = join(import.meta.dir, "entry-surface");
 const UPDATE = process.env.MOH_UPDATE_ENTRY_SURFACE === "1";
 
-const SCOPES = ["core", "tui", "extension"] as const;
+// Every package whose package.json declares an `exports` map is in scope.
+const SCOPES = readdirSync(PACKAGES)
+  .filter((pkg) => {
+    const manifest = join(PACKAGES, pkg, "package.json");
+    return existsSync(manifest) && "exports" in JSON.parse(readFileSync(manifest, "utf8"));
+  })
+  .sort();
 
 type Entry = { readonly key: string; readonly file: string; readonly list: string };
 
