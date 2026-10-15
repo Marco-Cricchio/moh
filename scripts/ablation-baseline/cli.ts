@@ -7,7 +7,7 @@
 // entry) and records stdout/stderr/exit code per command under
 // <outDir>/cli/. Network-touching commands run with the network blocked
 // (dead proxy) and must fail the same way every time.
-import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, utimesSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { projectSlug } from "@moh/core";
@@ -86,6 +86,15 @@ function buildFixture(base: string): Fixture {
   mkdirSync(trashDir, { recursive: true, mode: 0o700 });
   const trashed = join(trashDir, "20251231T000000000Z-33333333.jsonl");
   seedSession(trashed, "trashed seeded session");
+  // Explicit, distinct mtimes in file-name order (trashed < alpha < beta <
+  // gamma): listings sort newest-mtime first and back-to-back writes tie or
+  // straddle a millisecond at random (#1486). A tie falls back to name
+  // descending, which is the order this fixture was recorded with.
+  const seededAt = Math.floor(Date.now() / 1000);
+  [trashed, sessionA, sessionB, sessionC].forEach((file, i) => {
+    const t = seededAt - 40 + i * 10;
+    utimesSync(file, t, t);
+  });
   return { home, cwd, slug, sessionA, sessionB, trashed };
 }
 
