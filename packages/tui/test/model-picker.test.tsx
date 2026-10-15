@@ -6,7 +6,7 @@ import { ModelPickerModal, type ModelPickerModalProps } from "../src/ModelPicker
 import { contextWindowForLabel, filterCatalog, modelRow, windowText, type EndpointPick } from "../src/model-picker";
 import { contextFraction } from "../src/sidebar";
 import { ThemeProvider, THEMES, DEFAULT_THEME } from "../src/themes";
-import { stripAnsi } from "./helpers";
+import { stripAnsi, waitText } from "./helpers";
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
@@ -431,5 +431,55 @@ describe("two numbers wherever a window is displayed (ADR-0049)", () => {
 
   test("a declared number equal to the catalog one is not shown twice", () => {
     expect(windowText(1_000_000, 1_000_000)).toBe("1000k");
+  });
+});
+
+describe("/model modal: the endpoints prop changing identity (#1497)", () => {
+  function element(endpoints: EndpointPick[]) {
+    return (
+      <ThemeProvider value={THEMES[DEFAULT_THEME]}>
+        <ModelPickerModal
+          activeModel="alpha/claude-sonnet-4-5"
+          endpoints={endpoints}
+          onSwitch={(ref) => ({ ok: true, model: ref })}
+          onSwitched={() => {}}
+          liveCatalog={{}}
+          onRefreshLive={() => {}}
+          refreshingLive={false}
+          onCompact={() => {}}
+          onToast={() => {}}
+          onClose={() => {}}
+        />
+      </ThemeProvider>
+    );
+  }
+
+  test("a list already fetched survives a re-render with a new endpoints array", async () => {
+    const server = Bun.serve({ port: 0, fetch: () => Response.json({ data: [{ id: "glm-5.3" }] }) });
+    try {
+      const pick = (): EndpointPick[] => [{ name: "zai", type: "openai-compat", baseUrl: `http://localhost:${server.port}/v1`, apiKey: "k", catalog: [] }];
+      const i = render(element(pick()));
+      await waitText(i, "zai · glm-5.3", "fetched list shown");
+      i.rerender(element(pick()));
+      await sleep(50);
+      const frame = stripAnsi(i.lastFrame() ?? "");
+      expect(frame).toContain("zai · glm-5.3");
+      expect(frame).not.toContain("fetching models");
+      i.unmount();
+    } finally {
+      server.stop(true);
+    }
+  });
+
+  test("a failed fetch stays 'no list from' after a re-render with a new endpoints array", async () => {
+    const pick = (): EndpointPick[] => [{ name: "zai", type: "openai-compat", baseUrl: "http://localhost:9/v1", catalog: [] }];
+    const i = render(element(pick()));
+    await waitText(i, "no list from zai", "failed fetch shown");
+    i.rerender(element(pick()));
+    await sleep(50);
+    const frame = stripAnsi(i.lastFrame() ?? "");
+    expect(frame).toContain("no list from zai");
+    expect(frame).not.toContain("fetching models");
+    i.unmount();
   });
 });
