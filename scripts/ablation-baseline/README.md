@@ -28,7 +28,12 @@ are masked; `timeoutMs`, `hookTimeoutMs`, `retryAfterMs`, `resetMs`, and
 other configured budgets remain byte-compared, including their prose.
 Elapsed prose is masked only in CLI/TUI report rows matching
 `tokens · wall … · tools …` (including `model-serving tools`), never in
-provider requests or event messages. Pids require an explicit process
+provider requests or event messages. In a bordered box row (a `│` after
+the masked text) the run of spaces before that border is resized so the
+row keeps its pre-mask width, so the frame does not depend on the length
+of the measured duration text (`850ms` vs `1.2s`); if the masked content
+no longer fits that width the run becomes one space. Rows with no masked
+rendering are never touched. Pids require an explicit process
 context and a whole integer token. Date-only masking uses the UTC date
 captured at process startup; fixed fixture dates survive. Full ISO
 run timestamps are masked before date-only matching.
