@@ -13,11 +13,22 @@
 // entry no longer exports, so the baseline can only shrink.
 //
 // Both lists are sorted, one name per line (allowlist: `<name> <page>`).
+// An allowlist page must resolve inside docs/extending/ and name the symbol
+// as a whole word (see `pageNames`); an allowlisted name that a client now
+// imports must leave the allowlist, as for the baseline.
 import { describe, expect, test } from "bun:test";
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { join, relative } from "node:path";
 import ts from "typescript";
-import { clientUses, keepCriterionErrors } from "./keep-criterion/scan";
+import {
+  ALLOWLIST_FILE,
+  BASELINE_FILE,
+  clientUses,
+  keepCriterionErrors,
+  listOrderErrors,
+  pageNames,
+  scriptKind,
+} from "./keep-criterion/scan";
 
 const ROOT = join(import.meta.dir, "..", "..", "..");
 const LISTS = join(import.meta.dir, "keep-criterion");
@@ -67,45 +78,35 @@ function readLines(file: string): string[] {
   return readFileSync(join(LISTS, file), "utf8").split("\n").filter((line) => line !== "");
 }
 
-const sorted = (lines: readonly string[]) => [...new Set(lines)].sort();
-
 describe("@moh/core keep-criterion", () => {
   test("every export is client-imported, allowlisted, or in the shrinking baseline", () => {
     const baseline = readLines("baseline.txt");
     const allowLines = readLines("allowlist.txt");
-    expect(baseline).toEqual(sorted(baseline));
-    expect(allowLines).toEqual(sorted(allowLines));
+    const errors = [...listOrderErrors(BASELINE_FILE, baseline), ...listOrderErrors(ALLOWLIST_FILE, allowLines)];
     const allowlist = new Map<string, string>();
     for (const line of allowLines) {
       const match = /^(\S+) (\S+)$/.exec(line);
-      if (match === null) throw new Error(`allowlist line is not "<name> <page>": ${line}`);
-      if (allowlist.has(match[1]!)) throw new Error(`allowlist names ${match[1]} twice`);
-      allowlist.set(match[1]!, match[2]!);
+      if (match === null) errors.push(`${ALLOWLIST_FILE}: line is not "<name> <page>": ${line}`);
+      else allowlist.set(match[1]!, match[2]!);
     }
 
     const used = new Set<string>();
-    const problems: string[] = [];
     for (const file of clientFiles()) {
       const uses = clientUses(relative(ROOT, file), readFileSync(file, "utf8"));
       for (const name of uses.names) used.add(name);
-      problems.push(...uses.problems);
+      errors.push(...uses.problems);
     }
-    expect(problems).toEqual([]);
 
-    const errors = keepCriterionErrors({
-      exports: coreExports(),
-      used,
-      allowlist,
-      baseline,
-      pageExists: (page) => existsSync(join(ROOT, page)),
-    });
-    if (errors.length > 0) {
-      throw new Error(
-        `@moh/core keep-criterion (#1396):\n  ${errors.join("\n  ")}\n` +
-          "Import the name from a client, document it under docs/extending/ and add an allowlist line, " +
-          "or stop exporting it. Remove baseline lines that no longer fail; never add new ones.",
-      );
-    }
+    errors.push(
+      ...keepCriterionErrors({
+        exports: coreExports(),
+        used,
+        allowlist,
+        baseline,
+        pageText: (page) => (existsSync(join(ROOT, page)) ? readFileSync(join(ROOT, page), "utf8") : undefined),
+      }),
+    );
+    if (errors.length > 0) throw new Error(`@moh/core keep-criterion (#1396):\n  ${errors.join("\n  ")}`);
   });
 });
 
@@ -159,6 +160,35 @@ describe("client-use scanner", () => {
     expect(names(`const { a } = require("@moh/core"); import core = require("@moh/core"); core.b;`)).toEqual(["a", "b"]);
   });
 
+  test("a same-named local shadows the namespace: its members never count", () => {
+    const head = `import * as core from "@moh/core"; core.a(); `;
+    expect(names(head + `function f() { const core = other(); core.ghost; }`)).toEqual(["a"]);
+    expect(names(head + `function f() { let core = other(); core.ghost; }`)).toEqual(["a"]);
+    expect(names(head + `function f() { var core = other(); core.ghost; }`)).toEqual(["a"]);
+    expect(names(head + `try { run(); } catch (core) { core.ghost; }`)).toEqual(["a"]);
+    expect(names(head + `for (const core of items) core.ghost;`)).toEqual(["a"]);
+    expect(names(head + `function f(core) { return core.ghost; }`)).toEqual(["a"]);
+    expect(names(`const m = await import("@moh/core"); m.a; function g(s) { const m = /x/.exec(s); return m.ghost; }`)).toEqual(["a"]);
+  });
+
+  test("a namespace use that names no member is reported, even next to a shadow", () => {
+    expect(problems(`import * as core from "@moh/core"; { const core = 1; core.ghost; } use(core);`)).toHaveLength(1);
+    expect(problems(`import * as core from "@moh/core"; use({ core });`)).toHaveLength(1);
+    expect(problems(`import * as core from "@moh/core"; export { core };`)).toHaveLength(1);
+    expect(problems(`import * as core from "@moh/core"; const again = core; again.a;`)).toHaveLength(1);
+  });
+
+  test("scriptKind follows the file extension", () => {
+    expect(scriptKind("a.ts")).toBe(ts.ScriptKind.TS);
+    expect(scriptKind("a.mts")).toBe(ts.ScriptKind.TS);
+    expect(scriptKind("a.cts")).toBe(ts.ScriptKind.TS);
+    expect(scriptKind("a.tsx")).toBe(ts.ScriptKind.TSX);
+    expect(scriptKind("a.jsx")).toBe(ts.ScriptKind.JSX);
+    expect(scriptKind("a.js")).toBe(ts.ScriptKind.JS);
+    expect(scriptKind("a.mjs")).toBe(ts.ScriptKind.JS);
+    expect(scriptKind("a.cjs")).toBe(ts.ScriptKind.JS);
+  });
+
   test("JavaScript and TSX sources", () => {
     expect(names(`import { a } from "@moh/core";`, "example.mjs")).toEqual(["a"]);
     expect(names(`import { A } from "@moh/core"; export const X = () => <A />;`, "view.tsx")).toEqual(["A"]);
@@ -175,12 +205,13 @@ describe("client-use scanner", () => {
 });
 
 describe("keep-criterion ratchet", () => {
+  const page = "docs/extending/library-usage.md";
   const base = {
     exports: ["a", "b", "c"],
     used: new Set(["a"]),
-    allowlist: new Map([["b", "docs/extending/library-usage.md"]]),
+    allowlist: new Map([["b", page]]),
     baseline: ["c"],
-    pageExists: () => true,
+    pageText: (path: string) => (path === page ? "Call `b(x)` to get it." : undefined),
   };
 
   test("passes when every export is used, allowlisted or in the baseline", () => {
@@ -189,29 +220,74 @@ describe("keep-criterion ratchet", () => {
 
   test("a new export with no client import fails; a client import makes it pass", () => {
     const added = { ...base, exports: [...base.exports, "d"] };
-    expect(keepCriterionErrors(added)).toEqual(["export with no client import and no allowlist entry: d"]);
+    expect(keepCriterionErrors(added)).toEqual([
+      "packages/core/src/index.ts exports d with no client import and no packages/core/test/keep-criterion/allowlist.txt line " +
+        "(import it from a client, document it under docs/extending/ and add a line, or stop exporting it; never add it to packages/core/test/keep-criterion/baseline.txt)",
+    ]);
     expect(keepCriterionErrors({ ...added, used: new Set(["a", "d"]) })).toEqual([]);
   });
 
   test("a baseline name that a client now imports fails (the baseline only shrinks)", () => {
     expect(keepCriterionErrors({ ...base, used: new Set(["a", "c"]) })).toEqual([
-      "baseline entry now imported by a client (remove it): c",
+      "packages/core/test/keep-criterion/baseline.txt: c is now imported by a client (remove the line)",
     ]);
   });
 
   test("a baseline name the entry no longer exports is a stale entry", () => {
     expect(keepCriterionErrors({ ...base, exports: ["a", "b"] })).toEqual([
-      "baseline entry no longer exported (remove it): c",
+      "packages/core/test/keep-criterion/baseline.txt: c is no longer exported by packages/core/src/index.ts (remove the line)",
     ]);
   });
 
-  test("an allowlist line must name an existing docs/extending/ page of an exported name", () => {
-    expect(keepCriterionErrors({ ...base, pageExists: () => false })).toEqual([
-      "allowlist entry b names a missing docs/extending/ page: docs/extending/library-usage.md",
+  test("an allowlisted name that a client now imports fails", () => {
+    expect(keepCriterionErrors({ ...base, used: new Set(["a", "b"]) })).toEqual([
+      "packages/core/test/keep-criterion/allowlist.txt: b is now imported by a client (remove the line)",
     ]);
-    expect(keepCriterionErrors({ ...base, allowlist: new Map([["b", "docs/manual/x.md"]]) })).toEqual([
-      "allowlist entry b names a missing docs/extending/ page: docs/manual/x.md",
+  });
+
+  test("an allowlisted name the entry no longer exports is a stale entry", () => {
+    expect(keepCriterionErrors({ ...base, exports: ["a", "c"] })).toEqual([
+      "packages/core/test/keep-criterion/allowlist.txt: b is no longer exported by packages/core/src/index.ts (remove the line)",
     ]);
-    expect(keepCriterionErrors({ ...base, exports: ["a", "c"] })).toEqual(["allowlist entry no longer exported: b"]);
+  });
+
+  test("an allowlist page must resolve inside docs/extending/", () => {
+    for (const outside of ["docs/extending/../../README.md", "docs/manual/x.md", "/docs/extending/index.md", "docs/extendingx/a.md"]) {
+      expect(keepCriterionErrors({ ...base, allowlist: new Map([["b", outside]]), pageText: () => "b" })).toEqual([
+        `packages/core/test/keep-criterion/allowlist.txt: b names a page outside docs/extending/: ${outside}`,
+      ]);
+    }
+    expect(keepCriterionErrors({ ...base, allowlist: new Map([["b", "docs/extending/examples/../library-usage.md"]]) })).toEqual([]);
+  });
+
+  test("an allowlist page must exist and name the symbol as a whole word", () => {
+    expect(keepCriterionErrors({ ...base, pageText: () => undefined })).toEqual([
+      `packages/core/test/keep-criterion/allowlist.txt: b names a page that does not exist: ${page}`,
+    ]);
+    expect(keepCriterionErrors({ ...base, pageText: () => "only `bb` and `ab_c` here" })).toEqual([
+      `packages/core/test/keep-criterion/allowlist.txt: b is not named in its page ${page}`,
+    ]);
+  });
+
+  test("a name in both lists fails", () => {
+    expect(keepCriterionErrors({ ...base, baseline: ["b", "c"] })).toEqual([
+      "packages/core/test/keep-criterion/allowlist.txt and packages/core/test/keep-criterion/baseline.txt both list b (keep one)",
+    ]);
+  });
+
+  test("pageNames matches whole identifier words only", () => {
+    expect(pageNames("use `activePath(events)`", "activePath")).toBe(true);
+    expect(pageNames("activePath", "activePath")).toBe(true);
+    expect(pageNames("SessionConfig.mpm opts in", "SessionConfig")).toBe(true);
+    expect(pageNames("activePathX and xactivePath and activePath_ and $activePath", "activePath")).toBe(false);
+  });
+
+  test("listOrderErrors names the first out-of-place lines, not the whole list", () => {
+    expect(listOrderErrors("l.txt", ["a", "b", "c"])).toEqual([]);
+    expect(listOrderErrors("l.txt", ["a", "c", "b", "d", "d"])).toEqual([
+      "l.txt:3 is out of order (sorts before line 2): b",
+      "l.txt:5 duplicates an earlier line: d",
+    ]);
+    expect(listOrderErrors("l.txt", ["z", "y", "x", "w", "v", "u", "t"])).toHaveLength(5);
   });
 });
