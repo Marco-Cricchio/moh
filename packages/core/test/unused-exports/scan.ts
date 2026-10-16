@@ -16,7 +16,21 @@
 // Identity: `<repo-relative file> <exported name>`. The same name exported
 // by two files is two entries; overloads and merged declarations are one
 // symbol, so one entry per exported name.
-import { readdirSync } from "node:fs";
+//
+// The files are the repo's, not the disk's: `git ls-files --cached --others
+// --exclude-standard` (tracked files plus new files that are not ignored),
+// so a git-ignored local file never counts as a user and a local run
+// matches CI; a new file not yet added to the index still counts.
+//
+// Known limits:
+// - Several names of one symbol share one set of uses (`export { a as b,
+//   a as c }`, or `default` plus a name): when one name is used the others
+//   count as used too, even if nobody uses them. Today this happens only
+//   for `default` in jev-guard/src/index.ts and team/src/index.ts.
+// - `export =` produces no entry, neither used nor unused (no scoped file
+//   uses it today).
+import { execFileSync } from "node:child_process";
+import { existsSync, realpathSync } from "node:fs";
 import { join, relative, sep } from "node:path";
 import ts from "typescript";
 
@@ -32,20 +46,22 @@ export type ExportInfo = {
   readonly usedBy: readonly string[];
 };
 
-// Every source file of the repo; node_modules and dot-directories (.git,
-// .claude worktrees) are skipped.
+// Every source file of the repo, tracked or new and not ignored; paths under
+// node_modules or a dot-directory (.claude worktrees) are skipped, and so is
+// a tracked file deleted from the working tree.
 function repoFiles(root: string): string[] {
-  const files: string[] = [];
-  const walk = (dir: string): void => {
-    for (const entry of readdirSync(dir, { withFileTypes: true })) {
-      if (entry.name === "node_modules" || entry.name.startsWith(".")) continue;
-      const path = join(dir, entry.name);
-      if (entry.isDirectory()) walk(path);
-      else if (SOURCE.test(entry.name)) files.push(path);
-    }
-  };
-  walk(root);
-  return files.sort();
+  const listed = execFileSync("git", ["ls-files", "-z", "--cached", "--others", "--exclude-standard"], {
+    cwd: root,
+    encoding: "utf8",
+    maxBuffer: 64 * 1024 * 1024,
+  });
+  const files = new Set<string>();
+  for (const path of listed.split("\0")) {
+    if (!SOURCE.test(path) || path.split("/").some((part) => part === "node_modules" || part.startsWith("."))) continue;
+    const file = join(root, path);
+    if (existsSync(file)) files.add(file);
+  }
+  return [...files].sort();
 }
 
 // The identifier names an import or re-export, not a use.
@@ -62,7 +78,10 @@ function isPlumbing(node: ts.Node): boolean {
 }
 
 /** Keyed by `<file> <name>`: every name a scoped file exports from its own declarations. */
-export function scanExports(root: string): Map<string, ExportInfo> {
+export function scanExports(repoRoot: string): Map<string, ExportInfo> {
+  // The real path, so a root given through a symlink (/var -> /private/var)
+  // still contains the files the compiler resolves.
+  const root = realpathSync(repoRoot);
   const rel = (file: string) => relative(root, file).split(sep).join("/");
   const program = ts.createProgram(repoFiles(root), {
     target: ts.ScriptTarget.ES2022,

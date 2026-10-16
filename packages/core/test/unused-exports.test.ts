@@ -10,6 +10,7 @@
 //
 // The list is sorted, one entry per line, with no blank line.
 import { describe, expect, test } from "bun:test";
+import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -55,6 +56,7 @@ describe("unused-export scanner", () => {
       "const hidden = 1;",
       "export { hidden as shown };",
       "export default function main() {}",
+      "export const viaUntracked = 1;",
     ].join("\n"),
     "packages/p/src/b.ts": "export const Merged = 1;\nexport function Overloaded() {}\n",
     "packages/p/src/barrel.ts": 'export { onlyReexported, viaBarrel } from "./a";\nexport * from "./a";\n',
@@ -82,15 +84,26 @@ describe("unused-export scanner", () => {
     // Skipped: a dot-directory (a worktree copy) and node_modules.
     ".claude/worktrees/w/packages/p/src/u.ts": 'import { unused } from "../../../../../../packages/p/src/a";\nunused();\n',
     "packages/p/node_modules/q/index.ts": 'import { unused } from "../../src/a";\nunused();\n',
+    // Skipped: a git-ignored file.
+    ".gitignore": "ignored/\n",
+    "ignored/i.ts": 'import { unused } from "../packages/p/src/a";\nunused();\n',
   };
+  // Counted: a new file that is not ignored and not yet added to the index.
+  const untracked = { "packages/p/src/fresh.ts": 'import { viaUntracked } from "./a";\nviaUntracked;\n' };
 
-  test("lists exactly the exports no other file uses; imports and re-exports alone do not count", () => {
+  test("lists exactly the exports no other file uses; imports, re-exports and ignored files do not count", () => {
     const root = mkdtempSync(join(tmpdir(), "moh-unused-exports-"));
-    try {
-      for (const [path, text] of Object.entries(files)) {
+    const write = (entries: Record<string, string>) => {
+      for (const [path, text] of Object.entries(entries)) {
         mkdirSync(dirname(join(root, path)), { recursive: true });
         writeFileSync(join(root, path), text);
       }
+    };
+    try {
+      write(files);
+      execFileSync("git", ["init", "-q"], { cwd: root });
+      execFileSync("git", ["add", "-A"], { cwd: root });
+      write(untracked);
       const exports = scanExports(root);
       expect(unusedExports(exports)).toEqual([
         "packages/p/src/a.ts Dual",
@@ -109,6 +122,7 @@ describe("unused-export scanner", () => {
       expect(exports.get("packages/p/src/a.ts usedByTest")?.usedBy).toEqual(["packages/p/test/a.test.ts"]);
       expect(exports.get("packages/p/src/a.ts viaScript")?.usedBy).toEqual(["scripts/s.ts"]);
       expect(exports.get("packages/p/src/a.ts viaExample")?.usedBy).toEqual(["docs/extending/examples/e.mjs"]);
+      expect(exports.get("packages/p/src/a.ts viaUntracked")?.usedBy).toEqual(["packages/p/src/fresh.ts"]);
       expect(exports.get("packages/p/src/a.ts Merged")?.line).toBe(19);
       expect([...exports.keys()].some((key) => key.startsWith("packages/extension/"))).toBe(false);
       expect([...exports.keys()].some((key) => key.startsWith("packages/p/src/barrel.ts") || key.startsWith("packages/p/src/index.ts"))).toBe(false);
