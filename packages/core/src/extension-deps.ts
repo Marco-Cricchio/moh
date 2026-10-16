@@ -23,13 +23,12 @@ import {
   readdirSync,
   readFileSync,
   readlinkSync,
-  realpathSync,
   rmSync,
   renameSync,
   symlinkSync,
   writeFileSync,
 } from "node:fs";
-import { dirname, join, relative, resolve } from "node:path";
+import { join, resolve } from "node:path";
 import type { RegistryIo } from "./extension-registry";
 
 /** The moh-owned root directory name under the moh home. */
@@ -92,10 +91,6 @@ export function checkExactVersions(dependencies: Record<string, string>): Exactn
     }
   }
   return { ok: true };
-}
-
-function sriFor(bytes: Uint8Array, scheme: "sha512" | "sha1" = "sha512"): string {
-  return `${scheme}-${createHash(scheme).update(bytes).digest("base64")}`;
 }
 
 /** One npm packument as the installer reads it. */
@@ -399,7 +394,7 @@ export function linkDepsTree(depsDir: string, extensionDir: string): { ok: true 
 }
 
 function verifySri(bytes: Uint8Array, integrity: string): { ok: true } | { ok: false; expected: string; actual: string } {
-  const [scheme, b64] = integrity.split("-", 2);
+  const [scheme] = integrity.split("-", 2);
   if (scheme !== "sha512" && scheme !== "sha1") {
     return { ok: false, expected: integrity, actual: `unsupported integrity scheme "${scheme ?? ""}"` };
   }

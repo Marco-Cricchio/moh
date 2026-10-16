@@ -1548,10 +1548,6 @@ const askUser: Tool<z.infer<typeof askUserSchema>> = {
   },
 };
 
-function joinSafe(root: string, rel: string): string {
-  return `${root}/${rel.split("\\").join("/")}`;
-}
-
 export interface BuiltinToolsOptions {
   /** Root for secure, per-session bash capture directories. */
   ledgerRoot?: string;

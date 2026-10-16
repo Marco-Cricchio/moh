@@ -51,7 +51,6 @@ import { defaultCredentialStore, validateCredentialScope, type CredentialStore }
 import { PromptComposer, type SkillIndexEntry } from "./prompt-composer";
 import type {
   AgentEvent,
-  ExtensionControlPayload,
   ExtensionStatus,
   ReasoningStreamEvent,
   AskUserAnswer,
@@ -109,12 +108,6 @@ import {
   // ADR-0004 reopening that lets clients (TUI /tree, CLI renderers,
   // tooling) read the same linear path the model context sees.
   activePath,
-  // #578: on-path marker resolution + the dangling-pointer warning —
-  // clients projecting their own replay need the same compaction
-  // semantics the core applies (ADR-0004 reopening; to be recorded in
-  // the session-tree ADR, #571).
-  compactionProjection,
-  replayWarnings,
   // #580: the client-facing tree projection (spec §1) — the single seam
   // the TUI /tree panel and the CLI renderer both consume. Returns the
   // TreeView or { error }; never throws.
@@ -139,7 +132,6 @@ import {
 // client rotating the mode needs the same union the core judges with.
 export type { SessionMode } from "./permissions";
 import { type ProviderRegistry, defaultRegistry, resolveProvider, resolveProviderRef, isFallbackEligible, fallbackIneligibleReason } from "./provider-registry";
-import { contextFitFor, CONTEXT_FIT_RESERVE, type ContextFitVerdict } from "./context-fit";
 import { type MemoryOptions } from "./memory";
 import { CompactionRunner, compactionFacts, createDeterministicSummarizer, renderDeterministicDigest, type CompactionFacts, type CompactionOptions, type CompactionSummarizer, type CompactionSummarizerInput } from "./compaction";
 // #488: file mentions — the ADR-0004 reopening that lets clients expand
@@ -502,8 +494,6 @@ import {
 import {
   MOH_VERSION,
   installFirstPartySkills,
-  embeddedSkillSources,
-  bundledSkillSources,
   checkUpstreamUpdates,
   applyUpstreamUpdates,
   validateSkillEntry,
@@ -628,14 +618,12 @@ import {
 import {
   authMethodKindSchema,
   anthropicAuthOverridesSchema,
-  googleAuthOverridesSchema,
   openaiAuthOverridesSchema,
   openrouterAuthOverridesSchema,
   kimiCodingAuthOverridesSchema,
   xaiAuthOverridesSchema,
   githubCopilotAuthOverridesSchema,
   type AnthropicAuthOverrides,
-  type GoogleAuthOverrides,
   type OpenAiAuthOverrides,
   type OpenrouterAuthOverrides,
   type KimiCodingAuthOverrides,
@@ -660,7 +648,6 @@ import {
   saveTokens,
 } from "./auth/store";
 import {
-  CODE_RECEIVED_MSG,
   TOS_WARNING,
   base64url,
   buildAuthorizeUrl,
@@ -701,19 +688,6 @@ import {
   type OpenAiEndpointFetch,
   type OpenAiOAuthConfig,
 } from "./auth/openai";
-import {
-  GOOGLE_API_BASE_URL,
-  GOOGLE_OAUTH_DEFAULTS,
-  GOOGLE_SCOPES,
-  GoogleLoginAborted,
-  buildGoogleAuthorizeUrl,
-  exchangeGoogleCode,
-  loginGoogle,
-  refreshGoogleToken,
-  resolveGoogleOAuthConfig,
-  type GoogleEndpointFetch,
-  type GoogleOAuthConfig,
-} from "./auth/google";
 import {
   OPENROUTER_API_BASE_URL,
   OPENROUTER_OAUTH_DEFAULTS,

@@ -16,7 +16,7 @@
  *   not exist here at all.
  */
 import { chmodSync, existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
-import { dirname, isAbsolute, join, relative, resolve } from "node:path";
+import { isAbsolute, join, relative, resolve } from "node:path";
 import { retroSignature, type RetroFinding } from "./retro";
 
 /** What kind of change an application is (ADR-0075's three shapes). */

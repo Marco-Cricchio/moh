@@ -127,7 +127,7 @@ export function activePath(events: ReadonlyArray<AgentEvent>): AgentEvent[] {
   // Degenerate legacy log (or empty): identity-less events have no
   // chains to follow — the file order IS the path.
   if (events.length === 0 || events[0]!.id === undefined) return [...events];
-  const { head, dangling } = resolveHead(events);
+  const { head } = resolveHead(events);
   if (head === undefined) return [...events];
   return pathTo(events, head) ?? [...events];
 }

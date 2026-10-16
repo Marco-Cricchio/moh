@@ -17,7 +17,7 @@
  */
 import { readFileSync } from "node:fs";
 import { catalogEntryFor, type CatalogModel } from "./model-catalog";
-import { isThinkingLevel, THINKING_FORMATS, THINKING_LEVELS, type ThinkingFormat, type ThinkingLevel } from "./types";
+import { isThinkingLevel, THINKING_LEVELS, type ThinkingFormat, type ThinkingLevel } from "./types";
 import { readUserConfigFile, updateUserConfigFile, type UserConfigIo } from "./user-config";
 
 export { THINKING_LEVELS };

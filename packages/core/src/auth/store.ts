@@ -89,7 +89,7 @@ export function clearTokens(file: string, endpoint: string, io: UserConfigIo = {
 export function getStoredApiKey(
   file: string,
   endpoint: string,
-  read: (file: string) => string = (f) => readFileSync(file, "utf8"),
+  read: (file: string) => string = (_f) => readFileSync(file, "utf8"),
 ): string | undefined {
   return readAuthSection(file, read).apiKeys?.[endpoint];
 }
@@ -99,7 +99,7 @@ export function getStoredApiKey(
 export function getStoredApiKeyOrigin(
   file: string,
   endpoint: string,
-  read: (file: string) => string = (f) => readFileSync(file, "utf8"),
+  read: (file: string) => string = (_f) => readFileSync(file, "utf8"),
 ): StoredApiKeyOrigin | undefined {
   return readAuthSection(file, read).apiKeyOrigins?.[endpoint];
 }

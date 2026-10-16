@@ -214,7 +214,7 @@ export class MpmOrientation {
      * tier reason. A seed resolving to more than AMBIGUITY_THRESHOLD files
      * is discarded entirely — ambiguity is noise, never guessed. */
     const resolve = (
-      seed: string,
+      _seed: string,
       paths: string[],
       reasonFor: (path: string) => string,
       tier: MpmSeedTier,
@@ -272,7 +272,7 @@ export class MpmOrientation {
       resolve(seed, [seed], (path) => this.#reasonFor(seed, path), topTier);
     }
     for (const seed of symbolSeeds) {
-      resolve(seed, this.#service.pathsForSymbol(seed), (path) => `matches symbol \`${seed}\``, "medium");
+      resolve(seed, this.#service.pathsForSymbol(seed), (_path) => `matches symbol \`${seed}\``, "medium");
     }
     // #759 low tier: recency-weighted identifiers from persisted prior-call
     // reasoning — suppressed entirely when the previous call produced a
@@ -490,7 +490,7 @@ export class MpmOrientation {
     const seeds: string[] = [];
     for (const token of extractIdentifiers(text)) {
       if (seeds.includes(token)) continue;
-      const paths = this.#service.pathsForSymbol(token);
+      this.#service.pathsForSymbol(token);
       // Exact resolution: any file count is kept here — the ambiguity
       // threshold (>5) decides downstream; a 2-file symbol is actionable.
       seeds.push(token);

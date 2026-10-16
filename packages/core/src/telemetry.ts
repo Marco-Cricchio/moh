@@ -11,7 +11,7 @@ import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { basename, join } from "node:path";
 import type { AgentEvent } from "./types";
 import { aggregateLocalUsage, type BillingPlanResolver, type LocalUsageRow } from "./quota/local";
-import { quotaContradictions, quotaEpisodes, summarizeQuota, type QuotaObservationEvent, type QuotaSummary } from "./quota/telemetry";
+import { quotaContradictions, quotaEpisodes, summarizeQuota, type QuotaSummary } from "./quota/telemetry";
 import { performanceByModel, performanceSamples, taskReport, type PerformanceModelRow, type TaskReport } from "./performance/telemetry";
 import { percentile as percentileOf } from "./performance/telemetry";
 import { estimateModelCost } from "./pricing";

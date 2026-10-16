@@ -12,7 +12,6 @@
  * window whose shape the provider never declared stays `kind: "unknown"`.
  */
 import type { AgentEvent, EndpointIdentity } from "../types";
-import { endpointIdentity } from "../types";
 import type { QuotaReport } from "./types";
 
 // ---------------------------------------------------------------------------

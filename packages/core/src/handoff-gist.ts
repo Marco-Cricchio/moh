@@ -21,7 +21,6 @@
  * itself, so a receiver tolerates multiple live gists during the swap.
  */
 import { homedir } from "node:os";
-import { join } from "node:path";
 import { canonicalRemoteSlug } from "./project-identity";
 import { projectSlug } from "./session-store";
 import type { HandoffPayload, HandoffTransport, HandoffTransportError } from "./handoff-transport";

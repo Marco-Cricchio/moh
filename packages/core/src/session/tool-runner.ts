@@ -396,7 +396,7 @@ export class ToolRunner {
     signal: AbortSignal,
     requester?: { extension: string },
     /** ADR-0076: the ask context a client-initiated door supplies. */
-    askContext?: PermissionAskContext,
+    _askContext?: PermissionAskContext,
   ): Promise<ToolOutcome> {
     const tool = this.#tools()[name];
     if (!tool) {

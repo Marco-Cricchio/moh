@@ -10,7 +10,7 @@
  */
 import { existsSync, watch, type FSWatcher } from "node:fs";
 import { appendFileSync, readFileSync, realpathSync, writeFileSync, mkdirSync, renameSync, rmSync, readlinkSync, statSync } from "node:fs";
-import { createHash, randomBytes } from "node:crypto";
+import { createHash } from "node:crypto";
 import { AsyncLocalStorage } from "node:async_hooks";
 import { homedir } from "node:os";
 import { basename, dirname, isAbsolute, resolve } from "node:path";
@@ -30,7 +30,6 @@ import {
   type HostReadLinkResult,
   type HostFetchResult,
   type HostRunToolResult,
-  type HostModelCallRequest,
   type HostModelCallResult,
   type HostListModelsResult,
   type HostFetchOptions,
@@ -47,16 +46,13 @@ import {
   type SessionEndHook,
   type SessionStartHook,
   type ToolCallHook,
-  type ToolCallHookResult,
   type ToolResultHook,
-  type ToolResultHookResult,
   type TurnConfirmOutcome,
   type AppliedCut,
   type CompactionHook,
   type CompactionHookContext,
   type CompactionHookResult,
 } from "@moh/extension";
-import type { BeforeTurnResult } from "@moh/extension";
 import type { AgentEvent, ExtensionStatus, ThinkingLevel, TokenUsage } from "./types";
 import type { ExtensionSpawnSpec, PanelKeyEvent } from "@moh/extension";
 import type { SubagentHost } from "./subagents";
@@ -67,7 +63,7 @@ import { depsTarballCache, extensionDepsDir, installExtensionDeps, linkDepsTree 
 import { realRegistryIo, type RegistryIo } from "./extension-registry";
 import { hostScopesOf, isHostScope, isPathScope, MAX_FETCH_BYTES, MAX_REDIRECTS, HOST_SCOPE_REASONING_KEY, TOTAL_HOST_WILDCARD, validateHostScope, validatePathScope, pathScopesOf } from "./host-scope";
 import { credentialScopesOf, isCredentialScope, validateCredentialScope, type CredentialStore } from "./credential-scope";
-import { isToolScope, validateToolScope, toolScopesOf, isContributeToolScope, validateContributeToolScope, contributesTool, toolScopeName, contributeToolScopesOf, contributeToolName, CONTRIBUTE_TOOL_SCOPE_PREFIX } from "./tool-scope";
+import { isToolScope, validateToolScope, toolScopesOf, isContributeToolScope, validateContributeToolScope, contributesTool, contributeToolScopesOf, contributeToolName, CONTRIBUTE_TOOL_SCOPE_PREFIX } from "./tool-scope";
 import { isEndpointScope, validateEndpointScope, endpointScopesOf } from "./endpoint-scope";
 import { newUlid } from "./session/ulid";
 
@@ -1786,7 +1782,7 @@ bindPathDeny(isDenied: (resolvedAbsPath: string) => boolean): void {
     replacing?: RuntimeExtension,
     /** ADR-0066: the manifest authority the consent signed (its
      * `reasoning` travels from the same bytes, never a re-read). */
-    manifestAuthority?: ManifestAuthority,
+    _manifestAuthority?: ManifestAuthority,
   ): Promise<
     | { ok: true; instance: RuntimeExtension }
     | ({ ok: false; name?: string; reason: string; message: string })

@@ -10,7 +10,7 @@ import { existsSync, readFileSync, statSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { join } from "node:path";
 import { MPM_DEFAULT_MAX_FILES, MPM_DEFAULT_MAX_TOTAL_BYTES, MpmService, type MpmQuota, type MpmStatus } from "./service";
-import { capabilityForPath, MPM_CAPABILITIES } from "./capabilities";
+import { MPM_CAPABILITIES } from "./capabilities";
 import { MpmStore } from "./store";
 import type { MpmEffectiveConfig } from "./config";
 import type { MpmFallbackReason, MpmSeedStats } from "./types";
