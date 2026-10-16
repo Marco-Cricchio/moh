@@ -8,8 +8,7 @@
  * chip's place at the end of the left cluster, and the wiring that feeds it
  * (the client's own 2s poll of the extension's `state`, never `setStatus`).
  */
-import { describe, expect, test, beforeAll, beforeEach, afterAll } from "bun:test";
-import React from "react";
+import { describe, expect, test, beforeEach, afterAll } from "bun:test";
 import { render } from "ink-testing-library";
 import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";

@@ -13,7 +13,6 @@
  * the older braille frame included, which must keep rendering.
  */
 import { afterEach, describe, expect, test } from "bun:test";
-import React from "react";
 import { render } from "ink-testing-library";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";

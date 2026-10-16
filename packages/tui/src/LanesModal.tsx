@@ -2,7 +2,7 @@ import React, { useCallback, useMemo, useState } from "react";
 import { Text, useInput } from "ink";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
-import { DevelopmentLaneService, DevelopmentLaneStore, laneInstallLine, type DevelopmentLane, type FeatureGroup } from "@moh/core";
+import { DevelopmentLaneService, laneInstallLine, type DevelopmentLane, type FeatureGroup } from "@moh/core";
 import { homedir } from "node:os";
 import { useTheme } from "./themes";
 import { Dialog, Dim, truncate } from "./ui";

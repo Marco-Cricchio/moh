@@ -1,7 +1,7 @@
 import React, { useMemo } from "react";
 import { Box, Text } from "ink";
 import { formatModelPair, type AgentEvent } from "@moh/core";
-import type { PaintableTheme, Theme } from "./themes";
+import type { PaintableTheme } from "./themes";
 import { useTheme } from "./themes";
 import { sanitizeLine, truncate } from "./ui";
 import { sanitizeForDisplay } from "./render-sanitize";
@@ -1488,7 +1488,6 @@ export function openBlockStableRows(
 export function closedPrefixLength(text: string): number {
   const lines = text.split("\n");
   let at = 0;
-  let segStart = 0;
   let closed = 0;
   let fenceChar: "`" | "~" | null = null;
   let fenceLen = 0;
@@ -1504,7 +1503,6 @@ export function closedPrefixLength(text: string): number {
       else if (fenceChar === char && marker.length >= fenceLen && /^\s*$/.test(line.slice(fence[0].length))) {
         fenceChar = null;
         closed = Math.min(text.length, at);
-        segStart = closed;
       }
       continue;
     }

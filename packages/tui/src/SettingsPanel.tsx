@@ -7,7 +7,7 @@ import { endpointModelCatalog, fallbackIneligibleReason, fetchLiveCatalogs, live
 import { validateJevKey, readTypesafeConfig, removeTypesafeKey, migrateTypesafeKey, resolveTypesafeConfig, saveTypesafeApiKey, saveTypesafeClassification, saveTypesafeGuardrail, saveTypesafeInjection, saveTypesafeLint, saveTypesafeRerank, saveTypesafeRouting, saveTypesafeSkills, maskApiKey, JEV_USE_CASE_DESCRIPTIONS, TYPESAFE_TIMEOUT_MS_DEFAULT, transportFromFetch, TYPESAFE_CREDENTIAL_REF, type JevKeyValidation, type JevTransport } from "@moh/jev-guard";
 import { defaultCredentialStore, validateCredentialScope } from "@moh/core";
 import { setIcons } from "./icons";
-import { THEMES, THEME_ORDER } from "./themes";
+import { THEME_ORDER } from "./themes";
 import { deleteUserTheme, guessExtendsOf, listUserThemes, loadUserTheme, saveUserTheme, themeLabelFor } from "./user-themes";
 import type { AnswerLanguage, DefaultPermissionMode, FilePreview, ThemeRef, UserConfig, VibeMode } from "./user-config";
 import { useTheme } from "./themes";
@@ -103,8 +103,6 @@ function allThemeRefs(home?: string): ThemeRef[] {
   return [...THEME_ORDER, ...listUserThemes(home ?? homedir()).map((t) => `user:${t.id}` as ThemeRef)];
 }
 
-/** Lowercase slug normalization for editor ids. */
-const slugify = (v: string): string => v.trim().toLowerCase().replace(/[^a-z0-9-]+/g, "-").replace(/^-+|-+$/g, "");
 
 /** #784: the Jev entry's view of the user config (never a live probe). */
 interface JevState {

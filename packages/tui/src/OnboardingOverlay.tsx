@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { selectionStyle } from "./color";
 import { Text, useInput } from "ink";
 import { join } from "node:path";
@@ -21,9 +21,7 @@ import {
   saveUserProviderRef,
   type AuthToken,
   type AuthorizationIo,
-  type BuiltinProviderType,
   type ConnectionTestResult,
-  type ProviderTestFailure,
   type ConnectionTester,
   type EndpointProfile,
   type StoredApiKeyOrigin,

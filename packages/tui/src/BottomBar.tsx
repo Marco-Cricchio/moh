@@ -428,7 +428,6 @@ function StatusRow(props: StatusProps) {
   // un-fragmented (no mid-word ellipsis inside a word) wins; the model is
   // required in every tier except the last, so the row can always fit.
   let row1: string[];
-  let row1Model: string;
   if (compact) {
     const marked = (text: string) => (text ? `◆ ${text}` : "");
     const ladder = [marked(shortModel), marked(middleElide(shortModel, Math.max(4, Math.min(16, budget - 2)))), marked(middleElide(shortModel, 6)), ""];
@@ -443,9 +442,7 @@ function StatusRow(props: StatusProps) {
       }
     }
     row1 = fitted;
-    row1Model = chosen;
   } else {
-    row1Model = model;
     row1 = attempt(model);
   }
   const row1Gauge: string | null = compact && props.tokens.contextIn > 0 ? compactGauge : null;

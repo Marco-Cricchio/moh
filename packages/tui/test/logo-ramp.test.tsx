@@ -1,5 +1,4 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import React from "react";
 import { render } from "ink-testing-library";
 import { Home } from "../src/Home";
 import { Logo } from "../src/ui";

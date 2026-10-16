@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Text, useInput } from "ink";
 import { useTheme } from "./themes";
 import { Dialog, Dim, truncate } from "./ui";
@@ -340,7 +340,7 @@ function EditView({
   dirty: boolean;
 }) {
   const theme = useTheme();
-  const viewport = useViewport();
+  useViewport();
   // A corrupted state degrades to one empty row instead of crashing.
   const lines = mode.lines.length ? mode.lines : [""];
   const visual = useMemo(() => wrapLines(lines, width), [lines, width]);

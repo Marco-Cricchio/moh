@@ -1,5 +1,4 @@
 import { describe, expect, test } from "bun:test";
-import React from "react";
 import { render } from "ink-testing-library";
 import { Frontier } from "../src/Frontier";
 import { ThemeProvider, THEMES, DEFAULT_THEME } from "../src/themes";

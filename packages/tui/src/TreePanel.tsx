@@ -1,4 +1,4 @@
-import React, { useMemo, useRef, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { selectionStyle } from "./color";
 import { Box, Text, useInput } from "ink";
 import type { TreeNode, TreeView } from "@moh/core";

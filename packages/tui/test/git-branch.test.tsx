@@ -1,8 +1,7 @@
 import { describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import React from "react";
 import { render } from "ink-testing-library";
 import { readGitBranch } from "../src/git-branch";
 import { BottomBar, laneBranchDisplay, laneLabelShown, middleElide, shortenHome } from "../src/BottomBar";

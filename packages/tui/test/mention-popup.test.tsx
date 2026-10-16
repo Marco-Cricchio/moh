@@ -6,7 +6,6 @@
  * slash popup is untouched — the two never qualify on the same draft.
  */
 import { describe, expect, test } from "bun:test";
-import React from "react";
 import { render } from "ink-testing-library";
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";

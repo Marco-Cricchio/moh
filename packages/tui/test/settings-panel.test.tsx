@@ -1,5 +1,4 @@
 import { describe, expect, test } from "bun:test";
-import React from "react";
 import { render } from "ink-testing-library";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -860,7 +859,6 @@ describe("user themes in settings (#749)", () => {
     const cwd = setupCwd();
     const home = mkdtempSync(join(tmpdir(), "moh-home-"));
     const { i, changes, toasts } = mount(cwd, { home });
-    const frame = () => stripAnsi(i.lastFrame() ?? "");
     await openStudio(i);
     // studio rows: hue(0) brightness(1) — adjust hue then rename+save
     // The hue only recolors the preview (no visible text change under the

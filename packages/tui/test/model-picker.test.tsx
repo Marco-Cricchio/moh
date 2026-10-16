@@ -1,5 +1,4 @@
 import { describe, expect, test } from "bun:test";
-import React from "react";
 import { render } from "ink-testing-library";
 import { createSession, listOpenAiCompatModels, subscriptionModelCatalog, type CatalogModel } from "@moh/core";
 import { ModelPickerModal, type ModelPickerModalProps } from "../src/ModelPickerModal";
@@ -203,7 +202,7 @@ describe("/model modal (#181)", () => {
   });
 
   test("a slash query narrows by endpoint name", async () => {
-    const { i, switched, toasts } = mount({
+    const { i } = mount({
       endpoints: [
         { name: "alpha", type: "anthropic", catalog: CATALOG },
         { name: "zai", type: "openai-compat", catalog: [{ id: "glm-5.3", name: "glm-5.3", contextWindow: 0, reasoning: false }] },
@@ -297,7 +296,7 @@ describe("/model modal (#181)", () => {
 
   test("#948: a context-fit refusal offers compaction; declining keeps browsing with the modal open", async () => {
     let compacted = 0;
-    const { i, switched, toasts, closed } = mount({
+    const { i, switched, closed } = mount({
       onSwitch: () => ({
         ok: false,
         error: "cannot switch: window too small for the measured context",

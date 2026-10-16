@@ -396,24 +396,6 @@ describe("browser diagnostic in the App (#936)", () => {
   }, 20000);
 });
 
-/** Presses `key` until the frame shows `expected` (bounded). The test pty
- * drops the occasional keystroke, and a modal must not be opened twice by
- * the same test: this makes the intent explicit instead of sleeping. */
-async function pressUntil(
-  i: ReturnType<typeof render>,
-  frame: () => string,
-  key: string,
-  expected: string,
-  attempts = 3,
-): Promise<void> {
-  for (let k = 0; k < attempts; k++) {
-    if (frame().includes(expected)) return;
-    i.stdin.write(key);
-    await sleep(180);
-  }
-  await waitForFrame(frame, expected);
-}
-
 describe("browser setting helpers (#934)", () => {
   const READY_STATUS: BrowserToolchainStatus = READY;
   const MISSING_STATUS: BrowserToolchainStatus = MISSING;

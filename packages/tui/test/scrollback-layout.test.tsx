@@ -1,5 +1,4 @@
 import { describe, expect, it } from "bun:test";
-import React from "react";
 import { render } from "ink-testing-library";
 import { fitRow } from "../src/viewport";
 import { BottomBar, ThinkingSeparator, fitStatusSegments, visibleChips, widthClass183 } from "../src/BottomBar";

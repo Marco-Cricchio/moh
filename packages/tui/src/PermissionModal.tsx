@@ -1,4 +1,4 @@
-import React, { useSyncExternalStore } from "react";
+import { useSyncExternalStore } from "react";
 import { Text, useInput } from "ink";
 import { spawnSync } from "node:child_process";
 import { existsSync } from "node:fs";
@@ -104,7 +104,7 @@ export function PermissionModal({
  * it before deciding. For tools without a path there is nothing to edit —
  * the modal simply stays up.
  */
-function editTarget(tool: string, args: unknown, editorOverride?: string): void {
+function editTarget(_tool: string, args: unknown, editorOverride?: string): void {
   const a = (args ?? {}) as Record<string, unknown>;
   if (typeof a.path !== "string") return;
   if (!existsSync(a.path)) return;

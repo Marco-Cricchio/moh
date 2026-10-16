@@ -5,7 +5,6 @@
  * core: the modal's whole job is to settle the question).
  */
 import { describe, expect, test } from "bun:test";
-import React from "react";
 import { render } from "ink-testing-library";
 import { ConfirmTurnGate } from "../src/confirm-turn-gate";
 import { ConfirmTurnModal } from "../src/ConfirmTurnModal";

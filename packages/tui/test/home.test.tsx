@@ -1,5 +1,4 @@
 import { describe, expect, test } from "bun:test";
-import React from "react";
 import { render } from "ink-testing-library";
 import { mkdtempSync, mkdirSync, writeFileSync, existsSync, readFileSync } from "node:fs";
 import { execFileSync } from "node:child_process";
@@ -576,7 +575,6 @@ describe("home pins (ctrl+p)", () => {
   test("ctrl+p toggles the pinned state on disk; the pinned row gets the 📌 prefix", async () => {
     const { cwd, home } = await homeWithSessions(1);
     const i = render(<Home intro={false} cwd={cwd} home={home} mode="vibe" onOpen={() => {}} />);
-    const frame = () => stripAnsi(i.lastFrame() ?? "");
     // Lost-first-keystroke race (#637): the list committed and its key
     // handler attached before the first keystroke.
     await waitText(i, "title s1", "the session list");
@@ -689,7 +687,6 @@ describe("stranded-data warning row (#1243)", () => {
     const { cwd, home } = strandedFixture();
     let opened = 0;
     const i = render(<Home intro={false} cwd={cwd} home={home} mode="vibe" onOpen={() => {}} onOpenStranded={() => { opened++; }} />);
-    const frame = () => stripAnsi(i.lastFrame() ?? "");
     await waitText(i, "› New session", "the cursor on New session");
     await waitText(i, "older data kept", "the stranded row");
     await move(i, DOWN, "down to the stranded row"); // row 1 = the stranded row (no handoff, no sessions)

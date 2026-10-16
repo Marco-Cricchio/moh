@@ -1,5 +1,4 @@
 import { describe, expect, test } from "bun:test";
-import React from "react";
 import { render } from "ink-testing-library";
 import { ThemeProvider, THEMES } from "../src/themes";
 import { BottomBar } from "../src/BottomBar";

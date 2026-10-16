@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import { useState } from "react";
 import { selectionStyle } from "./color";
 import { Text, useInput } from "ink";
 import { ghUsername, loadMohConfig, spawnGh, writeMohConfig, type HandoffTransportError } from "@moh/core";

@@ -1,9 +1,8 @@
-import React, { useState } from "react";
+import { useState } from "react";
 import { selectionStyle } from "./color";
 import { Text, useInput } from "ink";
 import {
   cloneHandoffRepo,
-  createGistHandoffTransport,
   pullHandoffTo,
   ghUsername,
   spawnGh,

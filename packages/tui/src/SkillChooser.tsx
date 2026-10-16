@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { Text, useInput } from "ink";
 import { formatSkillCommand, skillRecommendations, type SkillRoutingConfig, type TrackerIssue } from "@moh/core";
 import { useTheme } from "./themes";

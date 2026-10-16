@@ -200,8 +200,8 @@ export function MultilineInput({
   const [historyDraft, setHistoryDraft] = useState<EditorSnapshot | null>(null);
   const [undo, setUndo] = useState<EditorSnapshot[]>([]);
   const [redo, setRedo] = useState<EditorSnapshot[]>([]);
-  const [pasteBuffer, setPasteBuffer] = useState("");
-  const [inPaste, setInPaste] = useState(false);
+  const [, setPasteBuffer] = useState("");
+  const [, setInPaste] = useState(false);
   // Paste state mirror (ref): a bracketed paste often arrives as several
   // stdin chunks inside ONE React tick — the useState values above are
   // stale for every chunk but the first, so the routing guards below read

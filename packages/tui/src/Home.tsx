@@ -1,8 +1,8 @@
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Box, Text, useInput } from "ink";
 import { useTheme } from "./themes";
 import { ic } from "./icons";
-import { Accent, Dim, Footer, Logo, pickSplashFont, truncate, formatCount } from "./ui";
+import { Dim, Footer, Logo, pickSplashFont, truncate } from "./ui";
 import { LogoIntro } from "./LogoIntro";
 import { pickRampPreset } from "./logo-ramp";
 import {
@@ -144,7 +144,7 @@ export interface HomeProps {
  * always the first row; the session list is capped at `listMax` visible
  * rows (floor 3 on small screens) and scrolls to follow the cursor.
  */
-export function Home({ cwd, home, mode, onOpen, onOpenSettings, onOpenCommands, blocked = false, listMax = HOME_LIST_DEFAULT, updateNotice = null, skillUpdateCount = 0, version = MOH_VERSION, handoff = null, onOpenHandoff, onOpenColdWizard, onOpenStranded, strandedRefresh = 0, intro: introEnabled = true, onIntroEnd }: HomeProps) {
+export function Home({ cwd, home, onOpen, onOpenSettings, onOpenCommands, blocked = false, listMax = HOME_LIST_DEFAULT, updateNotice = null, skillUpdateCount = 0, version = MOH_VERSION, handoff = null, onOpenHandoff, onOpenColdWizard, onOpenStranded, strandedRefresh = 0, intro: introEnabled = true, onIntroEnd }: HomeProps) {
   const theme = useTheme();
   const viewport = useViewport();
   const compact = widthClass(viewport) === "compact";

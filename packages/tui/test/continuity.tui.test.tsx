@@ -1,8 +1,6 @@
-import { describe, expect, test } from "bun:test";
-import React from "react";
+import { describe, test } from "bun:test";
 import { render } from "ink-testing-library";
 import { copyFileSync, mkdirSync } from "node:fs";
-import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { App } from "../src/App";
 import { MockProvider, SessionStore, createSession } from "@moh/core";

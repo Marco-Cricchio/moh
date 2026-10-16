@@ -1,4 +1,3 @@
-import React from "react";
 import { describe, expect, test } from "bun:test";
 import { render } from "ink-testing-library";
 import { SkillUpdatesModal } from "../src/SkillUpdatesModal";
