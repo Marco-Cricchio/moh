@@ -80,7 +80,7 @@ describe("Route fallback chains", () => {
     providers: Provider[],
     opts: { retries?: number; fallbacks?: number } = {},
   ) {
-    const targets: RouteTarget[] = providers.map((p, i) => ({ endpoint: mockEndpoint(`ep${i}`), modelId: `m${i}` }));
+    const targets: RouteTarget[] = providers.map((_p, i) => ({ endpoint: mockEndpoint(`ep${i}`), modelId: `m${i}` }));
     const streams = providers.map((p) => (m: Message[], s: AbortSignal) => p.stream(m, s));
     let idx = 0;
     const route = createRoute({

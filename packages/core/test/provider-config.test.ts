@@ -12,7 +12,7 @@ import {
   setUserEndpointFallbackEligible,
   type UserProviderConfig,
 } from "../src/provider-config";
-import { loadMohConfig, type MohConfig } from "../src/config";
+import { type MohConfig } from "../src/config";
 import { userConfigFile } from "../src/user-config";
 
 function tempDir(tag: string): { dir: string; cleanup: () => void } {

@@ -7,7 +7,7 @@ import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { readFileSync, writeFileSync } from "node:fs";
-import { SessionStore, lineRef, resolveEventRef, switchBranch, bookmarkNode } from "../src/session-store";
+import { SessionStore, lineRef, resolveEventRef, bookmarkNode } from "../src/session-store";
 import { MockProvider, createSession } from "../src/index";
 import { newUlid } from "../src/session/ulid";
 import { replayMessages } from "../src/session-store";

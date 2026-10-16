@@ -134,7 +134,7 @@ describe("mpm session assembly gating (#618)", () => {
 
   test("a project opt-in (moh.json mpm.enabled=true) activates MPM over a global default off", async () => {
     const { sessionFromConfig } = await import("../src/session/from-config");
-    const { MpmService, projectMapDir } = await import("../src/mpm/service");
+    const { projectMapDir } = await import("../src/mpm/service");
     const { existsSync } = await import("node:fs");
     const dir = mkdtempSync(join(tmpdir(), "moh-mpm-proj-on-"));
     const cwd = join(dir, "project");

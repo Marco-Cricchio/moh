@@ -1,13 +1,9 @@
 import { describe, expect, test } from "bun:test";
-import { createSession, MockProvider } from "../src/index";
+import { createSession } from "../src/index";
 import type { AgentEvent, MohConfig, Provider } from "../src/index";
 import { writeFileSync, mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-
-function scripted(text: string): Provider {
-  return MockProvider.scripted([{ deltas: [text], finish: "stop" }]);
-}
 
 describe("switchModel (#166)", () => {
   test("switches the active model, appends model_switched, keeps the same session log", async () => {

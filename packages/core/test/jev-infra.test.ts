@@ -5,7 +5,7 @@
  * plus the subagent inheritance of the parent's hook checker.
  */
 import { describe, expect, test } from "bun:test";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { defineExtension, type ExtensionSetupContext } from "@moh/extension";
@@ -13,13 +13,9 @@ import {
   ExtensionRuntime,
   MockProvider,
   createSession,
-  resolveBundledExtensions,
-  sessionFromConfig,
-  type BundledExtensionSource,
   type AgentEvent,
   type Tool,
 } from "../src/index";
-import { readUserConfigFile } from "../src/user-config";
 
 function tmpDir(prefix = "moh-jev-"): string {
   return mkdtempSync(join(tmpdir(), prefix));
@@ -271,7 +267,7 @@ describe("appendEvent (ADR-0032)", () => {
     ctx.appendEvent({ name: "cycle", payload: (() => { const o: any = {}; o.self = o; return o; })() });
     ctx.appendEvent({ name: "bigint", payload: { n: 1n } });
     expect(extensionEvents(rt)).toHaveLength(2);
-    for (const event of extensionEvents(rt)) {
+    for (const _event of extensionEvents(rt)) {
       // consumeLoadEvents drains; re-derive from the runtime instead.
     }
   });

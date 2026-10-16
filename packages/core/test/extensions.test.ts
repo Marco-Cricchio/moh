@@ -848,22 +848,6 @@ describe("ADR-0036 setPromptNote (per-turn prompt note)", () => {
 
 
 describe("ADR-0037 requestTurn (synthetic turn)", () => {
-  function requestTurnDef(log: { called: string[]; texts: string[] }, apiVersion = MOH_EXTENSION_API_VERSION) {
-    return defineExtension({
-      name: "corrector",
-      version: "1.0.0",
-      apiVersion,
-      setup: (ctx) => {
-        ctx.afterTurn(async ({ result }) => {
-          if (result.status !== "done" || log.called.length >= 1) return;
-          log.called.push("after_turn");
-          const ok = await ctx.requestTurn("please fix the conventions");
-          log.texts.push(`resolved:${ok}`);
-        });
-      },
-    });
-  }
-
   test("a finding triggers one synthetic turn: marked in the log, no beforeTurn, tools run", async () => {
     const log = { called: [] as string[], texts: [] as string[] };
     const beforeTurnSeen: string[] = [];
@@ -937,7 +921,7 @@ describe("ADR-0037 requestTurn (synthetic turn)", () => {
     await session.send("turn one");
     // Two synthetic turns ran, the third consecutive request was refused.
     expect(answers).toEqual(["ask:true", "ask:true", "ask:false"]);
-    const syntheticCount = (turnIndex: number) => {
+    const syntheticCount = (_turnIndex: number) => {
       const history = session.history();
       return history.filter((e) => e.type === "user_message" && (e as any).synthetic === true).length;
     };

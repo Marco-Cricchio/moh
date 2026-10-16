@@ -114,7 +114,7 @@ describe("switchBranch (#576, head semantics d2)", () => {
   });
 
   test("refuses a non-session or missing file", () => {
-    const { store } = tempStore();
+    tempStore();
     expect(() => switchBranch(join(tmpdir(), "moh-missing.jsonl"), newUlid())).toThrow(/not found/);
     const notSession = join(mkdtempSync(join(tmpdir(), "moh-branch-")), "other.jsonl");
     writeFileSync(notSession, "");

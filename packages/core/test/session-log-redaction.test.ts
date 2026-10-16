@@ -79,7 +79,7 @@ describe("session log secret redaction (ADR-0058)", () => {
   });
 
   test("direct chrome writers are redacted too — a secret in a session rename never lands", () => {
-    const { store, home } = tempStore();
+    const { store } = tempStore();
     store.append({ type: "user_message", text: "hi" } as never);
     store.dispose();
     renameSession(store.file, `my key is ${SECRET}`);

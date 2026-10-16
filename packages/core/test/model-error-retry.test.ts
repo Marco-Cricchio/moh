@@ -130,7 +130,7 @@ describe("onModelError (ADR-0059)", () => {
 
   test("a proposal that fails the fit guard records switch_refused and does not retry on that ref", async () => {
     const rt0 = new ExtensionRuntime({ mohHome: tmpDir(), consent: () => true });
-    const reg = await rt0.register(defineExtension({
+    await rt0.register(defineExtension({
       name: "probe",
       version: "1.0.0",
       apiVersion: "1.10",

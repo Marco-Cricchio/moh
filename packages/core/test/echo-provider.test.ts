@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createSession } from "../src/index";
 import { EchoProvider } from "../src/echo-provider";
-import { builtinTools, type AgentEvent } from "../src/index";
+import { builtinTools } from "../src/index";
 import { lastAssistantText } from "../src/session-store";
 
 const sha = (s: string) => createHash("sha256").update(s).digest("hex");

@@ -168,13 +168,6 @@ describe("deterministic extraction", () => {
     }
   }
 
-  function prepareRepo(opts: Parameters<typeof repo>[1]): string {
-    const cwd = tempDir();
-    mkdirSync(join(cwd, ".git", "hooks"), { recursive: true });
-    repo(cwd, opts);
-    return cwd;
-  }
-
   test("missing guardrail: existing-but-unwired checks are the finding", () => {
     const cwd = tempDir();
     mkdirSync(join(cwd, ".git", "hooks"), { recursive: true });

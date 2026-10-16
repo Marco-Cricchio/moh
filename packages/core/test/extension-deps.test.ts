@@ -261,7 +261,7 @@ describe("installExtensionDeps", () => {
     const registry = freshRegistry();
     registerPackage(registry, "zod", "3.23.8");
     const url = registry.packuments["zod"].versions!["3.23.8"].dist!.tarball!;
-    const bytes = registry.tarballs.get(url)!;
+    registry.tarballs.get(url);
     const depsDir = join(tempDir(), "ext");
     // First install populates a caller-owned cache.
     const cache = new Map<string, Uint8Array>();

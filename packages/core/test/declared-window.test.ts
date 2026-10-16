@@ -10,8 +10,7 @@
  * seen a real refusal for is not shipped.
  */
 import { afterEach, describe, expect, test } from "bun:test";
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { MockProvider, createSession } from "../src/index";
 import { sdkRetryWrapper } from "./helpers.sdk-retry-error";

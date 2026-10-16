@@ -87,7 +87,6 @@ describe("MpmStore (#614)", () => {
       // The record carries a `via` import specifier and symbol names —
       // metadata only. Any extra field (e.g. a `content` leak) must not
       // survive a projection round-trip.
-      const withContent = { ...rec("src/date.ts"), content: "export function formatDate() { return 1; }" } as MpmFileRecord & { content?: string };
       // Note: a raw write would carry the extra field; writeProjection is the
       // validated entry point and the record guard drops unknown fields only
       // on read. Assert the stored shard excludes content of the mapped file.
