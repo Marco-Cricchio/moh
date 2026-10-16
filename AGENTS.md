@@ -10,7 +10,7 @@ The integration branch is **`develop`**. Always create PRs targeting `develop` (
 
 ## Principles
 
-Consult `docs/principles.md` before any change. The seven principles govern the architecture; a change that violates one needs an explicit ADR saying why.
+Consult `docs/principles.md` before any change. The eight principles govern the architecture; a change that violates one needs an explicit ADR saying why.
 
 ## Testing flow
 
