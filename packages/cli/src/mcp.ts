@@ -18,7 +18,6 @@ import {
   mcpServerEntrySchema,
   upsertMcpServer,
   writeMohConfig,
-  type DeclaredMcpServer,
   type McpServerEntry,
 } from "@moh/core";
 import { ArgError, parseArgs } from "./args";

@@ -132,7 +132,7 @@ function initializeMsg(extra: Record<string, unknown> = {}): string {
 
 describe("moh serve (#525)", () => {
   test("initialize → ready → send → streamed events → result", async () => {
-    const { home, spawnServe } = harness();
+    const { spawnServe } = harness();
     const client = spawnServe();
     const r = reader(client.stdout);
     client.writeLine(initializeMsg());

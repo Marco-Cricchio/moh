@@ -48,7 +48,7 @@ async function run(
 }
 
 /** Scripted wizard IO: subscription login always "succeeds" with a fake token. */
-function wizardIo(answers: string[], token: AuthToken): OnboardingIo & { said: string[] } {
+function wizardIo(answers: string[], _token: AuthToken): OnboardingIo & { said: string[] } {
   const said: string[] = [];
   let i = 0;
   return {
