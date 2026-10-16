@@ -95,6 +95,23 @@ network *blocking* is proven only via the dead proxy, not positively.
 B2's `g1-reasoning-wire` covers reasoning over a real (local SSE)
 openai-compat wire; a remote wire is intentionally out of scope.
 
+## Baselines never touch the network (#1517)
+
+No baseline may depend on the network or on the content of the remote
+`main`. On launch the TUI compares the bundled skills with the index on
+GitHub `main` (`updateCheck` opt-out, `packages/tui/src/App.tsx`); with a
+changed bundled skill the status row would show `· 1 skill update
+available` and B5 would differ with no TUI change.
+
+B5 therefore runs every scenario with a dead proxy in the child's
+environment (`tui-hermetic.ts`, loopback excepted so the fake provider
+servers stay reachable), and every scenario except two also sets
+`updateCheck: false`. The two exceptions (`overlay-walk`,
+`settings-submodal-return`) render the Settings "Update check" row, which the
+reference records as `on`, so they keep the default and rely on the dead proxy
+alone. `tui-hermetic.test.ts` checks the spec that `tui.ts` runs (`specFor`)
+against literal values: the proxy keys, the loopback bypass and the opt-out.
+
 ## Known B5 flake: `permission-prompt` / `permission-allowed` (#1482)
 
 The `permission-allowed` frame in `tui/permission-prompt.json` is not

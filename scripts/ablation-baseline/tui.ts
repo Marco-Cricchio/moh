@@ -15,6 +15,7 @@ import { join } from "node:path";
 import { Normalizer } from "./normalize";
 import { runPtyRaw, python3, DEV_CONFIG, type PtySpec } from "../../packages/tui/test/pty/pty-runner";
 import { startFakeOpenAiTurns } from "../../packages/tui/test/pty/fake-openai-turns";
+import { hermetic } from "./tui-hermetic";
 
 const REPO = join(import.meta.dir, "..", "..");
 
@@ -68,17 +69,23 @@ function startFakeServer(turns: Array<{ toolCall?: { name: string; args: unknown
   return { url: `http://127.0.0.1:${server.port}/v1`, stop: () => server.stop(true) };
 }
 
-interface Scenario {
+export interface Scenario {
   name: string;
   spec: (ctx: { url: string }) => PtySpec;
 }
 
-const scenarios: Scenario[] = [
+/** The spec `main()` runs for a scenario: the dead proxy is always applied. */
+export function specFor(scenario: Scenario, url: string): PtySpec {
+  return { ...hermetic(scenario.spec({ url })), meta: true };
+}
+
+export const scenarios: Scenario[] = [
   {
     name: "onboarding-fresh",
     spec: () => ({
       cols: 100,
       rows: 30,
+      config: { updateCheck: false },
       steps: [
         { send: B("\x1b") }, // end the intro (it settles at ~3.15s)
         { wait: 8.0, until: "enter select · s skip", untilFromBuffer: true },
@@ -95,7 +102,7 @@ const scenarios: Scenario[] = [
     spec: () => ({
       cols: 100,
       rows: 30,
-      config: { onboarded: true },
+      config: { onboarded: true, updateCheck: false },
       project: {},
       steps: [
         { wait: 5.0 }, // let the random startup intro settle
@@ -112,7 +119,7 @@ const scenarios: Scenario[] = [
     spec: () => ({
       cols: 100,
       rows: 30,
-      config: { ...DEV_CONFIG },
+      config: { ...DEV_CONFIG, updateCheck: false },
       bareProject: true,
       steps: [
         { wait: 5.0 }, // let the random startup intro settle
@@ -252,7 +259,7 @@ const scenarios: Scenario[] = [
     spec: () => ({
       cols: 100,
       rows: 30,
-      config: { ...DEV_CONFIG },
+      config: { ...DEV_CONFIG, updateCheck: false },
       seedStranded: true,
       fixedTempNames: true,
       steps: [
@@ -308,6 +315,7 @@ const scenarios: Scenario[] = [
       rows: 30,
       config: {
         ...DEV_CONFIG,
+        updateCheck: false,
         provider: "fake",
         endpoints: [{ name: "fake", type: "openai-compat", baseUrl: url, apiKey: "test-key", defaultModel: "fake-model" }],
       },
@@ -335,6 +343,7 @@ const scenarios: Scenario[] = [
       rows: 30,
       config: {
         ...DEV_CONFIG,
+        updateCheck: false,
         // Workflow on: the frontier overlay (ctrl+f) needs it.
         workflow: { enabled: true },
         provider: "fake",
@@ -364,6 +373,7 @@ const scenarios: Scenario[] = [
       rows: 30,
       config: {
         ...DEV_CONFIG,
+        updateCheck: false,
         provider: "fake",
         endpoints: [{ name: "fake", type: "openai-compat", baseUrl: url, apiKey: "test-key", defaultModel: "fake-model" }],
       },
@@ -431,7 +441,7 @@ async function main(): Promise<number> {
     for (const scenario of selected) {
       process.stderr.write(`[b5] ${scenario.name} … `);
       try {
-        const meta = await runPtyRaw({ ...scenario.spec({ url: urlFor(scenario.name) }), meta: true });
+        const meta = await runPtyRaw(specFor(scenario, urlFor(scenario.name)));
         // Sentinel prefixes: the harness's temp home/cwd are unknown here,
         // and the screens under test never print absolute paths.
         const norm = new Normalizer({ home: meta.home ?? "/\u0000none", cwd: meta.cwd ?? "/\u0000none" });
@@ -462,4 +472,4 @@ async function main(): Promise<number> {
   return failures === 0 ? 0 : 1;
 }
 
-process.exitCode = await main();
+if (import.meta.main) process.exitCode = await main();
