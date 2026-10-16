@@ -226,10 +226,25 @@ export function listOrderErrors(file: string, lines: readonly string[], limit = 
 }
 
 // The page names the symbol as a whole word: the name not preceded or
-// followed by an identifier character (letters, digits, `_`, `$`).
+// followed by an identifier character (letters, digits, `_`, `$`). A mention
+// inside a code block counts too (e.g. `import { activePath } from "@moh/core"`).
 export function pageNames(text: string, name: string): boolean {
   const escaped = name.replace(/[$]/g, "\\$");
   return new RegExp(`(^|[^A-Za-z0-9_$])${escaped}($|[^A-Za-z0-9_$])`).test(text);
+}
+
+// `<name> <page>` lines; a malformed line or a name listed twice (even with
+// two different pages) is an error, so every line is checked.
+export function parseAllowlist(lines: readonly string[]): { allowlist: Map<string, string>; errors: string[] } {
+  const allowlist = new Map<string, string>();
+  const errors: string[] = [];
+  lines.forEach((line, i) => {
+    const match = /^(\S+) (\S+)$/.exec(line);
+    if (match === null) errors.push(`${ALLOWLIST_FILE}:${i + 1} is not "<name> <page>": ${line}`);
+    else if (allowlist.has(match[1]!)) errors.push(`${ALLOWLIST_FILE}:${i + 1} lists ${match[1]} a second time (keep one line)`);
+    else allowlist.set(match[1]!, match[2]!);
+  });
+  return { allowlist, errors };
 }
 
 export type KeepCriterionInput = {

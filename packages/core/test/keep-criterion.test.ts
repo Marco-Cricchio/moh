@@ -27,6 +27,7 @@ import {
   keepCriterionErrors,
   listOrderErrors,
   pageNames,
+  parseAllowlist,
   scriptKind,
 } from "./keep-criterion/scan";
 
@@ -83,12 +84,9 @@ describe("@moh/core keep-criterion", () => {
     const baseline = readLines("baseline.txt");
     const allowLines = readLines("allowlist.txt");
     const errors = [...listOrderErrors(BASELINE_FILE, baseline), ...listOrderErrors(ALLOWLIST_FILE, allowLines)];
-    const allowlist = new Map<string, string>();
-    for (const line of allowLines) {
-      const match = /^(\S+) (\S+)$/.exec(line);
-      if (match === null) errors.push(`${ALLOWLIST_FILE}: line is not "<name> <page>": ${line}`);
-      else allowlist.set(match[1]!, match[2]!);
-    }
+    const parsed = parseAllowlist(allowLines);
+    const allowlist = parsed.allowlist;
+    errors.push(...parsed.errors);
 
     const used = new Set<string>();
     for (const file of clientFiles()) {
@@ -275,7 +273,21 @@ describe("keep-criterion ratchet", () => {
     ]);
   });
 
-  test("pageNames matches whole identifier words only", () => {
+  test("an allowlist name listed twice is an error, even with two different pages", () => {
+    const { allowlist, errors } = parseAllowlist([
+      "activePath docs/extending/index.md",
+      "activePath docs/extending/library-usage.md",
+      "not a line",
+    ]);
+    expect(errors).toEqual([
+      "packages/core/test/keep-criterion/allowlist.txt:2 lists activePath a second time (keep one line)",
+      'packages/core/test/keep-criterion/allowlist.txt:3 is not "<name> <page>": not a line',
+    ]);
+    expect([...allowlist]).toEqual([["activePath", "docs/extending/index.md"]]);
+  });
+
+  test("pageNames matches whole identifier words only, a mention inside a code block included", () => {
+    expect(pageNames('```ts\nimport { activePath } from "@moh/core";\n```', "activePath")).toBe(true);
     expect(pageNames("use `activePath(events)`", "activePath")).toBe(true);
     expect(pageNames("activePath", "activePath")).toBe(true);
     expect(pageNames("SessionConfig.mpm opts in", "SessionConfig")).toBe(true);
