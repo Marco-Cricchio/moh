@@ -11,7 +11,7 @@ import { initCommand } from "./init";
 import { providerCommand, PROVIDER_USAGE } from "./provider";
 import { updateCommand, UPDATE_USAGE } from "./update";
 import { handoffCommand, HANDOFF_USAGE } from "./handoff";
-import { manualCommand, MANUAL_USAGE } from "./manual";
+import { manualCommand } from "./manual";
 import { compactCommand, COMPACT_USAGE } from "./compact";
 import { mpmCommand, MPM_USAGE } from "./mpm";
 import { sessionsCommand, SESSIONS_USAGE } from "./sessions";

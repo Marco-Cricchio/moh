@@ -154,17 +154,6 @@ export class UpdateProgress {
     this.showCursor();
   }
 
-  private startTimer(): void {
-    if (!this.ansi || !this.open) return;
-    const tick = this.opts.tickMs ?? DEFAULT_TICK_MS;
-    if (tick <= 0) return;
-    this.open.timer = setInterval(() => {
-      if (!this.open) return;
-      this.open.frame++;
-      this.paintFrame();
-    }, tick);
-  }
-
   private stopTimer(): void {
     if (this.open?.timer) {
       clearInterval(this.open.timer);

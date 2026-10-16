@@ -24,7 +24,6 @@ import {
   TYPESAFE_CREDENTIAL_REF,
   TYPESAFE_SETTINGS_HINT,
   maskApiKey,
-  migrateTypesafeKey,
   readTypesafeConfig,
   resolveTypesafeConfig,
   saveTypesafeClassification,

@@ -9,9 +9,7 @@ import {
   statSync,
   writeFileSync,
 } from "node:fs";
-import { tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
-import { runCommand } from "../src/run";
 import { createHash } from "node:crypto";
 import { runCli, SPAWN_TEST_TIMEOUT_MS } from "./spawn-harness";
 
@@ -471,7 +469,6 @@ describe("moh run (e2e)", () => {
       // guarantees it (the memory dir exists under the shared home). ---
       expect(spawnIn(cwd, ["run", "continue work on tickets 12 and 15"]).code).toBe(0);
       const file = sessionFiles(home)[0]!;
-      const before = readEvents(readFileSync(file, "utf8"));
       const projectsDir = join(home, ".moh", "projects");
       const slug = basename(dirname(file));
 

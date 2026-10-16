@@ -7,7 +7,6 @@
  * The heavy lifting is the core's single assembly path
  * (`sessionFromConfig`, ADR-0005): this is a thin headless caller.
  */
-import { homedir } from "node:os";
 import { resolve } from "node:path";
 import { sessionFromConfig, SessionStore, listSessionSummaries } from "@moh/core";
 import { ArgError, parseArgs } from "./args";
