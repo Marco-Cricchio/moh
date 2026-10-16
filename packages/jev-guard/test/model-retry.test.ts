@@ -11,7 +11,6 @@ import {
   noteRefused,
   startTurn,
 } from "../src/model-retry";
-import type { TierAssignment } from "../src/routing";
 import { assignTiers, type RoutingModel } from "../src/routing";
 
 const pool: RoutingModel[] = [

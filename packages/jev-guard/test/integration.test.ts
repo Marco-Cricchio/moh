@@ -15,7 +15,6 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { sessionFromConfig, userConfigFile } from "@moh/core";
-import { defaultCredentialStore } from "@moh/core";
 import { jevBundledSource } from "../src/integration";
 import { TYPESAFE_CREDENTIAL_REF, migrateTypesafeKey, removeTypesafeKey } from "../src/typesafe";
 
@@ -51,7 +50,6 @@ import { JEV_GUARD_NAME } from "../src/index";
 import {
   maskApiKey,
   readTypesafeConfig,
-  removeTypesafeApiKey,
   resolveTypesafeConfig,
   saveTypesafeApiKey,
   saveTypesafeGuardrail,

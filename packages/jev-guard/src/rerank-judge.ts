@@ -12,7 +12,6 @@
  */
 import type { JevAnswer, JevClient, JevJudgmentMeta } from "./client";
 import {
-  RERANK_CANDIDATES_MAX,
   RERANK_MIN,
   candidatesDroppedByCap,
   candidatesForRerank,
