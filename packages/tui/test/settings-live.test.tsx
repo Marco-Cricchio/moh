@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import React, { act } from "react";
+import { act } from "react";
 import { render } from "ink-testing-library";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";

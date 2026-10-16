@@ -64,8 +64,6 @@ export const contrast = (fgHex: string, bgHex: string): number => {
 /** Reply blocks tint fg toward the accent at 0.14 over bg (blockTint). */
 const replyBackground = (theme: Theme): string => mix(theme.accent, theme.bg, 0.14);
 
-const THEME_NAMES = Object.keys(THEMES) as ThemeName[];
-
 /** #504 follow-up: fenced snippets render on the code-block tint (purple at
  * 0.14 over bg — same math as blockTint), not the reply tint. cli-highlight
  * used to emit fixed ANSI-16 colors there (1.0–1.6:1); the themed highlight

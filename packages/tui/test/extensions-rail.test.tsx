@@ -27,7 +27,6 @@ import { createTeamExtension, teamManifestAuthority } from "@moh/team";
 import { App } from "../src/App";
 import { ExtensionOverlayView, ExtensionsRail } from "../src/ExtensionsRail";
 import type { PanelKeyEvent } from "@moh/extension";
-import { RAIL_MIN_ROWS } from "../src/rail-layout";
 import { GROW_VERTICAL_FRAMES } from "../src/icons";
 import { ThemeProvider, THEMES, DEFAULT_THEME } from "../src/themes";
 import { grantTeamExtension, stripAnsi, waitForCondition } from "./helpers";

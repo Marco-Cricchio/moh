@@ -1,5 +1,4 @@
 import { describe, expect, test } from "bun:test";
-import React from "react";
 import { Text } from "ink";
 import { render } from "ink-testing-library";
 import { mkdtempSync } from "node:fs";

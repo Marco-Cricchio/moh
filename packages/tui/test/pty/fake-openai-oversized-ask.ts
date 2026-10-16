@@ -23,7 +23,7 @@ export function startFakeOpenAiOversizedAsk(port = 0): { server: ReturnType<type
   let call = 0;
   const server = Bun.serve({
     port,
-    async fetch(req) {
+    async fetch(_req) {
       call += 1;
       const toolCalls: { name: string; args: unknown }[] = [];
       let finish = "stop";

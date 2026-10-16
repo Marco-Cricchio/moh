@@ -5,12 +5,8 @@
  * key validator is injected.
  */
 import { describe, expect, test } from "bun:test";
-import React from "react";
 import { render } from "ink-testing-library";
 import { Box } from "ink";
-import { mkdtempSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import type { AgentEvent } from "@moh/core";
 import { projectTranscript, extensionEventLine } from "../src/transcript";
 import { BottomBar, ExtensionStatusChip, extensionStatusText } from "../src/BottomBar";

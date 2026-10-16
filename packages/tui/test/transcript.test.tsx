@@ -3,7 +3,6 @@ import { createRequire } from "node:module";
 const chalk = createRequire(import.meta.resolve("ink"))("chalk").default as { level: 0 | 1 | 2 | 3 };
 import { beforeEach, afterEach } from "bun:test";
 
-import React from "react";
 import { render } from "ink-testing-library";
 import type { AgentEvent } from "@moh/core";
 import { blockTint, compactionCannotHelpNow, editDiffLines, projectTranscript, assistantSegments, capReasoningText, closedPrefixLength, inertPrefixLength, openBlockStableRows, REASONING_DISPLAY_CAP, TranscriptBlockView } from "../src/transcript";

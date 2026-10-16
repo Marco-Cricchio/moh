@@ -5,7 +5,6 @@
  * discoverability wiring. Component-level fixtures only: no projection IO.
  */
 import { describe, expect, test } from "bun:test";
-import React from "react";
 import { render } from "ink-testing-library";
 import type { MpmDiagnostics } from "@moh/core";
 import { BottomBar } from "../src/BottomBar";

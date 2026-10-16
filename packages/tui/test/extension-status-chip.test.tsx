@@ -8,7 +8,6 @@
  * the gauge and the model segment intact, the long note elided.
  */
 import { describe, expect, test } from "bun:test";
-import React from "react";
 import { render } from "ink-testing-library";
 import { BottomBar, extensionStatusCap, extensionStatusText } from "../src/BottomBar";
 import { stripAnsi } from "./helpers";

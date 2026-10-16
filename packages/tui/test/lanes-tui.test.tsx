@@ -92,14 +92,14 @@ describe("lanes modal (ADR-0060)", () => {
     execFileSync("git", ["commit", "--allow-empty", "--allow-empty-message", "-m", "root"], { cwd, stdio: "ignore" });
     const home = mkdtempSync(join(tmpdir(), "moh-lanes-tui-home-"));
     const store = new DevelopmentLaneStore({ cwd, home });
-    const group = store.createFeatureGroup({ name: "del", targetRef: "develop" });
+    store.createFeatureGroup({ name: "del", targetRef: "develop" });
     // Real worktrees: `d` runs the real git worktree remove + branch -D.
     const service = new DevelopmentLaneService({ cwd, home });
     const ga = await service.ensureFeatureGroup("del", "develop");
     const createdA = await service.createWorktreeLane({ featureGroupId: ga.id, sessionId: "s-d1", branchRef: "feature/del-1", baseRef: "develop" });
     const createdB = await service.createWorktreeLane({ featureGroupId: ga.id, sessionId: "s-d2", branchRef: "feature/del-2", baseRef: "develop" });
     expect(createdA.ok && createdB.ok).toBe(true);
-    const a = store.listLanes().find((l) => l.branchRef === "feature/del-1")!;
+    store.listLanes().find((l) => l.branchRef === "feature/del-1")!;
     const b = store.listLanes().find((l) => l.branchRef === "feature/del-2")!;
     const ink = render(
       <ThemeProvider value={THEMES[DEFAULT_THEME]}>

@@ -218,7 +218,7 @@ describe("RetroModal — pre-commit hook apply (#1356)", () => {
     const cwd = tempDir("hook");
     const mohHome = tempDir("hookhome");
     writeFileSync(join(cwd, "package.json"), JSON.stringify({ scripts: { lint: "eslint ." } }));
-    const { store, signature } = seed(cwd, mohHome, "missing-guardrail", "package.json defines `lint` but no pre-commit hook runs it", retroSignature("missing-guardrail", "pre-commit:unwired"));
+    const { signature } = seed(cwd, mohHome, "missing-guardrail", "package.json defines `lint` but no pre-commit hook runs it", retroSignature("missing-guardrail", "pre-commit:unwired"));
     const instance = mount(cwd, mohHome);
     await waitForFrame(() => stripAnsi(instance.lastFrame() ?? ""), "missing-guardrail");
     expect(stripAnsi(instance.lastFrame() ?? "")).toContain(".git/hooks/pre-commit");

@@ -1,5 +1,4 @@
 import { describe, expect, test } from "bun:test";
-import React from "react";
 import { render } from "ink-testing-library";
 import { existsSync, readFileSync } from "node:fs";
 import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
@@ -13,7 +12,6 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const tempHome = () => mkdtempSync(join(tmpdir(), "moh-obt-home-"));
 const tempCwd = () => mkdtempSync(join(tmpdir(), "moh-obt-"));
 const okTester = async () => ({ ok: true as const, modelId: "tested" });
-const failTester = async () => ({ ok: false as const, error: "HTTP 401 unauthorized" });
 
 function typeInto(i: ReturnType<typeof render>, text: string) {
   i.stdin.write(text);

@@ -5,14 +5,13 @@
  * disappears with the mode.
  */
 import { describe, expect, test } from "bun:test";
-import React from "react";
 import { render } from "ink-testing-library";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { MockProvider } from "@moh/core";
 import { App } from "../src/App";
-import { stripAnsi, waitForCondition, waitForFrame } from "./helpers";
+import { stripAnsi, waitForCondition } from "./helpers";
 
 function frameOf(i: ReturnType<typeof render>) {
   return () => stripAnsi(i.lastFrame() ?? "");

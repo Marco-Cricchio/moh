@@ -1,13 +1,12 @@
 import { describe, expect, test } from "bun:test";
-import React from "react";
 import { render } from "ink-testing-library";
-import { appendFileSync, existsSync, readFileSync, readdirSync } from "node:fs";
+import { appendFileSync, readFileSync, readdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { mkdtempSync, mkdirSync } from "node:fs";
+import { mkdirSync } from "node:fs";
 import { App } from "../src/App";
 import { MockProvider, SessionStore, createSession } from "@moh/core";
-import { actUntilFrame, stripAnsi, waitForCondition, waitForFrame } from "./helpers";
+import { stripAnsi, waitForCondition, waitForFrame } from "./helpers";
 
 const dir = () => join(tmpdir(), `moh-tui-growth-${process.pid}-${Date.now()}`);
 

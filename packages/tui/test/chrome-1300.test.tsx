@@ -1,6 +1,5 @@
 import "./faketty/ci-mask";
 import { expect, test } from "bun:test";
-import React from "react";
 import { Box, Text } from "ink";
 import { createSession, MockProvider } from "@moh/core";
 import { Chat, transcriptTail } from "../src/Chat";

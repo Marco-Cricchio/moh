@@ -1,7 +1,6 @@
 import "./faketty/ci-mask";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { createRequire } from "node:module";
-import React from "react";
 import { Box, Text } from "ink";
 import { blockTint, TranscriptBlockView, type TranscriptBlock } from "../src/transcript";
 import { ThemeProvider, THEMES } from "../src/themes";

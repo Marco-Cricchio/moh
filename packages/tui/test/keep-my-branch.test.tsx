@@ -1,8 +1,7 @@
 import { describe, expect, test } from "bun:test";
-import React from "react";
 import { render } from "ink-testing-library";
-import { appendFileSync, readdirSync, readFileSync } from "node:fs";
-import { mkdtempSync, mkdirSync } from "node:fs";
+import { appendFileSync, readFileSync } from "node:fs";
+import { mkdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { App } from "../src/App";

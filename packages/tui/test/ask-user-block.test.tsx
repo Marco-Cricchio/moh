@@ -467,7 +467,6 @@ async function mountChat(
   void session.send("ask me");
   // The session's own ask_user drives the gate — never pre-ask manually.
   const frame = () => stripAnsi(ink.lastFrame() ?? "");
-  const first = BIG_SET.questions[0]!.question;
   await waitForFrame(frame, set.questions[0]!.question, { timeoutMs: 4000 });
   await sleep(80); // let ink install the block's useInput handler
   return { ink, session, element };
@@ -637,7 +636,7 @@ describe("ask_user options window (#874)", () => {
 
   test("askUserBlockRows no longer scales with the option count past the window", () => {
     const few = askUserBlockRows([{ question: "q", options: [{}, {}, {}] }], 100);
-    const many = askUserBlockRows(MANY.questions.map((q) => ({ question: q.question, options: q.options.map((o) => ({ preview: undefined })) })), 100);
+    const many = askUserBlockRows(MANY.questions.map((q) => ({ question: q.question, options: q.options.map(() => ({ preview: undefined })) })), 100);
     // The reservation tracks the windowed screen (12 options × ~2 rows
     // with interleave + markers), not the raw option count: 30 options
     // reserve like ~12–13, not 30.

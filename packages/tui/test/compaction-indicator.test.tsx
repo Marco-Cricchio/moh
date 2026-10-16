@@ -5,7 +5,6 @@ import { beforeEach, afterEach } from "bun:test";
 let previousColorLevel: typeof chalk.level;
 beforeEach(() => { previousColorLevel = chalk.level; chalk.level = 3; });
 afterEach(() => { chalk.level = previousColorLevel; });
-import React from "react";
 import { render } from "ink-testing-library";
 import { ThemeProvider, THEMES } from "../src/themes";
 import { BottomBar } from "../src/BottomBar";
