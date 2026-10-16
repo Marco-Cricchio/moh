@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { z } from "zod";
 import { createSession, MockProvider, type Provider } from "../src/index";
-import type { Message, StreamEvent } from "../src/types";
+import type { Message } from "../src/types";
 import type { Tool } from "../src/index";
 
 function echoTool(): Tool<{ text: string }> {
@@ -27,7 +27,6 @@ function recording(provider: Provider) {
 
 describe("tool-calling loop", () => {
   test("model returns a tool call, core executes it, result returns to the model, turn ends with done", async () => {
-    const seenByModel: Message[][] = [];
     const provider = MockProvider.scripted([
       {
         deltas: [],
@@ -134,7 +133,6 @@ describe("tool-calling loop", () => {
   });
 
   test("failing tool produces an error tool_result the model sees; turn continues", async () => {
-    const seenByModel: any[] = [];
     const boom: Tool = {
       name: "boom",
       description: "",

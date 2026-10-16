@@ -4,16 +4,13 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   THINKING_LEVELS,
-  defaultThinkingLevel,
-  effectiveThinkingLevel,
   endpointThinkingStatus,
   resolveEndpointThinking,
   thinkingStatesForRef,
-  type ThinkingLevelState,
 } from "../src/thinking-preferences";
 import type { ThinkingLevel } from "../src/types";
 import { catalogEntryFor, normalizeThinkingLevelMap } from "../src/model-catalog";
-import { readUserConfigFile, updateUserConfigFile } from "../src/user-config";
+import { updateUserConfigFile } from "../src/user-config";
 import type { EndpointProfile } from "../src/config";
 
 type ThinkingCap = NonNullable<EndpointProfile["capabilities"]>["thinking"];

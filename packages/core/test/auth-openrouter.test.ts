@@ -9,7 +9,7 @@ import {
   resolveOpenrouterOAuthConfig,
   type OpenrouterEndpointFetch,
 } from "../src/auth/openrouter";
-import { runSubscriptionLogin, isSubscriptionKind, SUBSCRIPTION_KINDS } from "../src/auth/lifecycle";
+import { isSubscriptionKind, SUBSCRIPTION_KINDS } from "../src/auth/lifecycle";
 import { resolveEndpointCredential } from "../src/auth/resolve";
 import { saveTokens, readAuthSection } from "../src/auth/store";
 import { Endpoint } from "../src/route";

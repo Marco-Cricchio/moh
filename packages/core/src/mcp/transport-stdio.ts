@@ -21,7 +21,6 @@ function minimalEnvironment(overrides: Record<string, string> | undefined): Reco
 
 export class StdioConnection extends JsonRpcConnection {
   readonly #proc: Bun.Subprocess<"pipe", "pipe", "pipe">;
-  readonly #encoder = new TextEncoder();
 
   constructor(
     opts: {

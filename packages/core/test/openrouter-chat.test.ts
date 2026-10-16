@@ -243,7 +243,6 @@ describe("openrouter live reasoning streaming (#253)", () => {
   it("emits each reasoning delta as it is extracted, not in an end-of-stream burst", async () => {
     const encoder = new TextEncoder();
     const seen: string[] = [];
-    let releaseNext: (() => void) | null = null;
     const waitFor = (text: string) =>
       new Promise<void>((resolve, reject) => {
         const timer = setTimeout(() => reject(new Error(`timed out waiting for "${text}" (got: ${seen.join("|")})`)), 2000);
@@ -368,7 +367,7 @@ describe("#873 bug 2: reasoning_content re-injection (openai-compat dialect)", (
   it("does not touch the openrouter dialect (reasoning_details is its contract)", async () => {
     const calls: FetchCall[] = [];
     const originalFetch = globalThis.fetch;
-    globalThis.fetch = (async (input: any, init?: RequestInit) => {
+    globalThis.fetch = (async (_input: any, init?: RequestInit) => {
       calls.push({ url: "u", body: JSON.parse(String(init?.body)) });
       return sseResponse(okStream);
     }) as typeof fetch;
@@ -526,7 +525,7 @@ describe("#895: bare thinking-capable entries route to the openai-compat dialect
   it("a target without the flag and without a declared format is untouched (stock adapter)", async () => {
     const calls: FetchCall[] = [];
     const originalFetch = globalThis.fetch;
-    globalThis.fetch = (async (input: any, init?: RequestInit) => {
+    globalThis.fetch = (async (_input: any, init?: RequestInit) => {
       calls.push({ url: "u", body: JSON.parse(String(init?.body)) });
       return sseResponse(okStream);
     }) as typeof fetch;

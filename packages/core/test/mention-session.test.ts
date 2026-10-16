@@ -8,7 +8,7 @@ import { describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createSession, MockProvider } from "../src/index";
+import { createSession } from "../src/index";
 import type { Message, Provider, StreamEvent } from "../src/types";
 
 function captureProvider(): { users: Message[]; provider: Provider } {

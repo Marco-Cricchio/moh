@@ -1,7 +1,7 @@
-import { describe, expect, it, test } from "bun:test";
+import { describe, expect, test } from "bun:test";
 import { simulateReadableStream } from "ai/test";
-import { MockProvider, createSession, type Provider } from "../src/index";
-import { createRoute, Endpoint, envApiKey } from "../src/route";
+import { MockProvider } from "../src/index";
+import { createRoute, Endpoint } from "../src/route";
 import { ProviderError } from "../src/types";
 import type { Message, StreamEvent } from "../src/types";
 import type { RouteTarget } from "../src/route";
@@ -100,7 +100,6 @@ describe("empty completion is a provider failure (#853)", () => {
   });
 
   test("the ai-sdk adapter surfaces a finished-but-empty stream as plain events; the route classifies it", async () => {
-    const calls: any[] = [];
     const model = {
       specificationVersion: "v4",
       provider: "mock",

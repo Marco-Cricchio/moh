@@ -64,7 +64,6 @@ import { mpmDiagnostics, type MpmDiagnostics } from "../mpm/diagnostics";
 import { readMpmUserConfig, resolveMpmConfig, type MpmEffectiveConfig } from "../mpm/config";
 import { isOnWindowsMount } from "../windows-mount";
 import { userConfigFile } from "../user-config";
-import { getStoredApiKey } from "../auth/store";
 import { listProviderModels } from "../live-model-catalog";
 import { listOpenAiCompatModels } from "../endpoint-models";
 import { DeclaredWindows, declaredWindowOf } from "../declared-window";
@@ -236,8 +235,6 @@ export class AgentSession {
    * diagnostics seams. Null when MPM is off or activation failed. */
   #mpmService: MpmService | null = null;
   #mpmRoot: string | null = null;
-  #mpmQuota: import("../mpm/service").MpmQuota | undefined;
-  #mpmExclude: string[] | undefined;
 
   constructor(config: SessionConfig) {
     this.#registry = config.registry?.freeze();
@@ -654,8 +651,6 @@ export class AgentSession {
         if (service.fileCount > 0) service.revalidate(config.mpm.root ?? this.#cwd);
         this.#mpmService = service;
         this.#mpmRoot = config.mpm.root ?? this.#cwd;
-        this.#mpmQuota = config.mpm.quota;
-        this.#mpmExclude = config.mpm.exclude;
         this.#mpmOrientation = new MpmOrientation({
           service,
           root: config.mpm.root ?? this.#cwd,

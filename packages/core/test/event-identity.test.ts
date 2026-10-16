@@ -7,11 +7,10 @@ import { describe, expect, test } from "bun:test";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { readFileSync, writeFileSync } from "node:fs";
 import { createSession, MockProvider } from "../src/index";
 import { SessionStore, replayMessages } from "../src/session-store";
 import { isUlid } from "../src/session/ulid";
-import type { AgentEvent, Message } from "../src/types";
+import type { AgentEvent } from "../src/types";
 
 function tempHome(): string {
   return mkdtempSync(join(tmpdir(), "moh-identity-"));

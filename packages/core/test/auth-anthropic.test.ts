@@ -339,7 +339,7 @@ describe("anthropic adapter beta header", () => {
 describe("oauth seam: code source tracking", () => {
   test("deliveredViaCallback flips on the automatic path, stays false on paste", async () => {
     // Paste path
-    const io = loginIoDouble(["pasted", ""]);
+    loginIoDouble(["pasted", ""]);
     const server = await startLoopbackCallback({ state: generateState(), timeoutMs: 1000 });
     await raceForCode(loginIoDouble([""]), { authorizeUrl: "https://m/a", manualUrl: "https://m/cb", callback: server });
     expect(server.deliveredViaCallback).toBe(false);

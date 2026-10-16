@@ -657,7 +657,7 @@ describe("#777: download staging", () => {
     const fake = fakePlaywright({ snapshot: () => "- main [ref=e1]" });
     const session = new BrowserSession({ home: mkdtempSync(join(tmpdir(), "moh-browser-")), playwright: fake });
     await session.navigate("http://localhost:3000");
-    const dir = mkdtempSync(join(tmpdir(), "moh-dl-"));
+    mkdtempSync(join(tmpdir(), "moh-dl-"));
     session.emitDownload(fakeDownload("report.csv", "a,b,c"));
     const asks: { filename: string; size: number }[] = [];
     const tool = browserTool({

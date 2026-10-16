@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { homedir } from "node:os";
 import { randomUUID } from "node:crypto";
-import type { AgentEvent, Provider, Tool, ToolContext } from "./types";
+import type { AgentEvent, Provider, Tool } from "./types";
 import type { PermissionsConfig, SessionConfig } from "./session/config";
 import type { ExtensionRuntime } from "./extensions";
 import { AgentSession } from "./session/session";
@@ -12,7 +12,7 @@ import { validatePathGlob } from "./host-scope";
 import type { PermissionRule } from "./permissions";
 import { PromptComposer, BASE_PROMPT } from "./prompt-composer";
 import { tailChildLog } from "./child-tail";
-import { resolveProviderRef, defaultRegistry, type FrozenProviderRegistry, type ProviderRegistry } from "./provider-registry";
+import { resolveProviderRef, defaultRegistry, type ProviderRegistry } from "./provider-registry";
 import { DEFAULT_MAX_ITERATIONS } from "./session/agent-loop";
 // ADR-0050 (§4): the child's own route, built from the parent's live pair.
 import { childRouteOf } from "./route";

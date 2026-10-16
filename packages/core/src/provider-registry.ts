@@ -10,7 +10,7 @@ import { Endpoint, createRoute, resolveApiKey, type ProviderKind, type RouteTarg
 import { providerProfile } from "./provider-profiles";
 import type { EndpointProfile, MohConfig } from "./config";
 import type { Provider, StreamOptions } from "./types";
-import { OAUTH_BUILTIN_BASE_URLS, isOAuthBuiltinKind, type OAuthBuiltinKind } from "./wire";
+import { OAUTH_BUILTIN_BASE_URLS, type OAuthBuiltinKind } from "./wire";
 import { catalogEntryFor } from "./model-catalog";
 import { contextFitFor } from "./context-fit";
 import type { DeclaredWindowLookup } from "./declared-window";

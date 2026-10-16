@@ -15,7 +15,7 @@
 import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { dirname, join, resolve } from "node:path";
-import { parseSkillFrontmatter, FIRST_PARTY_MANIFEST, firstPartySkillNames } from "./skills";
+import { parseSkillFrontmatter, FIRST_PARTY_MANIFEST } from "./skills";
 
 /** The moh version skills compare their `minMohVersion` against. */
 export const MOH_VERSION = "0.1.0";
@@ -103,7 +103,7 @@ function readdirFiles(dir: string, skip: string[] = []): Record<string, string> 
 }
 
 /** Builds one skill source from its files (SKILL.md always present); null when unparsable. */
-function toSkillSource(name: string, files: Map<string, string>): FirstPartySkillSource | null {
+function toSkillSource(_name: string, files: Map<string, string>): FirstPartySkillSource | null {
   const raw = files.get("SKILL.md");
   if (raw === undefined) return null;
   const parsed = parseSkillFrontmatter(raw);

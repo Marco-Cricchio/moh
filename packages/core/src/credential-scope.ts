@@ -18,7 +18,7 @@
  * - names are not secrets: refs appear in consent, manifest and log;
  *   values never do (ADR-0058's pass remains in force regardless).
  */
-import { chmodSync, mkdirSync, readFileSync, writeFileSync, statSync, existsSync, unlinkSync } from "node:fs";
+import { chmodSync, mkdirSync, readFileSync, writeFileSync, statSync, existsSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";

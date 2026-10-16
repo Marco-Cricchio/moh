@@ -1,6 +1,6 @@
 import { afterAll, describe, expect, test } from "bun:test";
 import { createHash } from "node:crypto";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import { rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -131,23 +131,6 @@ describe("MPM orientation in the session prompt (#616)", () => {
   });
 });
 
-/** #759: capture provider that emits one reasoning block before finishing. */
-function reasoningCapture(reasoningText: string): { provider: Provider; seen: () => string } {
-  let system = "";
-  const provider: Provider = {
-    name: "capture-reasoning",
-    async *stream(messages: Message[]) {
-      system = (messages[0]!.parts[0] as { text: string }).text;
-      yield { type: "model_call_start" as const, model: "capture-reasoning" };
-      yield { type: "reasoning_start" as const };
-      yield { type: "reasoning_delta" as const, text: reasoningText };
-      yield { type: "reasoning_end" as const };
-      yield { type: "finish" as const, reason: "stop" as const };
-    },
-  };
-  return { provider, seen: () => system };
-}
-
 // #759: seed eligibility extension at the session level — reasoning from
 // the previous model call seeds the next prompt assembly (including
 // mid-turn), suppressed after a successful mpm_query.
@@ -252,7 +235,7 @@ describe("#790 MPM seed rerank in the session", () => {
       cwd: root,
       mpm: {
         service,
-        rerank: async (req) => {
+        rerank: async (_req) => {
           calls += 1;
           return new Set(["src/gen0.ts", "src/gen2.ts"]);
         },

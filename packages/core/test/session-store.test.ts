@@ -5,7 +5,7 @@ import { execFileSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import { createSession, MockProvider, SessionStore } from "../src/index";
-import { legacyProjectSlug, listSessionSummaries, MIN_SUPPORTED_SCHEMA_VERSION, projectSlug, renameSession, setSessionPinned, replayMessages, deleteSession, restoreSession, listTrashedSessions, pruneTrash, resolveEventRef, isSessionOpen, projectTrashDir } from "../src/session-store";
+import { legacyProjectSlug, listSessionSummaries, projectSlug, renameSession, setSessionPinned, replayMessages, deleteSession, restoreSession, listTrashedSessions, pruneTrash, resolveEventRef, isSessionOpen, projectTrashDir } from "../src/session-store";
 import { acknowledgeStrandedData, canonicalRemoteSlug, deleteStrandedData, moveStrandedSessions, readStrandedDataRecord, strandedDataSummary } from "../src/project-identity";
 import { runtimeRulesFromEvents } from "../src/permissions";
 import type { AgentEvent } from "../src/index";
@@ -788,7 +788,7 @@ describe("single-writer guard (#400)", () => {
     store.append(START);
     const before = statSync(store.file).size;
     appendFileSync(store.file, JSON.stringify({ type: "user_message", text: "from elsewhere" }) + "\n");
-    const after = statSync(store.file).size;
+    statSync(store.file);
 
     // The append's arithmetic baseline (no re-stat) never observed the
     // foreign bytes: the next probe still reports them, unswallowed —
@@ -809,7 +809,7 @@ describe("single-writer guard (#400)", () => {
     const cwd = mkdtempSync(join(tmpdir(), "moh-proj-"));
     const original = SessionStore.create(cwd, home);
     original.append(START);
-    const originalBytes = readFileSync(original.file, "utf8");
+    readFileSync(original.file, "utf8");
 
     const reopened = SessionStore.open(original.file);
     expect(reopened.externalGrowth()).toBeNull();

@@ -135,7 +135,6 @@ describe("subagents (#13)", () => {
       relation: "independent",
     });
 
-    let childPrompt: string | undefined;
     const read = recordingTool("read");
     const parent = createSession({
       provider: MockProvider.scripted([
@@ -154,7 +153,7 @@ describe("subagents (#13)", () => {
     });
     const events = tap(parent);
     // The fake read tool captures which directory the child ran in.
-    (parent as any).tools.read.execute = async () => { childPrompt = "called"; return "ok"; };
+    (parent as any).tools.read.execute = async () => { return "ok"; };
 
     const result = await parent.send("go");
     expect(result.status).toBe("done");
@@ -239,7 +238,6 @@ describe("subagents (#13)", () => {
   });
 
   test("inline spec spawn works and the child has its own JSONL log with usage tokens", async () => {
-    const events: AgentEvent[] = [];
     const home = tmpHome();
     const parent = createSession({
       provider: MockProvider.scripted([
@@ -625,7 +623,7 @@ describe("subagent_result preview (#320)", () => {
 
 describe("#339 spawn by default + child ref pre-validation", () => {
   test("spawn is registered with no subagents config at all; an invalid inline ref fails fast with a didactic error and no side effects", async () => {
-    const home = tmpHome();
+    tmpHome();
     const parent = createSession({
       provider: MockProvider.scripted([
         { deltas: [], finish: "tool_calls", toolCalls: [{ name: "spawn", args: { name: "t", task: "x", provider: "bogus-endpoint/model" } }] },

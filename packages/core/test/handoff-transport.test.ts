@@ -10,7 +10,7 @@
  * real gh CLI's documented interface.
  */
 import { afterEach, describe, expect, test } from "bun:test";
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import {
   publishHandoffAtExit,
@@ -19,9 +19,8 @@ import {
   handoffPublishedMarkerFile,
   type HandoffPayload,
   type HandoffTransport,
-  type HandoffTransportError,
 } from "../src/handoff-transport";
-import { createGistHandoffTransport, canonicalRemoteUrl, handoffGistTag, spawnGh, type GhCall, type GhRunner } from "../src/handoff-gist";
+import { createGistHandoffTransport, handoffGistTag, type GhCall, type GhRunner } from "../src/handoff-gist";
 import { canonicalRemoteSlug } from "../src/project-identity";
 
 /** canonicalRemoteUrl against a real git repo with the given origin (tests). */
@@ -314,7 +313,7 @@ describe("gist transport", () => {
   });
 
   test("publish stamps the gh user as author into the payload (#451)", async () => {
-    const tag = handoffGistTag(cwd, "dev");
+    handoffGistTag(cwd, "dev");
     const gh = fakeGh([
       { args: ["api", "user"], stdout: "dev\n" },
       { args: ["gist", "list"], stdout: `${gistListOutput(["other", "some other gist"])}\n` },

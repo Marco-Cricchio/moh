@@ -18,7 +18,6 @@
  * synthesize locally at import.
  */
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
-import { homedir } from "node:os";
 import { join } from "node:path";
 import type { RawHandoff } from "./handoff";
 /** The published handoff payload. T2 publishes the raw artifact as-is;

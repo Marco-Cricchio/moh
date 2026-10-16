@@ -20,7 +20,6 @@ import { isPrivateHost } from "./net-guard";
 import {
   probeBrowserToolchainWithModule,
   type BrowserToolchainOptions,
-  type PlaywrightModuleLike,
   type ResolvedPlaywright,
 } from "./browser-toolchain";
 
@@ -141,7 +140,7 @@ function blockedRouteResponse(reason: string): { status: number; contentType: st
  */
 async function installRouteGuard(
   page: BrowserPageLike,
-  allowedHosts: readonly string[],
+  _allowedHosts: readonly string[],
   verify: (url: string) => Promise<URL>,
 ): Promise<void> {
   if (typeof page.route !== "function") return;
@@ -659,24 +658,6 @@ export class BrowserSession {
     return applyEvalBudget(serializeEvalValue(value));
   }
 
-  /** #778: screenshot-flavored act-failure — same re-probe contract as
-   * #actFailure, kept separate only because screenshots do not append a
-   * fresh snapshot to a binary result. */
-  async #actFailure2(ref: string, e: unknown): Promise<never> {
-    if (e instanceof StaleRefError) throw e;
-    let known = false;
-    try {
-      known = this.#describe.has(refNumber(ref));
-    } catch {
-      known = false;
-    }
-    if (!known) throw new StaleRefError(ref, await this.snapshot());
-    const page = await this.#page;
-    const stillThere = page ? await refExists(page.locator(`aria-ref=${refNumber(ref)}`)).catch(() => false) : false;
-    if (!stillThere) throw new StaleRefError(ref, await this.snapshot());
-    throw e;
-  }
-
   /**
    * #777: upload a local file into a file input. The source path must
    * resolve inside the project root (realpath-anchored, like write);
@@ -715,7 +696,7 @@ export class BrowserSession {
    * null when no download materialized (nothing staged, no silent
    * writes). Never auto-opens the file.
    */
-  async stageDownload(options: DownloadStagingOptions = {}, timeoutMs = 5000): Promise<string | null> {
+  async stageDownload(options: DownloadStagingOptions = {}, _timeoutMs = 5000): Promise<string | null> {
     const pending = this.#pendingDownloads.shift();
     if (!pending) return null;
     const filename = pending.suggestedFilename().replace(/[/\\]/g, "_") || "download";

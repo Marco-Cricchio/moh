@@ -325,7 +325,7 @@ function listingBase(kind: string, endpointName: string, endpointBaseUrl: string
  * store; a stale token degrades to the static list, same as an error).
  * `subscription` marks a credential resolved from the token store: the
  * header shape differs (Bearer vs x-api-key for Anthropic). */
-function listingCredential(kind: string, endpointName: string, inlineApiKey: string | undefined, configFile: string): { credential: string | undefined; subscription: boolean } {
+function listingCredential(_kind: string, endpointName: string, inlineApiKey: string | undefined, configFile: string): { credential: string | undefined; subscription: boolean } {
   if (inlineApiKey) return { credential: inlineApiKey, subscription: false };
   const section = readAuthSection(configFile);
   const token = section.tokens[endpointName];

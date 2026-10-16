@@ -11,7 +11,7 @@ import {
   noteSecretRedactionMiss,
   secretRedactionMissesFile,
 } from "../src/redact";
-import { mkdtempSync, writeFileSync, statSync, readFileSync, existsSync, readdirSync } from "node:fs";
+import { mkdtempSync, writeFileSync, statSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 

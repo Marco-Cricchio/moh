@@ -682,14 +682,14 @@ describe("OpenCode onboarding (#794)", () => {
     let goUrl = "";
     await minimalConnectionTest(
       { name: "opencode-go", type: "opencode", baseUrl: "https://opencode.ai/zen/go/v1", defaultModel: "minimax-m3" },
-      (async (input: string | URL | Request, init?: RequestInit) => { goUrl = String(input); return new Response("{}", { status: 200 }); }) as never as typeof fetch,
+      (async (input: string | URL | Request, _init?: RequestInit) => { goUrl = String(input); return new Response("{}", { status: 200 }); }) as never as typeof fetch,
       AbortSignal.timeout(500), { MOH_ENDPOINT_OPENCODE_GO_API_KEY: "key" },
     );
     expect(goUrl).toBe("https://opencode.ai/zen/go/v1/messages");
     let goHeaders: Record<string, string> = {};
     await minimalConnectionTest(
       { name: "opencode-go", type: "opencode", baseUrl: "https://opencode.ai/zen/go/v1", defaultModel: "minimax-m3" },
-      (async (input: string | URL | Request, init?: RequestInit) => { goHeaders = init?.headers as Record<string, string>; return new Response("{}", { status: 200 }); }) as never as typeof fetch,
+      (async (_input: string | URL | Request, init?: RequestInit) => { goHeaders = init?.headers as Record<string, string>; return new Response("{}", { status: 200 }); }) as never as typeof fetch,
       AbortSignal.timeout(500), { MOH_ENDPOINT_OPENCODE_GO_API_KEY: "key" },
     );
     // The anthropic-wire endpoint ignores Bearer (verified live): the key

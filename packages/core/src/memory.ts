@@ -28,7 +28,6 @@ import { PromptComposer } from "./prompt-composer";
 import { lastAssistantText } from "./session-store";
 import {
   createLockFile,
-  machineId,
   ownerIsGone,
   parseLockOwner,
   readLockFile,
@@ -218,7 +217,7 @@ export class MemoryStore {
     const blocks: string[] = [];
     let used = 0;
     let truncated = false;
-    for (const [topic, meta] of topics) {
+    for (const [topic] of topics) {
       let raw: string;
       try {
         raw = readFileSync(this.topicFile(topic), "utf8");

@@ -7,7 +7,7 @@
  */
 import { closeSync, existsSync, openSync, readFileSync, unlinkSync, writeSync } from "node:fs";
 import { execFileSync } from "node:child_process";
-import { hostname, uptime } from "node:os";
+import { hostname } from "node:os";
 
 /** Lock file payload; `v` gates forward-compatible parsing. */
 export interface LockOwner {

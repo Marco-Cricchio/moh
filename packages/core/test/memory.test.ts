@@ -6,7 +6,7 @@
  */
 import { afterEach, describe, expect, test } from "bun:test";
 import { execFileSync } from "node:child_process";
-import { mkdirSync, readFileSync, existsSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, existsSync, rmSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { AgentSession, MockProvider } from "../src/index";
 import {

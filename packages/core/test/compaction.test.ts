@@ -7,8 +7,7 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { mkdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
-import { AgentSession, MockProvider, createSession } from "../src/index";
-import { ProviderRegistry } from "../src/provider-registry";
+import { MockProvider, createSession } from "../src/index";
 import {
   CompactionRunner,
   FALLBACK_CONTEXT_WINDOW,
@@ -60,7 +59,7 @@ function legalBoundariesOk(events: AgentEvent[], start: number): boolean {
   return first === "user_message" || first === "assistant_delta" || first === "reasoning" || first === "tool_call";
 }
 
-function runner(events: AgentEvent[], summarizer: CompactionSummarizer = scriptedSummarizer, window?: number) {  const appended: AgentEvent[] = [];
+function runner(_events: AgentEvent[], summarizer: CompactionSummarizer = scriptedSummarizer, window?: number) {  const appended: AgentEvent[] = [];
   const r = new CompactionRunner({
     sessionId: "session-test",
     provider: () => MockProvider.scripted([{ deltas: ["x"], finish: "stop" }]),
