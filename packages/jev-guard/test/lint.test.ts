@@ -41,7 +41,6 @@ function fakeClient(script: (input: JevJudgeInput) => Record<string, JevAnswer>)
   };
 }
 
-const RUBRICS = [{ path: "AGENTS.md", text: "handle every error" }];
 const STATE: LintState = {
   rules: "# AGENTS.md\nhandle every error",
   rulesFiles: ["AGENTS.md"],

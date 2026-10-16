@@ -23,12 +23,6 @@
  * rather than one ready-made definition.
  */
 import { defineExtension, MOH_EXTENSION_API_VERSION, type ExtensionDefinition, type ExtensionSetupContext } from "@moh/extension";
-import type {
-  CompactionHook,
-  CompactionHookContext,
-  CompactionHookResult,
-  CompactionSection,
-} from "@moh/extension";
 import { createJevClient, hostTransport, type JevClientOptions, type JevTransport } from "./client";
 import { TYPESAFE_CREDENTIAL_REF } from "./typesafe";
 import { createGuardrailJudge, GUARDRAIL_TOOL } from "./guardrail-judge";
