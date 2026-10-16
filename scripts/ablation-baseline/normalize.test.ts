@@ -129,3 +129,10 @@ test("tokens persist across calls on one Normalizer and are independent between 
   expect(a.text(`x ${SID_B} ${SID_A}`)).toBe("x <session:1> <session:0>");
   expect(normalizer().text(SID_B)).toBe("<session:0>");
 });
+
+test("each token kind is numbered on its own: another kind registered first does not shift a session number (#1520)", () => {
+  const n = normalizer();
+  expect(n.text(`${ULID_A} ${ULID_B} ${SID_A} ${SID_B}`)).toBe("<ulid:0> <ulid:1> <session:0> <session:1>");
+  const m = normalizer();
+  expect(m.text(`id deadbeef-0000 ${SID_A}`)).toBe("id <uuid8:0>-0000 <session:0>");
+});

@@ -5,7 +5,10 @@
  *
  * - ULID-shaped ids (event `id`/`parentId`, branch refs) → `<ulid:N>`
  *   ordinal tokens in order of first appearance, so the tree shape and
- *   every aliasing relation survive;
+ *   every aliasing relation survive. Every token kind (`ulid`, `hash`,
+ *   `session`, `uuid`, `uuid8`, `subagent`, `pv`) is numbered on its own:
+ *   `<session:0>` is the first session id whatever other kinds were
+ *   registered before it (#1520);
  * - `hash`/`prevHash` chain values (derived from the random ids) →
  *   `<hash:N>` tokens, same rule — chain linkage stays checkable;
  * - ISO timestamps → `<iso>`; dates → ONLY the run's UTC date
@@ -115,7 +118,9 @@ export class Normalizer {
   readonly #cwd: string;
   readonly #pidRe: RegExp;
 
-  readonly #tokens = new Map<string, string>();
+  /** Per-prefix registries: a kind's numbering never depends on how many
+   * tokens of other kinds were registered before it (#1520). */
+  readonly #tokens = new Map<string, Map<string, string>>();
 
   constructor(options: NormalizerOptions) {
     this.#home = options.home;
@@ -124,11 +129,15 @@ export class Normalizer {
   }
 
   #token(prefix: string, value: string): string {
-    const key = `${prefix}\u0000${value}`;
-    let token = this.#tokens.get(key);
+    let kind = this.#tokens.get(prefix);
+    if (!kind) {
+      kind = new Map<string, string>();
+      this.#tokens.set(prefix, kind);
+    }
+    let token = kind.get(value);
     if (!token) {
-      token = `<${prefix}:${this.#tokens.size}>`;
-      this.#tokens.set(key, token);
+      token = `<${prefix}:${kind.size}>`;
+      kind.set(value, token);
     }
     return token;
   }
