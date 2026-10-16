@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { Text, useInput } from "ink";
 import { diffSkillFiles, type UpstreamUpdate } from "@moh/core";
 import { useTheme } from "./themes";

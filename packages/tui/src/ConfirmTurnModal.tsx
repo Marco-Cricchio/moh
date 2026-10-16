@@ -11,7 +11,7 @@
  * returns the text to the composer. Neither writes a rule — an extension
  * can never be disarmed by an answer to its own question.
  */
-import React, { useSyncExternalStore } from "react";
+import { useSyncExternalStore } from "react";
 import { Text, useInput } from "ink";
 import { useTheme } from "./themes";
 import { Dialog, Dim, truncate } from "./ui";

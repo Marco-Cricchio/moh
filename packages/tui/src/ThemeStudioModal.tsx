@@ -110,7 +110,7 @@ export function ThemeStudioModal({ home, base, activeRef, onToast, onSave, onApp
 
   const theme: Theme = (() => {
     const tint = (hex: string, warm: number): string => {
-      const [h, s, l] = hexToHsl(hex);
+      const [, s, l] = hexToHsl(hex);
       const lc = clamp(0.5 + (l + lightShift - 0.5) * (1 + contrast), 0.04, 0.95);
       return hslToHex((hue + warm + 360) % 360, saturation * clamp(s, 0.25, 0.85) / 0.6, lc);
     };
@@ -118,7 +118,7 @@ export function ThemeStudioModal({ home, base, activeRef, onToast, onSave, onApp
       if (pick === undefined) return tint(fallbackHex, warmth * 0.3);
       const family = BASIC_HUES[pick];
       if (!family) return tint(fallbackHex, warmth * 0.3);
-      const [/*h*/, s, l] = hexToHsl(fallbackHex);
+      const [/*h*/, , l] = hexToHsl(fallbackHex);
       const lc = clamp(0.5 + (l + lightShift - 0.5) * (1 + contrast), lo, hi);
       return hslToHex(family.h, clamp(saturation, 0.45, 0.95), lc);
     };
@@ -162,7 +162,7 @@ export function ThemeStudioModal({ home, base, activeRef, onToast, onSave, onApp
     if (direct !== undefined && colorOn) {
       const family = BASIC_HUES[direct];
       if (family) {
-        const [/*h*/, s, l] = hexToHsl(baseTheme.fg);
+        const [/*h*/, , l] = hexToHsl(baseTheme.fg);
         const lc = clamp(0.5 + (l + lightShift - 0.5) * (1 + contrast), 0.3, 0.75);
         return hslToHex(family.h, clamp(saturation, 0.45, 0.95), lc);
       }
@@ -395,7 +395,7 @@ export function ThemeStudioModal({ home, base, activeRef, onToast, onSave, onApp
             <Text>
               {BASIC_HUES.map(({ name, h }, i) => {
                 // Chips tinted with the CURRENT brightness/contrast/saturation
-                const [/*h0*/, s0, l0] = hexToHsl(baseTheme.ok);
+                const [/*h0*/, , l0] = hexToHsl(baseTheme.ok);
                 const lc = clamp(0.5 + (l0 + lightShift - 0.5) * (1 + contrast), 0.25, 0.75);
                 const hex = hslToHex(h, clamp(saturation, 0.45, 0.95), lc);
                 return <Text key={i} backgroundColor={swatch(hex)} color={i === pickOf(row) ? paint.bg : swatch(hex)}>{name.slice(0, 3)}</Text>;

@@ -189,7 +189,7 @@ export function ExtensionsModal({ state, duplicates, rail, panelClamps, onClose 
 
   if (state.refusals.length > 0) {
     rows.push(row(<Text> </Text>), row(<Text bold> refused registrations</Text>));
-    state.refusals.forEach((r, i) => {
+    state.refusals.forEach((r) => {
       rows.push(
         row(
           <Text wrap="truncate">
@@ -203,7 +203,7 @@ export function ExtensionsModal({ state, duplicates, rail, panelClamps, onClose 
 
   if (duplicates.length > 0) {
     rows.push(row(<Text> </Text>), row(<Text bold> ignored duplicates</Text>));
-    duplicates.forEach((d, i) => {
+    duplicates.forEach((d) => {
       rows.push(
         row(
           <Text wrap="truncate">

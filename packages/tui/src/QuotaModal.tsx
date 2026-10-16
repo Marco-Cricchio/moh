@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { Text, useInput } from "ink";
-import { getQuota, aggregateLocalUsage, PRICING_SNAPSHOT, type QuotaReport, type QuotaSource, type LocalUsageRow } from "@moh/core";
+import { getQuota, PRICING_SNAPSHOT, type QuotaReport, type LocalUsageRow } from "@moh/core";
 import type { EndpointProfile } from "@moh/core";
 import Table from "cli-table3";
 import { fgAnsi256 } from "./color";

@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState, useSyncExternalStore } from "react";
+import React, { useEffect, useState, useSyncExternalStore } from "react";
 import { Box, Text, useInput } from "ink";
 import { useTheme } from "./themes";
 import { Dim } from "./ui";
@@ -455,7 +455,6 @@ export function AskUserBlock({ gate, width, maxRows }: { gate: AskUserGate; widt
   const window = optionWindow(question.options.length, "option" in focused ? focused.option : 0, fit.window);
   const summaryFit = fitAskSummary(questions.length, blockWidth, maxRows);
   const questionLines = wrapText(question.question, Math.max(1, innerWidth - 1)).slice(0, fit.questionRows);
-  const questionHidden = questionLines.length < wrapText(question.question, Math.max(1, innerWidth - 1)).length;
   /** The windowed option rows, rendered at the caller's layout width. */
   const renderOptionRows = (descWidth: number, sideBySide: boolean, descIndent: string) => {
     const visible = question.options.slice(window.start, window.start + window.count);
@@ -491,16 +490,6 @@ export function AskUserBlock({ gate, width, maxRows }: { gate: AskUserGate; widt
     if (window.below > 0) rows.push(<Text key="more-below" color={theme.dim}>{`  ↓ ${window.below} more`}</Text>);
     return rows;
   };
-  /** The question, clipped to its budget (#874): a model-provided wall of
-   * text must not push the block past the viewport. */
-  const questionText = (prefix = "") => (
-    <>
-      {questionLines.map((line, i) => (
-        <Text key={`q-${i}`} bold={i === 0}>{`${prefix}${line}`}</Text>
-      ))}
-      {questionHidden && <Text color={theme.dim}>{`${prefix}… question truncated`}</Text>}
-    </>
-  );
 
   // ——— Layout C (narrow terminals): borderless, compact ———
   if (compact) {

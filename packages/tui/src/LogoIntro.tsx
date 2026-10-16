@@ -2,7 +2,6 @@ import React, { useEffect, useMemo, useState } from "react";
 import { Box, Text, useInput } from "ink";
 import { LOGO_BANNER, SPLASH_BANNERS, pickSplashFont, type SplashFontName } from "./ui";
 import { useTheme } from "./themes";
-import { colorEnabled } from "./color";
 import { pickRampPreset, rampLogoRows, type RampPresetName } from "./logo-ramp";
 /** The startup intro duration: snappy on purpose — long enough to read as
  * an animation, short enough never to feel like a gate (~3s, skippable). */
@@ -124,7 +123,7 @@ function rainFrames(banner: string[]): Frame[] {
     for (let x = 0; x < cols; x++) chars.push(row[x] === " " ? null : row[x]!);
   }
   // Each column gets a random landing step.
-  const land = Array.from({ length: cols }, (_, x) => 3 + Math.floor(Math.random() * 14));
+  const land = Array.from({ length: cols }, () => 3 + Math.floor(Math.random() * 14));
   const steps = 18;
   const frames: Frame[] = [];
   for (let s = 0; s <= steps; s++) {

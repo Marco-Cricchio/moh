@@ -40,7 +40,7 @@ import {
 import { startUpdatePoll, skillUpdateNoticeText, statusRowUpdateText } from "./update-poll";
 import { subscribeAiSdkWarnings } from "./ai-sdk-warnings";
 import { SessionStore, handoffSeedMessage, handoffSeedPrompt, createGistHandoffTransport } from "@moh/core";
-import { THEMES, THEME_ORDER, ThemeProvider, type Theme } from "./themes";
+import { THEME_ORDER, ThemeProvider } from "./themes";
 import { listUserThemes, resolveThemeRef, themeLabelFor } from "./user-themes";
 import { setIcons } from "./icons";
 import { Home, updateNoticeText } from "./Home";
@@ -107,16 +107,6 @@ import {
 } from "@moh/core";
 import type { DisplayThinkingLevel } from "./BottomBar";
 import { thinkingLevelControl } from "./thinking-controls";
-import { DEFAULT_REVEAL_SETTINGS, type RevealSettings } from "./reveal";
-
-/** #1054 (ADR-0057): the legacy typewriter env knobs, read exactly once at
- * module load and passed to Chat as its `reveal` prop — Chat itself never
- * touches process.env. The PTY typewriter test still sets them; a host
- * wanting different pacing passes `reveal` instead. */
-const ENV_REVEAL: Partial<RevealSettings> = {
-  ...(process.env.MOH_TYPEWRITER_MS !== undefined ? { tickMs: Number(process.env.MOH_TYPEWRITER_MS) } : {}),
-  ...(process.env.MOH_TYPEWRITER_CHARS !== undefined ? { charsPerTick: Number(process.env.MOH_TYPEWRITER_CHARS) } : {}),
-};
 
 export interface AppProps {
   cwd: string;

@@ -1,8 +1,7 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { tailChildLog, type ChildTailLine } from "@moh/core";
 import type { AgentEvent, AgentSession } from "@moh/core";
 import { useSidebarState } from "./session-bridge";
-import { sanitizeLine } from "./ui";
 
 /**
  * Subagent chips + live panel data (#497, vision note 25). Pure data:
@@ -101,7 +100,6 @@ export function useSubagentTails(subagents: TrackedSubagent[]): Map<string, Suba
   const [tails, setTails] = useState<Map<string, SubagentTail>>(new Map());
   // trackSubagents/useVisibleSubagents return fresh arrays every render.
   // The effect must not restart its poll timer after every tail repaint.
-  const signature = subagents.map((sub) => `${sub.callId}:${sub.status}:${sub.log}`).join("|");
   // Offsets and accumulated lines live in a ref: they persist across polls
   // without re-rendering, and keyed renders read only the snapshot state.
   const stateRef = useRef(new Map<string, { offset: number; tail: SubagentTail }>());

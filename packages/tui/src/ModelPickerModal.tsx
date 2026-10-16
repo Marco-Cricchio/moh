@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { selectionStyle } from "./color";
 import { Text, useInput } from "ink";
 import { listOpenAiCompatModels, type CatalogModel } from "@moh/core";
