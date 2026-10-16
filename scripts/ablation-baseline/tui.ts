@@ -74,12 +74,18 @@ export interface Scenario {
   spec: (ctx: { url: string }) => PtySpec;
 }
 
+/** The spec `main()` runs for a scenario: the dead proxy is always applied. */
+export function specFor(scenario: Scenario, url: string): PtySpec {
+  return { ...hermetic(scenario.spec({ url })), meta: true };
+}
+
 export const scenarios: Scenario[] = [
   {
     name: "onboarding-fresh",
     spec: () => ({
       cols: 100,
       rows: 30,
+      config: { updateCheck: false },
       steps: [
         { send: B("\x1b") }, // end the intro (it settles at ~3.15s)
         { wait: 8.0, until: "enter select · s skip", untilFromBuffer: true },
@@ -435,7 +441,7 @@ async function main(): Promise<number> {
     for (const scenario of selected) {
       process.stderr.write(`[b5] ${scenario.name} … `);
       try {
-        const meta = await runPtyRaw({ ...hermetic(scenario.spec({ url: urlFor(scenario.name) })), meta: true });
+        const meta = await runPtyRaw(specFor(scenario, urlFor(scenario.name)));
         // Sentinel prefixes: the harness's temp home/cwd are unknown here,
         // and the screens under test never print absolute paths.
         const norm = new Normalizer({ home: meta.home ?? "/\u0000none", cwd: meta.cwd ?? "/\u0000none" });

@@ -7,10 +7,10 @@
 //  - every scenario runs its child with a dead proxy (fails closed: any
 //    outbound HTTP(S) request is refused; loopback — the fake provider
 //    servers — bypasses the proxy);
-//  - scenarios whose frames do not render the Settings "Update check" row
-//    also set the `updateCheck: false` opt-out. The two that do render it
-//    (overlay-walk, settings-submodal-return) keep the default `on`, which
-//    the reference records, so they rely on the dead proxy alone.
+//  - every scenario also sets the `updateCheck: false` opt-out, except the
+//    two whose frames render the Settings "Update check" row
+//    (overlay-walk, settings-submodal-return): they keep the default `on`,
+//    which the reference records, so they rely on the dead proxy alone.
 import type { PtySpec } from "../../packages/tui/test/pty/pty-runner";
 
 const DEAD = "http://127.0.0.1:9";
@@ -27,18 +27,7 @@ export const NET_BLOCKED_ENV: Record<string, string> = {
   no_proxy: "127.0.0.1,localhost",
 };
 
-/** Scenarios whose recorded frames show the Settings "Update check" value. */
-export const SHOWS_UPDATE_CHECK = new Set(["overlay-walk", "settings-submodal-return"]);
-
 /** Applies the dead proxy to a scenario spec (never drops its own env). */
 export function hermetic(spec: PtySpec): PtySpec {
   return { ...spec, env: { ...spec.env, ...NET_BLOCKED_ENV } };
-}
-
-/** True when the spec cannot reach the network: dead proxy and/or opt-out. */
-export function isHermetic(spec: PtySpec): { proxy: boolean; optOut: boolean } {
-  const env = spec.env ?? {};
-  const proxy = Object.entries(NET_BLOCKED_ENV).every(([k, v]) => env[k] === v);
-  const optOut = spec.config?.updateCheck === false;
-  return { proxy, optOut };
 }

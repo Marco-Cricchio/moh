@@ -105,11 +105,12 @@ available` and B5 would differ with no TUI change.
 
 B5 therefore runs every scenario with a dead proxy in the child's
 environment (`tui-hermetic.ts`, loopback excepted so the fake provider
-servers stay reachable), and every scenario whose frames do not render the
-Settings "Update check" row also sets `updateCheck: false`. The two that do
-(`overlay-walk`, `settings-submodal-return`) keep the default `on`, which the
-reference records, and rely on the dead proxy alone.
-`tui-hermetic.test.ts` fails if a scenario has neither.
+servers stay reachable), and every scenario except two also sets
+`updateCheck: false`. The two exceptions (`overlay-walk`,
+`settings-submodal-return`) render the Settings "Update check" row, which the
+reference records as `on`, so they keep the default and rely on the dead proxy
+alone. `tui-hermetic.test.ts` checks the spec that `tui.ts` runs (`specFor`)
+against literal values: the proxy keys, the loopback bypass and the opt-out.
 
 ## Known B5 flake: `permission-prompt` / `permission-allowed` (#1482)
 
