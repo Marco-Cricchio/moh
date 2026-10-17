@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { AuthToken, ConnectionTester, EndpointProfile, OnboardingIo } from "@moh/core";
 import { providerCommand, PROVIDER_USAGE } from "../src/provider";
-import type { SubscriptionLogin } from "@moh/core";
+import type { SubscriptionLogin } from "../../core/src/auth/lifecycle";
 
 const dirs: string[] = [];
 function tmp(): string {
