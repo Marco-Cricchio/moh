@@ -1,5 +1,6 @@
 import { describe, expect, it } from "bun:test";
-import { createSession, EMPTY_REASONING_PARTS, foldReasoningParts, foldReasoningText, reasoningPartsText, type AgentEvent, type Provider, type ReasoningParts, type ReasoningStreamEvent } from "../src/index";
+import { createSession, EMPTY_REASONING_PARTS, foldReasoningParts, reasoningPartsText, type AgentEvent, type Provider, type ReasoningParts, type ReasoningStreamEvent } from "../src/index";
+import { foldReasoningText } from "../src/reasoning-parts";
 import type { StreamEvent } from "../src/types";
 
 /** #993: the reasoning lifecycle's fold is the channel's contract, and the
