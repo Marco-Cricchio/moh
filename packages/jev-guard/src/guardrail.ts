@@ -56,8 +56,6 @@ export const GUARDRAIL_QUESTIONS = {
   risk_level: RISK_QUESTION,
 } as const;
 
-export type GuardrailQuestionId = keyof typeof GUARDRAIL_QUESTIONS;
-
 /** Ratified threshold constants (code constants in v1; tuned on data later). */
 export const GUARDRAIL_THRESHOLDS = {
   /** deny when destructive/exfiltration probability is strictly above this. */

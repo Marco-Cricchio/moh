@@ -146,7 +146,6 @@ packages/core/src/extension-registry.ts GithubRelease
 packages/core/src/extension-registry.ts InstallOptions
 packages/core/src/extension-registry.ts InstallResult
 packages/core/src/extension-registry.ts InstalledExtension
-packages/core/src/extension-registry.ts IntegrityAlgorithm
 packages/core/src/extension-registry.ts KNOWN_CAPABILITY_SLOTS
 packages/core/src/extension-registry.ts registryRoots
 packages/core/src/extension-source.ts EXTENSIONS_DIR
@@ -164,7 +163,6 @@ packages/core/src/extensions.ts SessionScope
 packages/core/src/extensions.ts ToolResultDispatch
 packages/core/src/extensions.ts ToolSeam
 packages/core/src/github-settings.ts BranchProtectionConfig
-packages/core/src/github-settings.ts ChangeAction
 packages/core/src/github-settings.ts GithubSettingsError
 packages/core/src/github-settings.ts LabelConfig
 packages/core/src/github-settings.ts LiveBranchProtection
@@ -268,7 +266,6 @@ packages/core/src/model-pool.ts ModelPoolOptions
 packages/core/src/mpm/capabilities.ts MpmLanguageCapability
 packages/core/src/mpm/config.ts MpmProjectConfig
 packages/core/src/mpm/config.ts MpmUserConfig
-packages/core/src/mpm/config.ts mpmDefaultQuota
 packages/core/src/mpm/config.ts mpmQuotaSchema
 packages/core/src/mpm/diagnostics.ts MpmDiagnosticsOptions
 packages/core/src/mpm/diagnostics.ts MpmLanguageCoverage
@@ -285,7 +282,6 @@ packages/core/src/performance/telemetry.ts AcceptedTaskFixtureRow
 packages/core/src/performance/telemetry.ts ConcurrencyReport
 packages/core/src/performance/telemetry.ts TaskRow
 packages/core/src/performance/telemetry.ts TaskVerificationRow
-packages/core/src/permissions.ts BROWSER_ACT_ACTIONS
 packages/core/src/permissions.ts BROWSER_READ_ACTIONS
 packages/core/src/permissions.ts PermissionDecision
 packages/core/src/permissions.ts PermissionResolverOptions
@@ -306,7 +302,6 @@ packages/core/src/prompt-override.ts PromptOverrideApplication
 packages/core/src/prompt-override.ts REPLACEABLE_SECTIONS
 packages/core/src/prompt-override.ts replaceSectionCapability
 packages/core/src/provider-config.ts MergedConfigOptions
-packages/core/src/provider-errors.ts AbortKind
 packages/core/src/provider-onboarding.ts BuiltinProviderType
 packages/core/src/provider-onboarding.ts KnownCompatEndpoint
 packages/core/src/provider-onboarding.ts PROVIDER_TEST_BODY_CHARS
@@ -361,7 +356,6 @@ packages/core/src/route.ts EndpointConfig
 packages/core/src/route.ts RouteConfig
 packages/core/src/route.ts RouteCooldown
 packages/core/src/route.ts providerApiKey
-packages/core/src/self-update.ts SelfUpdatePhase
 packages/core/src/self-update.ts SelfUpdateStatus
 packages/core/src/self-update.ts UpdateFetch
 packages/core/src/self-update.ts isPrerelease
@@ -439,7 +433,6 @@ packages/core/src/types.ts TextPart
 packages/core/src/types.ts ToolCallPart
 packages/core/src/types.ts ToolResultPart
 packages/core/src/types.ts TurnStatus
-packages/core/src/types.ts UsageDetail
 packages/core/src/update-check.ts UPDATE_CHECK_INTERVAL_MS
 packages/core/src/update-check.ts UPDATE_CHECK_TIMEOUT_MS
 packages/core/src/workflow.ts ApplyUpstreamOptions
@@ -481,7 +474,6 @@ packages/jev-guard/src/guardrail-judge.ts GuardrailJudgeResult
 packages/jev-guard/src/guardrail.ts DESTRUCTIVE_QUESTION
 packages/jev-guard/src/guardrail.ts EXFILTRATION_QUESTION
 packages/jev-guard/src/guardrail.ts GuardrailDecision
-packages/jev-guard/src/guardrail.ts GuardrailQuestionId
 packages/jev-guard/src/guardrail.ts GuardrailVerdict
 packages/jev-guard/src/guardrail.ts IN_SCOPE_QUESTION
 packages/jev-guard/src/guardrail.ts RISK_QUESTION
@@ -508,7 +500,6 @@ packages/jev-guard/src/lint.ts LINT_CONVENTIONS_QUESTION
 packages/jev-guard/src/lint.ts LINT_ERROR_HANDLING_QUESTION
 packages/jev-guard/src/model-retry.ts ENDPOINT_ERROR_KINDS
 packages/jev-guard/src/model-retry.ts endpointOf
-packages/jev-guard/src/questions-core.ts JevQuestionId
 packages/jev-guard/src/rerank-judge.ts RerankJudge
 packages/jev-guard/src/rerank-judge.ts RerankJudgeDeps
 packages/jev-guard/src/rerank-judge.ts RerankVerdict
@@ -603,7 +594,6 @@ packages/tui/src/factory.ts MakeSessionResult
 packages/tui/src/factory.ts OpenSessionOptions
 packages/tui/src/factory.ts handoffPushWork
 packages/tui/src/fallback-notice.ts FallbackWatcher
-packages/tui/src/icons.ts iconsEnabled
 packages/tui/src/image-preview.ts PreviewCell
 packages/tui/src/jev-control.ts RoutingState
 packages/tui/src/jev-control.ts jevFailedStatus
@@ -614,7 +604,6 @@ packages/tui/src/markdown.tsx StyledSegment
 packages/tui/src/markdown.tsx adaptiveTableWidths
 packages/tui/src/markdown.tsx normalizeTableSeparators
 packages/tui/src/model-picker.ts PickerModel
-packages/tui/src/model-picker.ts PickerRow
 packages/tui/src/model-picker.ts contextLabel
 packages/tui/src/onboarding.ts DetectableProviderType
 packages/tui/src/onboarding.ts WizardPlan
@@ -630,7 +619,6 @@ packages/tui/src/scanner.ts ScannerPaint
 packages/tui/src/scanner.ts ScannerRole
 packages/tui/src/session-bridge.ts SessionState
 packages/tui/src/sidebar.ts ActivityItem
-packages/tui/src/subagent-panel.ts PANEL_MIN_COLUMNS
 packages/tui/src/subagent-panel.ts SETTLED_SUBAGENT_GRACE_MS
 packages/tui/src/subagent-panel.ts subagentStateLabel
 packages/tui/src/subscription-io.ts openUrlBestEffort
@@ -648,7 +636,6 @@ packages/tui/src/turns.ts ToolView
 packages/tui/src/turns.ts TurnPhase
 packages/tui/src/turns.ts TurnView
 packages/tui/src/ui.tsx Accent
-packages/tui/src/ui.tsx MsgBox
 packages/tui/src/update-poll.ts PollTimers
 packages/tui/src/update-poll.ts UpdatePollOptions
 packages/tui/src/user-config.ts DEFAULT_UPDATE_CHECK

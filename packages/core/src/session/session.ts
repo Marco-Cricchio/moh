@@ -25,7 +25,7 @@ import { persistProjectMcpTrust } from "../mcp/types";
 import { McpRuntime } from "../mcp";
 import { PromptComposer, type AssembledPrompt, type SkillIndexEntry } from "../prompt-composer";
 import { discoverSkills } from "../skills";
-import { ExtensionRuntime, type ExtensionUIRefusal, type ActiveExtensionOverlay } from "../extensions";
+import { ExtensionRuntime, type ActiveExtensionOverlay } from "../extensions";
 import { sanitizeForDisplay } from "../display-sanitize";
 import type { PanelKeyEvent } from "@moh/extension";
 import { EventLog } from "./event-log";
@@ -1752,11 +1752,6 @@ export class AgentSession {
    * order; `render` as on panels. */
   extensionOverlays(): { extension: string; name: string; description: string; render(): unknown }[] {
     return this.#extensions?.overlays() ?? [];
-  }
-
-  /** ADR-0062 (#1132): refused panel/overlay registrations, with their reasons. */
-  extensionUIRefusals(): readonly ExtensionUIRefusal[] {
-    return this.#extensions?.uiRefusals() ?? [];
   }
 
   /** ADR-0062 (#1132): the overlay the client currently shows, null = none. */

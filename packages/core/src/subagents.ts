@@ -402,11 +402,6 @@ export class SubagentHost {
     return stopped;
   }
 
-  /** ADR-0053: children this extension spawned this session, by callId. */
-  spawnedByExtension(extension: string): string[] {
-    return [...this.#spawnedByExtension].filter(([, by]) => by === extension).map(([callId]) => callId);
-  }
-
   /**
    * ADR-0053 + ADR-0055 (#998 follow-up): the `spawn-subagent` capability's
    * execution path. The envelope is intersected here — cap, iteration

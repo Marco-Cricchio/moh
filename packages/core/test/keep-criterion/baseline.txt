@@ -64,7 +64,6 @@ ExtensionCommandContext
 ExtensionLiveInfo
 ExtensionRef
 ExtensionSpawnRefusedError
-ExtensionUIRefusal
 ExtensionsScreenExtension
 ExtensionsScreenRefusal
 ExtensionsScreenSection

@@ -13,10 +13,6 @@ export function setIcons(on: boolean): void {
   icons = on;
 }
 
-export function iconsEnabled(): boolean {
-  return icons;
-}
-
 /** Picks the glyph or its ASCII fallback according to the icon toggle. */
 export function ic(glyph: string, ascii: string): string {
   return icons ? glyph : ascii;

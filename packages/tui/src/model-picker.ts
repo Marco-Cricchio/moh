@@ -7,11 +7,6 @@
  */
 import type { CatalogModel, LiveModelListing } from "@moh/core";
 
-/** One pickable row: a catalog entry or the free-text fallback. */
-export type PickerRow =
-  | { kind: "catalog"; model: CatalogModel }
-  | { kind: "free"; query: string };
-
 /**
  * Incremental filter over a catalog (#181): case-insensitive substring
  * on name or id first, subsequence ("fuzzy") on id as the fallback.

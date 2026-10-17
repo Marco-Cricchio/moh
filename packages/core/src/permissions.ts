@@ -231,17 +231,6 @@ export const DEFAULT_TOOL_PERMISSIONS: Record<string, PermissionDecision> = {
 
 /** #775 (ADR-0029): read-tier browser actions — allowed by default. */
 export const BROWSER_READ_ACTIONS = ["navigate", "snapshot", "read_text", "screenshot", "close"] as const;
-/** #775 (ADR-0029): act-tier browser actions — ask by default. */
-export const BROWSER_ACT_ACTIONS = [
-  "click",
-  "fill",
-  "select",
-  "scroll",
-  "press_key",
-  "wait_for",
-  "upload",
-  "eval_js",
-] as const;
 
 const TIER_RANK: Record<PermissionTier, number> = { builtin: 0, config: 1, runtime: 2 };
 

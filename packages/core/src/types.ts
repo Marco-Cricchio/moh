@@ -136,19 +136,6 @@ export class ProviderError extends Error {
 export type UsageProvenance = "provider" | "client-estimated" | "unavailable";
 
 /**
- * #1099: provider-reported usage detail beyond the aggregate input/output
- * pair. Cache tokens are a subset of what providers count inside input —
- * they are recorded beside `inputTokens`, never added to it, so aggregate
- * usage cannot double-count. Every field is optional: absent means the
- * provider did not report it — never zero.
- */
-export interface UsageDetail {
-  cacheReadTokens?: number;
-  cacheWriteTokens?: number;
-  reasoningTokens?: number;
-}
-
-/**
  * #1099: sanitized identity of the endpoint that served (or refused) one
  * attempt — the endpoint kind and its base URL without query string,
  * fragment or credentials. Built only through `endpointIdentity`.

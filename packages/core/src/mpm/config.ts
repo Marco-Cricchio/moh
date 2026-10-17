@@ -10,7 +10,7 @@
  * named here: only patterns, budgets, and an on/off decision.
  */
 import { z } from "zod";
-import { MPM_DEFAULT_MAX_FILES, MPM_DEFAULT_MAX_TOTAL_BYTES, type MpmQuota } from "./service";
+import { type MpmQuota } from "./service";
 import { readUserConfigFile, userConfigFile } from "../user-config";
 
 /**
@@ -129,9 +129,4 @@ export function readMpmUserConfig(file = userConfigFile()): MpmUserConfig {
     if (exclude.length > 0) config.exclude = exclude;
   }
   return config;
-}
-
-/** The defaults the projection runs under when no config narrows them. */
-export function mpmDefaultQuota(): Required<MpmQuota> {
-  return { maxFiles: MPM_DEFAULT_MAX_FILES, maxTotalBytes: MPM_DEFAULT_MAX_TOTAL_BYTES };
 }

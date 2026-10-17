@@ -56,9 +56,6 @@ export interface SelfUpdateResult {
   message: string;
 }
 
-/** Coarse phases of a self-update, in order (#351 progress reporting). */
-export type SelfUpdatePhase = "checking" | "downloading" | "verifying" | "installing";
-
 /** Progress notification emitted at phase transitions. `downloading` fires
  * twice: at start (`receivedBytes: 0`) and when the body is fully received
  * (`receivedBytes: <size>`) — the CLI's spinner animates between the two. */
