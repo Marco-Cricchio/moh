@@ -92,8 +92,6 @@ HandoffPayload
 HandoffRunner
 HandoffTransport
 HandoffTransportError
-IMAGE_MENTION_CAP
-IMAGE_MENTION_MIMES
 ImportHandoffOptions
 ImportHandoffResult
 InstallOptions
@@ -118,8 +116,6 @@ LocalUsageRow
 LoginOptions
 MAX_ITERATIONS_UNLIMITED
 MAX_PANELS
-MENTION_DIR_ENTRY_CAP
-MENTION_TEXT_CAP
 MOH_VERSION
 MPM_DEFAULT_MAX_FILES
 MPM_DEFAULT_MAX_TOTAL_BYTES
@@ -201,7 +197,6 @@ RetroReportFinding
 RetroStore
 RuleError
 RuntimeExtension
-SCHEMA_VERSION
 SUMMARY_MAX_CHARS
 SelfUpdateIo
 SelfUpdateProgress
@@ -222,10 +217,8 @@ SessionStore
 SessionSummary
 SessionToolRow
 SessionTreeStats
-SkillArgs
 SkillIndexEntry
 SkillPrompt
-SkillRecommendation
 SkillRouteOverride
 SkillRoutingConfig
 StoredApiKeyOrigin
@@ -247,7 +240,6 @@ TelemetrySessionRow
 TelemetrySubagentRow
 TelemetryToolRow
 ThinkingEndpoint
-ThinkingFormat
 ThinkingLevel
 ThinkingLevelState
 Tool
@@ -289,9 +281,7 @@ checkUpstreamUpdates
 checksumFor
 childTailLine
 cloneHandoffRepo
-compactionFacts
 concurrencyReport
-createDeterministicSummarizer
 createGistHandoffTransport
 createSession
 declaredMcpServers
@@ -315,7 +305,6 @@ extensionsScreenStateFromEvents
 fallbackIneligibleReason
 fetchLiveCatalogs
 foldReasoningParts
-foldReasoningText
 formatModelPair
 formatRule
 formatSkillCommand
@@ -359,13 +348,11 @@ liveListings
 loadFirstPartyManifest
 loadMergedConfig
 loadMohConfig
-localTipAt
 mainCheckoutFor
 manualIndex
 manualPage
 mcpServerEntrySchema
 mergeExtensionLiveInfo
-mimeForPath
 minimalConnectionTest
 moveStrandedSessions
 mpmDiagnostics
@@ -374,7 +361,6 @@ offersSubscriptionAuth
 overridesFromFlags
 parseExtensionRef
 parseLineRef
-parseMentions
 parseRule
 parseSkillArgs
 performSelfUpdate
@@ -424,7 +410,6 @@ releasesUrl
 removeInstalledExtension
 removeUserEndpoint
 renameSession
-renderDeterministicDigest
 renderMentionAttachment
 renderTosCard
 reportNeedsNotice
@@ -458,7 +443,6 @@ spawnGh
 splitCommandSegments
 strandedDataSummary
 subscriptionModelCatalog
-substituteSkillArgs
 summarizeLiveCatalogReport
 summarizeQuota
 switchBranch

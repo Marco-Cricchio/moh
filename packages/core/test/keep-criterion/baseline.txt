@@ -48,8 +48,6 @@ GitRunner
 HandoffDebugStage
 HandoffGitAnchor
 HandoffPayload
-IMAGE_MENTION_CAP
-IMAGE_MENTION_MIMES
 ImportHandoffOptions
 ImportHandoffResult
 InstallOptions
@@ -68,8 +66,6 @@ LaneServiceOptions
 LaneStatus
 LaneStoreOptions
 MAX_PANELS
-MENTION_DIR_ENTRY_CAP
-MENTION_TEXT_CAP
 MPM_DEFAULT_MAX_FILES
 MPM_DEFAULT_MAX_TOTAL_BYTES
 MPM_FORMAT_VERSION
@@ -122,7 +118,6 @@ RerankResponse
 RetroJudgmentExtractor
 RetroJudgmentInput
 RuntimeExtension
-SCHEMA_VERSION
 SUMMARY_MAX_CHARS
 SelfUpdateStatus
 SendOptions
@@ -134,10 +129,8 @@ SessionPermissionStats
 SessionShapeStats
 SessionToolRow
 SessionTreeStats
-SkillArgs
 SkillIndexEntry
 SkillPrompt
-SkillRecommendation
 SkillRouteOverride
 SubagentOptions
 TaskOutcome
@@ -151,7 +144,6 @@ TelemetryRouteServingRow
 TelemetrySessionRow
 TelemetrySubagentRow
 TelemetryToolRow
-ThinkingFormat
 UPDATE_CHECK_INTERVAL_MS
 UPDATE_PLATFORMS
 UserConfigData
@@ -159,13 +151,10 @@ VerificationCategory
 assetUrl
 checksumFor
 childTailLine
-compactionFacts
-createDeterministicSummarizer
 defaultLaneGitRunner
 defaultRegistry
 detectUpdatePlatform
 extensionsScreenStateFromEvents
-foldReasoningText
 handoffAlreadyPublished
 handoffDebugEnabled
 handoffPublishedMarkerFile
@@ -177,9 +166,6 @@ isSubscriptionKind
 laneWorktreeDirName
 laneWorktreeRootFor
 lineRef
-localTipAt
-mimeForPath
-parseMentions
 performanceSamples
 persistProjectMcpTrust
 preCommitHookContent
@@ -187,14 +173,12 @@ readImportedHandoff
 redactSummary
 registryRoots
 releasesUrl
-renderDeterministicDigest
 resolveBundledExtensions
 resolveHead
 resolveProvider
 resolveProviderRef
 resolveWorktreePath
 retroSignature
-substituteSkillArgs
 taskDeclaredEvent
 taskOutcomeEvent
 taskVerificationEvent
