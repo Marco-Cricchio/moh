@@ -136,7 +136,6 @@ export {
   parseRule,
   RuleError,
   splitCommandSegments,
-  urlGlobMatches,
   type PermissionOverrides,
   type PermissionRule,
 } from "./permissions";
@@ -263,11 +262,6 @@ export {
 // task projections. Explicit client seams only — never model-inferred;
 // `unknown` is the default outcome state.
 export {
-  redactSummary,
-  taskDeclaredEvent,
-  taskVerificationEvent,
-  taskOutcomeEvent,
-  SUMMARY_MAX_CHARS,
   type VerificationCategory,
   type TaskOutcome,
 } from "./task/telemetry";
@@ -276,7 +270,6 @@ export {
 export { sanitizeForDisplay } from "./display-sanitize";
 export {
   performanceByModel,
-  performanceSamples,
   concurrencyReport,
   taskReport,
   acceptedTaskFixture,
@@ -345,8 +338,6 @@ export {
   mcpServerEntrySchema,
   isHttpMcpUrl,
   declaredUserMcpServers,
-  isProjectServerTrusted,
-  persistProjectMcpTrust,
   type DeclaredMcpServer,
   type McpServerEntry,
   type McpRuntimeOptions,
@@ -394,8 +385,6 @@ export { renderTosCard, tosCardFor } from "./tos-cards";
 // queries. The service owns the projection; clients never touch storage.
 export {
   MpmService,
-  MPM_DEFAULT_MAX_FILES,
-  MPM_DEFAULT_MAX_TOTAL_BYTES,
   projectMapDir,
   type MpmQueryResult,
   type MpmStatus,
@@ -411,7 +400,6 @@ export {
   type MpmEffectiveConfig,
 } from "./mpm/config";
 export {
-  MPM_FORMAT_VERSION,
   type MpmFileRecord,
   type MpmProvenance,
   type MpmSymbol,
@@ -421,7 +409,7 @@ export {
 // #790: the rerank seam types — the config surface (`SessionConfig.mpm.rerank`)
 // references them, so they are public by the ADR-0004 criterion.
 export { type RerankCandidate, type RerankRequest, type RerankResponse } from "./mpm/orientation";
-export { allManualPages, manualIndex, manualPage, type ManualPage } from "./manual";
+export { allManualPages, manualIndex, manualPage } from "./manual";
 export {
   endpointThinkingStatus,
   readThinkingPreference,
@@ -468,7 +456,6 @@ export {
   installFirstPartySkills,
   checkUpstreamUpdates,
   applyUpstreamUpdates,
-  validateSkillEntry,
   loadFirstPartyManifest,
   diffSkillFiles,
   readBundledSkill,
@@ -479,23 +466,14 @@ export {
   checkForUpdate,
   isDevRun,
   readUpdateCache,
-  updateDue,
   updateNoticeFor,
-  UPDATE_CHECK_INTERVAL_MS,
   type UpdateNotice,
 } from "./update-check";
 export {
-  UPDATE_PLATFORMS,
-  assetUrl,
-  checksumFor,
-  detectUpdatePlatform,
-  isPrerelease,
   performSelfUpdate,
-  releasesUrl,
   type SelfUpdateIo,
   type SelfUpdateProgress,
   type SelfUpdateResult,
-  type SelfUpdateStatus,
   type UpdatePlatform,
 } from "./self-update";
 export {
@@ -537,7 +515,6 @@ export {
   readUserConfigFile,
   updateUserConfigFile,
   userConfigFile,
-  type UserConfigData,
   type UserConfigIo,
 } from "./user-config";
 // #826: the bundled-extension seam. The core knows how to host first-party
@@ -631,13 +608,12 @@ export {
 
 export {
   RetroStore,
-  retroSignature,
   type RetroFinding,
   type RetroReport,
   type RetroReportFinding,
 } from "./retro";
 
-export { proposeRetroApplication, applyRetroApplication, preCommitHookContent, PRE_COMMIT_TARGET } from "./retro-apply";
+export { proposeRetroApplication, applyRetroApplication, PRE_COMMIT_TARGET } from "./retro-apply";
 
 // ADR-0075 (#1275): the judgement pipeline's injectable seam — the type
 // `SessionConfig.retroJudgment` references, so clients and tests can name it.
