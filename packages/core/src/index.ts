@@ -161,7 +161,6 @@ export {
   defaultRegistry,
   resolveProvider,
   resolveProviderRef,
-  isFallbackEligible,
   fallbackIneligibleReason,
 } from "./provider-registry";
 export { type MemoryOptions } from "./memory";
@@ -265,12 +264,6 @@ export {
 // read-only projections over the recorded quota events (ADR-0004
 // reopening: `recordQuota` clients project reports into the log).
 export {
-  observationsFromQuotaReport,
-  quotaEventsFromProviderError,
-  quotaRecoveryEvent,
-  commercialDeclarationEvent,
-  declarationInForce,
-  scopeKeyFor,
   quotaEpisodes,
   quotaContradictions,
   summarizeQuota,
@@ -279,7 +272,6 @@ export {
   type QuotaContradiction,
   type QuotaSummary,
   type QuotaPressureRow,
-  type CommercialDeclarationInput,
 } from "./quota/telemetry";
 // #714: the multi-session telemetry aggregator — the deep module the CLI/TUI
 // usage surfaces project. Read-only metadata projection over session event
@@ -408,31 +400,20 @@ export {
 export {
   minimalConnectionTest,
   addProviderToFile,
-  runProviderAdd,
   BUILTIN_PROVIDER_TYPES,
   KNOWN_COMPAT_ENDPOINTS,
   OPENCODE_AUTH_URL,
   OPENCODE_ENDPOINTS,
-  OnboardingAborted,
   type BuiltinProviderType,
-  type KnownCompatEndpoint,
   type ConnectionTestResult,
   type ConnectionTester,
-  type ProviderTestFailure,
   type OnboardingIo,
   type ProviderAddOptions,
 } from "./provider-onboarding";
-export {
-  // #1092: the bounded, secret-free failure trail for connection tests —
-  // clients pass the user's moh home through `minimalConnectionTest`.
-  noteProviderTestFailure,
-  providerTestFailuresFile,
-  PROVIDER_TEST_FAILURES_FILE,
-  PROVIDER_TEST_MAX_ENTRIES,
-  type ProviderTestFailureEntry,
-} from "./provider-test-trace";
-export { PROVIDER_PROFILES, providerProfile, providerEndpointChoices, providerRequiresBaseUrlInput, isProviderProfile, type ProviderProfile, type ProviderProfileId } from "./provider-profiles";
-export { catalogEntryFor, pricingForModel, pricingForPlan, modelSupportsImages, endpointModelCatalog, knownCompatEndpointMetadata, subscriptionModelCatalog, type BillingPlan, type CatalogModel, type ModelPricing, type ModelPricingTier, type KnownCompatEndpointMetadata } from "./model-catalog";
+// #1092: the bounded, secret-free failure trail for connection tests —
+// clients pass the user's moh home through `minimalConnectionTest`.
+export { PROVIDER_PROFILES, providerProfile, providerEndpointChoices, providerRequiresBaseUrlInput, type ProviderProfile, type ProviderProfileId } from "./provider-profiles";
+export { catalogEntryFor, pricingForModel, pricingForPlan, endpointModelCatalog, knownCompatEndpointMetadata, subscriptionModelCatalog, type BillingPlan, type CatalogModel, type ModelPricing, type ModelPricingTier } from "./model-catalog";
 export { billingPlanResolver, estimateModelCost, PRICING_SNAPSHOT, type ModelCostEstimate } from "./pricing";
 // #993: the live reasoning channel's fold — the one rule shared by the log
 // (`session/agent-loop.ts`) and every client that renders reasoning live.
@@ -441,14 +422,10 @@ export {
   fetchLiveCatalogs,
   liveListings,
   summarizeLiveCatalogReport,
-  liveCatalogFailureReasons,
   reportNeedsNotice,
   type LiveModelListing,
-  type LiveCatalogReport,
-  type LiveCatalogResult,
-  type LiveCatalogStatus,
 } from "./live-model-catalog";
-export { allTosCards, renderTosCard, tosCardFor, type TosCard, type TosLink } from "./tos-cards";
+export { renderTosCard, tosCardFor } from "./tos-cards";
 // #614: MPM — the ADR-0004 reopening that lets clients (TUI status row #619,
 // CLI diagnostics #618) read MPM status and run read-only structural
 // queries. The service owns the projection; clients never touch storage.
@@ -483,23 +460,15 @@ export {
 export { type RerankCandidate, type RerankRequest, type RerankResponse } from "./mpm/orientation";
 export { allManualPages, manualIndex, manualPage, type ManualPage } from "./manual";
 export {
-  clearThinkingPreference,
-  defaultThinkingLevel,
-  effectiveThinkingLevel,
   endpointThinkingStatus,
   readThinkingPreference,
-  readThinkingPreferences,
   resolveEndpointThinking,
   setThinkingPreference,
   thinkingLevelStates,
   thinkingStatesForRef,
   THINKING_LEVELS,
-  FORMAT_EXPRESSIBLE_LEVELS,
-  type ThinkingDeclaration,
   type ThinkingEndpoint,
   type ThinkingLevelState,
-  type ThinkingModelDeclaration,
-  type ThinkingPreferences,
 } from "./thinking-preferences";
 export { isThinkingLevel, type ThinkingFormat } from "./types";
 export { listOpenAiCompatModels } from "./endpoint-models";
@@ -530,7 +499,6 @@ export {
   providerStatus,
   runSubscriptionLogin,
   type LoginOptions,
-  type SubscriptionLogin,
 } from "./auth/lifecycle";
 export {
   MOH_VERSION,
@@ -689,8 +657,6 @@ export {
   saveUserProviderRef,
   setUserEndpointModel,
   setUserEndpointFallbackEligible,
-  type MergedConfigOptions,
-  type UserProviderConfig,
 } from "./provider-config";
 export {
   type AuthToken,
@@ -698,7 +664,6 @@ export {
 } from "./auth/types";
 export {
   bindStoredApiKeyOrigin,
-  getStoredToken,
   readAuthSection,
   saveStoredApiKey,
   saveTokens,
