@@ -183,16 +183,11 @@ export {
   type FeatureGroup,
   type LaneRelation,
   type LaneStatus,
-  type LaneStoreOptions,
 } from "./development-lanes";
 export {
   DevelopmentLaneService,
-  defaultLaneGitRunner,
-  laneWorktreeDirName,
-  laneWorktreeRootFor,
   mainCheckoutFor,
   readLaneSetup,
-  resolveWorktreePath,
   type CleanupCandidate,
   type CleanupOptions,
   type CleanupReport,
@@ -561,8 +556,6 @@ export {
 export {
   publishHandoffAtExit,
   readRawHandoff,
-  handoffAlreadyPublished,
-  handoffPublishedMarkerFile,
   type HandoffPayload,
   // Session handoff (#433, T2 #435): the transport seam and gist impl
   // are client surfaces (exit wiring, TUI/CLI) — not agent-loop API.
@@ -585,12 +578,6 @@ export {
   // Cold-directory wizard (#595): the gate, clone and pull steps.
   isColdDirectory,
   pullHandoffTo,
-  type CloneHandoffRepoOptions,
-  type CloneHandoffRepoResult,
-  type GitCall,
-  type GitRunner,
-  type PullHandoffOptions,
-  type PullHandoffResult,
 } from "./handoff-coldstart";
 export {
   // Reception (T3 #436) and Wayfinder read/cite (T6 #439) client surfaces.
@@ -601,19 +588,13 @@ export {
   type HandoffOffer,
   type DiscoverHandoffOptions,
 } from "./handoff-reception";
-export { handoffDebug, handoffDebugEnabled, type HandoffDebugStage } from "./handoff-debug";
+export { handoffDebug } from "./handoff-debug";
 export { HandoffRunner, transportActive, type RawHandoff, type HandoffGitAnchor } from "./handoff";
 export { enrichHandoffWithWayfinder, notifyClaimedWayfinderTickets } from "./handoff-wayfinder";
 export {
   // Manual file fallback (T7 #440): export/import via file.
   exportHandoffFile,
   importHandoffFile,
-  readImportedHandoff,
-  importedHandoffFile,
-  type ExportHandoffOptions,
-  type ExportHandoffResult,
-  type ImportHandoffOptions,
-  type ImportHandoffResult,
 } from "./handoff-file";
 export {
   loadMergedConfig,
