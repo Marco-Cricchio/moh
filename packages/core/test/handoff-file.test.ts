@@ -4,13 +4,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   exportHandoffFile,
-  importedHandoffFile,
   importHandoffFile,
-  readImportedHandoff,
   type AgentEvent,
   type RawHandoff,
 } from "@moh/core";
 import { buildRawHandoff } from "../src/handoff";
+import { importedHandoffFile, readImportedHandoff } from "../src/handoff-file";
 
 function tmpRoot(): { root: string; cwd: string; home: string } {
   const root = mkdtempSync(join(tmpdir(), "moh-handoff-file-"));

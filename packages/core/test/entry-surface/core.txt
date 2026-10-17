@@ -35,8 +35,6 @@ ChildTailResult
 CleanupCandidate
 CleanupOptions
 CleanupReport
-CloneHandoffRepoOptions
-CloneHandoffRepoResult
 CompactionFacts
 CompactionOptions
 CompactionRunner
@@ -62,8 +60,6 @@ EndpointProfile
 EventIdentity
 ExpandMentionsResult
 ExpandedMention
-ExportHandoffOptions
-ExportHandoffResult
 ExtensionConsentRequest
 ExtensionRuntime
 ExtensionStatus
@@ -72,18 +68,13 @@ FULL_CHROMIUM_DOWNLOAD_SIZE
 FeatureGroup
 GhRunner
 GistHandoffOffer
-GitCall
-GitRunner
 HEADLESS_SHELL_DOWNLOAD_SIZE
-HandoffDebugStage
 HandoffGitAnchor
 HandoffOffer
 HandoffPayload
 HandoffRunner
 HandoffTransport
 HandoffTransportError
-ImportHandoffOptions
-ImportHandoffResult
 KNOWN_COMPAT_ENDPOINTS
 LaneConflict
 LaneGitResult
@@ -96,7 +87,6 @@ LaneOperationResult
 LaneRelation
 LaneServiceOptions
 LaneStatus
-LaneStoreOptions
 LiveModelListing
 LocalUsageRow
 LoginOptions
@@ -155,8 +145,6 @@ ProviderProfileId
 ProviderRegistry
 PublishHandoffOptions
 PublishHandoffResult
-PullHandoffOptions
-PullHandoffResult
 QuotaContradiction
 QuotaEpisode
 QuotaFetch
@@ -271,7 +259,6 @@ createSession
 declaredMcpServers
 declaredUserMcpServers
 defaultCredentialStore
-defaultLaneGitRunner
 defaultRegistry
 deleteSession
 deleteStrandedData
@@ -293,16 +280,12 @@ formatRule
 formatSkillCommand
 getQuota
 ghUsername
-handoffAlreadyPublished
 handoffDebug
-handoffDebugEnabled
-handoffPublishedMarkerFile
 handoffSeedMessage
 handoffSeedPrompt
 hasSkillPlaceholders
 imageDimensions
 importHandoffFile
-importedHandoffFile
 installBrowserToolchain
 installExtension
 installFirstPartySkills
@@ -318,8 +301,6 @@ isSubscriptionKind
 isThinkingLevel
 knownCompatEndpointMetadata
 laneInstallLine
-laneWorktreeDirName
-laneWorktreeRootFor
 lastAssistantText
 lineRef
 listInstalledExtensions
@@ -375,7 +356,6 @@ quotaPressure
 readAuthSection
 readBundledSkill
 readExtensionsScreenState
-readImportedHandoff
 readLaneSetup
 readMpmUserConfig
 readRawHandoff
@@ -403,7 +383,6 @@ resolveProvider
 resolveProviderRef
 resolveTracker
 resolveTrackerSync
-resolveWorktreePath
 restoreSession
 retroSignature
 runSubscriptionLogin
