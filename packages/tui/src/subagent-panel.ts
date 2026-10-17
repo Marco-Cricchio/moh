@@ -252,12 +252,6 @@ export function subagentGlyph(sub: TrackedSubagent, tail: SubagentTail | undefin
   return isStalled(sub, tail, now) ? "⏸" : "◐";
 }
 
-/** (Deprecated) former split-layout thresholds — kept only because the
- * owner's revision removed the split entirely; the peek is now the only
- * layout. Kept exported for one release so clients importing them don't
- * break; do not use in new code. */
-export const PANEL_MIN_COLUMNS = 100;
-
 /** (Deprecated) former split-layout width; unused since the split was
  * removed. Kept exported for one release. */
 export function panelWidth(columns: number): number {

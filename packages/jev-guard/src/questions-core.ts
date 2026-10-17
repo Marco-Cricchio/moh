@@ -14,9 +14,6 @@
  */
 import type { JevChoiceQuestion, JevNoulQuestion, JevScoreQuestion } from "./client";
 
-/** Question ids are code-side keys: never sent to the model, never inferred. */
-export type JevQuestionId = string;
-
 /** The three question formats the API accepts, one builder each (docs.typesafe.ai/primitives). */
 export const questions = {
   /** Yes/no judgment; the probability itself is the signal. */

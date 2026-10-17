@@ -150,14 +150,6 @@ export interface SessionConsent {
    * refusal keeps the previously approved tree and refuses the load.
    */
   onExtensionDependencies?: (name: string, deps: readonly string[]) => Promise<boolean> | boolean;
-  /**
-   * ADR-0062 (#1130): the slash names the client's own surfaces own — its
-   * native commands plus every skill alias. Extension commands colliding
-   * with one of these are refused at registration (native > skills >
-   * extension); the names are a client fact, so the assembling client
-   * supplies them.
-   */
-  reservedCommandNames?: readonly string[];
 }
 
 /** Client-specific overrides the builder layers over the moh.json-derived defaults. */

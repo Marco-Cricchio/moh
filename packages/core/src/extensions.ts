@@ -410,7 +410,7 @@ export interface ExtensionCommandRefusal {
 
 /** One refused panel/overlay registration (ADR-0062, #1132): reported in
  * `/extensions`, never silently dropped. */
-export interface ExtensionUIRefusal {
+interface ExtensionUIRefusal {
   readonly extension: string;
   readonly kind: "panel" | "overlay";
   readonly name: string;
@@ -1437,11 +1437,6 @@ bindPathDeny(isDenied: (resolvedAbsPath: string) => boolean): void {
     }
   }
 
-  /** True when any loaded extension holds a `contribute-tool:<name>` grant. */
-  hasContributedToolScopes(): boolean {
-    return this.#instances.some((e) => contributeToolScopesOf(e.grantedCapabilities).length > 0);
-  }
-
   /**
    * ADR-0067 `registerTool`: the name must be one the consent named; a
    * mismatch is a loud `extension_failed` and the tool never reaches the
@@ -1467,11 +1462,6 @@ bindPathDeny(isDenied: (resolvedAbsPath: string) => boolean): void {
     // The `tool_contributed` record is emitted by `bindToolContributor`
     // at bind time — the log of the session where the tool became
     // callable, never a setup-time orphan event.
-  }
-
-  /** True when any loaded extension holds a `tool:<name|*>` grant. */
-  hasToolScopes(): boolean {
-    return this.#instances.some((e) => toolScopesOf(e.grantedCapabilities).length > 0);
   }
 
   /**

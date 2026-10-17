@@ -25,9 +25,6 @@ import { TOOL_SCOPE_PREFIX, CONTRIBUTE_TOOL_SCOPE_PREFIX, validateToolScope, val
 import { ENDPOINT_SCOPE_PREFIX, validateEndpointScope } from "./endpoint-scope";
 import { removeExtensionDeps } from "./extension-deps";
 
-/** npm integrity digests (`sha512-...`) we can verify. */
-export type IntegrityAlgorithm = "sha512" | "sha1";
-
 export const EXTENSION_REGISTRY_USAGE_LINES = {
   npm: "@scope/name[@version] — an npm scoped package",
   github: "github:owner/repo[@tag] — a GitHub release (repo + tag)",

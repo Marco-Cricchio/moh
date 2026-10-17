@@ -1,12 +1,6 @@
 import { ProviderError, type ProviderErrorKind } from "./types";
 import { recognizeDeclaredWindow } from "./declared-window";
 
-/**
- * The 9th taxonomy kind: `aborted`. Not an error in the failure sense —
- * it reports that the AbortSignal fired. Callers treat it as cancellation.
- */
-export type AbortKind = "aborted";
-
 type ErrorRecord = Record<string, unknown>;
 /** #1318: the AI SDK retry wrapper's own fields. The wrapper carries the
  * real failure in `errors`, with `lastError` as its last entry

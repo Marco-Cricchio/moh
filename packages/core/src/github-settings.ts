@@ -96,8 +96,6 @@ export interface LiveRepo {
 // Plan / diff engine
 // ---------------------------------------------------------------------------
 
-export type ChangeAction = "update-repo" | "add-label" | "update-label" | "put-protection";
-
 export type PlanChange =
   | {
       repo: string;

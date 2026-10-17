@@ -26,7 +26,6 @@ import {
   MAX_PANELS,
   type ExtensionConsentRequest,
   type RuntimeExtension,
-  type ExtensionUIRefusal,
   type ActiveExtensionOverlay,
 } from "./extensions";
 import {
@@ -851,7 +850,6 @@ export {
   ExtensionRuntime,
   MAX_PANELS,
   type RuntimeExtension,
-  type ExtensionUIRefusal,
   type ActiveExtensionOverlay,
   // #1128 (ADR-0061): the extension registry — install from immutable
   // sources with static checks only; package code is never executed.

@@ -98,7 +98,6 @@ ExtensionRef
 ExtensionRuntime
 ExtensionSpawnRefusedError
 ExtensionStatus
-ExtensionUIRefusal
 ExtensionsScreenExtension
 ExtensionsScreenRefusal
 ExtensionsScreenSection
