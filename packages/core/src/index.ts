@@ -86,7 +86,6 @@ export type {
   ThinkingLevel,
   Tool,
 } from "./types";
-export { SCHEMA_VERSION } from "./types";
 // #575: event identity — the ADR-0004 reopening that lets clients read
 // and resolve event ids and the read-only `line:N` bridge.
 export { type EventIdentity } from "./types";
@@ -121,7 +120,6 @@ export {
   // `session.bookmarkNode(to, name?)`.
   // #579: bookmark writer seam (see the import comment above).
   bookmarkNode,
-  localTipAt,
   resolveEventRef,
   lineRef,
   parseLineRef,
@@ -166,9 +164,6 @@ export {
 export { type MemoryOptions } from "./memory";
 export {
   CompactionRunner,
-  compactionFacts,
-  createDeterministicSummarizer,
-  renderDeterministicDigest,
   type CompactionFacts,
   type CompactionOptions,
   type CompactionSummarizer,
@@ -179,14 +174,8 @@ export {
 export {
   assembleMentions,
   expandMentions,
-  parseMentions,
-  mimeForPath,
   renderMentionAttachment,
   imageDimensions,
-  IMAGE_MENTION_CAP,
-  IMAGE_MENTION_MIMES,
-  MENTION_TEXT_CAP,
-  MENTION_DIR_ENTRY_CAP,
   type ExpandedMention,
   type ExpandMentionsResult,
   type MentionAttachment,
@@ -347,7 +336,6 @@ export {
 export {
   skillRecommendations,
   formatSkillCommand,
-  type SkillRecommendation,
   type SkillRoutingConfig,
   type SkillRouteOverride,
 } from "./skill-routing";
@@ -356,9 +344,7 @@ export {
 // placeholder-bearing skill bodies and pre-fills unresolved args).
 export {
   parseSkillArgs,
-  substituteSkillArgs,
   hasSkillPlaceholders,
-  type SkillArgs,
 } from "./skill-args";
 // #498: the unlimited sentinel for `maxIterations` is a user-facing config
 // surface (TUI settings row, CLI `--max-iterations`), so clients need the
@@ -417,7 +403,7 @@ export { catalogEntryFor, pricingForModel, pricingForPlan, endpointModelCatalog,
 export { billingPlanResolver, estimateModelCost, PRICING_SNAPSHOT, type ModelCostEstimate } from "./pricing";
 // #993: the live reasoning channel's fold — the one rule shared by the log
 // (`session/agent-loop.ts`) and every client that renders reasoning live.
-export { EMPTY_REASONING_PARTS, foldReasoningParts, foldReasoningText, reasoningPartsText, type ReasoningParts } from "./reasoning-parts";
+export { EMPTY_REASONING_PARTS, foldReasoningParts, reasoningPartsText, type ReasoningParts } from "./reasoning-parts";
 export {
   fetchLiveCatalogs,
   liveListings,
@@ -470,7 +456,7 @@ export {
   type ThinkingEndpoint,
   type ThinkingLevelState,
 } from "./thinking-preferences";
-export { isThinkingLevel, type ThinkingFormat } from "./types";
+export { isThinkingLevel } from "./types";
 export { listOpenAiCompatModels } from "./endpoint-models";
 // #935: the browser-toolchain seam (ADR-0004 amendment) — status probing
 // and the guided installer for the optional browser tool, shared by the
