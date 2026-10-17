@@ -9,7 +9,6 @@ import { MpmOrientation } from "../src/mpm/orientation";
 import { mpmDiagnostics } from "../src/mpm/diagnostics";
 import { extractWorkspace } from "../src/mpm/extractor";
 import { resolveMpmConfig } from "../src/mpm/config";
-import { validatedWarmupPaths, requestWarmup } from "../src/mpm/handoff-warmup";
 import { discoverWorkspace } from "../src/mpm/discover";
 
 /**
@@ -236,27 +235,6 @@ describe("MPM release gate (#621)", () => {
     // Bounded entry count: the hard cap keeps the snapshot small.
     const lines = childPlan!.split("\n").filter((l) => l.startsWith("- "));
     expect(lines.length).toBeLessThanOrEqual(8);
-  });
-
-  test("handoff warm-up: hints validate against the local checkout and nothing travels", async () => {
-    const root = await tempRoot("moh-mpm-gate-");
-    await writeCorpus(root);
-    const service = serviceFor(root);
-
-    // The receiving machine validates handoff hints locally: existing paths
-    // survive, foreign absolute paths and escapes are dropped.
-    const hints = {
-      files: ["src/date.ts", "/other/machine/src/ghost.ts", "../escape.ts"],
-      tests: ["bun test src/date.test.ts"],
-    };
-    const warmed = validatedWarmupPaths(root, hints);
-    expect(warmed).toContain("src/date.ts");
-    expect(warmed).toContain("src/date.test.ts");
-    expect(warmed.some((p) => p.startsWith("..") || p.includes("ghost"))).toBe(false);
-
-    // Warm-up refreshes through the lifecycle's highest-priority seam.
-    requestWarmup(service, root, warmed);
-    expect(service.status).toBe("ready");
   });
 
   test("identity migration: the relocated map revalidates against the active root", async () => {

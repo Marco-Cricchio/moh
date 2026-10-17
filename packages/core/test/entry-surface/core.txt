@@ -118,7 +118,6 @@ HandoffPayload
 HandoffRunner
 HandoffTransport
 HandoffTransportError
-HandoffWarmupHints
 IMAGE_MENTION_CAP
 IMAGE_MENTION_MIMES
 ImportHandoffOptions
@@ -498,7 +497,6 @@ parseMentions
 parseOpenrouterAuthorizationInput
 parseRule
 parseSkillArgs
-pathsFromTestCommands
 performSelfUpdate
 performanceByModel
 performanceSamples
@@ -561,7 +559,6 @@ renderDeterministicDigest
 renderMentionAttachment
 renderTosCard
 reportNeedsNotice
-requestWarmup
 resolveAnthropicOAuthConfig
 resolveBundledExtensions
 resolveEndpointThinking
@@ -598,7 +595,6 @@ skillRecommendations
 spawnGh
 splitCommandSegments
 startLoopbackCallback
-staysInsideRoot
 strandedDataSummary
 subscriptionModelCatalog
 substituteSkillArgs
@@ -625,7 +621,6 @@ urlGlobMatches
 userConfigFile
 validateCredentialScope
 validateSkillEntry
-validatedWarmupPaths
 verifyIntegrity
 writeMohConfig
 xaiAuthOverridesSchema

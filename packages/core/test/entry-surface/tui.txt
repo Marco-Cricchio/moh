@@ -38,9 +38,6 @@ ThemeProvider
 Toast
 Toasts
 ToastsApi
-ToolView
-TurnPhase
-TurnView
 UserConfig
 VibeMode
 WorkflowOffer
@@ -56,7 +53,6 @@ finishExit
 listSessionSummaries
 loadUserConfig
 makeSession
-projectTurns
 providerLabel
 renderTui
 runSlashCommand

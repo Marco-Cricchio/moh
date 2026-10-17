@@ -270,8 +270,6 @@ packages/core/src/mpm/config.ts mpmQuotaSchema
 packages/core/src/mpm/diagnostics.ts MpmDiagnosticsOptions
 packages/core/src/mpm/diagnostics.ts MpmLanguageCoverage
 packages/core/src/mpm/extractor.ts MpmCandidateFile
-packages/core/src/mpm/handoff-warmup.ts HandoffWarmupHints
-packages/core/src/mpm/handoff-warmup.ts staysInsideRoot
 packages/core/src/mpm/orientation.ts AMBIGUITY_THRESHOLD
 packages/core/src/mpm/orientation.ts RerankCandidate
 packages/core/src/mpm/orientation.ts extractIdentifiers
@@ -632,9 +630,6 @@ packages/tui/src/transcript.tsx INLINE_SIGNIFICANT
 packages/tui/src/transcript.tsx askUserProjectionEntries
 packages/tui/src/transcript.tsx orderReasoningAboveReply
 packages/tui/src/transcript.tsx skipExplanation
-packages/tui/src/turns.ts ToolView
-packages/tui/src/turns.ts TurnPhase
-packages/tui/src/turns.ts TurnView
 packages/tui/src/ui.tsx Accent
 packages/tui/src/update-poll.ts PollTimers
 packages/tui/src/update-poll.ts UpdatePollOptions

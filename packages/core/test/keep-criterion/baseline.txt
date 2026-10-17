@@ -74,7 +74,6 @@ GithubCopilotAuthOverrides
 HandoffDebugStage
 HandoffGitAnchor
 HandoffPayload
-HandoffWarmupHints
 IMAGE_MENTION_CAP
 IMAGE_MENTION_MIMES
 ImportHandoffOptions
@@ -301,7 +300,6 @@ openaiAuthOverridesSchema
 openrouterAuthOverridesSchema
 parseMentions
 parseOpenrouterAuthorizationInput
-pathsFromTestCommands
 performanceSamples
 persistProjectMcpTrust
 preCommitHookContent
@@ -321,7 +319,6 @@ refreshXaiToken
 registryRoots
 releasesUrl
 renderDeterministicDigest
-requestWarmup
 resolveAnthropicOAuthConfig
 resolveBundledExtensions
 resolveHead
@@ -336,7 +333,6 @@ retroSignature
 runProviderAdd
 scopeKeyFor
 startLoopbackCallback
-staysInsideRoot
 substituteSkillArgs
 taskDeclaredEvent
 taskOutcomeEvent
@@ -344,6 +340,5 @@ taskVerificationEvent
 updateDue
 urlGlobMatches
 validateSkillEntry
-validatedWarmupPaths
 verifyIntegrity
 xaiAuthOverridesSchema
