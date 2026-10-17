@@ -398,6 +398,8 @@ export {
   type MohConfig,
 } from "./config";
 export {
+  // #1092: the bounded, secret-free failure trail for connection tests —
+  // clients pass the user's moh home through `minimalConnectionTest`.
   minimalConnectionTest,
   addProviderToFile,
   BUILTIN_PROVIDER_TYPES,
@@ -410,8 +412,6 @@ export {
   type OnboardingIo,
   type ProviderAddOptions,
 } from "./provider-onboarding";
-// #1092: the bounded, secret-free failure trail for connection tests —
-// clients pass the user's moh home through `minimalConnectionTest`.
 export { PROVIDER_PROFILES, providerProfile, providerEndpointChoices, providerRequiresBaseUrlInput, type ProviderProfile, type ProviderProfileId } from "./provider-profiles";
 export { catalogEntryFor, pricingForModel, pricingForPlan, endpointModelCatalog, knownCompatEndpointMetadata, subscriptionModelCatalog, type BillingPlan, type CatalogModel, type ModelPricing, type ModelPricingTier } from "./model-catalog";
 export { billingPlanResolver, estimateModelCost, PRICING_SNAPSHOT, type ModelCostEstimate } from "./pricing";
