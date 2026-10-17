@@ -293,7 +293,6 @@ loginKimiCoding
 loginOpenAI
 loginOpenRouter
 loginXai
-manualSubsetViolations
 mimeForPath
 modelSupportsImages
 normalizeGithubDomain

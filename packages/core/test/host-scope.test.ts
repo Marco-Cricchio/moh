@@ -11,10 +11,17 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ExtensionDefinition, ExtensionHost, ExtensionSetupContext } from "@moh/extension";
 import { ExtensionRuntime } from "../src/extensions";
-import { scopeEffectSentence, scopeEffectSentences } from "../src/scope-effect";
+import { scopeEffectSentence } from "../src/scope-effect";
 import { hostMatchesScope, validateHostScope } from "../src/host-scope";
 import type { AgentEvent } from "../src/types";
 import type { CredentialStore } from "../src/credential-scope";
+
+/** Effect sentences for every scope in a grant, in order. */
+function scopeEffectSentences(capabilities: readonly string[]): string[] {
+  return capabilities
+    .map(scopeEffectSentence)
+    .filter((s): s is string => s !== null);
+}
 
 const roots: string[] = [];
 const servers: Bun.Server<never>[] = [];
@@ -340,5 +347,10 @@ describe("host scope: consent effect sentences (ADR-0066)", () => {
     const sentence = scopeEffectSentence("host:api.example.com");
     expect(sentence).toContain("api.example.com");
     expect(scopeEffectSentences(["path:src/**", "host:api.example.com"]).join(" ")).toContain("api.example.com");
+  });
+
+  test("scopeEffectSentences keeps grant order and drops scopes with no sentence", () => {
+    const out = scopeEffectSentences(["host:api.example.com", "veto", "path:src/**"]);
+    expect(out).toEqual([scopeEffectSentence("host:api.example.com") as string, scopeEffectSentence("path:src/**") as string]);
   });
 });

@@ -49,11 +49,3 @@ export function scopeEffectSentence(capability: string): string | null {
   const glob = check.ok ? check.glob : pathScopeGlob(capability);
   return `may read and modify files under \`${glob}\`, including create, rename, delete`;
 }
-
-/** Effect sentences for every scope in a grant, in order. */
-export function scopeEffectSentences(capabilities: readonly string[]): string[] {
-  return capabilities
-    .map(scopeEffectSentence)
-    .filter((s): s is string => s !== null);
-}
-
