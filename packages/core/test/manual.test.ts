@@ -65,6 +65,11 @@ describe("manual assets (#457)", () => {
     expect(manualSubsetViolations("```\n<div>verbatim is fine</div>\n```")).toEqual([]);
     expect(manualSubsetViolations("plain paragraph with `code` and `<ref>` inside backticks")).toEqual([]);
   });
+
+  test("the subset detector flags reference link definitions and reports offending lines", () => {
+    expect(manualSubsetViolations("ok line\n[ref]: https://example.com\nanother ok")).toEqual(["[ref]: https://example.com"]);
+    expect(manualSubsetViolations("a\n---\nb")).toEqual(["---"]);
+  });
 });
 
 describe("extension-writers guide (#1369)", () => {

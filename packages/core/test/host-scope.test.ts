@@ -341,4 +341,9 @@ describe("host scope: consent effect sentences (ADR-0066)", () => {
     expect(sentence).toContain("api.example.com");
     expect(scopeEffectSentences(["path:src/**", "host:api.example.com"]).join(" ")).toContain("api.example.com");
   });
+
+  test("scopeEffectSentences keeps grant order and drops scopes with no sentence", () => {
+    const out = scopeEffectSentences(["host:api.example.com", "veto", "path:src/**"]);
+    expect(out).toEqual([scopeEffectSentence("host:api.example.com") as string, scopeEffectSentence("path:src/**") as string]);
+  });
 });
