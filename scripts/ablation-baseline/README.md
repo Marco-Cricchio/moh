@@ -39,7 +39,9 @@ captured at process startup; fixed fixture dates survive. Full ISO
 run timestamps are masked before date-only matching.
 
 ULID ids, chain hashes and prompt-version hashes use ordinal tokens
-preserving equality and linkage. Recorded full prompt text remains
+preserving equality and linkage. Each token kind is numbered on its own
+(`<session:0>` is the first session id of the artifact, whatever other
+kinds were registered before it; #1520). Recorded full prompt text remains
 compared. Session/subagent ids, UUIDs, temp project slugs and temp paths
 are normalized as before. A reworded user-visible string or configured
 limit MUST flip the compare.

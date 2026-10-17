@@ -110,3 +110,29 @@ test("rows are processed one by one in a multi-line display text", () => {
   const raw = [plain, boxRow("   0 tokens · wall 74ms · tools 0ms · no pricing for 1"), plain].join("\n");
   expect(n.text(raw, "display")).toBe([plain, boxRow("   0 tokens · wall <dur> · tools <dur> · no pricing for 1"), plain].join("\n"));
 });
+
+const SID_A = "session-609b6b4c";
+const SID_B = "session-0a1b2c3d";
+const ULID_A = "01HZZZZZZZZZZZZZZZZZZZZZZZ";
+const ULID_B = "01J0AAAAAAAAAAAAAAAAAAAAAA";
+
+test("equal values of one kind share a token; distinct values get distinct tokens in order of appearance", () => {
+  const n = normalizer();
+  expect(n.text(`${SID_A} ${SID_B} ${SID_A}`)).toBe("<session:0> <session:1> <session:0>");
+  const u = normalizer();
+  expect(u.text(`${ULID_A} ${ULID_B} ${ULID_A}`)).toBe("<ulid:0> <ulid:1> <ulid:0>");
+});
+
+test("tokens persist across calls on one Normalizer and are independent between instances", () => {
+  const a = normalizer();
+  expect(a.text(SID_A)).toBe("<session:0>");
+  expect(a.text(`x ${SID_B} ${SID_A}`)).toBe("x <session:1> <session:0>");
+  expect(normalizer().text(SID_B)).toBe("<session:0>");
+});
+
+test("each token kind is numbered on its own: another kind registered first does not shift a session number (#1520)", () => {
+  const n = normalizer();
+  expect(n.text(`${ULID_A} ${ULID_B} ${SID_A} ${SID_B}`)).toBe("<ulid:0> <ulid:1> <session:0> <session:1>");
+  const m = normalizer();
+  expect(m.text(`id deadbeef-0000 ${SID_A}`)).toBe("id <uuid8:0>-0000 <session:0>");
+});
