@@ -8,11 +8,11 @@ import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import {
-  extensionsScreenStateFromEvents,
   readExtensionsScreenState,
   mergeExtensionLiveInfo,
   type AgentEvent,
 } from "../src/index";
+import { extensionsScreenStateFromEvents } from "../src/extensions-screen";
 
 describe("extensionsScreenStateFromEvents", () => {
   it("returns empty state for an event-free log", () => {
