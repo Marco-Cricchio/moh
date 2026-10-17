@@ -8,9 +8,9 @@
  * explicit, recorded decision (ADR). The reasoned keep-list lives in
  * `docs/adr/0004-public-surface-criterion.md`.
  */
-import { MockProvider } from "./mock-provider";
+export { MockProvider } from "./mock-provider";
 import { AgentSession } from "./session/session";
-import {
+export {
   sessionFromConfig,
   type AssemblyError,
   type AssemblyErrorKind,
@@ -19,16 +19,29 @@ import {
   type SessionFromConfigResult,
   type SessionOverrides,
 } from "./session/from-config";
-import { type ConfirmTurnRequest, type PermissionsConfig, type PermissionAskContext, type SessionConfig } from "./session/config";
-import { builtinTools } from "./builtin-tools";
-import {
+import { type SessionConfig } from "./session/config";
+export {
+  // ADR-0033 §4 (#791): the pre-send confirmation a client's consent seam
+  // answers — one request per confirmed turn, and the outcome vocabulary
+  // it answers with (the extension contract's own type, re-exported so a
+  // client needs one import).
+  type ConfirmTurnRequest,
+  type PermissionsConfig,
+  // #784/ADR-0031: the extension-ask context a client's consent seam
+  // receives (the TUI renders yes/no only, labelled with the reason).
+  type PermissionAskContext,
+} from "./session/config";
+export { builtinTools } from "./builtin-tools";
+export {
   ExtensionRuntime,
   MAX_PANELS,
   type ExtensionConsentRequest,
   type RuntimeExtension,
   type ActiveExtensionOverlay,
 } from "./extensions";
-import {
+export {
+  // #1128 (ADR-0061): the extension registry — install from immutable
+  // sources with static checks only; package code is never executed.
   installExtension,
   realRegistryIo,
   listInstalledExtensions,
@@ -45,10 +58,20 @@ import {
   type InstalledExtension,
   type NpmPackument,
 } from "./extension-registry";
-import { scopeEffectSentence } from "./scope-effect";
-import { defaultCredentialStore, validateCredentialScope, type CredentialStore } from "./credential-scope";
-import { PromptComposer, type SkillIndexEntry } from "./prompt-composer";
-import type {
+export {
+  // ADR-0064/0065: the core-owned scope effect-sentence renderer the
+  // clients' consent surfaces show instead of the naked scope string.
+  scopeEffectSentence,
+} from "./scope-effect";
+export {
+  // ADR-0069 (#1161): the user-mint credential store the CLI's
+  // `moh secret` surface and session assembly share.
+  defaultCredentialStore,
+  validateCredentialScope,
+  type CredentialStore,
+} from "./credential-scope";
+export { PromptComposer, type SkillIndexEntry } from "./prompt-composer";
+export type {
   AgentEvent,
   ExtensionStatus,
   ReasoningStreamEvent,
@@ -63,11 +86,11 @@ import type {
   ThinkingLevel,
   Tool,
 } from "./types";
-import { SCHEMA_VERSION } from "./types";
+export { SCHEMA_VERSION } from "./types";
 // #575: event identity — the ADR-0004 reopening that lets clients read
 // and resolve event ids and the read-only `line:N` bridge.
-import { type EventIdentity } from "./types";
-import {
+export { type EventIdentity } from "./types";
+export {
   SessionStore,
   listSessionSummaries,
   // #477: session rename — the ADR-0004 reopening that lets clients (TUI
@@ -78,7 +101,7 @@ import {
   // #478: session trash — the ADR-0004 reopening that lets clients (TUI Home
   // delete chip, `moh sessions delete` / `moh trash`) delete and restore.
   deleteSession,
-  isSessionOpen,
+  isSessionOpen, // #582: refuse switch on an open session (TUI-only switch)
   restoreSession,
   listTrashedSessions,
   type TrashedSessionSummary,
@@ -96,16 +119,19 @@ import {
   // `b`/`B`, `moh sessions bookmark`) set/rename/clear a node bookmark by
   // appending the `tree_bookmarked` event. Live-writer path:
   // `session.bookmarkNode(to, name?)`.
+  // #579: bookmark writer seam (see the import comment above).
   bookmarkNode,
   localTipAt,
   resolveEventRef,
   lineRef,
   parseLineRef,
   // #576: head resolution (branch-aware) lives in session/event-log.
+  // #576: session-tree surface — head resolution + reference helpers.
   resolveHead,
   // #577: the active-path projection (root→head linearization) — the
   // ADR-0004 reopening that lets clients (TUI /tree, CLI renderers,
   // tooling) read the same linear path the model context sees.
+  // #577: active-path projection (root→head linearization).
   activePath,
   // #580: the client-facing tree projection (spec §1) — the single seam
   // the TUI /tree panel and the CLI renderer both consume. Returns the
@@ -117,7 +143,7 @@ import {
   type TreeView,
   type TreeNode,
 } from "./session-store";
-import {
+export {
   formatRule,
   overridesFromFlags,
   parseRule,
@@ -130,9 +156,25 @@ import {
 // #849: the session mode rides the setSessionMode/sessionMode doors — a
 // client rotating the mode needs the same union the core judges with.
 export type { SessionMode } from "./permissions";
-import { type ProviderRegistry, defaultRegistry, resolveProvider, resolveProviderRef, isFallbackEligible, fallbackIneligibleReason } from "./provider-registry";
-import { type MemoryOptions } from "./memory";
-import { CompactionRunner, compactionFacts, createDeterministicSummarizer, renderDeterministicDigest, type CompactionFacts, type CompactionOptions, type CompactionSummarizer, type CompactionSummarizerInput } from "./compaction";
+export {
+  type ProviderRegistry,
+  defaultRegistry,
+  resolveProvider,
+  resolveProviderRef,
+  isFallbackEligible,
+  fallbackIneligibleReason,
+} from "./provider-registry";
+export { type MemoryOptions } from "./memory";
+export {
+  CompactionRunner,
+  compactionFacts,
+  createDeterministicSummarizer,
+  renderDeterministicDigest,
+  type CompactionFacts,
+  type CompactionOptions,
+  type CompactionSummarizer,
+  type CompactionSummarizerInput,
+} from "./compaction";
 // #488: file mentions — the ADR-0004 reopening that lets clients expand
 // `@path` tokens (TUI popup plumbing, `moh run` headless sends).
 export {
@@ -155,8 +197,8 @@ export {
   type AssembleMentionsOptions,
   type AssembleMentionsResult,
 } from "./mentions";
-import { type SubagentOptions } from "./subagents";
-import { ExtensionSpawnRefusedError } from "./extension-scope";
+export { type SubagentOptions } from "./subagents";
+export { ExtensionSpawnRefusedError } from "./extension-scope";
 export {
   DevelopmentLaneStore,
   type CreateFeatureGroupInput,
@@ -310,7 +352,13 @@ export {
   type ExtensionLiveInfo,
 } from "./extensions-screen";
 
-import { skillRecommendations, formatSkillCommand, type SkillRecommendation, type SkillRoutingConfig, type SkillRouteOverride } from "./skill-routing";
+export {
+  skillRecommendations,
+  formatSkillCommand,
+  type SkillRecommendation,
+  type SkillRoutingConfig,
+  type SkillRouteOverride,
+} from "./skill-routing";
 // #765: prompt snippets — skill argument parsing and placeholder
 // substitution. Pure and client-reusable (the TUI detects
 // placeholder-bearing skill bodies and pre-fills unresolved args).
@@ -337,8 +385,18 @@ export { formatModelPair } from "./model-pair";
 // re-exported so a client needs one import for the whole seam.
 export type { TurnConfirmOutcome } from "@moh/extension";
 export type { ExtensionCommand, ExtensionCommandContext } from "@moh/extension";
-import { McpRuntime, mcpServerEntrySchema, isHttpMcpUrl, declaredUserMcpServers, isProjectServerTrusted, persistProjectMcpTrust, type DeclaredMcpServer, type McpServerEntry, type McpRuntimeOptions } from "./mcp";
-import {
+export {
+  McpRuntime,
+  mcpServerEntrySchema,
+  isHttpMcpUrl,
+  declaredUserMcpServers,
+  isProjectServerTrusted,
+  persistProjectMcpTrust,
+  type DeclaredMcpServer,
+  type McpServerEntry,
+  type McpRuntimeOptions,
+} from "./mcp";
+export {
   loadMohConfig,
   writeMohConfig,
   upsertEndpoint,
@@ -347,7 +405,7 @@ import {
   type EndpointProfile,
   type MohConfig,
 } from "./config";
-import {
+export {
   minimalConnectionTest,
   addProviderToFile,
   runProviderAdd,
@@ -464,7 +522,7 @@ export {
   type BrowserToolchainStatus,
   type BrowserToolchainProgress,
 } from "./browser-toolchain";
-import {
+export {
   isSubscriptionKind,
   offersSubscriptionAuth,
   providerLogin,
@@ -481,7 +539,7 @@ import {
   type UsageFetch,
   type AuthEndpointFetch,
 } from "./auth/lifecycle";
-import {
+export {
   MOH_VERSION,
   installFirstPartySkills,
   checkUpstreamUpdates,
@@ -493,7 +551,7 @@ import {
   type UpstreamUpdate,
   type UpstreamCheckResult,
 } from "./workflow";
-import {
+export {
   checkForUpdate,
   isDevRun,
   readUpdateCache,
@@ -516,13 +574,14 @@ export {
   type SelfUpdateStatus,
   type UpdatePlatform,
 } from "./self-update";
-import {
+export {
   trackerTools,
   projectFrontier,
   resolveTracker,
   resolveTrackerSync,
   // #939: fills the sync twin's memo from a promise continuation, so the TUI
   // boot (or renderTui's warm-up) leaves a spawn-free startup path behind it.
+  // #939: fills the sync twin's memo from a promise continuation.
   prepareTrackerRemote,
   type TrackerIssue,
   type TrackerBackend,
@@ -531,13 +590,17 @@ import {
 // before the first React window (renderTui, which runs outside the render)
 // and App's own gate awaits it when nothing did; afterwards every resolution
 // is memory-served, so no synchronous `git` spawn is reachable from a render.
-import {
+export {
+  // #939: the identity boot seam — the client resolves the identity
+  // before the first React window, so nothing spawns on a render path.
   prepareProjectIdentity,
   prepareProjectIdentityNow,
   isProjectIdentityPrepared,
   // #1217: stranded-data record — clients surface old uuid-directory data
   // that cannot be migrated automatically (both directories hold data).
   // #1243: the resolution seams (see the export block below).
+  // #1243: the resolution seams — the record is live-checked, acknowledged,
+  // summarized, and resolvable (move logs / delete / keep) from a client.
   acknowledgeStrandedData,
   deleteStrandedData,
   moveStrandedSessions,
@@ -546,12 +609,20 @@ import {
   readStrandedDataRecord,
   type StrandedDataRecord,
 } from "./project-identity";
-import { readUserConfigFile, updateUserConfigFile, userConfigFile, type UserConfigData, type UserConfigIo } from "./user-config";
+export {
+  readUserConfigFile,
+  updateUserConfigFile,
+  userConfigFile,
+  type UserConfigData,
+  type UserConfigIo,
+} from "./user-config";
 // #826: the bundled-extension seam. The core knows how to host first-party
 // code that ships inside the binary; it does not know which extension that
 // is — the client mounts the sources (the first-party one lives in its own
 // workspace package, which the core does not depend on).
-import {
+export {
+  // #826: hosting a bundled first-party extension (a client mounts it from
+  // its own package). The vendor config surface moved with its owner.
   resolveBundledExtensions,
   type BundledActivationContext,
   type BundledExtensionSource,
@@ -560,20 +631,42 @@ import {
   type BundledWiring,
   type MountedBundledExtension,
 } from "./bundled-extensions";
-import {
+export {
   publishHandoffAtExit,
   readRawHandoff,
   handoffAlreadyPublished,
   handoffPublishedMarkerFile,
   type HandoffPayload,
+  // Session handoff (#433, T2 #435): the transport seam and gist impl
+  // are client surfaces (exit wiring, TUI/CLI) — not agent-loop API.
   type HandoffTransport,
   type HandoffTransportError,
   type PublishHandoffOptions,
   type PublishHandoffResult,
 } from "./handoff-transport";
-import { createGistHandoffTransport, discoverGistHandoffs, ghUsername, spawnGh, type GhRunner, type GistHandoffOffer, type DiscoverGistHandoffsOptions } from "./handoff-gist";
-import { cloneHandoffRepo, isColdDirectory, pullHandoffTo, type CloneHandoffRepoOptions, type CloneHandoffRepoResult, type GitCall, type GitRunner, type PullHandoffOptions, type PullHandoffResult } from "./handoff-coldstart";
-import {
+export {
+  createGistHandoffTransport,
+  discoverGistHandoffs,
+  ghUsername,
+  spawnGh,
+  type GhRunner,
+  type GistHandoffOffer,
+  type DiscoverGistHandoffsOptions,
+} from "./handoff-gist";
+export {
+  cloneHandoffRepo,
+  // Cold-directory wizard (#595): the gate, clone and pull steps.
+  isColdDirectory,
+  pullHandoffTo,
+  type CloneHandoffRepoOptions,
+  type CloneHandoffRepoResult,
+  type GitCall,
+  type GitRunner,
+  type PullHandoffOptions,
+  type PullHandoffResult,
+} from "./handoff-coldstart";
+export {
+  // Reception (T3 #436) and Wayfinder read/cite (T6 #439) client surfaces.
   discoverHandoff,
   isHandoffStale,
   handoffSeedPrompt,
@@ -581,10 +674,11 @@ import {
   type HandoffOffer,
   type DiscoverHandoffOptions,
 } from "./handoff-reception";
-import { handoffDebug, handoffDebugEnabled, type HandoffDebugStage } from "./handoff-debug";
-import { HandoffRunner, transportActive, type RawHandoff, type HandoffGitAnchor } from "./handoff";
-import { enrichHandoffWithWayfinder, notifyClaimedWayfinderTickets } from "./handoff-wayfinder";
-import {
+export { handoffDebug, handoffDebugEnabled, type HandoffDebugStage } from "./handoff-debug";
+export { HandoffRunner, transportActive, type RawHandoff, type HandoffGitAnchor } from "./handoff";
+export { enrichHandoffWithWayfinder, notifyClaimedWayfinderTickets } from "./handoff-wayfinder";
+export {
+  // Manual file fallback (T7 #440): export/import via file.
   exportHandoffFile,
   importHandoffFile,
   readImportedHandoff,
@@ -594,7 +688,7 @@ import {
   type ImportHandoffOptions,
   type ImportHandoffResult,
 } from "./handoff-file";
-import {
+export {
   loadMergedConfig,
   readUserProviderConfig,
   upsertUserEndpoint,
@@ -605,7 +699,7 @@ import {
   type MergedConfigOptions,
   type UserProviderConfig,
 } from "./provider-config";
-import {
+export {
   authMethodKindSchema,
   anthropicAuthOverridesSchema,
   openaiAuthOverridesSchema,
@@ -625,7 +719,7 @@ import {
   type AuthToken,
   type StoredApiKeyOrigin,
 } from "./auth/types";
-import {
+export {
   clearTokens,
   clearStoredApiKey,
   bindStoredApiKeyOrigin,
@@ -637,7 +731,7 @@ import {
   saveStoredApiKey,
   saveTokens,
 } from "./auth/store";
-import {
+export {
   TOS_WARNING,
   base64url,
   buildAuthorizeUrl,
@@ -652,7 +746,7 @@ import {
   type PkcePair,
   type RaceOptions,
 } from "./auth/oauth";
-import {
+export {
   ANTHROPIC_INFERENCE_SCOPE,
   ANTHROPIC_OAUTH_BETA,
   ANTHROPIC_OAUTH_DEFAULTS,
@@ -666,7 +760,7 @@ import {
   type AnthropicOAuthConfig,
   type TokenEndpointFetch,
 } from "./auth/anthropic";
-import {
+export {
   CHATGPT_CODEX_BASE_URL,
   CHATGPT_CODEX_ORIGINATOR,
   OPENAI_OAUTH_DEFAULTS,
@@ -678,7 +772,7 @@ import {
   type OpenAiEndpointFetch,
   type OpenAiOAuthConfig,
 } from "./auth/openai";
-import {
+export {
   OPENROUTER_API_BASE_URL,
   OPENROUTER_OAUTH_DEFAULTS,
   OpenrouterLoginAborted,
@@ -689,7 +783,7 @@ import {
   type OpenrouterEndpointFetch,
   type OpenrouterOAuthConfig,
 } from "./auth/openrouter";
-import {
+export {
   XAI_API_BASE_URL,
   XAI_OAUTH_DEFAULTS,
   XAI_SCOPES,
@@ -700,7 +794,7 @@ import {
   type XaiEndpointFetch,
   type XaiOAuthConfig,
 } from "./auth/xai";
-import {
+export {
   KIMI_CODE_API_BASE_URL,
   KIMI_CODE_OAUTH_DEFAULTS,
   KimiCodingLoginAborted,
@@ -710,7 +804,7 @@ import {
   type KimiCodingEndpointFetch,
   type KimiCodingOAuthConfig,
 } from "./auth/kimi-coding";
-import {
+export {
   COPILOT_CLIENT_ID,
   COPILOT_DEFAULT_BASE_URL,
   COPILOT_EDITOR_HEADERS,
@@ -733,401 +827,7 @@ export function createSession(config: SessionConfig): AgentSession {
 
 export {
   AgentSession,
-  authMethodKindSchema,
-  type AuthAccount,
-  type AuthMethodKind,
-  type AuthSection,
-  type AuthToken,
-  type StoredApiKeyOrigin,
-  clearTokens,
-  clearStoredApiKey,
-  bindStoredApiKeyOrigin,
-  getStoredApiKeyOrigin,
-  getStoredApiKey,
-  getStoredToken,
-  readAuthSection,
-  readStoredTokens,
-  saveStoredApiKey,
-  saveTokens,
-  TOS_WARNING,
-  base64url,
-  buildAuthorizeUrl,
-  confirmToSWarning,
-  generatePkce,
-  generateState,
-  raceForCode,
-  startLoopbackCallback,
-  type AuthorizationIo,
-  type CallbackServer,
-  type LoopbackOptions,
-  type PkcePair,
-  type RaceOptions,
-  ANTHROPIC_INFERENCE_SCOPE,
-  ANTHROPIC_OAUTH_BETA,
-  ANTHROPIC_OAUTH_DEFAULTS,
-  ANTHROPIC_SUBSCRIPTION_SCOPES,
-  AnthropicLoginAborted,
-  anthropicAuthOverridesSchema,
-  openrouterAuthOverridesSchema,
-  kimiCodingAuthOverridesSchema,
-  xaiAuthOverridesSchema,
-  githubCopilotAuthOverridesSchema,
-  buildAnthropicAuthorizeUrl,
-  exchangeAnthropicCode,
-  loginAnthropic,
-  refreshAnthropicToken,
-  resolveAnthropicOAuthConfig,
-  type AnthropicAuthOverrides,
-  type AnthropicOAuthConfig,
-  type OpenrouterAuthOverrides,
-  type KimiCodingAuthOverrides,
-  type XaiAuthOverrides,
-  type GithubCopilotAuthOverrides,
-  type TokenEndpointFetch,
-  CHATGPT_CODEX_BASE_URL,
-  CHATGPT_CODEX_ORIGINATOR,
-  OPENAI_OAUTH_DEFAULTS,
-  OPENAI_SCOPES,
-  OpenAiLoginAborted,
-  openaiAuthOverridesSchema,
-  loginOpenAI,
-  refreshOpenaiToken,
-  resolveOpenAiOAuthConfig,
-  type OpenAiAuthOverrides,
-  type OpenAiEndpointFetch,
-  type OpenAiOAuthConfig,
-  OPENROUTER_API_BASE_URL,
-  OPENROUTER_OAUTH_DEFAULTS,
-  OpenrouterLoginAborted,
-  exchangeOpenrouterCode,
-  loginOpenRouter,
-  parseOpenrouterAuthorizationInput,
-  resolveOpenrouterOAuthConfig,
-  type OpenrouterEndpointFetch,
-  type OpenrouterOAuthConfig,
-  XAI_API_BASE_URL,
-  XAI_OAUTH_DEFAULTS,
-  XAI_SCOPES,
-  XaiLoginAborted,
-  loginXai,
-  refreshXaiToken,
-  resolveXaiOAuthConfig,
-  type XaiEndpointFetch,
-  type XaiOAuthConfig,
-  KIMI_CODE_API_BASE_URL,
-  KIMI_CODE_OAUTH_DEFAULTS,
-  KimiCodingLoginAborted,
-  loginKimiCoding,
-  refreshKimiCodingToken,
-  resolveKimiCodingOAuthConfig,
-  type KimiCodingEndpointFetch,
-  type KimiCodingOAuthConfig,
-  COPILOT_CLIENT_ID,
-  COPILOT_DEFAULT_BASE_URL,
-  COPILOT_EDITOR_HEADERS,
-  COPILOT_OAUTH_DEFAULTS,
-  COPILOT_DEVICE_SCOPE,
-  CopilotLoginAborted,
-  copilotAuthContext,
-  copilotBaseUrl,
-  copilotBaseUrlFromToken,
-  exchangeCopilotToken,
-  loginGitHubCopilot,
-  normalizeGithubDomain,
-  refreshCopilotToken,
-  type CopilotEndpointFetch,
-  MockProvider,
-  builtinTools,
-  ExtensionRuntime,
-  MAX_PANELS,
-  type RuntimeExtension,
-  type ActiveExtensionOverlay,
-  // #1128 (ADR-0061): the extension registry — install from immutable
-  // sources with static checks only; package code is never executed.
-  installExtension,
-  listInstalledExtensions,
-  parseExtensionRef,
-  removeInstalledExtension,
-  realRegistryIo,
-  registryRoots,
-  verifyIntegrity,
-  KNOWN_CAPABILITY_SLOTS,
-  isKnownCapability,
-  // ADR-0064/0065: the core-owned scope effect-sentence renderer the
-  // clients' consent surfaces show instead of the naked scope string.
-  scopeEffectSentence,
-  // ADR-0069 (#1161): the user-mint credential store the CLI's
-  // `moh secret` surface and session assembly share.
-  defaultCredentialStore,
-  validateCredentialScope,
-  type CredentialStore,
-  type RegistryIo,
-  type ExtensionRef,
-  type InstallOptions,
-  type InstallResult,
-  type InstalledExtension,
-  type NpmPackument,
-  PromptComposer,
-  type SendOptions,
-  type SkillPrompt,
-  SessionStore,
-  listSessionSummaries,
-  // #672: the text of the last completed assistant turn (cleared by any
-  // later user message) — the /copy command's source. ADR-0004 export.
-  lastAssistantText,
-  renameSession,
-  setSessionPinned,
-  // #478: session trash — the ADR-0004 reopening that lets clients (TUI Home
-  // delete chip, `moh sessions delete` / `moh trash`) delete and restore.
-  deleteSession,
-  isSessionOpen, // #582: refuse switch on an open session (TUI-only switch)
-  restoreSession,
-  listTrashedSessions,
-  type TrashedSessionSummary,
-  type SessionSummary,
-  // #467: session-notes path primitives — the ADR-0004 reopening that lets
-  // clients resolve the canonical project directory without recomputing the slug.
-  projectSlug,
-  projectSessionsDir,
-  // #939: the identity boot seam — the client resolves the identity
-  // before the first React window, so nothing spawns on a render path.
-  prepareProjectIdentity,
-  prepareProjectIdentityNow,
-  isProjectIdentityPrepared,
-  // #1217: stranded-data record — clients surface old uuid-directory data
-  // that cannot be migrated automatically (both directories hold data).
-  // #1243: the resolution seams — the record is live-checked, acknowledged,
-  // summarized, and resolvable (move logs / delete / keep) from a client.
-  acknowledgeStrandedData,
-  deleteStrandedData,
-  moveStrandedSessions,
-  strandedDataSummary,
-  type StrandedDataSummary,
-  readStrandedDataRecord,
-  type StrandedDataRecord,
-  splitCommandSegments,
-  formatRule,
-  parseRule,
-  overridesFromFlags,
-  urlGlobMatches,
-  RuleError,
-  McpRuntime,
-  mcpServerEntrySchema,
-  isHttpMcpUrl,
-  loadMohConfig,
-  writeMohConfig,
-  upsertEndpoint,
-  upsertMcpServer,
-  declaredMcpServers,
-  declaredUserMcpServers,
-  isProjectServerTrusted,
-  persistProjectMcpTrust,
-  minimalConnectionTest,
-  addProviderToFile,
-  runProviderAdd,
-  OnboardingAborted,
-  BUILTIN_PROVIDER_TYPES,
-  KNOWN_COMPAT_ENDPOINTS,
-  OPENCODE_AUTH_URL,
-  OPENCODE_ENDPOINTS,
-  installFirstPartySkills,
-  checkUpstreamUpdates,
-  applyUpstreamUpdates,
-  validateSkillEntry,
-  loadFirstPartyManifest,
-  diffSkillFiles,
-  readBundledSkill,
-  MOH_VERSION,
-  checkForUpdate,
-  isDevRun,
-  readUpdateCache,
-  updateDue,
-  updateNoticeFor,
-  UPDATE_CHECK_INTERVAL_MS,
-  UpdateNotice,
-  trackerTools,
-  projectFrontier,
-  resolveTracker,
-  resolveTrackerSync,
-  // #939: fills the sync twin's memo from a promise continuation.
-  prepareTrackerRemote,
-  readUserConfigFile,
-  updateUserConfigFile,
-  userConfigFile,
-  type UserConfigIo,
-  // #826: hosting a bundled first-party extension (a client mounts it from
-  // its own package). The vendor config surface moved with its owner.
-  resolveBundledExtensions,
-  type BundledActivationContext,
-  type BundledExtensionSource,
-  type BundledInstanceReader,
-  type BundledResolution,
-  type BundledWiring,
-  type MountedBundledExtension,
-  loadMergedConfig,
-  readUserProviderConfig,
-  upsertUserEndpoint,
-  removeUserEndpoint,
-  saveUserProviderRef,
-  setUserEndpointModel,
-  setUserEndpointFallbackEligible,
-  type MergedConfigOptions,
-  type UserProviderConfig,
-  defaultRegistry,
-  resolveProvider,
-  resolveProviderRef,
-  isFallbackEligible,
-  fallbackIneligibleReason,
-  sessionFromConfig,
-  // Session handoff (#433, T2 #435): the transport seam and gist impl
-  // are client surfaces (exit wiring, TUI/CLI) — not agent-loop API.
-  type HandoffTransport,
-  type HandoffPayload,
-  type HandoffTransportError,
-  type PublishHandoffOptions,
-  type PublishHandoffResult,
-  publishHandoffAtExit,
-  readRawHandoff,
-  handoffAlreadyPublished,
-  handoffPublishedMarkerFile,
-  HandoffRunner,
-  type RawHandoff,
-  type HandoffGitAnchor,
-  transportActive,
-  createGistHandoffTransport,
-  discoverGistHandoffs,
-  ghUsername,
-  spawnGh,
-  type GhRunner,
-  // Cold-directory wizard (#595): the gate, clone and pull steps.
-  isColdDirectory,
-  cloneHandoffRepo,
-  pullHandoffTo,
-  type GistHandoffOffer,
-  type DiscoverGistHandoffsOptions,
-  type GitCall,
-  type GitRunner,
-  type CloneHandoffRepoOptions,
-  type CloneHandoffRepoResult,
-  type PullHandoffOptions,
-  type PullHandoffResult,
-  // Reception (T3 #436) and Wayfinder read/cite (T6 #439) client surfaces.
-  discoverHandoff,
-  isHandoffStale,
-  handoffSeedPrompt,
-  handoffSeedMessage,
-  handoffDebug,
-  handoffDebugEnabled,
-  enrichHandoffWithWayfinder,
-  notifyClaimedWayfinderTickets,
-  type HandoffOffer,
-  type DiscoverHandoffOptions,
-  type HandoffDebugStage,
-  // Manual file fallback (T7 #440): export/import via file.
-  exportHandoffFile,
-  importHandoffFile,
-  readImportedHandoff,
-  importedHandoffFile,
-  type ExportHandoffOptions,
-  type ExportHandoffResult,
-  type ImportHandoffOptions,
-  type ImportHandoffResult,
   type SessionConfig,
-  // #784/ADR-0031: the extension-ask context a client's consent seam
-  // receives (the TUI renders yes/no only, labelled with the reason).
-  type PermissionAskContext,
-  // ADR-0033 §4 (#791): the pre-send confirmation a client's consent seam
-  // answers — one request per confirmed turn, and the outcome vocabulary
-  // it answers with (the extension contract's own type, re-exported so a
-  // client needs one import).
-  type ConfirmTurnRequest,
-  type AssemblyError,
-  type AssemblyErrorKind,
-  type SessionConsent,
-  type SessionFromConfigOptions,
-  type SessionFromConfigResult,
-  type SessionOverrides,
-  type ExtensionConsentRequest,
-  type PermissionsConfig,
-  type SkillIndexEntry,
-  type DeclaredMcpServer,
-  type PermissionOverrides,
-  type PermissionRule,
-  type ProviderRegistry,
-  type MemoryOptions,
-  CompactionRunner,
-  compactionFacts,
-  createDeterministicSummarizer,
-  renderDeterministicDigest,
-  type CompactionFacts,
-  type CompactionOptions,
-  type CompactionSummarizer,
-  type CompactionSummarizerInput,
-  type SubagentOptions,
-  ExtensionSpawnRefusedError,
-  type McpServerEntry,
-  type McpRuntimeOptions,
-  type EndpointProfile,
-  type MohConfig,
-  skillRecommendations,
-  formatSkillCommand,
-  type SkillRecommendation,
-  type SkillRoutingConfig,
-  type SkillRouteOverride,
-  type BuiltinProviderType,
-  type KnownCompatEndpoint,
-  type ConnectionTestResult,
-  type ConnectionTester,
-  type ProviderTestFailure,
-  type OnboardingIo,
-  type ProviderAddOptions,
-  isSubscriptionKind,
-  offersSubscriptionAuth,
-  providerLogin,
-  providerLogout,
-  providerStatus,
-  runSubscriptionLogin,
-  ANTHROPIC_USAGE_URL,
-  SUBSCRIPTION_KINDS,
-  type EndpointAuthStatus,
-  type LoginOptions,
-  type SubscriptionKind,
-  type SubscriptionLogin,
-  type SubscriptionStatus,
-  type UsageFetch,
-  type AuthEndpointFetch,
-  type UpstreamUpdate,
-  type UpstreamCheckResult,
-  type UserConfigData,
-  type TrackerIssue,
-  type TrackerBackend,
-  type AgentEvent,
-  type EventIdentity,
-  type ExtensionStatus,
-  SCHEMA_VERSION,
-  type ReasoningStreamEvent,
-  type StreamOptions,
-  type ThinkingLevel,
-  type AskUserAnswer,
-  type AskUserQuestion,
-  type AskUserQuestionSet,
-  type AskUserSetResult,
-  type Provider,
-  type Tool,
-  // #576: session-tree surface — head resolution + reference helpers.
-  resolveHead,
-  // #577: active-path projection (root→head linearization).
-  activePath,
-  resolveEventRef,
-  lineRef,
-  parseLineRef,
-  switchBranch,
-  // #579: bookmark writer seam (see the import comment above).
-  bookmarkNode,
-  localTipAt,
-  sessionTree,
-  type TreeView,
-  type TreeNode,
 };
 
 export {
