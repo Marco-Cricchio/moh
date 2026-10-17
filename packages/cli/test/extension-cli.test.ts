@@ -4,7 +4,8 @@ import { mkdirSync, mkdtempSync, readdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { extensionCommand, type ExtensionOptions } from "../src/extension";
-import type { NpmPackument, RegistryIo } from "@moh/core";
+import type { RegistryIo } from "@moh/core";
+import type { NpmPackument } from "../../core/src/extension-registry";
 
 const MANIFEST = { name: "no-rm-rf", version: "1.2.0", entry: "index.mjs", capabilities: ["veto"] };
 

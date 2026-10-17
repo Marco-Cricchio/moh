@@ -34,10 +34,8 @@ export {
 export { builtinTools } from "./builtin-tools";
 export {
   ExtensionRuntime,
-  MAX_PANELS,
   type ExtensionConsentRequest,
   type RuntimeExtension,
-  type ActiveExtensionOverlay,
 } from "./extensions";
 export {
   // #1128 (ADR-0061): the extension registry — install from immutable
@@ -47,16 +45,7 @@ export {
   listInstalledExtensions,
   parseExtensionRef,
   removeInstalledExtension,
-  registryRoots,
-  verifyIntegrity,
-  KNOWN_CAPABILITY_SLOTS,
-  isKnownCapability,
   type RegistryIo,
-  type ExtensionRef,
-  type InstallOptions,
-  type InstallResult,
-  type InstalledExtension,
-  type NpmPackument,
 } from "./extension-registry";
 export {
   // ADR-0064/0065: the core-owned scope effect-sentence renderer the
@@ -186,7 +175,6 @@ export {
   type AssembleMentionsResult,
 } from "./mentions";
 export { type SubagentOptions } from "./subagents";
-export { ExtensionSpawnRefusedError } from "./extension-scope";
 export {
   DevelopmentLaneStore,
   type CreateFeatureGroupInput,
@@ -323,14 +311,9 @@ export {
 // #1131: the read-only `/extensions` state — the TUI overlay and any
 // headless reader fold it. Metadata-only projection (ADR-0004).
 export {
-  extensionsScreenStateFromEvents,
   readExtensionsScreenState,
   mergeExtensionLiveInfo,
   type ExtensionsScreenState,
-  type ExtensionsScreenExtension,
-  type ExtensionsScreenSection,
-  type ExtensionsScreenRefusal,
-  type ExtensionLiveInfo,
 } from "./extensions-screen";
 
 export {
@@ -362,7 +345,6 @@ export { formatModelPair } from "./model-pair";
 // with ("send" | "cancel" | "refuse") — the extension contract's type,
 // re-exported so a client needs one import for the whole seam.
 export type { TurnConfirmOutcome } from "@moh/extension";
-export type { ExtensionCommand, ExtensionCommandContext } from "@moh/extension";
 export {
   McpRuntime,
   mcpServerEntrySchema,
@@ -570,11 +552,9 @@ export {
 export {
   // #826: hosting a bundled first-party extension (a client mounts it from
   // its own package). The vendor config surface moved with its owner.
-  resolveBundledExtensions,
   type BundledActivationContext,
   type BundledExtensionSource,
   type BundledInstanceReader,
-  type BundledResolution,
   type BundledWiring,
   type MountedBundledExtension,
 } from "./bundled-extensions";

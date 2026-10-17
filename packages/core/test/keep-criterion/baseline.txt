@@ -1,5 +1,4 @@
 AcceptedTaskFixtureRow
-ActiveExtensionOverlay
 AssembleMentionsOptions
 AssembleMentionsResult
 AssemblyErrorKind
@@ -9,7 +8,6 @@ BrowserBuildStatus
 BrowserToolchainProgress
 BuiltinProviderType
 BundledExtensionSource
-BundledResolution
 CHILD_TAIL_MAX_LINES
 ChildActivity
 ChildTailResult
@@ -35,14 +33,6 @@ ExpandMentionsResult
 ExpandedMention
 ExportHandoffOptions
 ExportHandoffResult
-ExtensionCommand
-ExtensionCommandContext
-ExtensionLiveInfo
-ExtensionRef
-ExtensionSpawnRefusedError
-ExtensionsScreenExtension
-ExtensionsScreenRefusal
-ExtensionsScreenSection
 GitCall
 GitRunner
 HandoffDebugStage
@@ -50,10 +40,6 @@ HandoffGitAnchor
 HandoffPayload
 ImportHandoffOptions
 ImportHandoffResult
-InstallOptions
-InstallResult
-InstalledExtension
-KNOWN_CAPABILITY_SLOTS
 LaneConflict
 LaneGitResult
 LaneGitRunner
@@ -65,7 +51,6 @@ LaneRelation
 LaneServiceOptions
 LaneStatus
 LaneStoreOptions
-MAX_PANELS
 MPM_DEFAULT_MAX_FILES
 MPM_DEFAULT_MAX_TOTAL_BYTES
 MPM_FORMAT_VERSION
@@ -92,7 +77,6 @@ MpmRelation
 MpmStatus
 MpmSymbol
 MpmUserConfig
-NpmPackument
 ParsedMention
 PerformanceModelRow
 PermissionOverrides
@@ -154,12 +138,10 @@ childTailLine
 defaultLaneGitRunner
 defaultRegistry
 detectUpdatePlatform
-extensionsScreenStateFromEvents
 handoffAlreadyPublished
 handoffDebugEnabled
 handoffPublishedMarkerFile
 importedHandoffFile
-isKnownCapability
 isPrerelease
 isProjectServerTrusted
 isSubscriptionKind
@@ -171,9 +153,7 @@ persistProjectMcpTrust
 preCommitHookContent
 readImportedHandoff
 redactSummary
-registryRoots
 releasesUrl
-resolveBundledExtensions
 resolveHead
 resolveProvider
 resolveProviderRef
@@ -185,4 +165,3 @@ taskVerificationEvent
 updateDue
 urlGlobMatches
 validateSkillEntry
-verifyIntegrity

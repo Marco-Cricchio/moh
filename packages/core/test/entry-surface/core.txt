@@ -1,5 +1,4 @@
 AcceptedTaskFixtureRow
-ActiveExtensionOverlay
 AgentEvent
 AgentSession
 AskUserAnswer
@@ -27,7 +26,6 @@ BuiltinProviderType
 BundledActivationContext
 BundledExtensionSource
 BundledInstanceReader
-BundledResolution
 BundledWiring
 CHILD_TAIL_MAX_LINES
 CatalogModel
@@ -66,17 +64,9 @@ ExpandMentionsResult
 ExpandedMention
 ExportHandoffOptions
 ExportHandoffResult
-ExtensionCommand
-ExtensionCommandContext
 ExtensionConsentRequest
-ExtensionLiveInfo
-ExtensionRef
 ExtensionRuntime
-ExtensionSpawnRefusedError
 ExtensionStatus
-ExtensionsScreenExtension
-ExtensionsScreenRefusal
-ExtensionsScreenSection
 ExtensionsScreenState
 FULL_CHROMIUM_DOWNLOAD_SIZE
 FeatureGroup
@@ -94,10 +84,6 @@ HandoffTransport
 HandoffTransportError
 ImportHandoffOptions
 ImportHandoffResult
-InstallOptions
-InstallResult
-InstalledExtension
-KNOWN_CAPABILITY_SLOTS
 KNOWN_COMPAT_ENDPOINTS
 LaneConflict
 LaneGitResult
@@ -115,7 +101,6 @@ LiveModelListing
 LocalUsageRow
 LoginOptions
 MAX_ITERATIONS_UNLIMITED
-MAX_PANELS
 MOH_VERSION
 MPM_DEFAULT_MAX_FILES
 MPM_DEFAULT_MAX_TOTAL_BYTES
@@ -150,7 +135,6 @@ MpmService
 MpmStatus
 MpmSymbol
 MpmUserConfig
-NpmPackument
 OPENCODE_AUTH_URL
 OPENCODE_ENDPOINTS
 OnboardingIo
@@ -301,7 +285,6 @@ enrichHandoffWithWayfinder
 estimateModelCost
 expandMentions
 exportHandoffFile
-extensionsScreenStateFromEvents
 fallbackIneligibleReason
 fetchLiveCatalogs
 foldReasoningParts
@@ -327,7 +310,6 @@ isColdDirectory
 isDevRun
 isHandoffStale
 isHttpMcpUrl
-isKnownCapability
 isPrerelease
 isProjectIdentityPrepared
 isProjectServerTrusted
@@ -405,7 +387,6 @@ readUserProviderConfig
 realRegistryIo
 reasoningPartsText
 redactSummary
-registryRoots
 releasesUrl
 removeInstalledExtension
 removeUserEndpoint
@@ -413,7 +394,6 @@ renameSession
 renderMentionAttachment
 renderTosCard
 reportNeedsNotice
-resolveBundledExtensions
 resolveEndpointThinking
 resolveEventRef
 resolveHead
@@ -466,5 +446,4 @@ urlGlobMatches
 userConfigFile
 validateCredentialScope
 validateSkillEntry
-verifyIntegrity
 writeMohConfig
