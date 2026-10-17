@@ -8,7 +8,7 @@
  * don't travel through a tool call.
  */
 import { formatRule, splitCommandSegments, scopeEffectSentence, type PermissionAskContext } from "@moh/core";
-import { sanitizeForDisplay } from "./render-sanitize";
+import { sanitizeForDisplay } from "@moh/core";
 
 export type PermissionAnswer = "yes" | "always" | "always_for_site" | "no";
 

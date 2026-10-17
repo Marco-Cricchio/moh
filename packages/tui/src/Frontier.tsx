@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { Text, useInput } from "ink";
 import { projectFrontier, type TrackerBackend, type TrackerIssue } from "@moh/core";
 import { useTheme } from "./themes";
-import { sanitizeForDisplay } from "./render-sanitize";
+import { sanitizeForDisplay } from "@moh/core";
 import { Dialog, Dim } from "./ui";
 import { useViewport, windowing } from "./viewport";
 

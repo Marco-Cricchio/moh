@@ -5,7 +5,7 @@ import { colorEnabled } from "./color";
 import { pickRampPreset, rampLogoRows, type RampPresetName } from "./logo-ramp";
 
 import { dialogWidth, useViewport } from "./viewport";
-import { sanitizeForDisplay } from "./render-sanitize";
+import { sanitizeForDisplay } from "@moh/core";
 
 /** pi-style labelled message box: single round border, label row inside. */
 export function MsgBox({ label, color, children }: { label: string; /** #880: absent when the terminal takes no color. */ color?: string; children: React.ReactNode }) {

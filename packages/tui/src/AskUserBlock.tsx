@@ -4,7 +4,7 @@ import { useTheme } from "./themes";
 import { Dim } from "./ui";
 import type { AskUserGate } from "./ask-user-gate";
 import type { AskUserAnswer, AskUserQuestion, AskUserSetResult } from "@moh/core";
-import { sanitizeForDisplay } from "./render-sanitize";
+import { sanitizeForDisplay } from "@moh/core";
 import { PreviewBox } from "./PreviewBox";
 
 /**

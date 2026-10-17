@@ -15,7 +15,7 @@ import { useSyncExternalStore } from "react";
 import { Text, useInput } from "ink";
 import { useTheme } from "./themes";
 import { Dialog, Dim, truncate } from "./ui";
-import { sanitizeForDisplay } from "./render-sanitize";
+import { sanitizeForDisplay } from "@moh/core";
 import type { ConfirmTurnGate } from "./confirm-turn-gate";
 
 export function ConfirmTurnModal({ gate }: { gate: ConfirmTurnGate }) {

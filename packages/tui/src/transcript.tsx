@@ -4,7 +4,7 @@ import { formatModelPair, type AgentEvent } from "@moh/core";
 import type { PaintableTheme } from "./themes";
 import { useTheme } from "./themes";
 import { sanitizeLine, truncate } from "./ui";
-import { sanitizeForDisplay } from "./render-sanitize";
+import { sanitizeForDisplay } from "@moh/core";
 import { createMarkdownRenderer, Markdown, MarkdownRows, wrapRenderedLines } from "./markdown";
 import { formatDuration, formatTimeout } from "./tool-timing";
 import { askUserQuestionSummary } from "./permission-gate";

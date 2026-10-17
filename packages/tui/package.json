@@ -5,8 +5,7 @@
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
-    "./bundled-extensions": "./src/bundled-extensions.ts",
-    "./render-sanitize": "./src/render-sanitize.ts"
+    "./bundled-extensions": "./src/bundled-extensions.ts"
   },
   "dependencies": {
     "@moh/core": "workspace:*",

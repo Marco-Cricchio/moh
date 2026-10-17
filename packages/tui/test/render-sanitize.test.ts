@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { sanitizeForDisplay } from "../src/render-sanitize";
+import { sanitizeForDisplay } from "@moh/core";
 
 /** Every class of terminal control the boundary must neutralize: C0
  * (except LF/TAB, which are layout), ESC CSI with parameters, ESC OSC
