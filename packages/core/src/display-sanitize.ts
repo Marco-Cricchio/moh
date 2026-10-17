@@ -3,7 +3,7 @@
  * tools that reach raw terminal seams (headless stderr, CLI chrome). Keep
  * ordinary layout characters; strip terminal controls before they reach
  * the tty so the recorded event remains faithful while its projection is
- * safe. Mirrors @moh/tui's render-sanitize — core cannot import from tui.
+ * safe. This is the only copy; @moh/tui imports it from @moh/core.
  */
 export function sanitizeForDisplay(value: string): string {
   return value

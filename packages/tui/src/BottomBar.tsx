@@ -8,7 +8,7 @@ import { fitRow, type WidthClass } from "./viewport";
 import type { ExtensionStatus, SessionMode, ThinkingLevel } from "@moh/core";
 import type { JevStatusSummary } from "./jev-control";
 import { scannerPaint, scannerStripSplit } from "./scanner";
-import { sanitizeForDisplay } from "./render-sanitize";
+import { sanitizeForDisplay } from "@moh/core";
 import { SemanticText, glyphColor } from "./glyph-color";
 import { SAND_FRAMES, frameGlyph } from "./icons";
 

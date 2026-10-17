@@ -2,7 +2,7 @@ import { useMemo } from "react";
 import { Box, Text } from "ink";
 import type { Marked } from "marked";
 import { createMarkdownRenderer, parseAnsiSegments, wrapRenderedLines } from "./markdown";
-import { sanitizeForDisplay } from "./render-sanitize";
+import { sanitizeForDisplay } from "@moh/core";
 import { useTheme } from "./themes";
 import { fgTruecolor } from "./color";
 

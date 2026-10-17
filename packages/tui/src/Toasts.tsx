@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Box, Text } from "ink";
 import { useTheme } from "./themes";
 import { ic } from "./icons";
-import { sanitizeForDisplay } from "./render-sanitize";
+import { sanitizeForDisplay } from "@moh/core";
 
 /**
  * Transient one-line notices above the footer (style guide §3.6): toast,

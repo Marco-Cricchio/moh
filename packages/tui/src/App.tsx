@@ -71,7 +71,7 @@ import { CommandsPanel } from "./CommandsPanel";
 import { ManualModal } from "./ManualModal";
 import { NotesModal } from "./NotesModal";
 import { ModelPickerModal } from "./ModelPickerModal";
-import { sanitizeForDisplay } from "./render-sanitize";
+import { sanitizeForDisplay } from "@moh/core";
 import { endpointModelCatalog, aggregateLocalUsage, aggregateTelemetry, analyzeSession, billingPlanResolver, listInstalledExtensions, readExtensionsScreenState, mergeExtensionLiveInfo, type LocalUsageRow, type SessionAnalysisReport, type ExtensionsScreenState } from "@moh/core";
 import { fetchLiveCatalogs, liveListings, reportNeedsNotice, summarizeLiveCatalogReport, type LiveModelListing } from "@moh/core";
 import { QuotaModal } from "./QuotaModal";
