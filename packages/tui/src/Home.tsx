@@ -14,7 +14,7 @@ import {
   widthClass,
   useViewport,
 } from "./viewport";
-import { deleteSession, listSessionSummaries, renameSession, setSessionPinned, type SessionSummary } from "./sessions";
+import { deleteSession, listSessionSummaries, renameSession, setSessionPinned, type SessionSummary } from "@moh/core";
 import { MOH_VERSION, projectSessionsDir, readStrandedDataRecord, type HandoffOffer, type StrandedDataRecord } from "@moh/core";
 import type { Mode } from "./Chat";
 import type { UpdateNotice } from "@moh/core";
