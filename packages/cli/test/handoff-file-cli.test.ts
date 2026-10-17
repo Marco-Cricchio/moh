@@ -2,7 +2,8 @@ import { describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { HandoffRunner, importedHandoffFile, type RawHandoff } from "@moh/core";
+import { HandoffRunner, type RawHandoff } from "@moh/core";
+import { importedHandoffFile } from "../../core/src/handoff-file";
 import { handoffCommand } from "../src/handoff";
 
 function fixtureHandoff(sessionId = "session-abc"): RawHandoff {
