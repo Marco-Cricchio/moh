@@ -20,15 +20,15 @@ export {
   type SessionOverrides,
 } from "./session/from-config";
 import { type SessionConfig } from "./session/config";
-// ADR-0033 §4 (#791): the pre-send confirmation a client's consent seam
-// answers — one request per confirmed turn, and the outcome vocabulary
-// it answers with (the extension contract's own type, re-exported so a
-// client needs one import).
-// #784/ADR-0031: the extension-ask context a client's consent seam
-// receives (the TUI renders yes/no only, labelled with the reason).
 export {
+  // ADR-0033 §4 (#791): the pre-send confirmation a client's consent seam
+  // answers — one request per confirmed turn, and the outcome vocabulary
+  // it answers with (the extension contract's own type, re-exported so a
+  // client needs one import).
   type ConfirmTurnRequest,
   type PermissionsConfig,
+  // #784/ADR-0031: the extension-ask context a client's consent seam
+  // receives (the TUI renders yes/no only, labelled with the reason).
   type PermissionAskContext,
 } from "./session/config";
 export { builtinTools } from "./builtin-tools";
@@ -39,9 +39,9 @@ export {
   type RuntimeExtension,
   type ActiveExtensionOverlay,
 } from "./extensions";
-// #1128 (ADR-0061): the extension registry — install from immutable
-// sources with static checks only; package code is never executed.
 export {
+  // #1128 (ADR-0061): the extension registry — install from immutable
+  // sources with static checks only; package code is never executed.
   installExtension,
   realRegistryIo,
   listInstalledExtensions,
@@ -58,14 +58,14 @@ export {
   type InstalledExtension,
   type NpmPackument,
 } from "./extension-registry";
-// ADR-0064/0065: the core-owned scope effect-sentence renderer the
-// clients' consent surfaces show instead of the naked scope string.
 export {
+  // ADR-0064/0065: the core-owned scope effect-sentence renderer the
+  // clients' consent surfaces show instead of the naked scope string.
   scopeEffectSentence,
 } from "./scope-effect";
-// ADR-0069 (#1161): the user-mint credential store the CLI's
-// `moh secret` surface and session assembly share.
 export {
+  // ADR-0069 (#1161): the user-mint credential store the CLI's
+  // `moh secret` surface and session assembly share.
   defaultCredentialStore,
   validateCredentialScope,
   type CredentialStore,
@@ -90,37 +90,55 @@ export { SCHEMA_VERSION } from "./types";
 // #575: event identity — the ADR-0004 reopening that lets clients read
 // and resolve event ids and the read-only `line:N` bridge.
 export { type EventIdentity } from "./types";
-// #478: session trash — the ADR-0004 reopening that lets clients (TUI Home
-// delete chip, `moh sessions delete` / `moh trash`) delete and restore.
-// #467: session-notes path primitives — the ADR-0004 reopening that lets
-// clients resolve the canonical project directory without recomputing the slug.
-// #579: bookmark writer seam (see the import comment above).
-// #576: session-tree surface — head resolution + reference helpers.
-// #577: active-path projection (root→head linearization).
-// #672: the text of the last completed assistant turn (cleared by any
-// later user message) — the /copy command's source. ADR-0004 export.
 export {
   SessionStore,
   listSessionSummaries,
+  // #477: session rename — the ADR-0004 reopening that lets clients (TUI
+  // Home picker, `moh sessions rename`) append the `session_renamed` event.
   renameSession,
+  // Home pin: appends the `session_pinned` chrome event (TUI Home ctrl+p).
   setSessionPinned,
+  // #478: session trash — the ADR-0004 reopening that lets clients (TUI Home
+  // delete chip, `moh sessions delete` / `moh trash`) delete and restore.
   deleteSession,
-  isSessionOpen,
+  isSessionOpen, // #582: refuse switch on an open session (TUI-only switch)
   restoreSession,
   listTrashedSessions,
   type TrashedSessionSummary,
   type SessionSummary,
+  // #467: session-notes path primitives — the ADR-0004 reopening that lets
+  // clients resolve the canonical project directory without recomputing the slug.
   projectSlug,
   projectSessionsDir,
+  // #576: branch switching + head resolution — the ADR-0004 reopening
+  // that lets clients (TUI /tree, `moh` CLI) move the head, adopt a local
+  // tail after divergence and resolve references. Session-level:
+  // `session.switchBranch(to)`.
   switchBranch,
+  // #579: bookmarks — the ADR-0004 reopening that lets clients (TUI /tree
+  // `b`/`B`, `moh sessions bookmark`) set/rename/clear a node bookmark by
+  // appending the `tree_bookmarked` event. Live-writer path:
+  // `session.bookmarkNode(to, name?)`.
+  // #579: bookmark writer seam (see the import comment above).
   bookmarkNode,
   localTipAt,
   resolveEventRef,
   lineRef,
   parseLineRef,
+  // #576: head resolution (branch-aware) lives in session/event-log.
+  // #576: session-tree surface — head resolution + reference helpers.
   resolveHead,
+  // #577: the active-path projection (root→head linearization) — the
+  // ADR-0004 reopening that lets clients (TUI /tree, CLI renderers,
+  // tooling) read the same linear path the model context sees.
+  // #577: active-path projection (root→head linearization).
   activePath,
+  // #580: the client-facing tree projection (spec §1) — the single seam
+  // the TUI /tree panel and the CLI renderer both consume. Returns the
+  // TreeView or { error }; never throws.
   sessionTree,
+  // #672: the text of the last completed assistant turn (cleared by any
+  // later user message) — the /copy command's source. ADR-0004 export.
   lastAssistantText,
   type TreeView,
   type TreeNode,
@@ -556,12 +574,14 @@ export {
   type SelfUpdateStatus,
   type UpdatePlatform,
 } from "./self-update";
-// #939: fills the sync twin's memo from a promise continuation.
 export {
   trackerTools,
   projectFrontier,
   resolveTracker,
   resolveTrackerSync,
+  // #939: fills the sync twin's memo from a promise continuation, so the TUI
+  // boot (or renderTui's warm-up) leaves a spawn-free startup path behind it.
+  // #939: fills the sync twin's memo from a promise continuation.
   prepareTrackerRemote,
   type TrackerIssue,
   type TrackerBackend,
@@ -570,16 +590,17 @@ export {
 // before the first React window (renderTui, which runs outside the render)
 // and App's own gate awaits it when nothing did; afterwards every resolution
 // is memory-served, so no synchronous `git` spawn is reachable from a render.
-// #939: the identity boot seam — the client resolves the identity
-// before the first React window, so nothing spawns on a render path.
-// #1217: stranded-data record — clients surface old uuid-directory data
-// that cannot be migrated automatically (both directories hold data).
-// #1243: the resolution seams — the record is live-checked, acknowledged,
-// summarized, and resolvable (move logs / delete / keep) from a client.
 export {
+  // #939: the identity boot seam — the client resolves the identity
+  // before the first React window, so nothing spawns on a render path.
   prepareProjectIdentity,
   prepareProjectIdentityNow,
   isProjectIdentityPrepared,
+  // #1217: stranded-data record — clients surface old uuid-directory data
+  // that cannot be migrated automatically (both directories hold data).
+  // #1243: the resolution seams (see the export block below).
+  // #1243: the resolution seams — the record is live-checked, acknowledged,
+  // summarized, and resolvable (move logs / delete / keep) from a client.
   acknowledgeStrandedData,
   deleteStrandedData,
   moveStrandedSessions,
@@ -599,9 +620,9 @@ export {
 // code that ships inside the binary; it does not know which extension that
 // is — the client mounts the sources (the first-party one lives in its own
 // workspace package, which the core does not depend on).
-// #826: hosting a bundled first-party extension (a client mounts it from
-// its own package). The vendor config surface moved with its owner.
 export {
+  // #826: hosting a bundled first-party extension (a client mounts it from
+  // its own package). The vendor config surface moved with its owner.
   resolveBundledExtensions,
   type BundledActivationContext,
   type BundledExtensionSource,
@@ -610,14 +631,14 @@ export {
   type BundledWiring,
   type MountedBundledExtension,
 } from "./bundled-extensions";
-// Session handoff (#433, T2 #435): the transport seam and gist impl
-// are client surfaces (exit wiring, TUI/CLI) — not agent-loop API.
 export {
   publishHandoffAtExit,
   readRawHandoff,
   handoffAlreadyPublished,
   handoffPublishedMarkerFile,
   type HandoffPayload,
+  // Session handoff (#433, T2 #435): the transport seam and gist impl
+  // are client surfaces (exit wiring, TUI/CLI) — not agent-loop API.
   type HandoffTransport,
   type HandoffTransportError,
   type PublishHandoffOptions,
@@ -632,9 +653,9 @@ export {
   type GistHandoffOffer,
   type DiscoverGistHandoffsOptions,
 } from "./handoff-gist";
-// Cold-directory wizard (#595): the gate, clone and pull steps.
 export {
   cloneHandoffRepo,
+  // Cold-directory wizard (#595): the gate, clone and pull steps.
   isColdDirectory,
   pullHandoffTo,
   type CloneHandoffRepoOptions,
@@ -644,8 +665,8 @@ export {
   type PullHandoffOptions,
   type PullHandoffResult,
 } from "./handoff-coldstart";
-// Reception (T3 #436) and Wayfinder read/cite (T6 #439) client surfaces.
 export {
+  // Reception (T3 #436) and Wayfinder read/cite (T6 #439) client surfaces.
   discoverHandoff,
   isHandoffStale,
   handoffSeedPrompt,
@@ -656,8 +677,8 @@ export {
 export { handoffDebug, handoffDebugEnabled, type HandoffDebugStage } from "./handoff-debug";
 export { HandoffRunner, transportActive, type RawHandoff, type HandoffGitAnchor } from "./handoff";
 export { enrichHandoffWithWayfinder, notifyClaimedWayfinderTickets } from "./handoff-wayfinder";
-// Manual file fallback (T7 #440): export/import via file.
 export {
+  // Manual file fallback (T7 #440): export/import via file.
   exportHandoffFile,
   importHandoffFile,
   readImportedHandoff,
