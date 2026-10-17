@@ -7,7 +7,8 @@ import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, test } from "bun:test";
-import { RetroStore, retroSignature } from "@moh/core";
+import { RetroStore } from "@moh/core";
+import { retroSignature } from "../../core/src/retro";
 import { retroCommand, RETRO_USAGE } from "../src/retro";
 
 const dirs: string[] = [];
