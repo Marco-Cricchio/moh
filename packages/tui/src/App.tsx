@@ -51,7 +51,7 @@ import { Chat, type Mode } from "./Chat";
 import { handoffPublishWork, retryPendingHandoffPublish, discoverHandoffForHome, makeSession, providerLabel, transportActiveFor } from "./factory";
 import { ColdWizard } from "./ColdWizard";
 import { isColdDirectory, discoverGistHandoffs, type GistHandoffOffer } from "@moh/core";
-import { listSessionSummaries, type SessionSummary } from "./sessions";
+import { listSessionSummaries, type SessionSummary } from "@moh/core";
 import { loadUserConfig, saveUserConfig, userConfigFile, type ThemeRef, type UserConfig } from "./user-config";
 import { PermissionGate } from "./permission-gate";
 import { AskUserGate } from "./ask-user-gate";

@@ -3,7 +3,7 @@ import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { SessionStore, createSession, MockProvider } from "@moh/core";
-import { listSessionSummaries } from "../src/sessions";
+import { listSessionSummaries } from "@moh/core";
 
 const tempHome = () => mkdtempSync(join(tmpdir(), "moh-tui-home-"));
 
