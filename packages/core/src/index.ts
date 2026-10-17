@@ -433,7 +433,7 @@ export {
 // #790: the rerank seam types — the config surface (`SessionConfig.mpm.rerank`)
 // references them, so they are public by the ADR-0004 criterion.
 export { type RerankCandidate, type RerankRequest, type RerankResponse } from "./mpm/orientation";
-export { allManualPages, manualIndex, manualPage, manualSubsetViolations, type ManualPage } from "./manual";
+export { allManualPages, manualIndex, manualPage, type ManualPage } from "./manual";
 export {
   clearThinkingPreference,
   defaultThinkingLevel,

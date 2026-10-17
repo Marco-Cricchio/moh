@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
-import { allManualPages, manualIndex, manualPage, manualSubsetViolations } from "../src/manual";
+import { allManualPages, manualIndex, manualPage } from "../src/manual";
 
 /** #457: the user manual — markdown assets bundled in core (statically
  * imported, ADR-0013), mirrored to docs/manual/ by gen-manual-docs.ts.
@@ -10,6 +10,42 @@ import { allManualPages, manualIndex, manualPage, manualSubsetViolations } from 
 const ROOT = join(import.meta.dir, "..", "..", "..");
 const DOCS = join(ROOT, "docs", "manual");
 const GENERATED_IDS = new Set(["cli-reference", "config-reference", "commands-and-keys"]);
+
+/** Out-of-subset construct detectors, applied line-wise outside fences:
+ * raw HTML, images, reference link definitions, and setext-heading
+ * underlines. Inline code/code links inside a paragraph line are
+ * paragraphs — allowed. */
+const OUT_OF_SUBSET: ReadonlyArray<RegExp> = [
+  /<[/!]?[a-zA-Z][^>]*>/, // raw HTML — but not inline `<code>` spans
+  /!\[[^\]]*\]\(/, // images
+  /^\s*\[[^\]]+\]:\s*\S+/, // reference link definition
+  /^ {0,3}(=+|-{3,})\s*$/, // setext heading underline / thematic break
+];
+
+/** Returns the offending lines of a page body (empty = subset-clean).
+ * Fence-aware: fenced code blocks are verbatim and never flagged. Pure,
+ * exported for the anti-drift test and the generator. */
+function manualSubsetViolations(body: string): string[] {
+  const violations: string[] = [];
+  let inFence = false;
+  for (const line of body.split("\n")) {
+    if (/^\s*```/.test(line)) {
+      inFence = !inFence;
+      continue;
+    }
+    if (inFence) continue;
+    const t = line.trim();
+    if (t === "") continue;
+    // Raw-HTML check tolerant of inline `<code>` spans inside backticks:
+    // strip `code` runs first, then test.
+    const prose = line.replace(/`[^`]*`/g, (m) => " ".repeat(m.length));
+    if (OUT_OF_SUBSET.some((re) => re.test(prose))) {
+      violations.push(line);
+      continue;
+    }
+  }
+  return violations;
+}
 
 describe("manual assets (#457)", () => {
   test("the manual has the agreed sections in order", () => {

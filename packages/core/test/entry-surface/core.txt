@@ -478,7 +478,6 @@ loginXai
 mainCheckoutFor
 manualIndex
 manualPage
-manualSubsetViolations
 mcpServerEntrySchema
 mergeExtensionLiveInfo
 mimeForPath

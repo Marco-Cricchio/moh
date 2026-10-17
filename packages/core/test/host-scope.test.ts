@@ -11,10 +11,17 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ExtensionDefinition, ExtensionHost, ExtensionSetupContext } from "@moh/extension";
 import { ExtensionRuntime } from "../src/extensions";
-import { scopeEffectSentence, scopeEffectSentences } from "../src/scope-effect";
+import { scopeEffectSentence } from "../src/scope-effect";
 import { hostMatchesScope, validateHostScope } from "../src/host-scope";
 import type { AgentEvent } from "../src/types";
 import type { CredentialStore } from "../src/credential-scope";
+
+/** Effect sentences for every scope in a grant, in order. */
+function scopeEffectSentences(capabilities: readonly string[]): string[] {
+  return capabilities
+    .map(scopeEffectSentence)
+    .filter((s): s is string => s !== null);
+}
 
 const roots: string[] = [];
 const servers: Bun.Server<never>[] = [];
