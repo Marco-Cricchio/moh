@@ -41,6 +41,11 @@ const XAI_BILLING_URL = "https://cli-chat-proxy.grok.com/v1/billing?format=credi
 const KIMI_USAGES_URL = `${KIMI_CODE_API_BASE_URL}/v1/usages`;
 const ZAI_QUOTA_URL = "https://api.z.ai/api/monitor/usage/quota/limit";
 
+/**
+ * #499: Anthropic OAuth usage probe. Endpoint is undocumented but stable
+ * (beta `oauth-2025-04-20`): five-hour and weekly windows, percent plus
+ * reset times. Drifted shapes degrade to `null` inside the parser.
+ */
 export async function probeAnthropic(
   accessToken: string,
   fetchImpl: QuotaFetch,
@@ -84,6 +89,12 @@ interface OpenaiProbeInput {
   baseUrl?: string;
 }
 
+/**
+ * #499: OpenAI quota probe. Two shapes: ChatGPT OAuth grants ride the
+ * undocumented `chatgpt.com/backend-api/wham/usage` (percent windows,
+ * plan); API-key endpoints have no probeable standalone quota without an
+ * admin key — they report `null` and the modal shows local measurement.
+ */
 export async function probeOpenai(
   input: OpenaiProbeInput,
   fetchImpl: QuotaFetch,
@@ -126,6 +137,12 @@ function clamp(v: number): number | undefined {
   return Math.max(0, Math.min(100, v));
 }
 
+/**
+ * #499: GitHub Copilot quota probe. `api.github.com/copilot_internal/user`
+ * (internal, high confidence): premium-interactions entitlement vs
+ * remaining, with a reset timestamp. Requires the OAuth (copilot) token —
+ * not the proxy token — with the standard editor headers.
+ */
 export async function probeCopilot(
   accessToken: string,
   fetchImpl: QuotaFetch,
@@ -163,6 +180,11 @@ export async function probeCopilot(
   return windows.length > 0 ? { source: "undocumented", windows } : null;
 }
 
+/**
+ * #499: OpenRouter quota probe — the one fully documented source:
+ * `openrouter.ai/api/v1/key` returns limit/usage; `/credits` returns the
+ * credit balance. Auth accepts a stored OAuth token or the API key.
+ */
 export async function probeOpenrouter(
   cred: { apiKey?: string; token?: { accessToken: string } },
   fetchImpl: QuotaFetch,
@@ -209,6 +231,11 @@ function numberAt(rec: Record<string, unknown>, key: string): number | undefined
   return finiteNumber(rec[key]);
 }
 
+/**
+ * #499: xAI SuperGrok OAuth quota probe. Undocumented endpoint:
+ * `cli-chat-proxy.grok.com/v1/billing?format=credits` — percent for the
+ * current period. Drifted shapes degrade to `null`.
+ */
 export async function probeXai(
   accessToken: string,
   fetchImpl: QuotaFetch,
@@ -254,6 +281,11 @@ function resetAtOf(rec: Record<string, unknown>): number | undefined {
   return typeof v === "number" ? v * (v > 1e12 ? 1 : 1000) : undefined;
 }
 
+/**
+ * #499: Kimi (Moonshot coding plan) quota probe. Undocumented but
+ * best-structured: `api.kimi.com/coding/v1/usages` returns used/limit
+ * per 5h and weekly window.
+ */
 export async function probeKimi(
   accessToken: string,
   fetchImpl: QuotaFetch,
@@ -280,7 +312,11 @@ export async function probeKimi(
   return windows.length > 0 ? { source: "undocumented", windows } : null;
 }
 
-
+/**
+ * #499: z.ai / Zhipu coding-plan quota probe. Undocumented and the least
+ * stable schema of the set (`api.z.ai/api/monitor/usage/quota/limit`):
+ * percent per 5h/weekly window. Any parse failure degrades to `null`.
+ */
 export async function probeZai(
   cred: { apiKey?: string; token?: { accessToken: string } },
   fetchImpl: QuotaFetch,
