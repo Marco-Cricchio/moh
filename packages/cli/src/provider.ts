@@ -52,7 +52,7 @@ commands:
 tokens live in ~/.moh/config (never in moh.json); \`logout\` and a
 successful \`login\` are the only token deleters.`;
 
-export interface ProviderCommandOptions {
+interface ProviderCommandOptions {
   argv: string[];
   cwd: string;
   home?: string;

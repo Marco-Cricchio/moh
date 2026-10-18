@@ -38,7 +38,7 @@ export function interactiveStream(stream: NodeJS.WritableStream): boolean {
   return (stream as { isTTY?: boolean }).isTTY === true && !process.env.NO_COLOR;
 }
 
-export interface UpdateProgressOptions {
+interface UpdateProgressOptions {
   /** Destination for all progress output. */
   stream: NodeJS.WritableStream;
   /** TTY mode: in-place repaint, spinner, colors. Plain mode commits lines only. */

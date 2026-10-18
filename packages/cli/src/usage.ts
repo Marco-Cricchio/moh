@@ -403,7 +403,7 @@ function renderRoutes(report: Report, json: boolean, out: { write(s: string): vo
  * Identity-ish free text (model ids, subagent names, fallback reasons)
  * is included as-is and CSV-escaped — redact those fields downstream if
  * your dataset policy requires it. */
-export type UsageExportRecord =
+type UsageExportRecord =
   | { section: "model"; model: string; calls: number; inputTokens: number; outputTokens: number }
   | { section: "tool"; tool: string; calls: number; ok: number; fail: number; timeouts: number; errorKinds?: Record<string, number> }
   | { section: "route_fallback"; from: string; to: string; reason: string; count: number }
@@ -424,7 +424,7 @@ export type UsageExportRecord =
   | { section: "meta"; sessionsScanned: number; sessionsSkipped: number };
 
 /** Flattens the aggregate report into ordered export records. */
-export function exportRecords(report: ReturnType<typeof aggregateTelemetry>): UsageExportRecord[] {
+function exportRecords(report: ReturnType<typeof aggregateTelemetry>): UsageExportRecord[] {
   const records: UsageExportRecord[] = report.models.map((m) => ({
     section: "model",
     model: m.model,

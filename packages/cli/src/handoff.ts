@@ -67,7 +67,7 @@ options:
                    successfully claimed in this session (never implied)
   --cwd <dir>      project root (default: process.cwd())`;
 
-export interface HandoffCommandOptions {
+interface HandoffCommandOptions {
   argv: string[];
   cwd?: string;
   home?: string;

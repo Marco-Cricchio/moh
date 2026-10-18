@@ -42,12 +42,12 @@ const AGENTS_SECTION = `## moh
   permission engine as any tool.
 `;
 
-export interface InitOptions {
+interface InitOptions {
   cwd: string;
   stdout?: NodeJS.WritableStream;
 }
 
-export interface InitReport {
+interface InitReport {
   created: string[];
   /** Existing files left untouched. */
   kept: string[];
