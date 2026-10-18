@@ -26,7 +26,7 @@ import { builtinTools } from "../builtin-tools";
 import { declaredMcpServers, loadMohConfig, type MohConfig } from "../config";
 import { mergeProviderConfigs, readUserProviderConfig } from "../provider-config";
 import { readAuthSection } from "../auth/store";
-import { declaredUserMcpServers, isProjectServerTrusted, type McpConsentAnswer } from "../mcp";
+import { declaredUserMcpServers, isProjectServerTrusted, type McpConsentAnswer } from "../mcp/types";
 import { declaredWindowsByEndpoint, liveModelCacheFile, loadLiveModelCacheSync } from "../live-model-catalog";
 import { defaultRegistry, resolveProvider, resolveProviderRef } from "../provider-registry";
 import { SessionStore } from "../session-store";

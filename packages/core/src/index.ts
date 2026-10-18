@@ -213,17 +213,19 @@ export {
 // #499: quota seam — the ADR-0004 reopening that lets clients (TUI usage
 // quota modal, CLI) probe an endpoint's usage quota without knowing the
 // per-provider endpoints; any failure degrades to `null` (local row).
+export { getQuota } from "./quota";
 export {
-  getQuota,
-  aggregateLocalUsage,
   type QuotaReport,
   type QuotaSource,
   type QuotaWindow,
   type QuotaOptions,
   type QuotaFetch,
+} from "./quota/types";
+export {
+  aggregateLocalUsage,
   type LocalUsageRow,
   type BillingPlanResolver,
-} from "./quota";
+} from "./quota/local";
 // #1100 (P1 quota telemetry): the observation/episode producers and the
 // read-only projections over the recorded quota events (ADR-0004
 // reopening: `recordQuota` clients project reports into the log).
@@ -326,15 +328,14 @@ export { formatModelPair } from "./model-pair";
 // with ("send" | "cancel" | "refuse") — the extension contract's type,
 // re-exported so a client needs one import for the whole seam.
 export type { TurnConfirmOutcome } from "@moh/extension";
+export { McpRuntime, type McpRuntimeOptions } from "./mcp/runtime";
 export {
-  McpRuntime,
   mcpServerEntrySchema,
   isHttpMcpUrl,
   declaredUserMcpServers,
   type DeclaredMcpServer,
   type McpServerEntry,
-  type McpRuntimeOptions,
-} from "./mcp";
+} from "./mcp/types";
 export {
   loadMohConfig,
   writeMohConfig,

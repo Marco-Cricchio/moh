@@ -22,7 +22,7 @@ import { formatModelPair, selectedModelOf, servingModelOf } from "../model-pair"
 import { CompactionRunner, createCompactionSummarizer, createDeterministicSummarizer, contextWindowFor } from "../compaction";
 import { DEFAULT_TOOL_PERMISSIONS, PermissionResolver, formatRule, runtimeRulesFromEvents, type PermissionRule, type FilesystemScope, type SessionMode } from "../permissions";
 import { persistProjectMcpTrust } from "../mcp/types";
-import { McpRuntime } from "../mcp";
+import { McpRuntime } from "../mcp/runtime";
 import { PromptComposer, type AssembledPrompt, type SkillIndexEntry } from "../prompt-composer";
 import { discoverSkills } from "../skills";
 import { ExtensionRuntime, type ActiveExtensionOverlay } from "../extensions";
