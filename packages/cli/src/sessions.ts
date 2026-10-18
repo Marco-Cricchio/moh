@@ -75,7 +75,7 @@ stats describe the full topology. --json emits the same data as JSON.
   --cwd     project root the session belongs to (default: process.cwd())`;
 
 /** Resolves a session file from a raw path or a session id within the project. */
-export function resolveSessionFile(ref: string, cwd: string, home?: string): string | null {
+function resolveSessionFile(ref: string, cwd: string, home?: string): string | null {
   // A filesystem path (absolute or relative) wins when the file exists.
   const asPath = resolve(ref);
   try {

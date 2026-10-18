@@ -32,7 +32,7 @@ interface MockError {
   afterDeltas?: number;
 }
 
-export interface MockTurnScript {
+interface MockTurnScript {
   deltas: string[];
   finish: FinishReason;
   /** Delay before each delta, to simulate streaming and enable abort tests. */

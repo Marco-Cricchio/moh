@@ -28,7 +28,6 @@ packages/core/src/mentions.ts ExpandMentionsResult entry exported by the package
 packages/core/src/mentions.ts ExpandedMention entry exported by the package entry @moh/core
 packages/core/src/mentions.ts MentionCanRead entry exported by the package entry @moh/core
 packages/core/src/mentions.ts ParsedMention entry exported by the package entry @moh/core
-packages/core/src/mock-provider.ts MockTurnScript barrel re-exported, and imported by nobody, in packages/evals/src/case-types.ts
 packages/core/src/mpm/config.ts MpmProjectConfig entry exported by the package entry @moh/core
 packages/core/src/mpm/config.ts MpmUserConfig entry exported by the package entry @moh/core
 packages/core/src/mpm/diagnostics.ts MpmLanguageCoverage entry exported by the package entry @moh/core

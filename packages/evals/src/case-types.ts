@@ -7,9 +7,6 @@
  * runs the real headless path, then scores the streamed event log.
  */
 
-/** One scripted model turn (MockProvider.cassette format). */
-export type { MockTurnScript } from "../../core/src/mock-provider";
-
 export interface ToolCallExpectation {
   name: string;
   /** Substrings that must all appear in the JSON-serialized call args. */
