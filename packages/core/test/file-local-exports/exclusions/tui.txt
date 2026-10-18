@@ -1,0 +1,3 @@
+packages/tui/src/CommandsPanel.tsx COMMANDS docs named as a whole word in docs/manual/commands-and-keys.md and 1 more
+packages/tui/src/scanner.ts ScannerRole dead zero references, deleting the declaration is out of S2.4 scope
+packages/tui/src/ui.tsx Accent dead zero references, deleting the declaration is out of S2.4 scope
