@@ -3,6 +3,7 @@ packages/core/src/auth/types.ts EndpointAuth dead zero references, deleting the 
 packages/core/src/browser-toolchain.ts BROWSER_WITH_DEPS_NOTE entry exported by the package entry @moh/core
 packages/core/src/browser-toolchain.ts BrowserBuildStatus entry exported by the package entry @moh/core
 packages/core/src/browser-toolchain.ts BrowserToolchainProgress entry exported by the package entry @moh/core
+packages/core/src/browser.ts parseSnapshotDescriptions dynamic reached dynamically from packages/core/test/browser-tool.test.ts (require("../src/browser")), which neither G4 nor tsc sees
 packages/core/src/child-tail.ts ChildActivity entry exported by the package entry @moh/core
 packages/core/src/child-tail.ts ChildTailResult entry exported by the package entry @moh/core
 packages/core/src/compaction.ts CompactionFacts entry exported by the package entry @moh/core
@@ -36,6 +37,7 @@ packages/core/src/mpm/service.ts MpmQueryResult entry exported by the package en
 packages/core/src/performance/telemetry.ts AcceptedTaskFixtureRow entry exported by the package entry @moh/core
 packages/core/src/performance/telemetry.ts ConcurrencyReport entry exported by the package entry @moh/core
 packages/core/src/performance/telemetry.ts TaskRow entry exported by the package entry @moh/core
+packages/core/src/permissions.ts urlGlobMatches dynamic reached dynamically from packages/core/test/permissions.test.ts (require("../src/permissions")), which neither G4 nor tsc sees
 packages/core/src/pricing.ts ModelCostEstimate entry exported by the package entry @moh/core
 packages/core/src/prompt-composer.ts BeforeModelCallContext dead zero references, deleting the declaration is out of S2.4 scope
 packages/core/src/provider-onboarding.ts BuiltinProviderType dead zero references, deleting the declaration is out of S2.4 scope
@@ -46,6 +48,7 @@ packages/core/src/quota/telemetry.ts QuotaEpisode entry exported by the package 
 packages/core/src/quota/telemetry.ts QuotaPressureRow entry exported by the package entry @moh/core
 packages/core/src/quota/types.ts QuotaSource entry exported by the package entry @moh/core
 packages/core/src/quota/types.ts QuotaWindow entry exported by the package entry @moh/core
+packages/core/src/redact.ts noteSecretRedactionMisses dynamic reached dynamically from packages/core/test/session-log-redaction.test.ts (require("../src/redact")), which neither G4 nor tsc sees
 packages/core/src/retro-judgment.ts RetroJudgmentInput entry exported by the package entry @moh/core
 packages/core/src/session-analyze.ts SessionModelRow entry exported by the package entry @moh/core
 packages/core/src/session-analyze.ts SessionPermissionStats entry exported by the package entry @moh/core

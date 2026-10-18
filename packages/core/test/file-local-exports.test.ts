@@ -100,6 +100,26 @@ describe("file-local export scanner", () => {
       "  private q() { return make(); }",
       "}",
     ].join("\n"),
+    // Dynamic access that G4 and the checker cannot follow: a destructured
+    // `require`, a `require` behind a cast, an `import()` read behind a cast.
+    // A plain `(await import(…)).x` is resolved by the checker, so G4 already
+    // counts it as a use; `notRequired` shares the module but is never read.
+    "packages/p/src/dyn.ts": [
+      "export function viaRequire() {}",
+      "export function viaCast() {}",
+      "export function viaImportCast() {}",
+      "export function viaImport() {}",
+      "export function notRequired() {}",
+      "viaRequire; viaCast; viaImportCast; viaImport; notRequired;",
+    ].join("\n"),
+    "packages/p/test/dyn.test.ts": [
+      'const { viaRequire } = require("../src/dyn");',
+      'const { viaCast } = require("../src/dyn") as { viaCast(): void };',
+      'const castRead = ((await import("../src/dyn")) as { viaImportCast(): void }).viaImportCast;',
+      'const plainRead = (await import("../src/dyn")).viaImport;',
+      'const { other } = require("../src/dyn") as { other?: () => void };',
+      "viaRequire(); viaCast(); castRead(); plainRead(); other?.();",
+    ].join("\n"),
     "packages/p/test/k.test.ts": 'import { K } from "../src/b";\nimport { make, makeExpanded } from "../src/a";\nnew K();\nmake();\nmakeExpanded();\n',
     "docs/extending/guide.md": "Use `Documented` from the library.\n",
     "docs/internal/notes.md": "dead keepsLocal Named\n",
@@ -127,7 +147,18 @@ describe("file-local export scanner", () => {
         "packages/p/src/a.ts dead": "dead",
         "packages/p/src/a.ts keepsLocal": "local",
         "packages/p/src/a.ts reexported": "barrel",
+        "packages/p/src/dyn.ts notRequired": "local",
+        "packages/p/src/dyn.ts viaCast": "dynamic",
+        "packages/p/src/dyn.ts viaImportCast": "dynamic",
+        "packages/p/src/dyn.ts viaRequire": "dynamic",
       });
+      expect(facts.get("packages/p/src/dyn.ts viaRequire")?.dynamic).toEqual(['packages/p/test/dyn.test.ts (require("../src/dyn"))']);
+      expect(facts.get("packages/p/src/dyn.ts viaCast")?.dynamic).toEqual(['packages/p/test/dyn.test.ts (require("../src/dyn"))']);
+      expect(facts.get("packages/p/src/dyn.ts viaImportCast")?.dynamic).toEqual(['packages/p/test/dyn.test.ts (import("../src/dyn"))']);
+      expect(facts.get("packages/p/src/dyn.ts notRequired")?.dynamic).toEqual([]);
+      // The checker follows `(await import(…)).viaImport`: G4 counts it, so it is no candidate.
+      expect(exports.get("packages/p/src/dyn.ts viaImport")?.usedBy).toEqual(["packages/p/test/dyn.test.ts"]);
+      expect(facts.has("packages/p/src/dyn.ts viaImport")).toBe(false);
       expect(facts.get("packages/p/src/a.ts atEntry")?.entries).toEqual(["@moh/p"]);
       expect(facts.get("packages/p/src/a.ts reexported")?.reexportedBy).toEqual(["packages/p/src/barrel.ts"]);
       // The private and #private members are not public; only K.m names Named.
@@ -147,7 +178,7 @@ describe("file-local export scanner", () => {
 });
 
 describe("inventory rules", () => {
-  const fact = (over: Partial<Facts> = {}): Facts => ({ kind: "Function", ownRefs: 1, entries: [], reexportedBy: [], signature: [], docs: [], ...over });
+  const fact = (over: Partial<Facts> = {}): Facts => ({ kind: "Function", ownRefs: 1, entries: [], reexportedBy: [], signature: [], dynamic: [], docs: [], ...over });
   const info = (file: string, name: string, usedBy: string[] = []): [string, ExportInfo] => [`${file} ${name}`, { file, name, line: 1, usedBy }];
   const A = "packages/p/src/a.ts";
   const exports = new Map([info(A, "local"), info(A, "entry"), info(A, "barrel"), info(A, "gone")]);
@@ -195,6 +226,25 @@ describe("inventory rules", () => {
     expect(run(rows("local", "entry", "barrel"), good.inventory, vague).join("\n")).toContain("the reason for packages/p/src/a.ts barrel must name packages/p/src/barrel.ts");
   });
 
+  test("an inventory row reached dynamically fails; a dynamic exclusion fails when the access it names is gone", () => {
+    const reached = new Map(facts).set(`${A} local`, fact({ dynamic: ['packages/p/test/t.test.ts (require("../src/a"))'] }));
+    expect(run(rows("local", "entry", "barrel"), good.inventory, good.exclusions, exports, reached).join("\n")).toContain(
+      'must keep its export (dynamic: reached dynamically from packages/p/test/t.test.ts (require("../src/a")))',
+    );
+    const excluded = `${A} barrel barrel re-exported in packages/p/src/barrel.ts\n${A} entry entry exported by @moh/p\n${A} local dynamic reached dynamically from packages/p/test/t.test.ts (require("../src/a"))\n`;
+    expect(run(rows("local", "entry", "barrel"), "", excluded, exports, reached)).toEqual([]);
+    expect(run(rows("local", "entry", "barrel"), "", excluded).join("\n")).toContain('excluded as "dynamic" but the reason no longer holds (it is now file-local');
+    const moved = new Map(facts).set(`${A} local`, fact({ dynamic: ['packages/p/test/u.test.ts (import("../src/a"))'] }));
+    expect(run(rows("local", "entry", "barrel"), "", excluded, exports, moved).join("\n")).toContain('must name packages/p/test/u.test.ts (import("../src/a"))');
+  });
+
+  test("an inventory row without facts fails instead of passing unchecked", () => {
+    const missing = new Map([...facts].filter(([key]) => key !== `${A} local`));
+    expect(run(rows("local", "entry", "barrel"), good.inventory, good.exclusions, exports, missing).join("\n")).toContain(
+      "inventory/p.txt:1: no facts for packages/p/src/a.ts local (scanner scope mismatch)",
+    );
+  });
+
   test("a wrong kind, a vanished export and a row used elsewhere fail", () => {
     expect(run(rows("local", "entry", "barrel"), `${A} local Interface\n`, good.exclusions).join("\n")).toContain("is a Function, not a Interface");
     expect(run(rows("local", "gone", "entry", "barrel"), `${A} gone Function\n${good.inventory}`, good.exclusions).join("\n")).toContain("gone is no longer exported");
@@ -208,6 +258,7 @@ describe("inventory rules", () => {
       ["entry", { entries: ["@moh/p"] }],
       ["barrel", { reexportedBy: ["packages/p/src/b.ts"] }],
       ["signature", { signature: ["K.m"] }],
+      ["dynamic", { dynamic: ['packages/p/test/t.test.ts (require("../src/a"))'] }],
       ["docs", { docs: ["docs/extending/x.md"] }],
       ["dead", { ownRefs: 0 }],
     ] as const) {
@@ -226,7 +277,7 @@ describe("inventory rules", () => {
     ]);
     expect(parseExclusions("a.ts x docs because\na.ts x entry again\na.ts z other why\n", "exc").errors).toEqual([
       "exc:2 duplicates line 1: a.ts x",
-      "exc:3 has unknown category other (one of entry, barrel, signature, dead, docs)",
+      "exc:3 has unknown category other (one of entry, barrel, signature, dynamic, dead, docs)",
     ]);
   });
 });

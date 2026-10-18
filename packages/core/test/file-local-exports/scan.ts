@@ -29,7 +29,7 @@ const IN_SCOPE = /^packages\/(?!extension\/)[^/]+\/src\/.+\.(ts|tsx|mts|cts)$/;
 const DOCS = /^(docs\/extending\/|docs\/manual\/|docs\/serve-protocol\.md$|CONTEXT\.md$|packages\/core\/src\/manual\/)/;
 const WORD = /[A-Za-z0-9_$]+/g;
 
-export const CATEGORIES = ["entry", "barrel", "signature", "dead", "docs"] as const;
+export const CATEGORIES = ["entry", "barrel", "signature", "dynamic", "dead", "docs"] as const;
 export type ExclusionCategory = (typeof CATEGORIES)[number];
 export type Category = ExclusionCategory | "local";
 
@@ -44,6 +44,12 @@ export type Facts = {
   readonly reexportedBy: readonly string[];
   /** Public members/functions elsewhere whose inferred type names the declaration. */
   readonly signature: readonly string[];
+  /**
+   * Other files that reach the declaration through `require("<relative>")` or
+   * `import("<relative>")` (destructured or a property read), which neither
+   * G4 nor `tsc` sees behind a cast: `<file> (require("<specifier>"))`.
+   */
+  readonly dynamic: readonly string[];
   /** Documentation files that name it as a whole word. */
   readonly docs: readonly string[];
 };
@@ -260,6 +266,70 @@ export function scanFacts(repoRoot: string, exports: ReadonlyMap<string, ExportI
     }
   }
 
+  // `require("./m")` / `import("./m")` of a candidate's module, destructured
+  // (`const { x } = require(…)`, also through `as {…}`) or read as a property
+  // (`require(…).x`, `(await import(…)).x`). The module is resolved by the
+  // compiler with the program's own options, as G4's imports are.
+  const dynamic = new Map<ts.Symbol, string[]>();
+  const options = program.getCompilerOptions();
+  const wrapped = (node: ts.Node): ts.Node => {
+    let outer = node;
+    while (
+      ts.isParenthesizedExpression(outer.parent) ||
+      ts.isAsExpression(outer.parent) ||
+      ts.isSatisfiesExpression(outer.parent) ||
+      ts.isTypeAssertionExpression(outer.parent) ||
+      ts.isNonNullExpression(outer.parent) ||
+      ts.isAwaitExpression(outer.parent)
+    ) {
+      outer = outer.parent;
+    }
+    return outer;
+  };
+  const readNames = (call: ts.Node): string[] => {
+    const outer = wrapped(call);
+    const parent = outer.parent;
+    if (ts.isVariableDeclaration(parent) && parent.initializer === outer && ts.isObjectBindingPattern(parent.name)) {
+      return parent.name.elements.flatMap((element) => {
+        const name = element.propertyName ?? element.name;
+        return ts.isIdentifier(name) || ts.isStringLiteral(name) ? [name.text] : [];
+      });
+    }
+    if (ts.isPropertyAccessExpression(parent) && parent.expression === outer) return [parent.name.text];
+    if (ts.isElementAccessExpression(parent) && parent.expression === outer && ts.isStringLiteralLike(parent.argumentExpression)) {
+      return [parent.argumentExpression.text];
+    }
+    return [];
+  };
+  for (const source of ours) {
+    if (source.isDeclarationFile) continue;
+    const file = rel(source.fileName);
+    const visit = (node: ts.Node): void => {
+      if (ts.isCallExpression(node) && node.arguments.length >= 1 && ts.isStringLiteralLike(node.arguments[0]!)) {
+        const callee = node.expression.kind === ts.SyntaxKind.ImportKeyword ? "import" : ts.isIdentifier(node.expression) && node.expression.text === "require" ? "require" : undefined;
+        const specifier = node.arguments[0].text;
+        if (callee !== undefined && specifier.startsWith(".")) {
+          const resolved = ts.resolveModuleName(specifier, source.fileName, options, ts.sys).resolvedModule?.resolvedFileName;
+          const target = resolved === undefined ? undefined : program.getSourceFile(resolved);
+          const moduleSymbol = target === undefined ? undefined : checker.getSymbolAtLocation(target);
+          if (moduleSymbol !== undefined) {
+            const names = new Set(readNames(node));
+            for (const exported of checker.getExportsOfModule(moduleSymbol)) {
+              if (!names.has(exported.getName())) continue;
+              const symbol = resolve(exported);
+              const info = candidates.get(symbol);
+              if (info === undefined || info.file === file) continue;
+              const witness = `${file} (${callee}("${specifier}"))`;
+              dynamic.set(symbol, [...new Set([...(dynamic.get(symbol) ?? []), witness])].sort());
+            }
+          }
+        }
+      }
+      ts.forEachChild(node, visit);
+    };
+    visit(source);
+  }
+
   const docs = docFiles(root);
   const out = new Map<string, Facts>();
   for (const [symbol, info] of candidates) {
@@ -270,6 +340,7 @@ export function scanFacts(repoRoot: string, exports: ReadonlyMap<string, ExportI
         entries: entries.get(symbol) ?? [],
         reexportedBy: reexported.get(symbol) ?? [],
         signature: signature.get(symbol) ?? [],
+        dynamic: dynamic.get(symbol) ?? [],
         docs: docs.filter((doc) => doc.words.has(name)).map((doc) => doc.file),
       });
     }
@@ -282,6 +353,7 @@ export function categoryOf(facts: Facts): Category {
   if (facts.entries.length > 0) return "entry";
   if (facts.reexportedBy.length > 0) return "barrel";
   if (facts.signature.length > 0) return "signature";
+  if (facts.dynamic.length > 0) return "dynamic";
   if (facts.ownRefs === 0) return "dead";
   if (facts.docs.length > 0) return "docs";
   return "local";
@@ -298,6 +370,8 @@ export function witnesses(category: ExclusionCategory, facts: Facts): string[] {
       return [...facts.reexportedBy];
     case "signature":
       return [...facts.signature];
+    case "dynamic":
+      return [...facts.dynamic];
     case "docs":
       return facts.docs.slice(0, 1);
     case "dead":
@@ -314,6 +388,8 @@ export function reasonText(category: ExclusionCategory, facts: Facts): string {
       return `re-exported, and imported by nobody, in ${facts.reexportedBy.join(", ")}`;
     case "signature":
       return `named by the inferred type of ${facts.signature.join(", ")}`;
+    case "dynamic":
+      return `reached dynamically from ${facts.dynamic.join(", ")}`;
     case "docs":
       return `named as a whole word in ${facts.docs[0]}${facts.docs.length > 1 ? ` and ${facts.docs.length - 1} more` : ""}`;
     case "dead":
@@ -429,7 +505,11 @@ export function inventoryErrors(
       );
       continue;
     }
-    if (fact === undefined) continue; // unreachable: every unused export has facts
+    if (fact === undefined) {
+      // Every unused export G4 reports has facts; a gap means the two scans disagree on scope.
+      errors.push(`${at}: no facts for ${key} (scanner scope mismatch)`);
+      continue;
+    }
     const category = categoryOf(fact);
     if (category !== "local") {
       errors.push(`${at}: ${key} must keep its export (${category}: ${reasonText(category, fact)}); move the row to ${exclusionsPath} as "${key} ${category} <reason>"`);

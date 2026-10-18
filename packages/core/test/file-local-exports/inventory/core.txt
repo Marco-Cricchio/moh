@@ -63,7 +63,6 @@ packages/core/src/browser.ts EVAL_OUTPUT_BUDGET_BYTES Variable
 packages/core/src/browser.ts PlaywrightModule Interface
 packages/core/src/browser.ts ScreenshotResult Interface
 packages/core/src/browser.ts UploadOptions Interface
-packages/core/src/browser.ts parseSnapshotDescriptions Function
 packages/core/src/browser.ts serializeEvalValue Function
 packages/core/src/browser.ts wrapEvalExpression Function
 packages/core/src/builtin-tools.ts FetchLookup TypeAlias
@@ -232,7 +231,6 @@ packages/core/src/permissions.ts PermissionTier TypeAlias
 packages/core/src/permissions.ts RuleEffect TypeAlias
 packages/core/src/permissions.ts hasUncoveredShellMetachars Function
 packages/core/src/permissions.ts isValidUrlGlob Function
-packages/core/src/permissions.ts urlGlobMatches Function
 packages/core/src/project-identity.ts STRANDED_DATA_FILE Variable
 packages/core/src/prompt-composer.ts DEFAULT_INSTRUCTIONS_BUDGET Variable
 packages/core/src/prompt-composer.ts PromptComposerConfig Interface
@@ -272,7 +270,6 @@ packages/core/src/redact.ts RedactionResult Interface
 packages/core/src/redact.ts SECRET_REDACTION_MAX_ENTRIES Variable
 packages/core/src/redact.ts SECRET_REDACTION_MISSES_FILE Variable
 packages/core/src/redact.ts SecretRedactionMissEntry Interface
-packages/core/src/redact.ts noteSecretRedactionMisses Function
 packages/core/src/retro-apply.ts RetroApplication Interface
 packages/core/src/retro-apply.ts RetroApplicationKind TypeAlias
 packages/core/src/retro-apply.ts RetroApplyResult TypeAlias
