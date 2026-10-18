@@ -10,7 +10,7 @@ export const MANUAL_USAGE = `usage: moh manual [page]
 Prints a manual page, or the index with no argument. Page ids match the
 TUI manual (ctrl+h / /help) and docs/manual/.`;
 
-export interface ManualCommandOptions {
+interface ManualCommandOptions {
   argv: string[];
   stdout?: NodeJS.WritableStream;
   stderr?: NodeJS.WritableStream;

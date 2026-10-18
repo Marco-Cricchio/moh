@@ -50,7 +50,7 @@ options:
   --help           show this help
 `;
 
-export interface BrowserCommandOptions {
+interface BrowserCommandOptions {
   argv: string[];
   stdout?: NodeJS.WritableStream;
   stderr?: NodeJS.WritableStream;
