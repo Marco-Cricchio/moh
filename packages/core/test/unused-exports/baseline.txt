@@ -76,8 +76,6 @@ packages/core/src/telemetry.ts TelemetryToolRow
 packages/core/src/thinking-preferences.ts readThinkingPreferences
 packages/core/src/types.ts EventIdentity
 packages/core/src/types.ts MessagePart
-packages/evals/src/runner.ts runCase
-packages/evals/src/runner.ts runMultiStepCase
 packages/jev-guard/src/classification-judge.ts ClassificationJudge
 packages/jev-guard/src/classification-judge.ts ClassificationVerdict
 packages/jev-guard/src/client.ts JEV_RETRY_AFTER_MAX_MS
