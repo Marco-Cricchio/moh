@@ -109,6 +109,7 @@ export {
   // `session.bookmarkNode(to, name?)`.
   // #579: bookmark writer seam (see the import comment above).
   bookmarkNode,
+  // #576: session-tree surface — head resolution + reference helpers.
   resolveEventRef,
   parseLineRef,
   // #577: the active-path projection (root→head linearization) — the
