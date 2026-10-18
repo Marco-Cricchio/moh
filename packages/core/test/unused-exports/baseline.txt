@@ -145,9 +145,6 @@ packages/team/src/index.ts memberSpecSchema
 packages/team/src/index.ts normalizeComposition
 packages/team/src/panel.ts PanelMember
 packages/team/src/panel.ts PanelMemberStatus
-packages/team/src/panel.ts TeamPanelActions
-packages/team/src/task-bag.ts BagEvent
-packages/team/src/task-bag.ts BagTaskStatus
 packages/tui/src/CommandsPanel.tsx COMMANDS
 packages/tui/src/scanner.ts ScannerRole
 packages/tui/src/ui.tsx Accent

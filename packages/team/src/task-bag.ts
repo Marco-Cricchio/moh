@@ -8,7 +8,7 @@
  */
 
 /** The three transitions the log records; a non-done completion releases the claim. */
-export type BagTaskStatus = "open" | "claimed" | "done";
+type BagTaskStatus = "open" | "claimed" | "done";
 
 export interface BagTask {
   readonly id: string;
@@ -25,7 +25,7 @@ export const TASK_CLAIMED = "team_task_claimed";
 export const TASK_COMPLETED = "team_task_completed";
 
 /** A board-shaped event: an `extension_event` entry from the session log. */
-export interface BagEvent {
+interface BagEvent {
   readonly type: string;
   readonly name?: string;
   readonly payload?: {

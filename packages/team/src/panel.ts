@@ -151,7 +151,7 @@ function detailView(member: PanelMember, draft: string): string {
  * updated synchronously (draft cleared, member marked working) and the
  * settle lands through the same mark/settle paths the tool uses.
  */
-export interface TeamPanelActions {
+interface TeamPanelActions {
   steer(member: string, message: string): void;
   stopAll(): void;
 }
