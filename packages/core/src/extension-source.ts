@@ -24,7 +24,7 @@ import { canonicalModulePath } from "./extensions";
 import { MANIFEST_FILE, readExtensionManifest } from "./extension-manifest";
 
 /** The user-level extension directory, inside the moh home. */
-export const EXTENSIONS_DIR = "extensions";
+const EXTENSIONS_DIR = "extensions";
 
 /** Module types the loader picks up (`bun` imports all four natively). */
 const LOADABLE = [".ts", ".mts", ".js", ".mjs"] as const;

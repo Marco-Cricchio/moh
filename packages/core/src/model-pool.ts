@@ -29,14 +29,14 @@ import { endpointModelCatalog, pricingForModel, type ModelPricing } from "./mode
 import { listOpenAiCompatModels } from "./endpoint-models";
 
 /** One model a session may route to. */
-export interface AvailableModel {
+interface AvailableModel {
   /** `endpoint/model-id` — the ref `switchModel` resolves. */
   readonly ref: string;
   /** Blended USD price per Mtok (input + output); absent = unknown. */
   readonly price?: number;
 }
 
-export interface ModelPoolOptions {
+interface ModelPoolOptions {
   /** Live-listing seam (tests). Default: `GET <baseUrl>/models`. */
   listModels?: (baseUrl: string, apiKey?: string) => Promise<string[]>;
 }

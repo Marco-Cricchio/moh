@@ -51,7 +51,7 @@ import { basename, dirname, join, resolve } from "node:path";
 import { createLockFile, ownerIsGone, parseLockOwner, readLockFile, releaseLockFile } from "./memory-lock";
 
 /** The npm package the browser tool drives Chromium through. */
-export const PLAYWRIGHT_PACKAGE = "playwright-core";
+const PLAYWRIGHT_PACKAGE = "playwright-core";
 
 /**
  * The one actionable instruction every surface shows when the toolchain
@@ -73,7 +73,7 @@ const VERSIONS_DIRNAME = ".browser-toolchain-versions";
 const LOCK_FILENAME = ".browser-toolchain.lock";
 
 /** The playwright-core surface resolution needs. */
-export interface PlaywrightModuleLike {
+interface PlaywrightModuleLike {
   chromium: {
     launchPersistentContext(userDataDir: string, options: Record<string, unknown>): Promise<unknown>;
     executablePath(): string;
@@ -81,7 +81,7 @@ export interface PlaywrightModuleLike {
 }
 
 /** Where a resolved playwright-core came from. */
-export type PlaywrightSource = "project" | "moh";
+type PlaywrightSource = "project" | "moh";
 
 export interface ResolvedPlaywright {
   module: PlaywrightModuleLike;
@@ -155,7 +155,7 @@ export interface BrowserToolchainCommand {
   phase: "package" | "browsers" | "deps";
 }
 
-export interface BrowserToolchainCommandResult {
+interface BrowserToolchainCommandResult {
   code: number;
   /** The last lines of the subprocess output, for error reporting. */
   stderr: string;
@@ -276,7 +276,7 @@ function findProjectPackage(cwd: string): string | null {
 }
 
 /** The status plus the module it came from — one resolution per call. */
-export interface BrowserToolchainProbeResult {
+interface BrowserToolchainProbeResult {
   status: BrowserToolchainStatus;
   resolved: ResolvedPlaywright | null;
 }

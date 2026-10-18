@@ -33,7 +33,7 @@ export const PROVIDER_PROFILES = [
   { id: "baseten", displayName: "Baseten", baseUrl: "https://inference.baseten.co/v1", apiKeyEnv: "BASETEN_API_KEY", defaultModel: "deepseek-ai/DeepSeek-R1" },
 ] as const satisfies readonly ProviderProfile[];
 
-export type ProviderProfileId = (typeof PROVIDER_PROFILES)[number]["id"];
+type ProviderProfileId = (typeof PROVIDER_PROFILES)[number]["id"];
 
 /** Finds a first-party profile by its stable endpoint type. */
 export function providerProfile(id: string): ProviderProfile | undefined {

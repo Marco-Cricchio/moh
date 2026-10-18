@@ -7,7 +7,7 @@
  * behavior (no env var) is byte-for-byte unchanged.
  */
 
-export type HandoffDebugStage =
+type HandoffDebugStage =
   | "transport-off"
   | "transport-active"
   | "fetch-start"
@@ -35,7 +35,7 @@ export function resetDebugCache(): void {
 
 /** One stderr line: `moh[handoff] <stage> <detail-json>`. Never throws.
  * Writer injectable for tests. */
-export let debugWrite: (line: string) => void = (line) => {
+let debugWrite: (line: string) => void = (line) => {
   process.stderr.write(line);
 };
 export function setDebugWriter(write: (line: string) => void): void {

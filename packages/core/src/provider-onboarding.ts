@@ -63,7 +63,7 @@ type MultiProfile = EndpointProfile & { [MULTI_PROFILES]?: EndpointProfile[] };
  *   (`api.together.xyz` is the legacy alias; the current documented host
  *   is `api.together.ai` — owner decision on #295)
  */
-export interface KnownCompatEndpoint {
+interface KnownCompatEndpoint {
   /** Display name in the pick-list. */
   name: string;
   /** Local runtime (shown with a "(local)" suffix in the list). */
@@ -392,7 +392,7 @@ export const PROBE_MAX_OUTPUT_TOKENS = 256;
 
 /** Joins a configured base URL with the probe path: a trailing slash on
  * the base must not double the separator in the request path (#1092). */
-export function joinBaseUrl(base: string, path: string): string {
+function joinBaseUrl(base: string, path: string): string {
   return `${base.replace(/\/+$/, "")}${path}`;
 }
 
@@ -613,7 +613,7 @@ async function verdict(res: Response, modelId: string): Promise<ConnectionTestRe
 
 /** Body excerpt kept on the failure detail: control chars cleaned,
  * whitespace collapsed, bounded — readable, never a wall of JSON. */
-export const PROVIDER_TEST_BODY_CHARS = 1000;
+const PROVIDER_TEST_BODY_CHARS = 1000;
 
 function sanitizeFailureBody(body: string): string {
   if (!body) return "";

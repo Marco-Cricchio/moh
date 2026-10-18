@@ -25,7 +25,7 @@ export interface UpdateFetchResponse {
   arrayBuffer(): Promise<ArrayBuffer>;
   text(): Promise<string>;
 }
-export type UpdateFetch = (url: string) => Promise<UpdateFetchResponse>;
+type UpdateFetch = (url: string) => Promise<UpdateFetchResponse>;
 
 /** Injectable environment for tests. */
 export interface SelfUpdateIo {
@@ -41,7 +41,7 @@ export interface SelfUpdateIo {
   writeUpdateCache?: (mohHome: string, latestVersion: string) => void;
 }
 
-export type SelfUpdateStatus =
+type SelfUpdateStatus =
   | "dev-run" // running from a repo checkout, not a compiled binary
   | "unsupported-platform"
   | "up-to-date"
@@ -81,7 +81,7 @@ export function releasesUrl(): string {
 }
 
 /** True for prerelease-suffixed versions ("0.2.0-rc.1", "0.3.0-dev"). */
-export function isPrerelease(version: string): boolean {
+function isPrerelease(version: string): boolean {
   return /-\S+/.test(version.replace(/^v/, ""));
 }
 

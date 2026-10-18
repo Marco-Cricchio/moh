@@ -48,7 +48,7 @@ function activePathAnchored(event: AgentEvent, log: ReadonlyArray<AgentEvent>): 
 }
 
 /** The dispatch surface EventLog needs from the extension runtime. */
-export interface EventDispatcher {
+interface EventDispatcher {
   dispatchEvent(event: AgentEvent): Promise<AgentEvent[]>;
 }
 
@@ -305,7 +305,7 @@ export function branchProjection(events: ReadonlyArray<AgentEvent>): AgentEvent[
   return out;
 }
 
-export interface EventLogOptions {
+interface EventLogOptions {
   /** Persistence sink: every appended (never seeded) event, in order. */
   sink?: (event: AgentEvent) => void;
   /** Extensions whose onEvent hooks receive appended events. */

@@ -41,7 +41,7 @@ export interface TrackerBackend {
 }
 
 /** Injectable process runner (tests); default: `Bun.spawn`. */
-export interface WayfinderSnapshot {
+interface WayfinderSnapshot {
   /** The map that owns all tickets in this snapshot. */
   mapId: string;
   issues: TrackerIssue[];
@@ -154,7 +154,7 @@ function gitlabIssueToTracker(raw: any): TrackerIssue {
 }
 
 /** GitLab backend over the `glab` CLI. */
-export function gitlabTracker(repo: string, run: ShellRunner = defaultRunner): TrackerBackend {
+function gitlabTracker(repo: string, run: ShellRunner = defaultRunner): TrackerBackend {
   return {
     kind: "gitlab",
     async list() {
@@ -281,7 +281,7 @@ export function localMarkdownTracker(dir: string, user = "@me"): TrackerBackend 
 }
 
 
-export interface ResolveTrackerOptions {
+interface ResolveTrackerOptions {
   /** Working dir. Default process.cwd(). */
   cwd?: string;
   run?: ShellRunner;
@@ -416,7 +416,7 @@ export function trackerTools(backend: TrackerBackend): Record<string, Tool> {
  * (claimed), ready (unblocked), and blocked. Backends without dependency
  * data produce `deps: false`, and callers degrade to a flat list.
  */
-export interface Frontier {
+interface Frontier {
   /** Whether any issue carries dependency data. */
   deps: boolean;
   inProgress: TrackerIssue[];

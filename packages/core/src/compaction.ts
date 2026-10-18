@@ -32,18 +32,18 @@ import { lastAssistantText } from "./session-store";
 /** Turns kept verbatim after `upTo`; the summary covers only the past.
  * #949 (ADR-0022 §2 amendment): a *preference*, never a floor — the
  * window wins when the two conflict. */
-export const DEFAULT_TAIL_TURNS = 10;
+const DEFAULT_TAIL_TURNS = 10;
 /** Fraction of the model context window that arms auto compaction. */
-export const DEFAULT_COMPACTION_THRESHOLD = 0.8;
+const DEFAULT_COMPACTION_THRESHOLD = 0.8;
 /** Absolute inputTokens fallback when the window is unknown (0). */
 export const FALLBACK_CONTEXT_WINDOW = 180_000;
 /** The verbatim tail may never exceed this fraction of the context window
  * (ADR-0022: "at least 10 turns and at most ~25% of the window"). */
-export const DEFAULT_TAIL_WINDOW_FRACTION = 0.25;
+const DEFAULT_TAIL_WINDOW_FRACTION = 0.25;
 /** Backoff between auto-retry runs while above threshold (#466): doubling,
  * capped; unlimited retries — a success or a below-threshold stop ends it. */
-export const RETRY_BACKOFF_BASE_MS = 2_000;
-export const RETRY_BACKOFF_MAX_MS = 60_000;
+const RETRY_BACKOFF_BASE_MS = 2_000;
+const RETRY_BACKOFF_MAX_MS = 60_000;
 /** Hard character cap on the transcript handed to the summarizer. */
 const TRANSCRIPT_CAP_CHARS = 60_000;
 
@@ -54,7 +54,7 @@ const TRANSCRIPT_CAP_CHARS = 60_000;
 export const COMPACTION_SECTION_FLOOR = 0.6;
 
 /** ADR-0035: the preview cap (chars) the hook's section list carries. */
-export const COMPACTION_SECTION_PREVIEW_CHARS = 200;
+const COMPACTION_SECTION_PREVIEW_CHARS = 200;
 
 /** ADR-0035: one droppable section — one user turn's body (the assistant
  * work and tool traffic after the message). The user message itself is
@@ -233,7 +233,7 @@ export function compactionTranscript(
 }
 
 /** The compaction child session's role prompt (also the disjunction rule). */
-export const COMPACTION_PROMPT = [
+const COMPACTION_PROMPT = [
   "You are moh's compaction subagent. You summarize the covered part of a coding session so the conversation can continue with less context.",
   "",
   "Rules:",
@@ -442,7 +442,7 @@ export interface CompactionOptions {
   } | void>;
 }
 
-export interface CompactionRunnerOptions {
+interface CompactionRunnerOptions {
   sessionId: string;
   /** The live host provider (getter — model switches are picked up). */
   provider: () => Provider;

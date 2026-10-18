@@ -152,7 +152,7 @@ export interface BundledWiring {
 }
 
 /** What the core resolved from the registered sources. */
-export interface BundledResolution {
+interface BundledResolution {
   /** True when at least one descriptor said it was active — the runtime
    * exists to host it and must be created even with no file source. */
   anyActive: boolean;

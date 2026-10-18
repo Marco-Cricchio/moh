@@ -41,7 +41,7 @@ export const ANTHROPIC_OAUTH_DEFAULTS = {
 } as const;
 
 /** Scope of the long-lived inference-only token variant. */
-export const ANTHROPIC_INFERENCE_SCOPE = "user:inference";
+const ANTHROPIC_INFERENCE_SCOPE = "user:inference";
 
 /** Full Claude.ai subscriber scope set (used at login fallback + refresh). */
 export const ANTHROPIC_SUBSCRIPTION_SCOPES = [
@@ -60,7 +60,7 @@ export const ANTHROPIC_OAUTH_BETA = {
   "anthropic-beta": "claude-code-20250219,oauth-2025-04-20",
 } as const;
 
-export interface AnthropicOAuthConfig {
+interface AnthropicOAuthConfig {
   authorizeUrl: string;
   tokenUrl: string;
   clientId: string;
@@ -105,7 +105,7 @@ export type TokenEndpointFetch = (
   body: Record<string, unknown>,
 ) => Promise<{ status: number; json: Record<string, unknown> }>;
 
-export const defaultTokenEndpointFetch: TokenEndpointFetch = async (tokenUrl, body) => {
+const defaultTokenEndpointFetch: TokenEndpointFetch = async (tokenUrl, body) => {
   const res = await fetch(tokenUrl, {
     method: "POST",
     headers: { "content-type": "application/json" },

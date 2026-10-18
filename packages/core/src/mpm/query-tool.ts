@@ -34,7 +34,7 @@ interface ResultEntry {
   reason: string;
 }
 
-export interface MpmQueryToolOptions {
+interface MpmQueryToolOptions {
   service: MpmService;
   root: string;
   /** #663 diagnostics: the orientation records that a model query succeeded. */
@@ -180,7 +180,7 @@ function foldIdentity(s: string): string {
  * resolver would accept on re-query are suggested (full paths, base
  * names, exact symbol names). Empty means no usable hint.
  */
-export function suggestSeeds(seed: string, service: MpmService, limit = 3): string[] {
+function suggestSeeds(seed: string, service: MpmService, limit = 3): string[] {
   const stripped = normalizeSeed(seed);
   if (stripped.length < 4) return [];
   // Graded candidates first: they are valid re-seeds by construction.

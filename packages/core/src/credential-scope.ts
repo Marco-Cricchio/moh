@@ -35,7 +35,7 @@ export function credentialScopeRef(capability: string): string {
   return capability.slice(CREDENTIAL_SCOPE_PREFIX.length);
 }
 
-export type CredentialScopeValidity = { ok: true; ref: string } | { ok: false; reason: "malformed"; message: string };
+type CredentialScopeValidity = { ok: true; ref: string } | { ok: false; reason: "malformed"; message: string };
 
 /**
  * Load-time validation of one `credential:<ref>` capability. A ref is a
@@ -83,7 +83,7 @@ export interface CredentialStore {
 
 /** The fallback file's name under the moh home — its own namespace,
  * separate from the endpoint auth store's user-config file. */
-export const SECRETS_FILE = "secrets.json";
+const SECRETS_FILE = "secrets.json";
 
 /**
  * The keychain account for one (home, ref) pair (#1178): the keychain is

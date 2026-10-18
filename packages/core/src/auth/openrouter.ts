@@ -27,7 +27,7 @@ export const OPENROUTER_OAUTH_DEFAULTS = {
   tokenUrl: "https://openrouter.ai/api/v1/auth/keys",
 } as const;
 
-export interface OpenrouterOAuthConfig {
+interface OpenrouterOAuthConfig {
   authorizeUrl: string;
   tokenUrl: string;
 }
@@ -49,7 +49,7 @@ export type OpenrouterEndpointFetch = (
   body: Record<string, unknown>,
 ) => Promise<{ status: number; json: Record<string, unknown> }>;
 
-export const defaultOpenrouterEndpointFetch: OpenrouterEndpointFetch = async (tokenUrl, body) => {
+const defaultOpenrouterEndpointFetch: OpenrouterEndpointFetch = async (tokenUrl, body) => {
   // pi pattern: a bounded exchange — 30s, never an infinite hang.
   const res = await fetch(tokenUrl, {
     method: "POST",

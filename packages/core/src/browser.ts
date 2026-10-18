@@ -34,7 +34,7 @@ export class BrowserUnavailableError extends Error {
   }
 }
 
-export interface BrowserOptions {
+interface BrowserOptions {
   /** Working root: picks the per-project profile dir slug. Default process.cwd(). */
   cwd?: string;
   /** moh home dir (default `~`). Profile lives at `<home>/.moh/browser-profile/<slug>/`. */
@@ -181,7 +181,7 @@ export function applySnapshotBudget(text: string, budget = SNAPSHOT_BUDGET_BYTES
  * the raw bytes; the tool layer owns the image-part decision (#490
  * pipeline) and the chip + warning for non-multimodal models.
  */
-export interface ScreenshotResult {
+interface ScreenshotResult {
   mime: "image/png";
   base64: string;
   /** What was captured, for the text chip (`viewport` or the element description). */
@@ -189,7 +189,7 @@ export interface ScreenshotResult {
 }
 
 /** #778: large-output cap for `eval_js` results (≈5k tokens of text). */
-export const EVAL_OUTPUT_BUDGET_BYTES = 20 * 1024;
+const EVAL_OUTPUT_BUDGET_BYTES = 20 * 1024;
 
 /**
  * #778: truncates an eval_js result over budget with a visible marker.
@@ -207,7 +207,7 @@ export function applyEvalBudget(text: string, budget = EVAL_OUTPUT_BUDGET_BYTES)
  * falls back to a function-body evaluation. Both compile in the page
  * context; the caller only sees the final value or error.
  */
-export function wrapEvalExpression(expression: string): { expression: string; body: string } {
+function wrapEvalExpression(expression: string): { expression: string; body: string } {
   return {
     expression: `(() => { "use strict"; return (${expression}); })()`,
     body: `(() => { "use strict"; ${expression} })()`,
@@ -222,7 +222,7 @@ export function wrapEvalExpression(expression: string): { expression: string; bo
  * visible string "undefined". Throws nothing: a non-serializable value
  * (circular structure, BigInt) degrades to its String() form.
  */
-export function serializeEvalValue(value: unknown): string {
+function serializeEvalValue(value: unknown): string {
   if (value === undefined) return "undefined";
   if (typeof value === "string") return value;
   try {
@@ -237,7 +237,7 @@ export function serializeEvalValue(value: unknown): string {
 }
 
 /** Default per-action timeouts (#777): act 10s, wait_for arg-capped. */
-export const ACT_TIMEOUT_MS = 10_000;
+const ACT_TIMEOUT_MS = 10_000;
 
 /** A stale ref: the element the snapshot named is gone from the live DOM.
  * Carries the fresh snapshot so the model can re-target — never a silent
@@ -257,13 +257,13 @@ export class StaleRefError extends Error {
 }
 
 /** Options for `upload`: the in-root containment contract. */
-export interface UploadOptions {
+interface UploadOptions {
   /** Project root the source path must resolve inside (realpath-anchored, like write). */
   root: string;
 }
 
 /** Downloads staging options (#777). */
-export interface DownloadStagingOptions {
+interface DownloadStagingOptions {
   /** Staging root (default `<home>/.moh/browser-downloads/<slug>/`). */
   dir?: string;
   /** Ask seam for a required download (name + size, known post-save).
@@ -272,7 +272,7 @@ export interface DownloadStagingOptions {
   ask?: (info: { filename: string; size: number }) => Promise<"allow" | "deny"> | "allow" | "deny";
 }
 /** The playwright surface this module needs — structural, so tests can fake it. */
-export interface BrowserRouteLike {
+interface BrowserRouteLike {
   /** Absent on playwright-core 1.63 at runtime despite the .d.ts; `request.url()` is the portable form. */
   url?(): string;
   /** Absent on playwright-core 1.63 at runtime despite the .d.ts; `request.resourceType()` is the portable form. */
@@ -282,7 +282,7 @@ export interface BrowserRouteLike {
   fulfill(options: { status: number; contentType: string; body: string }): Promise<void>;
 }
 
-export interface BrowserPageLike {
+interface BrowserPageLike {
   goto(url: string, options?: { waitUntil?: string; timeoutMs?: number }): Promise<unknown>;
   ariaSnapshot(options?: { mode?: string; depth?: number }): Promise<string>;
   waitForLoadState?(state: string, options?: { timeout?: number }): Promise<void>;
@@ -314,7 +314,7 @@ export interface BrowserPageLike {
 }
 
 /** #777: playwright download handle (structural, faked in tests). */
-export interface BrowserDownloadLike {
+interface BrowserDownloadLike {
   suggestedFilename(): string;
   /** Downloads to a directory; resolves to the saved file path. */
   saveAs(path: string): Promise<void>;
@@ -322,7 +322,7 @@ export interface BrowserDownloadLike {
   cancel?(): Promise<void>;
 }
 
-export interface BrowserLike {
+interface BrowserLike {
   newPage(): Promise<BrowserPageLike>;
   close(): Promise<void>;
 }
@@ -336,7 +336,7 @@ interface PlaywrightChromium {
  * of that module (project-local first, then the moh-owned root) lives in
  * `browser-toolchain.ts`; here we only cast the resolved module to the
  * launch shapes we use. */
-export interface PlaywrightModule {
+interface PlaywrightModule {
   chromium: PlaywrightChromium;
 }
 

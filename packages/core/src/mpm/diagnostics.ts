@@ -58,7 +58,7 @@ export interface MpmDiagnostics {
 /** How many mapped paths to hash-check for the stale estimate. */
 const FRESHNESS_SAMPLE = 200;
 
-export interface MpmDiagnosticsOptions {
+interface MpmDiagnosticsOptions {
   service: MpmService;
   root: string;
   config: MpmEffectiveConfig;

@@ -299,13 +299,13 @@ export function detectSecretLookalikes(text: string): { category: string; length
   return hits.slice(0, 8);
 }
 
-export interface RedactionMiss {
+interface RedactionMiss {
   category: string;
   length: number;
 }
 
 /** Result of the combined pass over one value. */
-export interface RedactionResult {
+interface RedactionResult {
   value: unknown;
   /** Content-free lookalike reports (key names are not included). */
   misses: RedactionMiss[];
@@ -349,11 +349,11 @@ export function redactValue(value: unknown, depth = 0): RedactionResult {
 // ---------------------------------------------------------------------------
 
 /** File name inside the user's moh home. */
-export const SECRET_REDACTION_MISSES_FILE = "secret-redaction-misses.log";
+const SECRET_REDACTION_MISSES_FILE = "secret-redaction-misses.log";
 /** Distinct shapes kept; beyond this the oldest goes. */
-export const SECRET_REDACTION_MAX_ENTRIES = 50;
+const SECRET_REDACTION_MAX_ENTRIES = 50;
 
-export interface SecretRedactionMissEntry {
+interface SecretRedactionMissEntry {
   at: string;
   last: string;
   /** Content-free shape descriptor (e.g. `opaque-assignment:24`). */
@@ -456,7 +456,7 @@ export function noteSecretRedactionMisses(home: string, misses: RedactionMiss[])
 }
 
 /** The shape line a depth cut writes (once per pass, content-free). */
-export const DEPTH_CUT_MISS_SHAPE = "depth-cut";
+const DEPTH_CUT_MISS_SHAPE = "depth-cut";
 
 /**
  * Records the misses of one redaction pass as deduplicated, content-free

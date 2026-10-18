@@ -25,7 +25,7 @@ export function importedHandoffFile(cwd: string, home = homedir()): string {
   return join(home, ".moh", "projects", projectSlug(cwd, home), "imported-handoff.json");
 }
 
-export interface ExportHandoffOptions {
+interface ExportHandoffOptions {
   cwd: string;
   home?: string;
   /** Destination file (removable media, network drop, anything). */
@@ -36,7 +36,7 @@ export interface ExportHandoffOptions {
   read?: () => RawHandoff | undefined;
 }
 
-export type ExportHandoffResult =
+type ExportHandoffResult =
   | { ok: true; path: string }
   | { ok: false; error: HandoffTransportError };
 
@@ -70,7 +70,7 @@ export async function exportHandoffFile(options: ExportHandoffOptions): Promise<
   }
 }
 
-export interface ImportHandoffOptions {
+interface ImportHandoffOptions {
   cwd: string;
   home?: string;
   /** The received export file. */
@@ -85,7 +85,7 @@ export interface ImportHandoffOptions {
   read?: (file: string) => RawHandoff | undefined;
 }
 
-export type ImportHandoffResult =
+type ImportHandoffResult =
   | { ok: true; path: string }
   | { ok: false; error: { reason: "missing" } | { reason: "invalid" } | { reason: "foreign-author"; author?: string } | HandoffTransportError };
 

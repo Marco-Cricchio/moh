@@ -313,7 +313,7 @@ function resolveProjectIdentityUncached(cwd: string, home: string, legacySlug: s
 }
 
 /** The name of the durable stranded-data record inside a project directory (#1217). */
-export const STRANDED_DATA_FILE = "stranded-data.json";
+const STRANDED_DATA_FILE = "stranded-data.json";
 
 export interface StrandedDataRecord {
   /** The directory still holding the stranded data (absolute path). */

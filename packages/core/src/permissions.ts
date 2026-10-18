@@ -2,9 +2,9 @@ import { realpathSync } from "node:fs";
 import { isAbsolute, relative, resolve as pathResolve } from "node:path";
 import { assertNoExtensionScope } from "./extension-scope";
 
-export type PermissionDecision = "allow" | "ask" | "deny";
-export type PermissionTier = "builtin" | "config" | "runtime";
-export type RuleEffect = "allow" | "deny";
+type PermissionDecision = "allow" | "ask" | "deny";
+type PermissionTier = "builtin" | "config" | "runtime";
+type RuleEffect = "allow" | "deny";
 export type SessionMode = "normal" | "auto-accept" | "yolo";
 /**
  * #377: the filesystem reach of built-in path tools, derived from the
@@ -143,7 +143,7 @@ export function parseRule(str: string, effect: RuleEffect, tier: PermissionTier 
  * (port optional, path optional or glob). Never thrown-on — used both by
  * parseRule (reject) and by the matcher (fail closed to "no match").
  */
-export function isValidUrlGlob(glob: string): boolean {
+function isValidUrlGlob(glob: string): boolean {
   try {
     const u = new URL(glob.replace(/^\*\*/, "/").replace("/**", "/"));
     return (u.protocol === "http:" || u.protocol === "https:") && u.hostname.length > 0;
@@ -230,7 +230,7 @@ export const DEFAULT_TOOL_PERMISSIONS: Record<string, PermissionDecision> = {
 };
 
 /** #775 (ADR-0029): read-tier browser actions — allowed by default. */
-export const BROWSER_READ_ACTIONS = ["navigate", "snapshot", "read_text", "screenshot", "close"] as const;
+const BROWSER_READ_ACTIONS = ["navigate", "snapshot", "read_text", "screenshot", "close"] as const;
 
 const TIER_RANK: Record<PermissionTier, number> = { builtin: 0, config: 1, runtime: 2 };
 
@@ -311,7 +311,7 @@ function isTokenPrefix(prefix: string[], tokens: string[]): boolean {
  * token-prefix rule matches: the covered tokens describe the command, but
  * the metacharacters smuggle side effects the rule never saw.
  */
-export function hasUncoveredShellMetachars(command: string): boolean {
+function hasUncoveredShellMetachars(command: string): boolean {
   let i = 0;
   let wordStart = true; // true when the previous char ended a word
   while (i < command.length) {
@@ -343,7 +343,7 @@ function ruleSpecificity(rule: PermissionRule): number {
   return 0;
 }
 
-export interface PermissionResolverOptions {
+interface PermissionResolverOptions {
   defaults: Record<string, PermissionDecision>;
   overrides?: PermissionOverrides;
   runtimeRules?: PermissionRule[];

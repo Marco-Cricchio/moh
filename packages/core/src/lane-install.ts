@@ -28,7 +28,7 @@ export type LaneInstallOutcome =
   | { kind: "failed"; command: string; reason: string; at: string };
 
 /** Detection over a directory's own files. */
-export type LaneSetupDetection =
+type LaneSetupDetection =
   | { kind: "install"; command: string; fingerprint: string }
   | { kind: "nothing"; reason?: string };
 
@@ -37,7 +37,7 @@ export type LaneInstallRunner = (input: { command: string; cwd: string }) => Pro
 
 /** Default installer: the command in the lane's own worktree, through a
  * shell (the command may be a user-declared `lanes.setup` line). */
-export const defaultLaneInstallRunner: LaneInstallRunner = async ({ command, cwd }) => {
+const defaultLaneInstallRunner: LaneInstallRunner = async ({ command, cwd }) => {
   const argv = process.platform === "win32" ? ["cmd", "/c", command] : ["sh", "-c", command];
   try {
     const proc = Bun.spawn(argv, { cwd, stdout: "pipe", stderr: "pipe" });

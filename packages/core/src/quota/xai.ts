@@ -5,7 +5,7 @@
  */
 import type { QuotaFetch, QuotaReport } from "./types";
 
-export const XAI_BILLING_URL = "https://cli-chat-proxy.grok.com/v1/billing?format=credits";
+const XAI_BILLING_URL = "https://cli-chat-proxy.grok.com/v1/billing?format=credits";
 
 export async function probeXai(
   accessToken: string,

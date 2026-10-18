@@ -12,12 +12,12 @@ import { extname, isAbsolute, join, relative, resolve } from "node:path";
 /** ~200KB cap for text file snapshots; larger files attach truncated. */
 export const MENTION_TEXT_CAP = 200 * 1024;
 /** Safety cap for directory listings (entries). */
-export const MENTION_DIR_ENTRY_CAP = 5000;
+const MENTION_DIR_ENTRY_CAP = 5000;
 /** ~5MB cap for image attachments (vision note 4): above it the mention
  * is refused with a visible warning, never a turn error. */
-export const IMAGE_MENTION_CAP = 5 * 1024 * 1024;
+const IMAGE_MENTION_CAP = 5 * 1024 * 1024;
 /** Image formats promoted to image content blocks (vision note 4). */
-export const IMAGE_MENTION_MIMES = new Set(["image/png", "image/jpeg", "image/webp", "image/gif"]);
+const IMAGE_MENTION_MIMES = new Set(["image/png", "image/jpeg", "image/webp", "image/gif"]);
 
 /** One structured attachment on a `user_message` event (#488). */
 export type MentionAttachment =

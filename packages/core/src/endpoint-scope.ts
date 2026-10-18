@@ -29,7 +29,7 @@ export function endpointScopeRef(capability: string): string {
   return capability.slice(ENDPOINT_SCOPE_PREFIX.length);
 }
 
-export type EndpointScopeValidity = { ok: true; ref: string } | { ok: false; reason: "malformed"; message: string };
+type EndpointScopeValidity = { ok: true; ref: string } | { ok: false; reason: "malformed"; message: string };
 
 /**
  * Load-time validation of one `endpoint:<ref>` capability. The ref is an
@@ -53,7 +53,7 @@ export function endpointScopesOf(capabilities: readonly string[]): string[] {
   return capabilities.filter(isEndpointScope);
 }
 
-export type EndpointScopeCheck = { ok: true } | { ok: false; reason: "outside_scope" };
+type EndpointScopeCheck = { ok: true } | { ok: false; reason: "outside_scope" };
 
 /**
  * The per-call check: one ref per grant, exact name match. The model id

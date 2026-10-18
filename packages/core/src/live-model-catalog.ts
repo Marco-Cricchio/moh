@@ -63,7 +63,7 @@ export interface LiveModelListing {
 }
 
 /** Injectable fetch seam (tests). */
-export type ListingFetch = (url: string, headers: Record<string, string>) => Promise<{ status: number; json: unknown }>;
+type ListingFetch = (url: string, headers: Record<string, string>) => Promise<{ status: number; json: unknown }>;
 
 /**
  * The `client_version` the Codex backend requires on its model listing.
@@ -452,7 +452,7 @@ export function mergeLiveCatalog(shipped: CatalogModel[], live: LiveModelListing
 
 // ── user config (`~/.moh/config`, `liveModels` section) ─────────────────
 
-export interface LiveModelsConfig {
+interface LiveModelsConfig {
   /** Default true. `false` restores fully static behavior. */
   enabled?: boolean;
   /** Cache TTL in hours. Default 24. */
@@ -578,7 +578,7 @@ export function freshCacheEntries(
   return out;
 }
 
-export interface FetchLiveCatalogsOptions {
+interface FetchLiveCatalogsOptions {
   mohHome?: string;
   configFile?: string;
   cacheFile?: string;
@@ -595,7 +595,7 @@ export interface FetchLiveCatalogsOptions {
  * old bare projection could not carry: a list you are seeing is one of
  * these five things, and only the first is a refresh you just performed.
  */
-export type LiveCatalogStatus =
+type LiveCatalogStatus =
   /** The provider answered this run; a fresh cache entry was written. */
   | { kind: "fresh" }
   /** A cache entry within its TTL; no network call was made. This is the
@@ -612,7 +612,7 @@ export type LiveCatalogStatus =
   | { kind: "unsupported" };
 
 /** One endpoint's outcome: the status, plus the listing it is a status of. */
-export interface LiveCatalogResult {
+interface LiveCatalogResult {
   /** Live-only models to overlay on the shipped catalog (empty for
    * `failed` and `unsupported`). */
   models: LiveModelListing[];

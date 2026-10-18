@@ -23,13 +23,13 @@ import openaiCompat from "./tos-cards/openai-compat.json";
 import opencode from "./tos-cards/opencode.json";
 
 /** One link on a ToS card. */
-export interface TosLink {
+interface TosLink {
   label: string;
   url: string;
 }
 
 /** A bundled per-provider ToS summary card (fixed template, fixed order). */
-export interface TosCard {
+interface TosCard {
   provider: string;
   /** Verification date, `YYYY-MM`: how stale the synthesis may be. */
   verified: string;

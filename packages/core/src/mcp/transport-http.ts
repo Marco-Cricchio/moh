@@ -10,7 +10,7 @@ export const MCP_MAX_RESPONSE_BYTES = 10 * 1024 * 1024;
 
 /** #1254: per-request budget for every POST (the handshake timeout bounds
  * only initialize; a slow endpoint must not hold a send() open forever). */
-export const MCP_REQUEST_TIMEOUT_MS = 10_000;
+const MCP_REQUEST_TIMEOUT_MS = 10_000;
 
 /** Injectable DNS resolution (the fetch tool's FetchLookup seam, #697):
  * tests drive the rebinding scenario deterministically; production uses

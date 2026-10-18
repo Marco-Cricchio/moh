@@ -39,7 +39,7 @@ export function pathScopeGlob(capability: string): string {
   return capability.slice(PATH_SCOPE_PREFIX.length);
 }
 
-export type PathScopeValidity = { ok: true; glob: string } | { ok: false; reason: "malformed" | "absolute"; message: string };
+type PathScopeValidity = { ok: true; glob: string } | { ok: false; reason: "malformed" | "absolute"; message: string };
 
 /**
  * Load-time validation of one `path:<glob>` capability. An absolute path
@@ -82,7 +82,7 @@ export const TOTAL_HOST_WILDCARD = "host:*";
 /** The manifest key carrying the total-wildcard justification. */
 export const HOST_SCOPE_REASONING_KEY = "reasoning";
 
-export type HostScopeValidity =
+type HostScopeValidity =
   | { ok: true; host: string; port?: number; wildcard: boolean }
   | { ok: false; reason: "malformed"; message: string };
 

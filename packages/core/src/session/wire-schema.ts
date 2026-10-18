@@ -44,7 +44,7 @@ function valuesOf(v: VariantSchema, key: string): unknown[] | null {
   return null;
 }
 
-export function wireSchema(raw: JsonObject): JsonObject {
+function wireSchema(raw: JsonObject): JsonObject {
   const unionKey = "oneOf" in raw ? "oneOf" : "anyOf" in raw ? "anyOf" : null;
   if (!unionKey) return raw;
   const variants = raw[unionKey];

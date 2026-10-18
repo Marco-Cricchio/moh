@@ -21,7 +21,7 @@ export const KIMI_CODE_OAUTH_DEFAULTS = {
 /** The Kimi coding backend (anthropic-messages wire, #159 defaults). */
 export const KIMI_CODE_API_BASE_URL = "https://api.kimi.com/coding";
 
-export interface KimiCodingOAuthConfig {
+interface KimiCodingOAuthConfig {
   oauthHost: string;
   clientId: string;
 }
@@ -50,7 +50,7 @@ export type KimiCodingEndpointFetch = (
   body: Record<string, unknown>,
 ) => Promise<{ status: number; json: Record<string, unknown> }>;
 
-export const defaultKimiCodingEndpointFetch: KimiCodingEndpointFetch = async (url, body) => {
+const defaultKimiCodingEndpointFetch: KimiCodingEndpointFetch = async (url, body) => {
   const res = await fetch(url, {
     method: "POST",
     headers: { "content-type": "application/x-www-form-urlencoded", accept: "application/json" },

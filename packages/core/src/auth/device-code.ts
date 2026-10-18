@@ -13,7 +13,7 @@ export interface DeviceFlowClock {
   sleep(ms: number): Promise<void>;
 }
 
-export const defaultDeviceFlowClock: DeviceFlowClock = {
+const defaultDeviceFlowClock: DeviceFlowClock = {
   now: () => Date.now(),
   sleep: (ms) => Bun.sleep(ms),
 };
@@ -33,7 +33,7 @@ export interface DevicePollOptions<T> {
 }
 
 /** RFC 8628 §3.2: default interval when the server omits one. */
-export const DEFAULT_POLL_INTERVAL_SECONDS = 5;
+const DEFAULT_POLL_INTERVAL_SECONDS = 5;
 const MINIMUM_INTERVAL_MS = 1000;
 /** RFC 8628 §3.5: slow_down increases the interval by 5 seconds. */
 const SLOW_DOWN_INTERVAL_INCREMENT_MS = 5000;

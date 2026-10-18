@@ -20,7 +20,7 @@ export const MANIFEST_FILE = "moh.extension.json";
 /** A declared capability slot. Free-form string on purpose: the slot
  * vocabulary grows (ADR-0062 added the `contribute-*` slots), and an
  * unknown slot is a warning at install time, never a refusal here. */
-export type CapabilitySlot = string;
+type CapabilitySlot = string;
 
 export interface ExtensionManifest {
   readonly name: string;
@@ -47,10 +47,10 @@ export interface ExtensionManifest {
   readonly dependencies?: Readonly<Record<string, string>>;
 }
 
-export type ManifestDependenciesCheck = { ok: true } | { ok: false; message: string };
+type ManifestDependenciesCheck = { ok: true } | { ok: false; message: string };
 
 /** Exactness validation for a manifest's `dependencies` object. */
-export function checkManifestDependencies(value: unknown): ManifestDependenciesCheck {
+function checkManifestDependencies(value: unknown): ManifestDependenciesCheck {
   if (value === undefined) return { ok: true };
   if (typeof value !== "object" || value === null || Array.isArray(value)) {
     return { ok: false, message: `${MANIFEST_FILE} "dependencies" must be an object of { package: exact-version }` };
@@ -76,11 +76,11 @@ export interface ManifestAuthority {
   readonly dependencies?: Readonly<Record<string, string>>;
 }
 
-export type ManifestReadResult =
+type ManifestReadResult =
   | { ok: true; manifest: ExtensionManifest; authority: ManifestAuthority }
   | { ok: false; reason: "missing" | "malformed"; message: string };
 
-export function manifestPathFor(entryFile: string): string {
+function manifestPathFor(entryFile: string): string {
   return join(dirname(entryFile), MANIFEST_FILE);
 }
 

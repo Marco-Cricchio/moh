@@ -6,7 +6,7 @@
 import { KIMI_CODE_API_BASE_URL } from "../auth/kimi-coding";
 import type { QuotaFetch, QuotaReport } from "./types";
 
-export const KIMI_USAGES_URL = `${KIMI_CODE_API_BASE_URL}/v1/usages`;
+const KIMI_USAGES_URL = `${KIMI_CODE_API_BASE_URL}/v1/usages`;
 
 export async function probeKimi(
   accessToken: string,

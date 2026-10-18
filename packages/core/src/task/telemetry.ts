@@ -12,9 +12,9 @@
  */
 import type { AgentEvent } from "../types";
 
-export type TaskDeclaredEvent = Extract<AgentEvent, { type: "task_declared" }>;
-export type TaskVerificationEvent = Extract<AgentEvent, { type: "task_verification" }>;
-export type TaskOutcomeEvent = Extract<AgentEvent, { type: "task_outcome" }>;
+type TaskDeclaredEvent = Extract<AgentEvent, { type: "task_declared" }>;
+type TaskVerificationEvent = Extract<AgentEvent, { type: "task_verification" }>;
+type TaskOutcomeEvent = Extract<AgentEvent, { type: "task_outcome" }>;
 
 export type VerificationCategory = TaskVerificationEvent["category"];
 export type TaskOutcome = TaskOutcomeEvent["outcome"];

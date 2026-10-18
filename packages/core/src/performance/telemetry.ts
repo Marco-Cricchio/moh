@@ -216,7 +216,7 @@ export function concurrencyReport(
 // Task-outcome projection
 // ---------------------------------------------------------------------------
 
-export interface TaskVerificationRow {
+interface TaskVerificationRow {
   verificationId: string;
   category: "test" | "typecheck" | "build" | "lint" | "other";
   ok: boolean;

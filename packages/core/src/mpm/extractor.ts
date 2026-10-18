@@ -87,7 +87,7 @@ export function extractWorkspace(root: string): Map<string, MpmFileRecord> {
 }
 
 /** One ready-to-map file: content already read (by discovery or refresh). */
-export interface MpmCandidateFile {
+interface MpmCandidateFile {
   path: string;
   content: string;
   size: number;

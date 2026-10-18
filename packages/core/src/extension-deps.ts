@@ -43,14 +43,14 @@ export const DEPS_LOCK_FILE = "lock.json";
 export const DEPS_CACHE_DIR = ".cache";
 
 /** The npm registry metadata endpoint installer reads (override in tests). */
-export const NPM_REGISTRY_BASE = "https://registry.npmjs.org";
+const NPM_REGISTRY_BASE = "https://registry.npmjs.org";
 
 /**
  * The lockfile: one SRI digest per package, direct and transitive.
  * This is the verifiable artifact — the tree is a function of this
  * file and nothing else (`npm ci`'s contract, ADR-0070).
  */
-export interface DepsLockfile {
+interface DepsLockfile {
   lockfileVersion: 1;
   /** The extension manifest's `dependencies` this lock resolves. */
   dependencies: Record<string, string>;
@@ -70,7 +70,7 @@ interface DepNode {
 /** The tree-install seam. Same shape as the registry's `RegistryIo`. */
 export type DepsIo = RegistryIo;
 
-export type ExactnessCheck = { ok: true } | { ok: false; package: string; spec: string };
+type ExactnessCheck = { ok: true } | { ok: false; package: string; spec: string };
 
 /**
  * ADR-0070: exact versions only. A range delegates to the registry a
@@ -112,7 +112,7 @@ export function extensionDepsDir(mohHome: string, extensionName: string): string
  * verification and come out only when their digest matches what the
  * lockfile pins — a mismatching entry is invisible, never trusted.
  */
-export interface DepsCache {
+interface DepsCache {
   get(key: string, integrity: string): Uint8Array | undefined;
   set(key: string, bytes: Uint8Array): void;
 }
@@ -173,7 +173,7 @@ export function readDepsLockfile(depsDir: string): DepsLockfile | null {
  * install only with matching cache digests — a cache entry whose digest
  * differs from the lockfile is ignored, never trusted).
  */
-export interface InstallDepsOptions {
+interface InstallDepsOptions {
   /** The manifest's `dependencies` (already exactness-checked). */
   dependencies: Record<string, string>;
   /** The extension's dependency directory (`extensionDepsDir`). */
@@ -183,7 +183,7 @@ export interface InstallDepsOptions {
   cache?: DepsCache;
 }
 
-export type InstallDepsResult =
+type InstallDepsResult =
   | { ok: true; installed: number; offline: boolean }
   | { ok: false; reason: string; package?: string };
 

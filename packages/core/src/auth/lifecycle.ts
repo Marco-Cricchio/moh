@@ -71,7 +71,7 @@ export type SubscriptionLogin = (
 
 /** HTTP seam for the token endpoints (structural shape shared by all
  * three grants — same as resolve.ts TokenFetch). */
-export type AuthEndpointFetch = (
+type AuthEndpointFetch = (
   url: string,
   body: Record<string, unknown>,
 ) => Promise<{ status: number; json: Record<string, unknown> }>;
@@ -135,7 +135,7 @@ export async function providerLogin(
   return token;
 }
 
-export interface LogoutOptions {
+interface LogoutOptions {
   authFile?: string;
 }
 
@@ -152,7 +152,7 @@ export function providerLogout(endpoint: string, opts: LogoutOptions = {}): bool
 }
 
 /** Usage-endpoint seam (GET with headers); tests script it. */
-export type UsageFetch = (
+type UsageFetch = (
   url: string,
   headers: Record<string, string>,
 ) => Promise<{ status: number; text: string }>;
@@ -160,7 +160,7 @@ export type UsageFetch = (
 /** Anthropic's OAuth usage metering endpoint (research §1; drift-prone). */
 export const ANTHROPIC_USAGE_URL = "https://api.anthropic.com/api/oauth/usage";
 
-export interface SubscriptionStatus {
+interface SubscriptionStatus {
   loggedIn: boolean;
   /** Display-only account identity (email or name). Never a secret. */
   account?: string;
@@ -172,7 +172,7 @@ export interface SubscriptionStatus {
   usage?: string;
 }
 
-export interface EndpointAuthStatus {
+interface EndpointAuthStatus {
   name: string;
   type: string;
   authKind: "api-key" | "subscription";
@@ -181,7 +181,7 @@ export interface EndpointAuthStatus {
   subscription?: SubscriptionStatus;
 }
 
-export interface StatusOptions {
+interface StatusOptions {
   authFile?: string;
   env?: Record<string, string | undefined>;
   usageFetch?: UsageFetch;

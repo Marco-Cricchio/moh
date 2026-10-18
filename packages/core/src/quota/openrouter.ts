@@ -5,8 +5,8 @@
  */
 import type { QuotaFetch, QuotaReport } from "./types";
 
-export const OPENROUTER_KEY_URL = "https://openrouter.ai/api/v1/key";
-export const OPENROUTER_CREDITS_URL = "https://openrouter.ai/api/v1/credits";
+const OPENROUTER_KEY_URL = "https://openrouter.ai/api/v1/key";
+const OPENROUTER_CREDITS_URL = "https://openrouter.ai/api/v1/credits";
 
 export async function probeOpenrouter(
   cred: { apiKey?: string; token?: { accessToken: string } },

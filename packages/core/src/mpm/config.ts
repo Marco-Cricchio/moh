@@ -17,7 +17,7 @@ import { readUserConfigFile, userConfigFile } from "../user-config";
  * Extra workspace exclusions, gitignore-style patterns matched from the
  * root (MPM never accepts negations — the hard denylist is not rescuable).
  */
-export const mpmQuotaSchema = z
+const mpmQuotaSchema = z
   .object({
     maxFiles: z.number().int().min(0).optional(),
     maxTotalBytes: z.number().int().min(0).optional(),

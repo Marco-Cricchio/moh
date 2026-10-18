@@ -23,7 +23,7 @@ export const endpointAuthSchema = z.object({ kind: authMethodKindSchema });
 export type EndpointAuth = z.infer<typeof endpointAuthSchema>;
 
 /** Account info surfaced by the provider during login, display-only. */
-export const authAccountSchema = z.object({
+const authAccountSchema = z.object({
   id: z.string().min(1).optional(),
   email: z.string().min(1).optional(),
   name: z.string().min(1).optional(),
@@ -69,7 +69,7 @@ export const anthropicAuthOverridesSchema = z.object({
 export type AnthropicAuthOverrides = z.infer<typeof anthropicAuthOverridesSchema>;
 
 /** OpenAI overrides: issuer (client_id + all endpoints derive from it). */
-export const openaiAuthOverridesSchema = z.object({
+const openaiAuthOverridesSchema = z.object({
   issuer: z.string().url().optional(),
   clientId: z.string().min(1).optional(),
 });
@@ -90,20 +90,20 @@ export type GoogleAuthOverrides = z.infer<typeof googleAuthOverridesSchema>;
 // drift-prone captured endpoints/hosts, user-overridable like the rest.
 
 /** OpenRouter overrides: authorize + key-exchange endpoints. */
-export const openrouterAuthOverridesSchema = z.object({
+const openrouterAuthOverridesSchema = z.object({
   authorizeUrl: z.string().url().optional(),
   tokenUrl: z.string().url().optional(),
 });
 export type OpenrouterAuthOverrides = z.infer<typeof openrouterAuthOverridesSchema>;
 
 /** Kimi overrides: the OAuth host both device flow endpoints derive from. */
-export const kimiCodingAuthOverridesSchema = z.object({
+const kimiCodingAuthOverridesSchema = z.object({
   oauthHost: z.string().url().optional(),
 });
 export type KimiCodingAuthOverrides = z.infer<typeof kimiCodingAuthOverridesSchema>;
 
 /** xAI overrides: device-code + token endpoints, client_id. */
-export const xaiAuthOverridesSchema = z.object({
+const xaiAuthOverridesSchema = z.object({
   deviceCodeUrl: z.string().url().optional(),
   tokenUrl: z.string().url().optional(),
   clientId: z.string().min(1).optional(),
@@ -111,7 +111,7 @@ export const xaiAuthOverridesSchema = z.object({
 export type XaiAuthOverrides = z.infer<typeof xaiAuthOverridesSchema>;
 
 /** GitHub Copilot overrides: GitHub host (enterprise domains). */
-export const githubCopilotAuthOverridesSchema = z.object({
+const githubCopilotAuthOverridesSchema = z.object({
   domain: z.string().min(1).optional(),
 });
 export type GithubCopilotAuthOverrides = z.infer<typeof githubCopilotAuthOverridesSchema>;
@@ -122,7 +122,7 @@ export type GithubCopilotAuthOverrides = z.infer<typeof githubCopilotAuthOverrid
  * `baseUrl` means the endpoint's provider default (the guard treats it as
  * "unset", matching an endpoint that also declares no baseUrl).
  */
-export const storedApiKeyOriginSchema = z.object({
+const storedApiKeyOriginSchema = z.object({
   type: z.string(),
   baseUrl: z.string().optional(),
 });

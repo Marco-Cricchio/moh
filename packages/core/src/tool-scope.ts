@@ -35,7 +35,7 @@ export function toolScopeName(capability: string): string {
   return capability.slice(TOOL_SCOPE_PREFIX.length);
 }
 
-export type ToolScopeValidity = { ok: true; name: string; wildcard: boolean } | { ok: false; reason: "malformed"; message: string };
+type ToolScopeValidity = { ok: true; name: string; wildcard: boolean } | { ok: false; reason: "malformed"; message: string };
 
 /**
  * Load-time validation of one `tool:<name|*>` capability. A name is
@@ -62,7 +62,7 @@ export function contributeToolName(capability: string): string {
   return capability.slice(CONTRIBUTE_TOOL_SCOPE_PREFIX.length);
 }
 
-export type ContributeToolScopeValidity = { ok: true; name: string } | { ok: false; reason: "malformed"; message: string };
+type ContributeToolScopeValidity = { ok: true; name: string } | { ok: false; reason: "malformed"; message: string };
 
 /**
  * Load-time validation of one `contribute-tool:<name>` capability — the
@@ -88,7 +88,7 @@ export function contributeToolScopesOf(capabilities: readonly string[]): string[
   return capabilities.filter(isContributeToolScope);
 }
 
-export type ToolScopeCheck = { ok: true } | { ok: false; reason: "outside_scope" };
+type ToolScopeCheck = { ok: true } | { ok: false; reason: "outside_scope" };
 
 /**
  * The per-call invocation check: whole-tool grant, no argv sub-scoping.

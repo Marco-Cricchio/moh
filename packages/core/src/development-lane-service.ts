@@ -28,7 +28,7 @@ export interface LaneGitResult {
 export type LaneGitRunner = (args: string[], options: { cwd: string }) => Promise<LaneGitResult>;
 
 /** Default Git runner: `git -C <cwd> <args…>` with piped stdio. */
-export const defaultLaneGitRunner: LaneGitRunner = async (args, options) => {
+const defaultLaneGitRunner: LaneGitRunner = async (args, options) => {
   let proc: ReturnType<typeof Bun.spawn<"ignore", "pipe", "pipe">>;
   try {
     proc = Bun.spawn(["git", "-C", options.cwd, ...args], { stdout: "pipe", stderr: "pipe" });
@@ -697,13 +697,13 @@ export interface LaneInstallRepair extends LaneInstallDrift {
  * with the same identity resolution the session store uses (declared
  * identity > git origin > legacy path hash), so a worktree path always
  * maps back to exactly one project. */
-export function laneWorktreeRootFor(cwd: string, home = homedir()): string {
+function laneWorktreeRootFor(cwd: string, home = homedir()): string {
   return join(projectSessionsDir(cwd, home), "lanes");
 }
 
 /** Worktree directory for a lane, relative to the project's lane root:
  * the sanitized branch names one directory per branch, per project. */
-export function laneWorktreeDirName(branchRef: string): string {
+function laneWorktreeDirName(branchRef: string): string {
   const safe = branchRef.replace(/[^a-zA-Z0-9._-]+/g, "-").replace(/^-+|-+$/g, "");
   return safe || "lane";
 }
