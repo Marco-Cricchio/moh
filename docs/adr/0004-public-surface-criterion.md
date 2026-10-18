@@ -345,11 +345,17 @@ public surface that results from applying the criterion to the whole
 
 ### What changed
 
-The keep-criterion was applied to every name of the entry, removing the
-ones no client imports and no page under `docs/extending/` documents. The
-implementations stay in their modules; only the `export … from` lists of
-`packages/core/src/index.ts` changed. Tests import from the module that
-defines a name (principle 8, [ADR-0078](0078-lean-by-default.md)).
+The S2.2 lots (#1545–#1552) applied the keep-criterion: a name left the
+entry when no client imports it (client tests do not count) and no page
+under `docs/extending/` documents it, and in #1552 also when it is outside
+the type closure of the kept exports and of `SessionConfig`/
+`sessionFromConfig` and not presented in `CONTEXT.md` (#1379). In those
+lots only the `export … from` lists of `packages/core/src/index.ts`
+changed; the implementations stay in their modules. Tests import from the
+module that defines a name (principle 8, [ADR-0078](0078-lean-by-default.md)).
+The earlier lots removed names together with code: #1528 moved
+`manualSubsetViolations` into its only test, #1532 made `ExtensionUIRefusal`
+module-private, #1533 deleted the handoff warm-up module.
 
 Names removed from the entry, per change:
 
@@ -363,7 +369,9 @@ Names removed from the entry, per change:
 - #1548 (extensions): 21
 - #1549 (handoff-lanes): 21
 - #1551 (project-services): 26
-- #1552 (S2.2c): 9 — only names documented solely in this ADR's history
+- #1552 (S2.2c): 9 — names outside `docs/extending/**`, outside the type
+  closure of the kept exports and of `SessionConfig`/`sessionFromConfig`,
+  and not presented in `CONTEXT.md` (#1379)
 
 #1543 (S2.2a) rewrote the form of the index without changing its surface.
 
