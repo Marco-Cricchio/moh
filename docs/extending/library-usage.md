@@ -583,9 +583,9 @@ core (no double store with Memory).
 or `null` on any failure — no credentials, unsupported kind, HTTP error,
 or drifted schema. Credentials are reused from the endpoint profile and
 the auth stores; the probe is best-effort with a short timeout and never
-throws. Per-provider endpoint details stay internal: one module per
-provider under `core/src/quota/`, so schema churn is a local fix that
-never surfaces through the seam. `aggregateLocalUsage(events)` is the
+throws. Per-provider endpoint details stay internal: one module
+(`core/src/quota/probes.ts`) holds every provider's probe, so schema
+churn is a local fix that never surfaces through the seam. `aggregateLocalUsage(events)` is the
 always-available fallback: per-model token totals summed from a session's
 `model_call` events. Both are exported from `@moh/core` (ADR-0004).
 
