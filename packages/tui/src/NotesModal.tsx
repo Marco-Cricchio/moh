@@ -71,7 +71,7 @@ function wrapLines(lines: readonly string[], width: number): Array<{ text: strin
   return result;
 }
 
-export interface NotesModalProps {
+interface NotesModalProps {
   cwd: string;
   home: string;
   onClose: () => void;

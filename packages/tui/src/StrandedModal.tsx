@@ -20,7 +20,7 @@ import { Dialog, Dim } from "./ui";
  * `k` keeps it and stops the warning via a durable acknowledgement. Owns no
  * re-reads: the reads happen once on open, and Home refreshes on close.
  */
-export interface StrandedModalProps {
+interface StrandedModalProps {
   /** The live project directory, resolved by the client at boot (#939):
    * the modal must never run a synchronous identity resolution in render. */
   dir: string;

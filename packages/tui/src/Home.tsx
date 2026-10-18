@@ -89,7 +89,7 @@ function HomeRow({
 }
 
 /** Relative time for the pertinent-session banner (T3 #470). */
-export function relativeTime(mtimeMs: number, now = Date.now()): string {
+function relativeTime(mtimeMs: number, now = Date.now()): string {
   const diff = now - mtimeMs;
   if (diff < 60_000) return "adesso";
   const minutes = Math.floor(diff / 60_000);
@@ -101,7 +101,7 @@ export function relativeTime(mtimeMs: number, now = Date.now()): string {
   return new Date(mtimeMs).toISOString().slice(0, 10);
 }
 
-export interface HomeProps {
+interface HomeProps {
   cwd: string;
   home?: string;
   mode: Mode;

@@ -17,7 +17,7 @@ import {
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 
-export type DetectableProviderType = "anthropic" | "openai" | "google";
+type DetectableProviderType = "anthropic" | "openai" | "google";
 
 /** Well-known env vars per provider, in preference order. */
 const ENV_VARS: ReadonlyArray<{ type: DetectableProviderType; envVar: string }> = [
@@ -108,7 +108,7 @@ export function saveWizardProvider(
  * - otherwise brand-new → ask user vs project scope (default: user on
  *   absolute first run, project when a moh.json exists).
  */
-export type WizardPlan =
+type WizardPlan =
   | { kind: "new"; defaultScope: "user" | "project" }
   | { kind: "reuse"; existing: EndpointProfile }
   | { kind: "key-conflict"; existing: EndpointProfile }

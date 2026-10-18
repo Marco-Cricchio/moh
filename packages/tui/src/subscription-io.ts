@@ -17,7 +17,7 @@ import { spawn } from "node:child_process";
 import type { AuthorizationIo } from "@moh/core";
 
 /** Best-effort browser open: never throws; false headless/unknown OS. */
-export async function openUrlBestEffort(url: string): Promise<boolean> {
+async function openUrlBestEffort(url: string): Promise<boolean> {
   const cmd = process.platform === "darwin" ? "open" : process.platform === "win32" ? "cmd" : "xdg-open";
   const args = process.platform === "win32" ? ["/c", "start", "", url] : [url];
   return new Promise((resolve) => {

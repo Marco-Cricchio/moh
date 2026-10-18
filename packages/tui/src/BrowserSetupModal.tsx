@@ -53,7 +53,7 @@ import {
  * user's next act is to use the browser). A setting change waits for esc, so
  * several toggles cost one re-assembly instead of one each.
  */
-export interface BrowserSetupModalProps {
+interface BrowserSetupModalProps {
   /** Project root: its own `node_modules` wins over the moh toolchain. */
   cwd: string;
   /** User home; the moh-owned toolchain lives under `<home>/.moh` (#935). */

@@ -75,7 +75,7 @@ export function trackSubagents(events: ReadonlyArray<AgentEvent>): TrackedSubage
 export const PANEL_TAIL_LINES = 8;
 /** Settled chrome is intentionally ephemeral: its static transcript block
  * remains permanent, but the chip and peek leave after this grace window. */
-export const SETTLED_SUBAGENT_GRACE_MS = 30_000;
+const SETTLED_SUBAGENT_GRACE_MS = 30_000;
 
 /** One live view of a child: accumulated tail lines + activity. */
 export interface SubagentTail {
@@ -266,7 +266,7 @@ export function formatElapsed(ms: number): string {
 }
 
 /** Human-readable state label for the panel header ("running"/"stalled"/…). */
-export function subagentStateLabel(sub: TrackedSubagent, tail: SubagentTail | undefined, now: number): string {
+function subagentStateLabel(sub: TrackedSubagent, tail: SubagentTail | undefined, now: number): string {
   if (sub.status !== "running") return sub.status;
   return isStalled(sub, tail, now) ? "stalled" : "running";
 }

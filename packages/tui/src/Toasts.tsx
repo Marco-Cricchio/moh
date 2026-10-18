@@ -8,7 +8,7 @@ import { sanitizeForDisplay } from "@moh/core";
  * Transient one-line notices above the footer (style guide §3.6): toast,
  * don't block. Never modal, never more than a few seconds on screen.
  */
-export interface Toast {
+interface Toast {
   id: number;
   text: string;
   kind: "info" | "ok" | "warn";
@@ -20,7 +20,7 @@ export interface Toast {
 
 const TOAST_MS = 3500;
 
-export interface ToastsApi {
+interface ToastsApi {
   toasts: Toast[];
   push: (text: string, kind?: Toast["kind"], position?: Toast["position"]) => void;
 }

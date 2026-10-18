@@ -58,7 +58,7 @@ function panelKeyEvent(input: string, key: { name?: string; return?: boolean; es
   };
 }
 
-export interface ExtensionsRailProps {
+interface ExtensionsRailProps {
   panels: {
     extension: string;
     name: string;

@@ -14,7 +14,7 @@ import type { AgentSession } from "@moh/core";
  */
 
 /** Max lines kept in a running block's tail; older lines scroll out. */
-export const TOOL_TAIL_CAP = 9;
+const TOOL_TAIL_CAP = 9;
 
 export type ToolTailMap = Map<string, string[]>;
 

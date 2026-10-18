@@ -4,7 +4,7 @@
  * event log stays the sole source of truth (Principle 2) — this ledger is
  * presentation-only state, keyed to the live event stream, and never
  * persisted or merged into it. */
-export interface ToolTiming {
+interface ToolTiming {
   /** Wall-clock ms at the moment the tool_call event first appeared. */
   at: number;
   /** Final call→result duration in ms, once the tool_result arrived. */

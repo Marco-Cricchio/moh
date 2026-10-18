@@ -5,7 +5,7 @@ import { projectSidebar, type SidebarState } from "./sidebar";
 /** ~30fps coalescing window (docs/tui-style-guide.md §1 Q3). */
 const FLUSH_MS = 33;
 
-export interface SessionState {
+interface SessionState {
   /** Raw append-only log, used by the semantic transcript projection. */
   events: AgentEvent[];
   /** Turn count for the dev status line. */

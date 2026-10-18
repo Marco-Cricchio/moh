@@ -59,7 +59,7 @@ type Phase =
   | { kind: "conflict"; profile: EndpointProfile; existing: EndpointProfile }
   | { kind: "duplicate"; profile: EndpointProfile; existing: EndpointProfile };
 
-export interface OnboardingProps {
+interface OnboardingProps {
   cwd: string;
   /** Home dir for the user-level config (#129); default os homedir. */
   home?: string;

@@ -13,7 +13,7 @@ import { Dim, ScrollDialog, type ScrollRow } from "./ui";
  * as the core report it renders. The body scrolls inside the viewport:
  * long model/tool lists never overflow a short terminal.
  */
-export interface SessionModalProps {
+interface SessionModalProps {
   report: SessionAnalysisReport;
   onClose: () => void;
 }

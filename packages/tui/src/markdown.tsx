@@ -21,7 +21,7 @@ function mixHex(a: string, b: string, t: number): string {
 }
 
 /** One styled run of a rendered markdown row. */
-export interface StyledSegment {
+interface StyledSegment {
   text: string;
   color?: string;
   bold?: boolean;
@@ -168,7 +168,7 @@ const LANG_ALIASES: Record<string, string> = {
  * `preprocess` hook inside `createMarkdownRenderer`, so every parse (live
  * and streaming) passes through it.
  */
-export function normalizeTableSeparators(text: string): string {
+function normalizeTableSeparators(text: string): string {
   const lines = text.split("\n");
   const headerCols = (line: string): number => {
     const cells = line.split("|");
@@ -211,7 +211,7 @@ function tableCellWidth(text: string): number {
  * measure. Every column still has enough room to wrap a word, and excessive
  * intrinsic widths are capped so one URL cannot starve its neighbours.
  */
-export function adaptiveTableWidths(total: number, columns: readonly number[]): number[] {
+function adaptiveTableWidths(total: number, columns: readonly number[]): number[] {
   const count = columns.length;
   if (count === 0) return [];
   const min = 3;

@@ -61,7 +61,7 @@ const EMPTY_TOKENS: SidebarTokens = { contextIn: 0, totalOut: 0, calls: 0 };
  * would defeat the footer's memo comparison on every keystroke. */
 const EMPTY_EXTENSION_STATUSES: ExtensionStatus[] = [];
 
-export interface ChatProps {
+interface ChatProps {
   session: AgentSession;
   /** Working root (branch label + filesystem chrome read from here). */
   cwd: string;
@@ -1394,7 +1394,7 @@ export interface ReasoningHeadChain {
  * how many of its lines they cover, and where they sit in the Static items —
  * the settled block prints only the remainder, so a long reasoning stream
  * lands in scrollback exactly once. */
-export type SealedReasoningHead = Omit<ReasoningHeadChain, "key" | "reset">;
+type SealedReasoningHead = Omit<ReasoningHeadChain, "key" | "reset">;
 
 /** One #329 promotion step. Pure: takes the current chain and the leading
  * thinking block (key + lines), returns the advanced chain. Only lines past

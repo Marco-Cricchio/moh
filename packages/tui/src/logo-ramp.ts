@@ -26,7 +26,7 @@ export const RAMP_PRESETS = {
 
 export type RampPresetName = keyof typeof RAMP_PRESETS;
 
-export const RAMP_PRESET_NAMES = Object.keys(RAMP_PRESETS) as RampPresetName[];
+const RAMP_PRESET_NAMES = Object.keys(RAMP_PRESETS) as RampPresetName[];
 
 /** One preset per mount, uniformly. Injectable via props for tests. */
 export function pickRampPreset(): RampPresetName {

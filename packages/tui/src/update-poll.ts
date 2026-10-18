@@ -16,12 +16,12 @@
 export const UPDATE_POLL_INTERVAL_MS = 30 * 60_000;
 
 /** Injectable timer surface (defaults to the globals). */
-export interface PollTimers {
+interface PollTimers {
   set: (fn: () => void, ms: number) => unknown;
   clear: (id: unknown) => void;
 }
 
-export interface UpdatePollOptions {
+interface UpdatePollOptions {
   /** One tick: perform the checks. Sync or async. */
   fire: () => void | Promise<void>;
   intervalMs?: number;

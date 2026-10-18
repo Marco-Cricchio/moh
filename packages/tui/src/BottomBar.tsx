@@ -15,7 +15,7 @@ import { SAND_FRAMES, frameGlyph } from "./icons";
 /** TUI chrome also names the absence of an explicit canonical request. */
 export type DisplayThinkingLevel = ThinkingLevel | "default";
 export type ChipAction = "send" | "stop" | "model" | "mode" | "commands" | "settings" | "workflow" | "frontier" | "keep" | "install";
-export interface ChipSpec { key: string; label: ChipAction; color?: "purple" }
+interface ChipSpec { key: string; label: ChipAction; color?: "purple" }
 
 const ALL_CHIPS: ChipSpec[] = [
   { key: "⏎", label: "send" }, { key: "esc", label: "stop" },
@@ -68,7 +68,7 @@ export function ThinkingSeparator({ level, width }: { level: DisplayThinkingLeve
   return <Text color={color} bold={!single}>{"─".repeat(count)}</Text>;
 }
 
-export function thinkingEmoji(level: DisplayThinkingLevel): string {
+function thinkingEmoji(level: DisplayThinkingLevel): string {
   return ({ default: "·", off: "·", low: "🌱", medium: "⚙️", high: "🧠✨", xhigh: "🧠🔥", max: "🧠⚡" } as const)[level];
 }
 
@@ -189,7 +189,7 @@ export function footerVersionText(version: string): string {
 /** #619: the MPM status chip on the first status row, next to memory.
  * Silent and inspectable (owner decision): ✓ ready / ↻ updating / —
  * unavailable, with the word only when the terminal is wide. */
-export function MpmStatusChip({ status, wide, theme }: { status: "ready" | "updating" | "unavailable"; wide: boolean; theme: PaintableTheme }) {
+function MpmStatusChip({ status, wide, theme }: { status: "ready" | "updating" | "unavailable"; wide: boolean; theme: PaintableTheme }) {
   const spec = status === "ready"
     ? { glyph: "✓", color: theme.ok }
     : status === "updating"
@@ -210,7 +210,7 @@ export function MpmStatusChip({ status, wide, theme }: { status: "ready" | "upda
  * says what `active` alone would hide. The failure texts (`∅ jev offline`,
  * `∅ jev key rejected`) are different things on a different seam
  * (ADR-0032's status), and stay there. */
-export function JevStatusChip({ status, labelled, theme }: { status: JevStatusSummary; labelled: boolean; theme: PaintableTheme }) {
+function JevStatusChip({ status, labelled, theme }: { status: JevStatusSummary; labelled: boolean; theme: PaintableTheme }) {
   const spec = status === "active"
     ? { word: "active", color: theme.ok }
     : status === "partial"
@@ -352,7 +352,7 @@ export function laneBranchDisplay(branch: string, laneLabel: string | null | und
 
 /** #1012: tail-anchored elision for the compact cwd — the head goes first,
  * the project directory stays (`…/moh`). The anchor snaps forward to the
- * next path separator so the fragment starts on a boundary, never mid-word. */export function tailElidePath(value: string, max: number): string {
+ * next path separator so the fragment starts on a boundary, never mid-word. */function tailElidePath(value: string, max: number): string {
   if (value.length <= max) return value;
   let start = value.length - (max - 1);
   const slash = value.indexOf("/", Math.max(1, start));

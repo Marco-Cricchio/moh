@@ -69,7 +69,7 @@ export interface BrowserSetting {
 }
 
 /** The project file the Browser row reads and writes. */
-export function projectMohConfigFile(cwd: string): string {
+function projectMohConfigFile(cwd: string): string {
   return join(cwd, "moh.json");
 }
 
@@ -79,7 +79,7 @@ export function projectMohConfigFile(cwd: string): string {
  * validate, so the row can say "unreadable" instead of claiming "off" for a
  * file it never managed to read.
  */
-export interface BrowserSettingWithState extends BrowserSetting {
+interface BrowserSettingWithState extends BrowserSetting {
   /** The project `moh.json` could not be parsed/validated. */
   broken: boolean;
 }

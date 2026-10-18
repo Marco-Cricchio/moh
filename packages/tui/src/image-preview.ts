@@ -47,7 +47,7 @@ export interface PreviewImage {
 }
 
 /** Cell geometry for the emission (caller reads the live stdout size). */
-export interface PreviewCell {
+interface PreviewCell {
   columns: number;
   rows: number;
   /** Cell pixel size when known (kitty reports it); 0 = unknown. */

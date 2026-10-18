@@ -23,7 +23,7 @@ import { capReasoningText } from "./transcript";
  * the persisted log, so the volatile block hands over to the settled,
  * model-labelled block without a gap or a duplicate.
  */
-export interface LiveReasoningState {
+interface LiveReasoningState {
   text: string;
   /** True while the provider is still emitting reasoning deltas. */
   active: boolean;

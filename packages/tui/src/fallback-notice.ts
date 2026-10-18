@@ -11,7 +11,7 @@
  */
 import { formatModelPair, type AgentEvent } from "@moh/core";
 
-export type FallbackWatcher = (event: AgentEvent) => string | null;
+type FallbackWatcher = (event: AgentEvent) => string | null;
 
 const REASON_LABELS: Record<string, string> = {
   quota_exhausted: "quota exhausted",

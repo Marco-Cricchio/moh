@@ -75,7 +75,7 @@ const BOXES: { id: string; label: string }[] = [
   { id: "box:subagent", label: "◐ subagent" },
 ];
 
-export interface ThemeStudioModalProps {
+interface ThemeStudioModalProps {
   home: string;
   /** The preset the studio derives from. */
   base: string;
