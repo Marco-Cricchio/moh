@@ -334,3 +334,79 @@ decision introduced. Deliberately not exported: the reason text the
 startup diagnostic records (`withdrawnSubscriptionReason`) — it is core
 copy that reaches clients inside the `endpoint_auth_withdrawn` event, so
 it stays internal to its defining module.
+
+## Amendment — ablation (2026-10-18)
+
+The semantics of this decision are unchanged: the entry exports what a
+client or extension needs to live, everything else is internal, and
+re-opening a door is an explicit decision. This amendment records the
+public surface that results from applying the criterion to the whole
+`@moh/core` entry, and which names cited above have left it.
+
+### What changed
+
+The keep-criterion was applied to every name of the entry, removing the
+ones no client imports and no page under `docs/extending/` documents. The
+implementations stay in their modules; only the `export … from` lists of
+`packages/core/src/index.ts` changed. Tests import from the module that
+defines a name (principle 8, [ADR-0078](0078-lean-by-default.md)).
+
+Names removed from the entry, per change:
+
+- #1528 (S1.4a): 1
+- #1532 (S1.1): 1
+- #1533 (S1.4b): 5 — the handoff warm-up names left with their module,
+  which had no consumer
+- #1545 (auth): 101
+- #1546 (providers): 39
+- #1547 (sessions): 16
+- #1548 (extensions): 21
+- #1549 (handoff-lanes): 21
+- #1551 (project-services): 26
+- #1552 (S2.2c): 9 — only names documented solely in this ADR's history
+
+#1543 (S2.2a) rewrote the form of the index without changing its surface.
+
+### Resulting surface
+
+The entry exported 633 names before the ablation and exports 393 now
+(−240). Of those, 256 are imported by a client, 26 are on the keep-criterion
+allowlist (documented in `docs/extending/`) and 111 are on its shrinking
+baseline.
+
+### What holds the surface
+
+Three checks, described in [ADR-0078](0078-lean-by-default.md): the entry
+lists (G2), the keep-criterion check with its allowlist of documented names
+(G3) and the ratchet on unused exports (G4). The G3 and G4 lists are
+ratchets, not a licence to remove: they only shrink.
+
+### Names cited in this ADR that left the entry
+
+| Name | Cited in | Removed by |
+| --- | --- | --- |
+| `HandoffWarmupHints` | #620 amendment | #1533 |
+| `pathsFromTestCommands` | #620 amendment | #1533 |
+| `requestWarmup` | #620 amendment | #1533 |
+| `staysInsideRoot` | #620 amendment | #1533 |
+| `validatedWarmupPaths` | #620 amendment | #1533 |
+| `BuiltinProviderType` | Keep-list | #1552 |
+| `resolveProvider` | Keep-list | #1552 |
+| `resolveProviderRef` | Keep-list | #1552 |
+| `CHILD_TAIL_MAX_LINES` | #497 amendment | #1552 |
+| `childTailLine` | #497 amendment | #1552 |
+| `lineRef` | #575/#576/#577 amendment | #1552 |
+| `resolveHead` | #575/#576/#577 amendment | #1552 |
+| `isSubscriptionKind` | #1317 amendment | #1552 |
+
+The amendments above keep their original wording: they record the doors
+as they were opened.
+
+### What stays
+
+The names documented in `docs/extending/**`, the types reachable from the
+remaining exports and from `SessionConfig`/`sessionFromConfig`, and the
+capabilities `CONTEXT.md` presents to the user (#1379). #1380 keeps
+`concurrencyReport`, `quotaPressure` and `acceptedTaskFixture`. Names the
+earlier lots had already removed were not reintroduced by the type-closure
+rule (#1552).
