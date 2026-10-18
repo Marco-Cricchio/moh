@@ -39,7 +39,7 @@ export const JEV_RETRY_DELAY_MS = 300;
 export const JEV_RETRY_AFTER_MAX_MS = 1000;
 
 /** Instructions may be a plain string or structured JSON (docs: "advanced"). */
-export type JevInstructions = string | Record<string, unknown> | unknown[];
+type JevInstructions = string | Record<string, unknown> | unknown[];
 
 /** A yes/no question; the answer is the probability that the answer is yes. */
 export interface JevNoulQuestion {

@@ -25,7 +25,7 @@ import {
 } from "./classification";
 import { truncateToBytes } from "./routing";
 
-export interface ClassificationJudgeDeps {
+interface ClassificationJudgeDeps {
   client: Pick<JevClient, "judge">;
   /**
    * The one log seam: the extension turns this into `ctx.appendEvent`

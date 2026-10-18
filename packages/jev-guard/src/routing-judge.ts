@@ -25,7 +25,7 @@ import {
   type TierLabels,
 } from "./routing";
 
-export interface RoutingJudgeDeps {
+interface RoutingJudgeDeps {
   client: Pick<JevClient, "judge">;
   /** The extension's durable state store (streak + override live here). */
   state: Record<string, unknown>;
@@ -45,7 +45,7 @@ export interface RoutingResolution {
   readonly warnings: readonly string[];
 }
 
-export interface RoutingJudgeHost {
+interface RoutingJudgeHost {
   /** The core-resolved pool: the models this session can actually reach. */
   pool: () => Promise<RoutingPool>;
   /** The user's `<endpoint>/<model-id>` → tier labels from the config. */

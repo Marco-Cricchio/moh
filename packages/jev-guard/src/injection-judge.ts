@@ -38,7 +38,7 @@ import {
   type InjectionSource,
 } from "./injection";
 
-export interface InjectionJudgeDeps {
+interface InjectionJudgeDeps {
   client: Pick<JevClient, "judge">;
   /**
    * The one log seam: the extension turns this into `ctx.appendEvent`

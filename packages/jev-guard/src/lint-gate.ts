@@ -45,7 +45,7 @@ export function scopePaths(root: string, paths: readonly string[]): string[] {
   return kept;
 }
 
-export interface LintGateDeps {
+interface LintGateDeps {
   judge: Pick<LintJudge, "evaluate">;
   /** The project root (rubric discovery + git). */
   root: string;

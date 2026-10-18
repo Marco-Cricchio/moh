@@ -45,7 +45,7 @@ export interface JudgedSection {
   readonly preview: string;
 }
 
-export interface CompactionJudgeDeps {
+interface CompactionJudgeDeps {
   client: Pick<JevClient, "judge">;
   /**
    * The one log seam: the extension turns this into `ctx.appendEvent`
@@ -75,11 +75,11 @@ export const COMPACTION_JUDGE_CONCURRENCY = 8;
 /** #979: the window assumed when the runtime does not tell us one
  * (apiVersion < 1.9). It matches the core's default hook timeout: budgeting
  * against a smaller window than the real one only costs coverage. */
-export const COMPACTION_JUDGE_DEFAULT_WINDOW_MS = 5_000;
+const COMPACTION_JUDGE_DEFAULT_WINDOW_MS = 5_000;
 
 /** #979: how much of the hook window is left unused, so the answer — and
  * the aggregate record — still lands before the runtime stops waiting. */
-export const COMPACTION_JUDGE_WINDOW_MARGIN_MS = 250;
+const COMPACTION_JUDGE_WINDOW_MARGIN_MS = 250;
 
 /** Why offered sections carry no verdict. */
 export type CompactionUnjudgedReason = "budget" | "deadline" | "abandoned";

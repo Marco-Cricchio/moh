@@ -40,7 +40,7 @@ export interface GuardrailJudgeResult {
   signals?: GuardrailSignals;
 }
 
-export interface GuardrailJudgeDeps {
+interface GuardrailJudgeDeps {
   client: Pick<JevClient, "judge">;
   /** The extension state store (cache + last git snapshot live here). */
   state: Record<string, unknown>;
@@ -136,7 +136,7 @@ export function askBadge(signals: GuardrailSignals): { badge: string; keyDimensi
   };
 }
 
-export interface GuardrailJudgeHost {
+interface GuardrailJudgeHost {
   /** Current session mode; "yolo" switches to lethal-only checks. */
   mode: () => "normal" | "auto-accept" | "yolo";
   /** The effective cwd the bash command runs in (best-effort from args). */

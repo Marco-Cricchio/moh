@@ -29,7 +29,7 @@ export interface LintState {
 }
 
 /** The three probabilities, one per dimension. */
-export interface LintSignals {
+interface LintSignals {
   readonly conventions_respected: number;
   readonly error_handling: number;
   readonly completeness: number;
@@ -44,7 +44,7 @@ export interface LintVerdict {
   readonly decision: "pass" | "correct";
 }
 
-export interface LintJudgeDeps {
+interface LintJudgeDeps {
   client: Pick<JevClient, "judge">;
   /**
    * The one log seam: the extension turns this into `ctx.appendEvent`
