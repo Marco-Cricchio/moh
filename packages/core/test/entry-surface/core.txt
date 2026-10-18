@@ -22,12 +22,10 @@ BrowserToolchainInstallResult
 BrowserToolchainOptions
 BrowserToolchainProgress
 BrowserToolchainStatus
-BuiltinProviderType
 BundledActivationContext
 BundledExtensionSource
 BundledInstanceReader
 BundledWiring
-CHILD_TAIL_MAX_LINES
 CatalogModel
 ChildActivity
 ChildTailLine
@@ -137,7 +135,6 @@ PromptComposer
 Provider
 ProviderAddOptions
 ProviderProfile
-ProviderProfileId
 ProviderRegistry
 PublishHandoffOptions
 PublishHandoffResult
@@ -240,7 +237,6 @@ builtinTools
 catalogEntryFor
 checkForUpdate
 checkUpstreamUpdates
-childTailLine
 cloneHandoffRepo
 concurrencyReport
 createGistHandoffTransport
@@ -283,12 +279,10 @@ isHandoffStale
 isHttpMcpUrl
 isProjectIdentityPrepared
 isSessionOpen
-isSubscriptionKind
 isThinkingLevel
 knownCompatEndpointMetadata
 laneInstallLine
 lastAssistantText
-lineRef
 listInstalledExtensions
 listOpenAiCompatModels
 listSessionSummaries
@@ -357,11 +351,8 @@ renderTosCard
 reportNeedsNotice
 resolveEndpointThinking
 resolveEventRef
-resolveHead
 resolveMaxIterations
 resolveMpmConfig
-resolveProvider
-resolveProviderRef
 resolveTracker
 resolveTrackerSync
 restoreSession

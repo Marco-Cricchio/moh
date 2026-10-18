@@ -110,11 +110,7 @@ export {
   // #579: bookmark writer seam (see the import comment above).
   bookmarkNode,
   resolveEventRef,
-  lineRef,
   parseLineRef,
-  // #576: head resolution (branch-aware) lives in session/event-log.
-  // #576: session-tree surface — head resolution + reference helpers.
-  resolveHead,
   // #577: the active-path projection (root→head linearization) — the
   // ADR-0004 reopening that lets clients (TUI /tree, CLI renderers,
   // tooling) read the same linear path the model context sees.
@@ -145,8 +141,6 @@ export type { SessionMode } from "./permissions";
 export {
   type ProviderRegistry,
   defaultRegistry,
-  resolveProvider,
-  resolveProviderRef,
   fallbackIneligibleReason,
 } from "./provider-registry";
 export { type MemoryOptions } from "./memory";
@@ -211,8 +205,6 @@ export { laneInstallLine, type LaneInstallOutcome } from "./lane-install";
 // without full replay and without holding the child AgentSession.
 export {
   tailChildLog,
-  childTailLine,
-  CHILD_TAIL_MAX_LINES,
   type ChildTailLine,
   type ChildActivity,
   type ChildTailResult,
@@ -360,13 +352,12 @@ export {
   KNOWN_COMPAT_ENDPOINTS,
   OPENCODE_AUTH_URL,
   OPENCODE_ENDPOINTS,
-  type BuiltinProviderType,
   type ConnectionTestResult,
   type ConnectionTester,
   type OnboardingIo,
   type ProviderAddOptions,
 } from "./provider-onboarding";
-export { PROVIDER_PROFILES, providerProfile, providerEndpointChoices, providerRequiresBaseUrlInput, type ProviderProfile, type ProviderProfileId } from "./provider-profiles";
+export { PROVIDER_PROFILES, providerProfile, providerEndpointChoices, providerRequiresBaseUrlInput, type ProviderProfile } from "./provider-profiles";
 export { catalogEntryFor, pricingForModel, pricingForPlan, endpointModelCatalog, knownCompatEndpointMetadata, subscriptionModelCatalog, type BillingPlan, type CatalogModel, type ModelPricing, type ModelPricingTier } from "./model-catalog";
 export { billingPlanResolver, estimateModelCost, PRICING_SNAPSHOT, type ModelCostEstimate } from "./pricing";
 // #993: the live reasoning channel's fold — the one rule shared by the log
@@ -443,7 +434,6 @@ export {
   type BrowserToolchainProgress,
 } from "./browser-toolchain";
 export {
-  isSubscriptionKind,
   offersSubscriptionAuth,
   providerLogin,
   providerLogout,
