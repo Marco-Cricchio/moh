@@ -6,9 +6,7 @@ BillingPlan
 BillingPlanResolver
 BrowserBuildStatus
 BrowserToolchainProgress
-BuiltinProviderType
 BundledExtensionSource
-CHILD_TAIL_MAX_LINES
 ChildActivity
 ChildTailResult
 CleanupCandidate
@@ -68,7 +66,6 @@ PerformanceModelRow
 PermissionOverrides
 PermissionRule
 ProviderProfile
-ProviderProfileId
 ProviderRegistry
 PublishHandoffOptions
 PublishHandoffResult
@@ -111,10 +108,4 @@ TelemetrySessionRow
 TelemetrySubagentRow
 TelemetryToolRow
 VerificationCategory
-childTailLine
 defaultRegistry
-isSubscriptionKind
-lineRef
-resolveHead
-resolveProvider
-resolveProviderRef

@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { createSession, defaultRegistry, loadMohConfig, MockProvider, resolveProvider, resolveProviderRef, type EndpointProfile, type MohConfig, type Provider } from "../src/index";
-import { ProviderRegistry } from "../src/provider-registry";
+import { createSession, defaultRegistry, loadMohConfig, MockProvider, type EndpointProfile, type MohConfig, type Provider } from "../src/index";
+import { ProviderRegistry, resolveProvider, resolveProviderRef } from "../src/provider-registry";
 import type { Message, StreamEvent } from "../src/types";
 
 function scriptedProvider(): Provider {
