@@ -5,8 +5,8 @@
  * no credentials, unsupported kind, HTTP error, or drifted schema.
  * A broken remote must degrade to a local-only display, never an error.
  *
- * Per-provider details live in isolated sibling modules (anthropic.ts,
- * openai.ts, …) so schema churn is a local fix (ADR-0004 criterion:
+ * Per-provider details live in one sibling module (probes.ts) so
+ * schema churn is a local fix (ADR-0004 criterion:
  * small stable export; endpoint churn never surfaces).
  */
 import type { EndpointProfile } from "../config";
@@ -15,13 +15,7 @@ import { userConfigFile } from "../user-config";
 import { readStoredTokens } from "../auth/store";
 import type { AuthToken } from "../auth/types";
 import type { QuotaFetch, QuotaOptions, QuotaReport } from "./types";
-import { probeAnthropic } from "./anthropic";
-import { probeOpenai } from "./openai";
-import { probeCopilot } from "./copilot";
-import { probeOpenrouter } from "./openrouter";
-import { probeXai } from "./xai";
-import { probeKimi } from "./kimi";
-import { probeZai } from "./zai";
+import { probeAnthropic, probeOpenai, probeCopilot, probeOpenrouter, probeXai, probeKimi, probeZai } from "./probes";
 
 
 const defaultFetch: QuotaFetch = async (url, headers) => {
