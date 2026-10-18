@@ -42,7 +42,7 @@ function truncate(text: string): string {
  * can never land inside by accident (the realpath of the ancestor already
  * absorbed it).
  */
-export function resolvedInRoot(path: string, root: string): string {
+function resolvedInRoot(path: string, root: string): string {
   const abs = isAbsolute(path) ? path : resolve(root, path);
   let real: string;
   try {
@@ -110,7 +110,7 @@ function inAnyRoot(path: string, roots: readonly string[], scope: FilesystemScop
  * symlink-awareness is preserved — the path is resolved, never trusted
  * lexically); only the final under-root assertion is skipped.
  */
-export function resolvedUnrestricted(path: string, cwd: string): string {
+function resolvedUnrestricted(path: string, cwd: string): string {
   const abs = isAbsolute(path) ? path : resolve(cwd, path);
   try {
     return realpathSync(abs);
@@ -1025,7 +1025,7 @@ export function requestPinnedUrl(
  * Returns null when no pinning applies (numeric/private hosts under the
  * explicit `MOH_FETCH_ALLOW_PRIVATE=1` opt-out resolve normally).
  */
-export type FetchLookup = (host: string) => Promise<{ address: string; family: number }[]>;
+type FetchLookup = (host: string) => Promise<{ address: string; family: number }[]>;
 
 /** Resolve and verify one URL once. The optional lookup seam makes the
  * DNS-rebinding invariant deterministic in tests; production uses
@@ -1146,7 +1146,7 @@ function assertFetchable(rawUrl: string): URL {
   return url;
 }
 
-export interface FetchTransportDeps {
+interface FetchTransportDeps {
   lookup?: FetchLookup;
   requestPinned?: typeof requestPinnedUrl;
 }
@@ -1513,7 +1513,7 @@ function askUserAnswerLine(question: AskUserQuestion, answer: AskUserAnswer): st
 
 /** The settled result of one ask_user set (ADR-0019): question → answer
  * lines, or an explicit "cancelled" when the user aborted the set. */
-export function formatAskUserSetResult(
+function formatAskUserSetResult(
   questions: AskUserQuestion[],
   result: AskUserSetResult,
 ): string {

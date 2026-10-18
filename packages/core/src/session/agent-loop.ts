@@ -52,7 +52,7 @@ const ROUTE_HANDLED_ERROR_KINDS = new Set(["quota_exhausted", "rate_limited", "n
  * budget ends the turn exactly as a consultation without an answer.
  * Four: #1110's routing pool budget (up to 4 same-tier candidates) must
  * be spendable within one turn. */
-export const MAX_MODEL_ERROR_RETRIES = 4;
+const MAX_MODEL_ERROR_RETRIES = 4;
 
 /**
  * #1099: a detail field is counted only when it is a finite number —
@@ -73,7 +73,7 @@ function endpointIdentityOf(provider: Provider): EndpointIdentity {
 }
 
 /** The extension surface AgentLoop needs — satisfied by ExtensionRuntime. */
-export type LoopExtensions = Pick<ExtensionRuntime, "dispatchBeforeModelCall">;
+type LoopExtensions = Pick<ExtensionRuntime, "dispatchBeforeModelCall">;
 /**
  * ADR-0033: the turn-start seam. `dispatch` runs the extensions'
  * `beforeTurn` hooks (once per user send, before the provider is read);
@@ -82,7 +82,7 @@ export type LoopExtensions = Pick<ExtensionRuntime, "dispatchBeforeModelCall">;
  * chrome). The loop never invents a model: an unresolvable ref is a
  * visible `extension_failed`, and the turn proceeds on the active model.
  */
-export interface LoopBeforeTurn {
+interface LoopBeforeTurn {
   dispatch(text: string, turnIndex: number, model: string): Promise<BeforeTurnDispatch>;
   applyModel(ref: string): { ok: true; model: string } | { ok: false; error: string; reason?: "context_length" };
   /**
@@ -109,7 +109,7 @@ export interface LoopBeforeTurn {
  * the session owns (it appends the `model_switched` / `switch_refused`
  * chrome). Absent = no extension can keep a failing turn alive.
  */
-export interface LoopModelRetry {
+interface LoopModelRetry {
   dispatch(ctx: { model: string; errorKind: string; message: string }): Promise<{
     model?: string;
     by?: string;
@@ -137,14 +137,14 @@ export function resolveMaxIterations(configured?: number): number {
 }
 
 /** The tool-execution surface AgentLoop needs — satisfied by ToolRunner (#91). */
-export interface LoopToolRunner {
+interface LoopToolRunner {
   run(
     calls: ToolCall[],
     signal: AbortSignal,
   ): Promise<{ outcome: "ok" | "aborted"; parts: Message["parts"] }>;
 }
 
-export interface AgentLoopOptions {
+interface AgentLoopOptions {
   provider: () => Provider;
   /** Iteration cap per turn. */
   maxIterations: number;

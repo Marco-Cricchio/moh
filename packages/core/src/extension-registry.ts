@@ -25,12 +25,12 @@ import { TOOL_SCOPE_PREFIX, CONTRIBUTE_TOOL_SCOPE_PREFIX, validateToolScope, val
 import { ENDPOINT_SCOPE_PREFIX, validateEndpointScope } from "./endpoint-scope";
 import { removeExtensionDeps } from "./extension-deps";
 
-export const EXTENSION_REGISTRY_USAGE_LINES = {
+const EXTENSION_REGISTRY_USAGE_LINES = {
   npm: "@scope/name[@version] — an npm scoped package",
   github: "github:owner/repo[@tag] — a GitHub release (repo + tag)",
 } as const;
 
-export type ExtensionRef =
+type ExtensionRef =
   | { source: "npm"; package: string; version?: string }
   | { source: "github"; owner: string; repo: string; tag?: string };
 
@@ -128,7 +128,7 @@ export function realRegistryIo(): RegistryIo {
 }
 
 /** One installed extension as `list` reports it. */
-export interface InstalledExtension {
+interface InstalledExtension {
   name: string;
   version: string;
   /** Where the package directory lives. */
@@ -143,14 +143,14 @@ export interface InstalledExtension {
   ignoredDuplicates?: readonly string[];
 }
 
-export interface InstallOptions {
+interface InstallOptions {
   ref: ExtensionRef;
   /** Destination root: the user dotdir (`<home>/.moh`) or the project (`cwd`). */
   destRoot: string;
   io: RegistryIo;
 }
 
-export type InstallResult =
+type InstallResult =
   | { ok: true; name: string; version: string; dir: string; warnings: string[]; notes: string[] }
   | { ok: false; reason: string; expected?: string; actual?: string };
 
@@ -161,7 +161,7 @@ export interface NpmPackument {
 }
 
 /** A GitHub release (the REST shape subset we read). */
-export interface GithubRelease {
+interface GithubRelease {
   tag_name?: string;
   assets?: readonly { name?: string; browser_download_url?: string }[];
   tarball_url?: string;
@@ -206,7 +206,7 @@ function checkManifest(pkgDir: string): { manifest: ExtensionManifest; warnings:
 }
 
 /** The capability slots the shipped host knows (ADR-0053/0061/0062). Unknown ones warn. */
-export const KNOWN_CAPABILITY_SLOTS: readonly string[] = [
+const KNOWN_CAPABILITY_SLOTS: readonly string[] = [
   "observe",
   "veto",
   "ask",
@@ -377,7 +377,7 @@ async function extractAndCheck(input: {
 }
 
 /** Where installed packages live, per scope. */
-export function registryRoots(options: { mohHome: string; cwd: string }): { scope: "user" | "project"; root: string }[] {
+function registryRoots(options: { mohHome: string; cwd: string }): { scope: "user" | "project"; root: string }[] {
   return [
     { scope: "user", root: join(options.mohHome, "extensions") },
     { scope: "project", root: resolve(join(options.cwd, "extensions")) },

@@ -6,9 +6,9 @@
  */
 import type { QuotaFetch, QuotaReport } from "./types";
 
-export const OPENAI_WHAM_USAGE_URL = "https://chatgpt.com/backend-api/wham/usage";
+const OPENAI_WHAM_USAGE_URL = "https://chatgpt.com/backend-api/wham/usage";
 
-export interface OpenaiProbeInput {
+interface OpenaiProbeInput {
   token?: { accessToken: string; grant?: Record<string, unknown> };
   apiKey?: string;
   baseUrl?: string;

@@ -24,7 +24,7 @@ export type ProviderKind =
   | "mock"
   | "custom";
 
-export interface EndpointConfig {
+interface EndpointConfig {
   /** Endpoint name, e.g. "anthropic-work". Drives MOH_ENDPOINT_<NAME>_API_KEY. */
   name: string;
   kind: ProviderKind;
@@ -77,7 +77,7 @@ export function envApiKey(endpointName: string, env: Record<string, string | und
 }
 
 /** Documented provider credential fallback. Endpoint-specific MOH_ENDPOINT_* wins. */
-export function providerApiKey(kind: string, env: Record<string, string | undefined> = process.env): string | undefined {
+function providerApiKey(kind: string, env: Record<string, string | undefined> = process.env): string | undefined {
   if (kind === "opencode") return env.OPENCODE_API_KEY;
   const key = providerProfile(kind)?.apiKeyEnv;
   return key ? env[key] : undefined;
@@ -91,7 +91,7 @@ export function resolveApiKey(endpointName: string, kind: string, env: Record<st
  * failure that put it there, and when it expires. The same shape travels in
  * both directions — out through `Route.health()` (the routing layer reads
  * it) and down through `RouteConfig.inherited` (a child is born knowing it). */
-export interface RouteCooldown {
+interface RouteCooldown {
   ref: string;
   kind: string;
   until: number;
@@ -130,7 +130,7 @@ export interface RouteTarget {
   thinkingFormat?: ThinkingFormat;
 }
 
-export interface RouteConfig {
+interface RouteConfig {
   /** Primary target: `endpoint/model-id`. */
   target: RouteTarget;
   /** Declared fallback chain, tried in order. No model equivalence assumed. */

@@ -58,9 +58,9 @@ export const OPENAI_SCOPES = [
 ] as const;
 
 /** RFC 8693 constants (server.rs obtain_api_key). */
-export const TOKEN_EXCHANGE_GRANT = "urn:ietf:params:oauth:grant-type:token-exchange";
-export const REQUESTED_TOKEN = "openai-api-key";
-export const ID_TOKEN_TYPE = "urn:ietf:params:oauth:token-type:id_token";
+const TOKEN_EXCHANGE_GRANT = "urn:ietf:params:oauth:grant-type:token-exchange";
+const REQUESTED_TOKEN = "openai-api-key";
+const ID_TOKEN_TYPE = "urn:ietf:params:oauth:token-type:id_token";
 
 /** Codex CLI's originator header value (also sent to the ChatGPT backend). */
 export const CHATGPT_CODEX_ORIGINATOR = "codex_cli_rs";
@@ -68,7 +68,7 @@ export const CHATGPT_CODEX_ORIGINATOR = "codex_cli_rs";
 /** ChatGPT-mode backend used when subscription-authed (research §2). */
 export const CHATGPT_CODEX_BASE_URL = "https://chatgpt.com/backend-api/codex";
 
-export interface OpenAiOAuthConfig {
+interface OpenAiOAuthConfig {
   issuer: string;
   clientId: string;
   ports: readonly number[];
@@ -105,7 +105,7 @@ export type OpenAiEndpointFetch = (
   body: Record<string, unknown>,
 ) => Promise<{ status: number; json: Record<string, unknown> }>;
 
-export const defaultOpenAiEndpointFetch: OpenAiEndpointFetch = async (url, body) => {
+const defaultOpenAiEndpointFetch: OpenAiEndpointFetch = async (url, body) => {
   const res = await fetch(url, {
     method: "POST",
     headers: { "content-type": "application/json" },

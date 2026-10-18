@@ -29,7 +29,7 @@ export const handoffConfigSchema = z.object({
   onboarding: z.enum(["dismissed", "reminded"]).optional(),
 });
 
-export type HandoffConfig = z.infer<typeof handoffConfigSchema>;
+type HandoffConfig = z.infer<typeof handoffConfigSchema>;
 
 /** True when the transport is configured and active. Absent/none = off. */
 export function transportActive(config: HandoffConfig | undefined): boolean {
@@ -49,17 +49,17 @@ export interface HandoffReference {
   updatedAt: string;
 }
 
-export type HandoffTicketRelation = "claimed" | "mentioned";
+type HandoffTicketRelation = "claimed" | "mentioned";
 
 /** A session-linked Wayfinder ticket, distilled from the event log. */
-export interface HandoffWayfinderLink {
+interface HandoffWayfinderLink {
   id: string;
   relations: HandoffTicketRelation[];
 }
 
 /** Read-only Wayfinder context attached at publish time. The raw links are
  * crash-safe local state; citations and frontier are a best-effort snapshot. */
-export interface HandoffWayfinderContext {
+interface HandoffWayfinderContext {
   tickets: Array<HandoffWayfinderLink & { title: string; url?: string }>;
   frontier: { ready: number; inProgress: number; blocked: number };
 }
@@ -108,10 +108,10 @@ export interface RawHandoff {
 }
 
 /** Caps: the artifact is a bridge, not a transcript. */
-export const MAX_FILES = 200;
-export const MAX_TESTS = 50;
-export const MAX_MESSAGE_CHARS = 4_000;
-export const MAX_USER_CHARS = 500;
+const MAX_FILES = 200;
+const MAX_TESTS = 50;
+const MAX_MESSAGE_CHARS = 4_000;
+const MAX_USER_CHARS = 500;
 
 /** Tool names whose args declare a touched file path. */
 const FILE_TOOLS = new Set(["write", "edit"]);
@@ -147,7 +147,7 @@ function ticketReferences(text: string): string[] {
 
 /** Links come only from model-visible messages and successful tracker claims:
  * tool results remain private and failed claims never become working state. */
-export function wayfinderLinksFromEvents(events: ReadonlyArray<AgentEvent>): HandoffWayfinderLink[] {
+function wayfinderLinksFromEvents(events: ReadonlyArray<AgentEvent>): HandoffWayfinderLink[] {
   const relations = new Map<string, Set<HandoffTicketRelation>>();
   const claims = new Map<string, string>();
   const add = (id: string, relation: HandoffTicketRelation) => {

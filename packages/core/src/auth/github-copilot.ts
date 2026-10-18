@@ -24,14 +24,14 @@ import { pollDeviceCodeFlow, type DeviceFlowClock, type DevicePollOptions, type 
 
 /** pi stores this base64-obfuscated; moh keeps the literal. */
 export const COPILOT_CLIENT_ID = "Iv1.b507a08c87ecfe98";
-export const COPILOT_DEVICE_SCOPE = "read:user";
+const COPILOT_DEVICE_SCOPE = "read:user";
 
-export const COPILOT_OAUTH_DEFAULTS = {
+const COPILOT_OAUTH_DEFAULTS = {
   domain: "github.com",
 } as const;
 
 /** The copilot token exchange endpoint (api.<domain> pattern). */
-export function copilotTokenUrl(domain: string): string {
+function copilotTokenUrl(domain: string): string {
   return `https://api.${domain}/copilot_internal/v2/token`;
 }
 
@@ -47,7 +47,7 @@ export const COPILOT_EDITOR_HEADERS = {
 export const COPILOT_DEFAULT_BASE_URL = "https://api.individual.githubcopilot.com";
 
 /** Token responses skew 5 minutes early (pi's expires_at - 5min). */
-export const COPILOT_REFRESH_SKEW_MS = 5 * 60 * 1000;
+const COPILOT_REFRESH_SKEW_MS = 5 * 60 * 1000;
 
 /** Normalizes a user-entered domain/URL to a hostname (pi's normalizeDomain). */
 export function normalizeGithubDomain(input: string): string | null {
@@ -97,7 +97,7 @@ export type CopilotEndpointFetch = (
   init: { method?: string; body?: Record<string, string>; headers?: Record<string, string> },
 ) => Promise<{ status: number; json: Record<string, unknown> }>;
 
-export const defaultCopilotEndpointFetch: CopilotEndpointFetch = async (url, init) => {
+const defaultCopilotEndpointFetch: CopilotEndpointFetch = async (url, init) => {
   const res = await fetch(url, {
     method: init.method ?? "POST",
     headers: {

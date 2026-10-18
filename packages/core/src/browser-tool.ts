@@ -51,7 +51,7 @@ const readTierSchema = z.discriminatedUnion("action", [
   z.object({ action: z.literal("eval_js"), expression: z.string().min(1) }),
 ]);
 
-export interface BrowserToolOptions {
+interface BrowserToolOptions {
   session: BrowserSession;
   /** Exact-host SSRF escape hatch (spec: browser.allowedHosts). */
   allowedHosts?: readonly string[];
@@ -82,7 +82,7 @@ export interface BrowserToolOptions {
  * image part on the tool_result when the serving model declares image
  * input (#490 pipeline), else renders the visible chip + warning text.
  */
-export interface ScreenshotToolResult {
+interface ScreenshotToolResult {
   __screenshot: true;
   mime: string;
   base64: string;

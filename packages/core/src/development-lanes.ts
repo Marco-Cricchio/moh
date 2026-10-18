@@ -63,7 +63,7 @@ export interface CreateLaneInput {
   parentLaneId?: string;
 }
 
-export interface LaneStoreOptions {
+interface LaneStoreOptions {
   /** The project root whose user-owned lane state is being managed. */
   cwd: string;
   /** Injectable home for tests and alternate clients. */

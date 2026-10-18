@@ -74,7 +74,7 @@ type HostOpName = "read" | "write" | "append" | "rename" | "delete" | "readlink"
  * half of `ctx.host.runTool`. The runtime owns scope + logging; the
  * session owns lookup, gate and execution (the normal ToolRunner path).
  */
-export interface ToolSeam {
+interface ToolSeam {
   runTool(request: { extension: string; tool: string; args: unknown }): Promise<
     | { ok: true; output: string }
     | { ok: false; reason: "unknown_tool" | "denied" | "failed"; message?: string }
@@ -88,7 +88,7 @@ export interface ToolSeam {
  * Route execution, the thinking-capability check and usage accounting.
  * Credentials never cross this seam in either direction.
  */
-export interface ModelSeam {
+interface ModelSeam {
   modelCall(request: {
     extension: string;
     endpoint: string;
@@ -121,7 +121,7 @@ import { assertNoExtensionScope, runInExtensionScope } from "./extension-scope";
  * `SectionName`s, typed loosely here so the runtime stays independent of
  * the composer's internals.
  */
-export interface BeforeModelCallDispatch {
+interface BeforeModelCallDispatch {
   readonly replacements: {
     by: string;
     /** The extension's version — the provenance line and the record name it. */
@@ -164,7 +164,7 @@ export interface BeforeTurnDispatch {
  * absent, or present with `by` naming the extension that withheld);
  * `errors` are the fail-open `extension_failed` records to append.
  */
-export interface ToolResultDispatch {
+interface ToolResultDispatch {
   readonly withheld?: string;
   readonly by?: string;
   readonly errors: AgentEvent[];
@@ -210,7 +210,7 @@ export interface ExtensionConsentRequest {
   dependencies?: readonly string[];
 }
 
-export interface ExtensionRuntimeOptions {
+interface ExtensionRuntimeOptions {
   /** User-level moh dir. Consent + dependency approvals persist in `<mohHome>/extensions.json`. Default `~/.moh`. */
   mohHome?: string;
   /**
@@ -305,7 +305,7 @@ export interface ExtensionRuntimeOptions {
 
 /** `register` options: trust is a property of the code being registered,
  * not of the runtime that hosts it. */
-export interface RegisterOptions {
+interface RegisterOptions {
   /** The host shipped these bytes (bundled first-party code): consent and
    * dependency authorization are skipped. Never for a path-loaded module. */
   bundled?: boolean;
@@ -325,7 +325,7 @@ export interface RegisterOptions {
  * runtime. `write` is where the events an extension appends during those
  * dispatches go: the child's own log, never the parent's channel.
  */
-export interface SessionScope {
+interface SessionScope {
   /** The borrowing session's opaque identity (diagnostics, tests). */
   readonly id: string;
   /** Append one extension-produced event to the borrowing session's log. */
@@ -356,7 +356,7 @@ interface HookSet {
 }
 
 /** ADR-0037: the maximum consecutive synthetic turns one extension gets. */
-export const MAX_CONSECUTIVE_SYNTHETIC_TURNS = 2;
+const MAX_CONSECUTIVE_SYNTHETIC_TURNS = 2;
 
 /**
  * ADR-0056 (#1126): the default wall-clock ceiling for every turn-path
@@ -453,7 +453,7 @@ function loadedEvent(instance: RuntimeExtension): AgentEvent {
 }
 
 /** The invocation outcome of one extension command (ADR-0062). */
-export type ExtensionCommandResult =
+type ExtensionCommandResult =
   | { ok: true; extension: string; output: string }
   | { ok: false; error: string };
 

@@ -10,7 +10,7 @@ import { execFileSync } from "node:child_process";
 import { hostname } from "node:os";
 
 /** Lock file payload; `v` gates forward-compatible parsing. */
-export interface LockOwner {
+interface LockOwner {
   v: 1;
   pid: number;
   machineId: string;
@@ -83,7 +83,7 @@ export function setLockIdentityForTests(id: string | undefined, boot?: number): 
 }
 
 /** `kill(pid, 0)` liveness probe; false for dead/recycled-away pids. */
-export function isProcessAlive(pid: number): boolean {
+function isProcessAlive(pid: number): boolean {
   if (!Number.isInteger(pid) || pid <= 0) return false;
   try {
     process.kill(pid, 0);

@@ -20,7 +20,7 @@ export const SCHEMA_VERSION = 2;
  * ADR-0038: the opaque, JSON-serializable command payload a client sends to
  * one extension. The core never interprets it.
  */
-export type ExtensionControlPayload = Record<string, unknown>;
+type ExtensionControlPayload = Record<string, unknown>;
 
 export interface EventIdentity {
   id?: string;
@@ -41,17 +41,17 @@ import type { FilesystemScope, PermissionRule } from "./permissions";
 import type { SkillArgs } from "./skill-args";
 import type { MentionAttachment, MentionWarning } from "./mentions";
 
-export type TextPart = { kind: "text"; text: string };
+type TextPart = { kind: "text"; text: string };
 /** Vision note 4: an image riding a user message as a multimodal content
  * block — bytes are the base64 of the `user_message` attachment (they must
  * stay identical for replay to rebuild the exact provider context). */
-export type ImagePart = { kind: "image"; mime: string; base64: string };
+type ImagePart = { kind: "image"; mime: string; base64: string };
 /** #240: provider-exposed reasoning attached to an assistant message —
  * completed text plus the provider's opaque continuation artifacts
  * (e.g. a signature) required to resume the exact provider context. */
 export type ReasoningPart = { kind: "reasoning"; text: string; continuation?: Record<string, unknown> };
-export type ToolCallPart = ToolCall & { kind: "tool_call" };
-export type ToolResultPart = { kind: "tool_result"; callId: string; ok: boolean; output: string; /** #731: structured failure reason — failures only. */ errorKind?: ToolErrorKind; /** #778: screenshot pixels when image-capable (rides the #490 pipeline). */ image?: { mime: string; base64: string } };
+type ToolCallPart = ToolCall & { kind: "tool_call" };
+type ToolResultPart = { kind: "tool_result"; callId: string; ok: boolean; output: string; /** #731: structured failure reason — failures only. */ errorKind?: ToolErrorKind; /** #778: screenshot pixels when image-capable (rides the #490 pipeline). */ image?: { mime: string; base64: string } };
 export type MessagePart = TextPart | ImagePart | ReasoningPart | ToolCallPart | ToolResultPart;
 
 /**
@@ -923,15 +923,15 @@ export interface ExtensionStatus {
 }
 
 /** Why an "ask" decision was auto-granted (session mode), never a user round-trip. */
-export type PermissionGrantReason = "yolo" | "auto_accept" | "user";
+type PermissionGrantReason = "yolo" | "auto_accept" | "user";
 
-export type TurnStatus = "done" | "error" | "cancelled";
+type TurnStatus = "done" | "error" | "cancelled";
 
 /** One selectable answer of an ask_user question: short label, a
  * description shown to the user, and optional preview content (markdown
  * or text) rendered beside the question when the option is focused and
  * echoed to the model on selection (ADR-0019). */
-export interface AskUserOption {
+interface AskUserOption {
   label: string;
   description: string;
   /** Optional side-by-side preview content; echoed on selection. */

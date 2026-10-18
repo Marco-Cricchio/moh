@@ -49,15 +49,15 @@ export function openaiNativeAuthContext(token: AuthToken): EndpointAuthContext {
 }
 
 /** Refresh when the access token expires within this window (Codex-style). */
-export const REFRESH_WINDOW_MS = 5 * 60 * 1000;
+const REFRESH_WINDOW_MS = 5 * 60 * 1000;
 
 /** HTTP seam shared by all three provider refresh grants (test seam). */
-export type TokenFetch = (
+type TokenFetch = (
   url: string,
   body: Record<string, unknown>,
 ) => Promise<{ status: number; json: Record<string, unknown> }>;
 
-export interface CredentialResolveOptions {
+interface CredentialResolveOptions {
   /** Auth store location. Default: `~/.moh/config` via the guardian. */
   configFile?: string;
   /** Clock, epoch ms. Default: `Date.now()`. */

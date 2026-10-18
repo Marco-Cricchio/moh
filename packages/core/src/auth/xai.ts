@@ -23,11 +23,11 @@ export const XAI_SCOPES = "openid profile email offline_access grok-cli:access a
 export const XAI_API_BASE_URL = "https://api.x.ai/v1";
 
 /** Refresh slightly before the reported expiry (pi's REFRESH_SKEW_MS). */
-export const XAI_REFRESH_SKEW_MS = 5 * 60 * 1000;
+const XAI_REFRESH_SKEW_MS = 5 * 60 * 1000;
 /** pi's fallback when the token response omits expires_in. */
 const DEFAULT_TOKEN_LIFETIME_SECONDS = 3600;
 
-export interface XaiOAuthConfig {
+interface XaiOAuthConfig {
   deviceCodeUrl: string;
   tokenUrl: string;
   clientId: string;
@@ -44,7 +44,7 @@ export type XaiEndpointFetch = (
   body: Record<string, unknown>,
 ) => Promise<{ status: number; json: Record<string, unknown> }>;
 
-export const defaultXaiEndpointFetch: XaiEndpointFetch = async (url, body) => {
+const defaultXaiEndpointFetch: XaiEndpointFetch = async (url, body) => {
   const res = await fetch(url, {
     method: "POST",
     headers: { accept: "application/json", "content-type": "application/x-www-form-urlencoded" },

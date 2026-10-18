@@ -1,6 +1,6 @@
 import type { TurnResult } from "../types";
 
-export interface TurnQueueOptions {
+interface TurnQueueOptions {
   /**
    * Runs one turn for the given text under the given controller. The
    * queue owns preemption; the executor owns the turn itself.

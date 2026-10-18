@@ -25,12 +25,12 @@ export { THINKING_LEVELS };
 /** #256: a configuration-declared thinking capability (the schema lives
  * in config.ts; this is the core-side shape the capability calculation
  * reads). */
-export interface ThinkingDeclaration {
+interface ThinkingDeclaration {
   format: ThinkingFormat;
   levels: ThinkingLevel[];
 }
 
-export interface ThinkingModelDeclaration {
+interface ThinkingModelDeclaration {
   format?: ThinkingFormat;
   levels: ThinkingLevel[];
 }
@@ -172,7 +172,7 @@ export function effectiveThinkingLevel(
 }
 
 /** The `thinkingLevels` section of `~/.moh/config`: endpoint name → level. */
-export type ThinkingPreferences = Record<string, ThinkingLevel>;
+type ThinkingPreferences = Record<string, ThinkingLevel>;
 
 function readSection(file: string, read?: (file: string) => string): ThinkingPreferences {
   const data = readUserConfigFile(file, read);

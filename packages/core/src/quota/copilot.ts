@@ -7,7 +7,7 @@
 import { COPILOT_EDITOR_HEADERS } from "../auth/github-copilot";
 import type { QuotaFetch, QuotaReport } from "./types";
 
-export const COPILOT_QUOTA_URL = "https://api.github.com/copilot_internal/user";
+const COPILOT_QUOTA_URL = "https://api.github.com/copilot_internal/user";
 
 export async function probeCopilot(
   accessToken: string,

@@ -27,7 +27,7 @@ import commandsAndKeys from "./manual/commands-and-keys.md" with { type: "text" 
 
 /** One manual section. `id` is stable: it is the CLI page argument, the
  * TUI filter key, and the generated file name in docs/manual/. */
-export interface ManualPage {
+interface ManualPage {
   id: string;
   title: string;
   /** One-line summary shown in the index. */

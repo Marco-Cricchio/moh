@@ -19,14 +19,14 @@ import { getStoredApiKey } from "./auth/store";
 import { userConfigFile } from "./user-config";
 
 /** Options a custom provider factory receives from an endpoint profile. */
-export interface ProviderFactoryOptions {
+interface ProviderFactoryOptions {
   apiKey?: string;
   baseUrl?: string;
   modelId?: string;
 }
 
 /** A custom provider implementation: returns a single-shot Provider. */
-export type ProviderFactory = (options: ProviderFactoryOptions) => Provider;
+type ProviderFactory = (options: ProviderFactoryOptions) => Provider;
 
 /**
  * Immutable snapshot of a registry. What AgentSession holds: taken at
@@ -158,7 +158,7 @@ export function catalogTargetOverrides(kind: string, modelId: string, baseUrl?: 
  * openai-compat travels the OpenAI Chat Completions wire protocol as a
  * plain "openai" endpoint; every other builtin keeps its own kind —
  * the wire mapping lives in wire.ts (ADR-0010), not here. */
-export function routeTargetFor(profile: EndpointProfile, modelId: string, apiKey: string | undefined): RouteTarget {
+function routeTargetFor(profile: EndpointProfile, modelId: string, apiKey: string | undefined): RouteTarget {
   // openai-compat travels the OpenAI Chat Completions wire protocol as a
   // plain "openai" endpoint; every other builtin keeps its own kind —
   // the wire mapping lives in wire.ts (ADR-0010), not here.

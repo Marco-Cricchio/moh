@@ -28,7 +28,7 @@ export interface GitCall {
 export type GitRunner = (call: GitCall) => Promise<{ exitCode: number; stdout: string; stderr: string }>;
 
 /** The real runner: async `git` child process. */
-export const spawnGit: GitRunner = async (call) => {
+const spawnGit: GitRunner = async (call) => {
   try {
     const proc = Bun.spawn(["git", ...call.args], {
       cwd: call.cwd,
@@ -81,7 +81,7 @@ export function isColdDirectory(cwd: string, home?: string): boolean {
   }
 }
 
-export interface CloneHandoffRepoOptions {
+interface CloneHandoffRepoOptions {
   repoUrl: string;
   /** Destination directory (parent). The repo clones into `<dest>/<name>`. */
   dest: string;
@@ -91,7 +91,7 @@ export interface CloneHandoffRepoOptions {
   name?: string;
 }
 
-export type CloneHandoffRepoResult =
+type CloneHandoffRepoResult =
   | { ok: true; path: string }
   | { ok: false; reason: "failed"; message: string }
   | { ok: false; reason: "exists"; path: string };
@@ -114,7 +114,7 @@ export async function cloneHandoffRepo(options: CloneHandoffRepoOptions): Promis
   return { ok: true, path };
 }
 
-export interface PullHandoffOptions {
+interface PullHandoffOptions {
   /** The directory the repo was cloned into (or the user-declared path). */
   cwd: string;
   /** The offer (or full payload) accepted in the wizard. */
@@ -128,7 +128,7 @@ export interface PullHandoffOptions {
   home?: string;
 }
 
-export type PullHandoffResult =
+type PullHandoffResult =
   | { ok: true; payload: RawHandoff }
   | { ok: false; message: string };
 

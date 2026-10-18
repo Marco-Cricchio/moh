@@ -39,7 +39,7 @@ export type CatalogFileJson = Record<string, Record<string, CatalogRowJson>>;
 /** One catalog row as written to disk. `cost` is the metered entry (the
  * default one); `planCost` is the subscription-plan entry when the row has
  * one (ADR-0046 billing plan). */
-export interface CatalogRowJson {
+interface CatalogRowJson {
   id: string;
   name?: string;
   api?: string;
@@ -58,17 +58,17 @@ export interface CatalogRowJson {
 
 /** The value fields an aggregator may supply — the ones the coverage
  * guards count. `name` is deliberately absent: labels are moh-owned. */
-export const AGGREGATOR_FIELDS = ["cost", "contextWindow", "maxTokens", "reasoning", "input"] as const;
-export type AggregatorField = (typeof AGGREGATOR_FIELDS)[number];
+const AGGREGATOR_FIELDS = ["cost", "contextWindow", "maxTokens", "reasoning", "input"] as const;
+type AggregatorField = (typeof AGGREGATOR_FIELDS)[number];
 
 /** The fields an override may declare. Every one of them wins over the
  * aggregator value for the same row (ADR-0046: an override always wins). */
 /** The value fields a row carries, in declaration order: the ones the
  * provenance and the coverage counts speak about (`AGGREGATOR_FIELDS` plus
  * the plan entry). */
-export const ROW_VALUE_FIELDS = [...AGGREGATOR_FIELDS, "planCost"] as const;
+const ROW_VALUE_FIELDS = [...AGGREGATOR_FIELDS, "planCost"] as const;
 
-export const OVERRIDE_FIELDS = [
+const OVERRIDE_FIELDS = [
   "api",
   "provider",
   "baseUrl",
@@ -84,7 +84,7 @@ export const OVERRIDE_FIELDS = [
   "headers",
 ] as const;
 
-export interface ModelsDevCostTier {
+interface ModelsDevCostTier {
   input?: number;
   output?: number;
   cache_read?: number;
@@ -92,7 +92,7 @@ export interface ModelsDevCostTier {
   tier?: { type?: string; size?: number };
 }
 
-export interface ModelsDevRecord {
+interface ModelsDevRecord {
   id?: string;
   name?: string;
   cost?: {
@@ -111,7 +111,7 @@ export interface ModelsDevRecord {
 /** `https://models.dev/api.json` — provider namespace → its models. */
 export type ModelsDevSnapshot = Record<string, { models?: Record<string, ModelsDevRecord> }>;
 
-export interface OpenRouterRecord {
+interface OpenRouterRecord {
   id?: string;
   name?: string;
   context_length?: number;
@@ -146,7 +146,7 @@ export interface CatalogSourceSpec {
 /** One hand-maintained row: the declaration plus every moh-owned field and
  * every correction on top of aggregator data. `author`, `date` and `reason`
  * are the audit trail — who declared it, when, and why. */
-export interface CatalogRowOverride {
+interface CatalogRowOverride {
   author: string;
   date: string;
   reason: string;
@@ -190,7 +190,7 @@ export interface CatalogOverrides {
   rows: Record<string, CatalogRowOverride>;
 }
 
-export interface BuildIssue {
+interface BuildIssue {
   level: "error" | "warning";
   code: string;
   provider: string;
@@ -200,7 +200,7 @@ export interface BuildIssue {
 
 /** One migration note, reported so a reviewer sees every row where the
  * sidecar had to carry something the aggregators cannot supply. */
-export interface MigrationNote {
+interface MigrationNote {
   provider: string;
   id: string;
   code:
@@ -214,7 +214,7 @@ export interface MigrationNote {
 }
 
 /** Per-row provenance, recorded in the manifest (ADR-0046). */
-export interface RowProvenance {
+interface RowProvenance {
   verdict: "exact" | "base-model" | "ambiguous" | "absent";
   source?: "models.dev" | "openrouter";
   namespace?: string;
@@ -248,7 +248,7 @@ export interface SourceSnapshotInfo {
   fetchedAt: string;
 }
 
-export interface CatalogManifest {
+interface CatalogManifest {
   schemaVersion: number;
   version: string;
   generatedAt: string;
@@ -620,7 +620,7 @@ export function buildCatalog(
  * "did not regenerate" on a source outage, never "regenerated with less".
  * An override is the declared escape hatch: a row whose sidecar entry
  * declares the field has a human decision behind it. */
-export function guardCatalog(
+function guardCatalog(
   overrides: CatalogOverrides,
   built: BuiltCatalog,
   previous?: CatalogFileJson,
@@ -711,7 +711,7 @@ export function hasNonzeroPricing(pricing: ModelPricing | undefined): boolean {
 
 /** A pricing record whose rates are negative: OpenRouter's variable-pricing
  * sentinel, meaningless as a price and dropped rather than carried. */
-export function isSentinelPricing(pricing: ModelPricing | undefined): boolean {
+function isSentinelPricing(pricing: ModelPricing | undefined): boolean {
   if (!pricing) return false;
   if (pricing.input < 0 || pricing.output < 0) return true;
   return (pricing.tiers ?? []).some((tier) => tier.input < 0 || tier.output < 0);
@@ -764,7 +764,7 @@ function rowCount(file: CatalogFileJson): number {
   return Object.values(file).reduce((sum, models) => sum + Object.keys(models).length, 0);
 }
 
-export interface GenerationReport {
+interface GenerationReport {
   schemaVersion: number;
   version: string;
   generatedAt: string;
@@ -932,13 +932,13 @@ export interface CatalogDriftEntry {
  * counts `buildReport` computes, without the report's own plumbing. Absent
  * when the guards rejected the rebuild: a count nobody could measure reads
  * as `--`, never as zero. */
-export interface UpstreamMoves {
+interface UpstreamMoves {
   pricing: number;
   contextWindow: number;
   reasoning: number;
 }
 
-export interface FreshnessReport {
+interface FreshnessReport {
   /** The release the committed catalog declares, when the manifest has one. */
   version?: string;
   generatedAt?: string;
@@ -1041,7 +1041,7 @@ export function releaseVersionProblem(declared: string | undefined, release: str
 }
 
 /** The audit trail every migrated row carries. */
-export interface MigrationStamp {
+interface MigrationStamp {
   author: string;
   date: string;
 }

@@ -18,7 +18,7 @@ export interface SkillRoutingConfig {
   labels?: Record<string, SkillRouteOverride>;
 }
 
-export interface SkillRecommendation {
+interface SkillRecommendation {
   label: string;
   command: string;
   suffix?: string;

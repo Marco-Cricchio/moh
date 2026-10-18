@@ -157,7 +157,7 @@ export function mergeProviderConfigs(
   };
 }
 
-export interface MergedConfigOptions {
+interface MergedConfigOptions {
   home?: string;
   env?: Record<string, string | undefined>;
   read?: (file: string) => string;

@@ -64,12 +64,12 @@ export interface RetroCandidate {
 /** Distinct findings kept; beyond this the oldest (`appendedAt`) goes. */
 export const RETRO_MAX_FINDINGS = 200;
 /** Chars of evidence kept per finding (the session log holds the rest). */
-export const RETRO_EVIDENCE_CHARS = 300;
+const RETRO_EVIDENCE_CHARS = 300;
 /** Digest cadence (ADR-0075): at most one per 48 hours. */
 export const RETRO_DIGEST_INTERVAL_MS = 48 * 60 * 60 * 1000;
 /** Repeated dismissals raise a category's bar (ADR-0075): each dismissal
  * adds this to the minimum confidence that category must clear. */
-export const RETRO_THRESHOLD_STEP = 0.05;
+const RETRO_THRESHOLD_STEP = 0.05;
 /** The bar a category can never exceed — beyond it extraction would be
  * silent rather than selective. */
 export const RETRO_THRESHOLD_CAP = 0.9;
@@ -110,7 +110,7 @@ interface JudgmentState {
   lastSkipAt?: string;
 }
 
-export interface RetroDismissal {
+interface RetroDismissal {
   signature: string;
   category: string;
   dismissedAt: string;

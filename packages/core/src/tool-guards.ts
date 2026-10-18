@@ -4,8 +4,8 @@ import { dirname } from "node:path";
 /** #1262 (ReDoS): the grep tool compiles a model-supplied pattern. JS has
  * no regex timeout, so the bound comes from input caps instead: the
  * pattern's own length, and the subject each test runs against. */
-export const MAX_PATTERN_LENGTH = 1_000;
-export const MAX_SUBJECT_LENGTH = 8_192;
+const MAX_PATTERN_LENGTH = 1_000;
+const MAX_SUBJECT_LENGTH = 8_192;
 
 export function compileSearchRegex(pattern: string): RegExp {
   if (pattern.length > MAX_PATTERN_LENGTH) {
@@ -28,7 +28,7 @@ export function boundedTest(re: RegExp, line: string): boolean {
  * swapped to an outside symlink between check and use escaped the root.
  * The close: open the fd with `O_NOFOLLOW` and pin it to the identity
  * observed at check time. */
-export type FileIdentity = { dev: number; ino: number };
+type FileIdentity = { dev: number; ino: number };
 
 export function statIdentity(path: string): FileIdentity | null {
   try {

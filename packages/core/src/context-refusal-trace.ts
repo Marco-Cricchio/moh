@@ -23,7 +23,7 @@ import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "
 import { dirname, join } from "node:path";
 
 /** File name inside the user's moh home. */
-export const CONTEXT_REFUSALS_FILE = "context-refusals.log";
+const CONTEXT_REFUSALS_FILE = "context-refusals.log";
 /** Distinct refusal wordings kept; beyond this the oldest (`last`) goes. */
 export const CONTEXT_REFUSAL_MAX_ENTRIES = 50;
 /** Chars of the provider's own text kept per entry. The provider states
@@ -32,7 +32,7 @@ export const CONTEXT_REFUSAL_MAX_ENTRIES = 50;
  * text under its own 300-character bound — `ProviderError.message`). */
 export const CONTEXT_REFUSAL_EXCERPT_CHARS = 300;
 
-export interface ContextRefusalTraceEntry {
+interface ContextRefusalTraceEntry {
   /** ISO date of the first sighting. */
   at: string;
   /** ISO date of the most recent sighting. */

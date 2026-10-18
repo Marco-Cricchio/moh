@@ -64,7 +64,7 @@ export const GOOGLE_SCOPES = [
  * Wired into the provider adapter by #137. */
 export const GOOGLE_API_BASE_URL = "https://cloudcode-pa.googleapis.com/v1internal";
 
-export interface GoogleOAuthConfig {
+interface GoogleOAuthConfig {
   authorizeUrl: string;
   tokenUrl: string;
   clientId: string;
@@ -108,7 +108,7 @@ export type GoogleEndpointFetch = (
   body: Record<string, unknown>,
 ) => Promise<{ status: number; json: Record<string, unknown> }>;
 
-export const defaultGoogleEndpointFetch: GoogleEndpointFetch = async (tokenUrl, body) => {
+const defaultGoogleEndpointFetch: GoogleEndpointFetch = async (tokenUrl, body) => {
   const res = await fetch(tokenUrl, {
     method: "POST",
     headers: { "content-type": "application/x-www-form-urlencoded" },

@@ -19,11 +19,11 @@ import type { EndpointProfile } from "./config";
 import type { ConnectionTestResult, ProviderTestFailure } from "./provider-onboarding";
 
 /** File name inside the user's moh home. */
-export const PROVIDER_TEST_FAILURES_FILE = "provider-test-failures.log";
+const PROVIDER_TEST_FAILURES_FILE = "provider-test-failures.log";
 /** Failed attempts kept; beyond this the oldest (`at`) goes. */
 export const PROVIDER_TEST_MAX_ENTRIES = 50;
 
-export interface ProviderTestFailureEntry {
+interface ProviderTestFailureEntry {
   /** ISO date of the attempt. */
   at: string;
   /** Endpoint name from the profile under test. */
@@ -45,7 +45,7 @@ export interface ProviderTestFailureEntry {
 }
 
 /** Absolute path of the trace file. */
-export function providerTestFailuresFile(home: string): string {
+function providerTestFailuresFile(home: string): string {
   return join(home, PROVIDER_TEST_FAILURES_FILE);
 }
 

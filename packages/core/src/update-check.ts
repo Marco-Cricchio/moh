@@ -17,10 +17,10 @@ import { dirname, join } from "node:path";
 export const RELEASES_LATEST_URL = "https://api.github.com/repos/Marco-Cricchio/moh/releases/latest";
 
 /** How long a cached result is trusted. */
-export const UPDATE_CHECK_INTERVAL_MS = 24 * 3600_000;
+const UPDATE_CHECK_INTERVAL_MS = 24 * 3600_000;
 
 /** Default network budget; never blocks startup longer than this. */
-export const UPDATE_CHECK_TIMEOUT_MS = 4_000;
+const UPDATE_CHECK_TIMEOUT_MS = 4_000;
 
 /** `~/.moh/update-check.json` — the 24h cache. */
 export function updateCacheFile(mohHome: string): string {

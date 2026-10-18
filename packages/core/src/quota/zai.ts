@@ -5,7 +5,7 @@
  */
 import type { QuotaFetch, QuotaReport } from "./types";
 
-export const ZAI_QUOTA_URL = "https://api.z.ai/api/monitor/usage/quota/limit";
+const ZAI_QUOTA_URL = "https://api.z.ai/api/monitor/usage/quota/limit";
 
 export async function probeZai(
   cred: { apiKey?: string; token?: { accessToken: string } },

@@ -83,7 +83,7 @@ export function mcpToolName(server: string, tool: string): string {
  * Invalid entries are skipped: user chrome never hard-fails a session.
  * Reads go through the config guardian (ADR-0006).
  */
-export function loadUserMcpServers(file = userConfigFile()): Record<string, McpServerEntry> {
+function loadUserMcpServers(file = userConfigFile()): Record<string, McpServerEntry> {
   const servers = readUserConfigFile(file).mcpServers;
   if (typeof servers !== "object" || servers === null) return {};
   const out: Record<string, McpServerEntry> = {};
@@ -106,7 +106,7 @@ export function declaredUserMcpServers(file?: string): DeclaredMcpServer[] {
  * repository cannot write there: a `trusted: true` shipped in the
  * project's `moh.json` is ignored.
  */
-export const MCP_TRUST_SECTION = "mcpTrust";
+const MCP_TRUST_SECTION = "mcpTrust";
 
 /** Whether the user already consented "always" to this project server. */
 export function isProjectServerTrusted(file: string, projectPath: string, server: string): boolean {

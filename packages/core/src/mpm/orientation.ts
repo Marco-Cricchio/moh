@@ -31,7 +31,7 @@ const PLAN_BUDGET_CHARS = 1500;
 /** Longest path-like token considered a seed — avoids hashes and prose. */
 const MAX_TOKEN_LEN = 200;
 /** #759: a seed resolving to more files than this is discarded entirely. */
-export const AMBIGUITY_THRESHOLD = 5;
+const AMBIGUITY_THRESHOLD = 5;
 /** #759: reasoning seeds below this recency weight never enter the plan. */
 const MIN_REASONING_WEIGHT = 0.5;
 /** #790: a reranked plan must clear this floor (kept paths). Below it
@@ -123,7 +123,7 @@ export function currentHash(absPath: string): string | null {
 }
 
 /** #759: extract valid identifiers from a text, in order of appearance. */
-export function extractIdentifiers(text: string): string[] {
+function extractIdentifiers(text: string): string[] {
   const out: string[] = [];
   const seen = new Set<string>();
   for (const raw of text.match(IDENT_TOKEN) ?? []) {

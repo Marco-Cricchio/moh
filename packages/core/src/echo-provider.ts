@@ -19,13 +19,13 @@ function messageSha256(message: Message): string {
 }
 
 /** What the provider received on one model call. */
-export interface EchoRequest {
+interface EchoRequest {
   readonly system: string;
   readonly tools: readonly ToolSpec[];
   readonly messages: readonly Message[];
 }
 
-export interface EchoSummary {
+interface EchoSummary {
   echo: 1;
   systemSha256: string;
   /** sha256 over sorted "name: description" tool lines. */

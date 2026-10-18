@@ -32,7 +32,7 @@ export interface GhCall {
   stdin?: string;
 }
 
-export interface GhResult {
+interface GhResult {
   exitCode: number;
   stdout: string;
   stderr: string;
@@ -69,7 +69,7 @@ export const spawnGh: GhRunner = async (call) => {
   }
 };
 
-export interface GistHandoffTransportOptions {
+interface GistHandoffTransportOptions {
   cwd: string;
   /** Home dir for slug derivation; the artifact layout lives under `<home>/.moh`. */
   home?: string;
@@ -95,7 +95,7 @@ export function handoffGistTag(cwd: string, ghUser: string, home?: string): stri
 /** #593: canonical public https clone URL from the origin's canonical
  * slug, e.g. `github.com/owner/repo` → `https://github.com/owner/repo.git`.
  * Null when the project has no parsable origin. */
-export function canonicalRemoteUrl(cwd: string): string | undefined {
+function canonicalRemoteUrl(cwd: string): string | undefined {
   const slug = canonicalRemoteSlug(cwd);
   return slug ? `https://${slug}.git` : undefined;
 }

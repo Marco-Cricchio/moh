@@ -46,7 +46,7 @@ export interface TelemetryModelRow extends LocalUsageRow {
 /** #1099: one logical call's reconstructable attempt chain, read from the
  * `attempt` audit records on `model_call` events. Older events (no record)
  * are invisible here — the chain covers what the log actually recorded. */
-export interface AttemptChain {
+interface AttemptChain {
   callId: string;
   turnId: string;
   attempts: {
@@ -63,7 +63,7 @@ export interface AttemptChain {
 
 /** #1099: cross-session attempt-chain rollup — retries, fallback moves and
  * unknown-usage attempts, counted from the chains (no prompt text read). */
-export interface TelemetryAttemptSummary {
+interface TelemetryAttemptSummary {
   attempts: number;
   /** Distinct logical calls (one or more attempts each). */
   calls: number;

@@ -140,7 +140,7 @@ interface LiveChild {
 }
 
 /** ADR-0053: the extension-spawn envelope, defaulted to the fixed cap. */
-export const EXTENSION_MAX_SESSIONS = 10;
+const EXTENSION_MAX_SESSIONS = 10;
 
 /** Options for enabling the spawn tool on a session. */
 export interface SubagentOptions {
@@ -182,7 +182,7 @@ const spawnInputSchema = subagentSpecSchema.extend({
   task: z.string().min(1),
 });
 
-export interface SubagentHostOptions {
+interface SubagentHostOptions {
   cwd: string;
   /** Snapshot of the parent's tool registry at each spawn. */
   parentTools: () => Record<string, Tool>;
