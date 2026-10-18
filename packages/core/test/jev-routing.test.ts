@@ -9,8 +9,8 @@ import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Route } from "../src/route";
-import { ExtensionRuntime, createSession, defaultRegistry, resolveProviderRef, type AgentEvent, type Provider } from "../src/index";
-import { ProviderRegistry } from "../src/provider-registry";
+import { ExtensionRuntime, createSession, defaultRegistry, type AgentEvent, type Provider } from "../src/index";
+import { ProviderRegistry, resolveProviderRef } from "../src/provider-registry";
 import { createJevGuardExtension, transportFromFetch,
 } from "@moh/jev-guard";
 const transportOf = (impl: unknown) => transportFromFetch(impl as Parameters<typeof transportFromFetch>[0]);
