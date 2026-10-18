@@ -154,7 +154,7 @@ export interface SlashContext {
   skillsCheck?: typeof checkUpstreamUpdates;
 }
 
-export interface SlashCommand {
+interface SlashCommand {
   name: string;
   description: string;
   usage?: string;
@@ -916,7 +916,7 @@ export function activeCommands(ctx: Pick<SlashContext, "config">): SlashCommand[
  * name — the last precedence tier (native > skills > extension), reached
  * only when the native and workflow registries have no such command.
  */
-export function findExtensionCommand(session: NonNullable<SlashContext["session"]>, name: string) {
+function findExtensionCommand(session: NonNullable<SlashContext["session"]>, name: string) {
   return session.extensionCommands().find((command) => command.name === name);
 }
 

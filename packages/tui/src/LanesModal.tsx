@@ -47,7 +47,7 @@ type Row =
   | { kind: "group"; weight: 1; group: FeatureGroup; laneCount: number }
   | { kind: "lane"; weight: 2; lane: DevelopmentLane };
 
-export interface LanesModalProps {
+interface LanesModalProps {
   /** Project root whose lane registry is inspected. */
   cwd: string;
   /** Home for the user-data registry (tests inject a temp home). */

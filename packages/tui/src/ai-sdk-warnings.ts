@@ -18,7 +18,7 @@ const AI_SDK_LOG_WARNINGS_KEY = "AI_SDK_LOG_WARNINGS";
  * the call's provider/model context. Kept structurally loose on
  * purpose — the SDK's exact warning shapes are version-internal; only
  * `type`-style discriminants and the array itself are contractual. */
-export interface AiSdkWarningOptions {
+interface AiSdkWarningOptions {
   warnings: Array<Record<string, unknown>>;
   provider?: string;
   model?: string;

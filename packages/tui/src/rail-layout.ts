@@ -18,15 +18,15 @@ export const RAIL_WIDTH = 38;
  * the vertical grammar of the ≤80-column narrow rule, applied to height. */
 export const RAIL_MIN_ROWS = 10;
 /** Composer frame: the separator above, the composer, the separator below. */
-export const COMPOSER_FRAME_ROWS = 3;
+const COMPOSER_FRAME_ROWS = 3;
 /** Footer: two status rows + the key row (2, with its margin) + the blank
  * separator between the composer frame and the footer. */
-export const FOOTER_BASE_ROWS = 5;
+const FOOTER_BASE_ROWS = 5;
 /** The subagent chips row costs one more footer row when subagents exist. */
-export const SUBAGENT_CHIP_ROWS = 1;
+const SUBAGENT_CHIP_ROWS = 1;
 /** Past this share of the rail's available height, a declared maxHeight is
  * an overlay job — /extensions says so instead of refusing (ADR-0062). */
-export const OVERLAY_ADVICE_SHARE = 0.6;
+const OVERLAY_ADVICE_SHARE = 0.6;
 
 /** Rows the rail may distribute: what is left under the composer floor. */
 export function railAvailableRows(viewportRows: number, subagentChips: number): number {
@@ -46,7 +46,7 @@ export function distribute(available: number, demands: number[]): number[] {
   return demands.map((d) => Math.max(1, Math.min(d, share)));
 }
 
-export interface PanelAllocation {
+interface PanelAllocation {
   /** Content rows: the header row plus the drawable body. */
   height: number;
   /** Rows of body the panel may draw (height minus the header row). */

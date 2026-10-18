@@ -5,7 +5,7 @@ import { useTheme } from "./themes";
 import { sanitizeForDisplay } from "@moh/core";
 import { Dialog, Dim } from "./ui";
 
-export interface SkillChooserProps {
+interface SkillChooserProps {
   issue: TrackerIssue;
   routing?: SkillRoutingConfig;
   /** Sets the composer draft; it deliberately does not submit a turn. */

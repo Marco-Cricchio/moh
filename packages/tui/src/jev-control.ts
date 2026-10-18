@@ -111,7 +111,7 @@ export function summarizeJevStatus(snapshot: JevUseCaseSnapshot | null): JevStat
  * texts — the outage (`∅ jev offline`) or a rejected key
  * (`∅ jev key rejected`, #1207). Any other text is a turn note or another
  * seam's words: never an override. */
-export function jevFailedStatus(extensionStatuses: readonly { extension: string; text: string }[]): JevStatusSummary | null {
+function jevFailedStatus(extensionStatuses: readonly { extension: string; text: string }[]): JevStatusSummary | null {
   for (const status of extensionStatuses) {
     if (status.extension !== JEV_EXTENSION_NAME) continue;
     if (status.text === JEV_OFFLINE_STATUS) return "offline";
@@ -138,7 +138,7 @@ export function readJevSummary(read: ExtensionStateReader | undefined): JevStatu
 }
 
 /** The router's own view of its state, read from the extension's `state`. */
-export interface RoutingState {
+interface RoutingState {
   paused: boolean;
   override: boolean;
   streak: number;

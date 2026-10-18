@@ -21,7 +21,7 @@ export interface ComposerHandle {
   clear(): void;
 }
 
-export interface InputProps {
+interface InputProps {
   placeholder?: string;
   disabled?: boolean;
   onAskCommands?: () => void;

@@ -12,7 +12,7 @@ import { useViewport, windowing } from "./viewport";
  * with a single action, claim (`c`). Backends without dependency data
  * (gh/gitlab) degrade to a flat list.
  */
-export interface FrontierProps {
+interface FrontierProps {
   backend: TrackerBackend | null;
   onToast: (message: string) => void;
   onClose: () => void;

@@ -25,7 +25,7 @@ import { readJevState, type ExtensionStateReader } from "./jev-control";
  * use case in two ways. The status is this modal's own field and is never
  * mixed into it.
  */
-export interface JevModalProps {
+interface JevModalProps {
   /**
    * True when the bundled extension is registered at all (a stored API key).
    * Without it there is no state to read and no command to send — the modal

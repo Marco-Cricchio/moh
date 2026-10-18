@@ -25,7 +25,7 @@ export interface ColdWizardSeams {
   ghUser?: () => Promise<{ ok: true; user: string } | { ok: false }>;
 }
 
-export interface ColdWizardProps {
+interface ColdWizardProps {
   offers: GistHandoffOffer[];
   /** The directory moh was launched in: the proposed clone destination. */
   cwd: string;

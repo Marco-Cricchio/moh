@@ -21,7 +21,7 @@ export type AnswerLanguage = "auto" | "en" | "it";
 export type DefaultPermissionMode = "normal" | "auto-accept";
 
 /** Workflow mode settings (#36): off by default — base behavior untouched. */
-export interface WorkflowSettings {
+interface WorkflowSettings {
   enabled: boolean;
   /** Deprecated (#348): controlled nothing anymore — the skill upstream
    * check moved to the shared `updateCheck` opt-out (ADR-0014). Kept
@@ -29,10 +29,10 @@ export interface WorkflowSettings {
   upstreamCheck: boolean;
 }
 
-export const DEFAULT_WORKFLOW: WorkflowSettings = { enabled: false, upstreamCheck: true };
+const DEFAULT_WORKFLOW: WorkflowSettings = { enabled: false, upstreamCheck: true };
 
 /** Opt out of the update check (ADR-0014): on by default, independent of workflow mode. */
-export const DEFAULT_UPDATE_CHECK = true;
+const DEFAULT_UPDATE_CHECK = true;
 
 export interface UserConfig {
   /** First-run onboarding completed (skip or connect both count). */

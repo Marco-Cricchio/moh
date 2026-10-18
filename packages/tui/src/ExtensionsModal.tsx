@@ -29,7 +29,7 @@ const REASON_WHY: Record<string, string> = {
 
 const why = (reason: string) => REASON_WHY[reason] ?? reason;
 
-export interface ExtensionsModalProps {
+interface ExtensionsModalProps {
   state: ExtensionsScreenState;
   /** #1125: duplicate identities the loader ignored, with the ignored
    * copy's path (the project copy wins; the loser is named, not hidden). */

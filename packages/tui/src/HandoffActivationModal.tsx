@@ -7,7 +7,7 @@ import { Dialog, Dim } from "./ui";
 
 export type GhVerification = () => Promise<{ ok: true; user: string } | { ok: false; error: HandoffTransportError }>;
 
-export interface HandoffActivationModalProps {
+interface HandoffActivationModalProps {
   cwd: string;
   /** Startup has only an activation/dismissal decision. Settings exposes all states. */
   startup?: boolean;

@@ -21,7 +21,7 @@ type SkillInstallReport = ReturnType<typeof installFirstPartySkills>;
 // to touch `~/.moh/skills` twice in one launch.
 let ranInThisProcess = false;
 
-export interface LaunchSkillSyncOptions {
+interface LaunchSkillSyncOptions {
   /** User-level moh dir (`~/.moh`). */
   mohHome: string;
   /** Workflow mode state — sync only when enabled. */

@@ -10,14 +10,14 @@
 import { formatRule, splitCommandSegments, scopeEffectSentence, type PermissionAskContext } from "@moh/core";
 import { sanitizeForDisplay } from "@moh/core";
 
-export type PermissionAnswer = "yes" | "always" | "always_for_site" | "no";
+type PermissionAnswer = "yes" | "always" | "always_for_site" | "no";
 
 /** #834: the tool id of an extension's enable consent. It is never a tool
  * call: the id exists so the ask renders as a question about code (and can
  * never write a rule). */
 export const EXTENSION_CONSENT_TOOL = "extension";
 
-export interface PermissionRequestView {
+interface PermissionRequestView {
   tool: string;
   args: unknown;
   /** Human-oriented detail lines (command segments, path, raw args). */

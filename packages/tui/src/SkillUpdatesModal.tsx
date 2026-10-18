@@ -5,7 +5,7 @@ import { useTheme } from "./themes";
 import { Dialog, Dim } from "./ui";
 import { useViewport, windowing } from "./viewport";
 
-export interface SkillUpdatesModalProps {
+interface SkillUpdatesModalProps {
   updates: UpstreamUpdate[];
   /** Kept at the client boundary: the core still owns file writes and hash checks. */
   readInstalled: (name: string) => Record<string, string>;

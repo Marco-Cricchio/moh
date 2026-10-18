@@ -44,7 +44,7 @@ import { bundledExtensionSources } from "./bundled-extensions";
 import { homedir } from "node:os";
 import { basename, join } from "node:path";
 
-export interface OpenSessionOptions {
+interface OpenSessionOptions {
   cwd: string;
   /** Pre-configured provider (tests, explicit override). */
   provider?: Provider;
@@ -80,7 +80,7 @@ export interface OpenSessionOptions {
   tracker?: TrackerBackend | null;
 }
 
-export type MakeSessionResult =
+type MakeSessionResult =
   | { session: AgentSession; store: SessionStore }
   | { error: AssemblyError };
 
@@ -183,7 +183,7 @@ export function makeSession(options: OpenSessionOptions): MakeSessionResult {
  */
 /** Starts (without awaiting) a bounded publish after a successful git push.
  * A tool call must never wait for gh/network work. */
-export function handoffPushWork(
+function handoffPushWork(
   cwd: string,
   home: string | undefined,
   onWarning: (message: string) => void,

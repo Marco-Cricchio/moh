@@ -23,7 +23,7 @@ import { browserRowValue, readBrowserSettingWithState } from "./browser-setup";
  * default permission mode — plus in-panel provider management (switch / add / remove endpoints in
  * moh.json). Changes persist to `~/.moh/config` immediately.
  */
-export interface SettingsPanelProps {
+interface SettingsPanelProps {
   cwd: string;
   /** User home override for merged provider config/tests. */
   home?: string;

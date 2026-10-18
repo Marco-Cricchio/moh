@@ -93,7 +93,7 @@ export function loadUserTheme(home: string, id: string): Theme | null {
   } as Theme;
 }
 
-export interface UserThemeSummary {
+interface UserThemeSummary {
   id: string;
   name: string;
 }
@@ -151,7 +151,7 @@ export function deleteUserTheme(home: string, id: string): boolean {
   return true;
 }
 
-export type ThemeRef = string; // built-in preset id or `user:<id>` (user-config narrows it)
+type ThemeRef = string; // built-in preset id or `user:<id>` (user-config narrows it)
 
 /** Reconstructs which base preset a theme file extends (the loader doesn't
  * keep it on the resolved Theme). Falls back to tokyo-night. */
@@ -164,7 +164,7 @@ export function guessExtendsOf(home: string, id: string): string {
   }
 }
 
-export interface ResolvedTheme {
+interface ResolvedTheme {
   theme: Theme;
   /** Ref actually in effect after fallbacks (`user:<id>` collapses to the
    * built-in id when the user theme is unavailable). */

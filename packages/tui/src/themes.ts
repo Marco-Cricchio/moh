@@ -38,7 +38,7 @@ export type ColorRole = (typeof COLOR_ROLES)[number];
 
 /** Roles the ≥3:1 contrast check covers (#749): text and accent roles.
  * Surface tokens (bg, surface, surfaceRaised) and border are exempt. */
-export const TEXT_ACCENT_ROLES = ["fg", "accent", "dim", "muted", "ok", "warn", "err", "purple"] as const;
+const TEXT_ACCENT_ROLES = ["fg", "accent", "dim", "muted", "ok", "warn", "err", "purple"] as const;
 
 export const THEMES = {
   "tokyo-night": { label: "Tokyo Night", fg: "#c0caf5", accent: "#7aa2f7", dim: "#5b678f", muted: "#9aa5ce", ok: "#9ece6a", warn: "#e0af68", err: "#f7768e", purple: "#bb9af7", border: "#292e42", bg: "#16161e", surface: "#1a1c27", surfaceRaised: "#20232f", selection: "#2a3352" },

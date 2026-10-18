@@ -10,7 +10,7 @@
  */
 import type { ConfirmTurnRequest, TurnConfirmOutcome } from "@moh/core";
 
-export interface PendingConfirm {
+interface PendingConfirm {
   readonly request: ConfirmTurnRequest;
 }
 
