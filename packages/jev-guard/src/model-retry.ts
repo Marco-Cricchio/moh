@@ -30,7 +30,7 @@ export const MAX_MODEL_RETRY_ATTEMPTS = 4;
  * settings are properties of the endpoint. `quota_exhausted` is listed
  * for robustness (the Route owns it today — a failed routed stop inside a
  * fallback already cooled it) but is unreachable through this seam. */
-export const ENDPOINT_ERROR_KINDS: ReadonlySet<string> = new Set([
+const ENDPOINT_ERROR_KINDS: ReadonlySet<string> = new Set([
   "auth",
   "quota_exhausted",
   "content_filtered",
@@ -45,7 +45,7 @@ const BACKOFF_CAP_MS = 30 * 60_000;
 
 /** The endpoint identity of a ref — the `<endpoint>` prefix of
  * `<endpoint>/<model-id>` (the whole ref when there is no slash). */
-export function endpointOf(ref: string): string {
+function endpointOf(ref: string): string {
   const slash = ref.indexOf("/");
   return slash > 0 ? ref.slice(0, slash) : ref;
 }

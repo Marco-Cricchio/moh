@@ -46,7 +46,7 @@ export const SKILL_RELEVANCE_MIN = SKILL_THRESHOLDS.relevanceMin;
 export const SKILLS_RANK_MAX = SKILL_THRESHOLDS.rankMax;
 
 /** The judged state: the task plus the roster, capped like the other per-turn states. */
-export const SKILL_MESSAGE_MAX_BYTES = 4096;
+const SKILL_MESSAGE_MAX_BYTES = 4096;
 
 /** One skill in the roster, as the suggestion call sees it. */
 export interface SkillCandidate {
