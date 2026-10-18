@@ -1,5 +1,4 @@
 packages/cli/src/cli.ts runCli
-packages/cli/src/sessions.ts resolveSessionFile
 packages/core/src/auth/types.ts AuthAccount
 packages/core/src/auth/types.ts EndpointAuth
 packages/core/src/browser-toolchain.ts BROWSER_WITH_DEPS_NOTE
@@ -30,7 +29,6 @@ packages/core/src/mentions.ts ExpandMentionsResult
 packages/core/src/mentions.ts ExpandedMention
 packages/core/src/mentions.ts MentionCanRead
 packages/core/src/mentions.ts ParsedMention
-packages/core/src/mock-provider.ts MockTurnScript
 packages/core/src/mpm/config.ts MpmProjectConfig
 packages/core/src/mpm/config.ts MpmUserConfig
 packages/core/src/mpm/diagnostics.ts MpmLanguageCoverage

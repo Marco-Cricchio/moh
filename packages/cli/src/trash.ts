@@ -13,7 +13,6 @@ import {
   type TrashedSessionSummary,
 } from "@moh/core";
 import { ArgError, parseArgs } from "./args";
-import { resolveSessionFile } from "./sessions";
 
 export const TRASH_USAGE = `usage: moh trash <command> [--cwd <dir>]
 
@@ -96,5 +95,3 @@ function renderTrashEntry(t: TrashedSessionSummary, project: string): string {
   const age = new Date(t.mtimeMs).toISOString().slice(0, 16).replace("T", " ");
   return `${t.id}  ${age} UTC  ${t.daysRemaining}d left  ${project}  ${t.title}`;
 }
-
-export { resolveSessionFile };
