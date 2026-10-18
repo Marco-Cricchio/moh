@@ -4,7 +4,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createSession, McpRuntime, MockProvider, sessionFromConfig, type AgentEvent, type DeclaredMcpServer } from "../src/index";
 import { projectSlug } from "../src/session-store";
-import { McpError, mcpServerEntrySchema } from "../src/mcp";
+import { McpError } from "../src/mcp/errors";
+import { mcpServerEntrySchema } from "../src/mcp/types";
 import { HttpConnection, MCP_MAX_RESPONSE_BYTES, type McpLookup } from "../src/mcp/transport-http";
 
 const SERVER = join(import.meta.dir, "fixtures", "mcp-stdio-server.ts");

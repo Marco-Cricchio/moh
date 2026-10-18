@@ -23,8 +23,6 @@ import { probeXai } from "./xai";
 import { probeKimi } from "./kimi";
 import { probeZai } from "./zai";
 
-export type { QuotaFetch, QuotaOptions, QuotaReport, QuotaSource, QuotaWindow } from "./types";
-export { aggregateLocalUsage, type BillingPlanResolver, type LocalUsageRow } from "./local";
 
 const defaultFetch: QuotaFetch = async (url, headers) => {
   const res = await fetch(url, { headers, signal: AbortSignal.timeout(5000) });
