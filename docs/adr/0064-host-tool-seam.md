@@ -36,8 +36,10 @@ for this ADR.
   `contribute-tool`, `endpoint`, `credential` — each carrying the prefix, the
   grammar validator, the check and the effect sentence.
 - `checkScope` and `scopeEffectSentence` are lookups in that table: the first
-  reads the entry for the request kind, the second walks the table by prefix.
-  Their names, refusals (`outside_scope`) and effect sentences are unchanged.
+  reads the entry for the request kind, the second walks the table by prefix,
+  then renders `spawn-subagent` and returns `null` for anything else, as
+  before. Their names, every refusal reason and the effect sentences are
+  unchanged.
 - `contribute-tool` is not exercised through `checkScope`: `checkScope` returns
   `undefined` for that kind, and the extension runtime reads it directly
   through `contributesTool`, as before. The text above lists five scope arcs
@@ -45,7 +47,8 @@ for this ADR.
 - The modules `check-scope.ts`, `scope-effect.ts`, `tool-scope.ts`,
   `endpoint-scope.ts` and `credential-scope.ts` no longer exist. The credential
   stores are in `packages/core/src/credential-store.ts`; `host-scope.ts` keeps
-  only the glob and filesystem helpers.
+  only the glob and filesystem helpers and the fetch limits (`MAX_FETCH_BYTES`,
+  `MAX_REDIRECTS`).
 - The `@moh/core` surface is unchanged: `scopeEffectSentence`,
   `validateCredentialScope`, `defaultCredentialStore` and `type CredentialStore`
   are exported as before, now from `scopes.ts` and `credential-store.ts`.
