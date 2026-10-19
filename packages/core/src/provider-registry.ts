@@ -8,6 +8,7 @@ import { MockProvider } from "./mock-provider";
 import { EchoProvider } from "./echo-provider";
 import { Endpoint, createRoute, resolveApiKey, type ProviderKind, type RouteTarget } from "./route";
 import { providerProfile } from "./provider-profiles";
+import { PROVIDER_KINDS } from "./provider-kinds";
 import type { EndpointProfile, MohConfig } from "./config";
 import type { Provider, StreamOptions } from "./types";
 import { OAUTH_BUILTIN_BASE_URLS, type OAuthBuiltinKind } from "./wire";
@@ -101,19 +102,7 @@ function splitRef(ref: string): { name: string; modelId: string | undefined } {
   return { name: ref.slice(0, slash), modelId: modelId === "" ? undefined : modelId };
 }
 
-const BUILTIN_KINDS = new Set([
-  "anthropic",
-  "openai",
-  "google",
-  // ADR-0010 (#159): the four new OAuth providers are builtin kinds.
-  "github-copilot",
-  "openrouter",
-  "kimi-coding",
-  "xai",
-  "deepseek", "groq", "cerebras", "nvidia-nim", "together", "fireworks", "huggingface", "mistral",
-  "moonshot", "minimax", "zai", "qwen", "xiaomi-mimo", "vercel-ai-gateway", "cloudflare-ai-gateway", "baseten",
-  "opencode",
-]);
+const BUILTIN_KINDS = new Set<string>(PROVIDER_KINDS.map((row) => row.kind));
 
 function resolveProfile(
   profile: EndpointProfile,

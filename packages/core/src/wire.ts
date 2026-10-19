@@ -8,11 +8,20 @@
  * switches wire per model. Dispatch moves to this vocabulary.
  */
 
+import { PROVIDER_KINDS } from "./provider-kinds";
+
 /** The message formats the AI SDK adapter can speak. */
 export type WireApi = "anthropic-messages" | "openai-chat" | "openai-responses" | "google";
 
+/** The kinds of the OAuth rows of a provider-kind table, as a tuple in table order. */
+type OAuthKindsOf<T extends readonly unknown[]> = T extends readonly [infer H, ...infer R]
+  ? H extends { readonly kind: infer K; readonly oauth: true }
+    ? readonly [K, ...OAuthKindsOf<R>]
+    : OAuthKindsOf<R>
+  : readonly [];
+
 /** New builtin provider kinds (ADR-0010). */
-export const OAUTH_BUILTIN_KINDS = ["github-copilot", "openrouter", "kimi-coding", "xai"] as const;
+export const OAUTH_BUILTIN_KINDS = PROVIDER_KINDS.filter((row) => row.oauth).map((row) => row.kind) as unknown as OAuthKindsOf<typeof PROVIDER_KINDS> satisfies readonly string[];
 export type OAuthBuiltinKind = (typeof OAUTH_BUILTIN_KINDS)[number];
 
 export function isOAuthBuiltinKind(kind: string): kind is OAuthBuiltinKind {
@@ -34,17 +43,8 @@ export function isOAuthBuiltinKind(kind: string): kind is OAuthBuiltinKind {
  * is still routable on the OpenAI wire.
  */
 const WIRE_FOR_KIND: Record<string, WireApi> = {
-  anthropic: "anthropic-messages",
-  openai: "openai-chat",
-  google: "google",
+  ...Object.fromEntries(PROVIDER_KINDS.map((row) => [row.kind, row.wire])),
   "openai-compat": "openai-chat",
-  "github-copilot": "openai-chat",
-  openrouter: "openai-chat",
-  "kimi-coding": "anthropic-messages",
-  xai: "openai-chat",
-  opencode: "openai-chat",
-  deepseek: "openai-chat", groq: "openai-chat", cerebras: "openai-chat", "nvidia-nim": "openai-chat", together: "openai-chat", fireworks: "openai-chat", huggingface: "openai-chat", mistral: "openai-chat",
-  moonshot: "openai-chat", minimax: "openai-chat", zai: "openai-chat", qwen: "openai-chat", "xiaomi-mimo": "openai-chat", "vercel-ai-gateway": "openai-chat", "cloudflare-ai-gateway": "openai-chat", baseten: "openai-chat",
 };
 
 /** Wire for a builtin kind. Unknown kinds throw — a typo must fail
@@ -59,9 +59,6 @@ export function wireForKind(kind: string): WireApi {
 
 /** Default backend base URL per new builtin kind (api-key posture uses
  * these when the profile has no explicit baseUrl). */
-export const OAUTH_BUILTIN_BASE_URLS: Record<OAuthBuiltinKind, string> = {
-  "github-copilot": "https://api.individual.githubcopilot.com",
-  openrouter: "https://openrouter.ai/api/v1",
-  "kimi-coding": "https://api.kimi.com/coding",
-  xai: "https://api.x.ai/v1",
-};
+export const OAUTH_BUILTIN_BASE_URLS: Record<OAuthBuiltinKind, string> = Object.fromEntries(
+  PROVIDER_KINDS.flatMap((row) => (row.oauth ? [[row.kind, row.defaultBaseUrl]] : [])),
+) as Record<OAuthBuiltinKind, string>;

@@ -47,6 +47,7 @@ import { homedir } from "node:os";
 import type { CatalogModel } from "./model-catalog";
 import { subscriptionModelCatalog } from "./model-catalog";
 import { providerProfile } from "./provider-profiles";
+import { PROVIDER_KINDS } from "./provider-kinds";
 import { OAUTH_BUILTIN_BASE_URLS } from "./wire";
 import { CHATGPT_CODEX_BASE_URL, CHATGPT_CODEX_ORIGINATOR } from "./auth/openai";
 import { ANTHROPIC_OAUTH_BETA } from "./auth/anthropic";
@@ -223,23 +224,7 @@ const codexHeaders = (credential?: string) => ({ ...ACCEPT, ...(credential ? { A
  * code, not fifteen: the base URL is the profile's documented default,
  * or the endpoint's own configured URL.
  */
-const OPENAI_LISTING_PROFILES = [
-  "zai",
-  "deepseek",
-  "groq",
-  "cerebras",
-  "nvidia-nim",
-  "together",
-  "fireworks",
-  "huggingface",
-  "mistral",
-  "moonshot",
-  "minimax",
-  "qwen",
-  "xiaomi-mimo",
-  "vercel-ai-gateway",
-  "cloudflare-ai-gateway",
-] as const;
+const OPENAI_LISTING_PROFILES = PROVIDER_KINDS.filter((row) => "liveListing" in row && row.liveListing === "openai").map((row) => row.kind);
 
 /** OAuth providers whose base URL is a protocol constant rather than a
  * provider profile (#726 profiles carry their own documented default). */
