@@ -73,6 +73,20 @@ describe("exported provider-kind lists equal their literal copies (#1423)", () =
     assertType<Equal<ProviderKind, Exclude<(typeof KINDS)[number], "openai-compat" | "not-a-provider">>>(true);
   });
 
+  test("ProviderKind is exactly today's 26-member union", () => {
+    type ProviderKindToday =
+      | "anthropic" | "openai" | "google" | "github-copilot" | "openrouter" | "kimi-coding" | "xai"
+      | "deepseek" | "groq" | "cerebras" | "nvidia-nim" | "together" | "fireworks" | "huggingface" | "mistral"
+      | "moonshot" | "minimax" | "zai" | "qwen" | "xiaomi-mimo" | "vercel-ai-gateway" | "cloudflare-ai-gateway" | "baseten"
+      | "opencode" | "mock" | "custom";
+    assertType<Equal<ProviderKind, ProviderKindToday>>(true);
+    // The check bites: one member more and one member less both fail.
+    // @ts-expect-error a union with an extra member is not ProviderKind
+    assertType<Equal<ProviderKind, ProviderKindToday | "echo">>(true);
+    // @ts-expect-error a union missing a member is not ProviderKind
+    assertType<Equal<ProviderKind, Exclude<ProviderKindToday, "custom">>>(true);
+  });
+
   test("BUILTIN_PROVIDER_TYPES (onboarding order, built on PROVIDER_PROFILES)", () => {
     expect([...BUILTIN_PROVIDER_TYPES]).toEqual([
       "anthropic", "openai", "google", "openai-compat", "github-copilot", "openrouter", "kimi-coding", "xai", "opencode",
