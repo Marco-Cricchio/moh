@@ -23,47 +23,6 @@ import { createHash } from "node:crypto";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 
-export const CREDENTIAL_SCOPE_PREFIX = "credential:";
-
-/** True when the capability string is a credential scope (`credential:<ref>`). */
-export function isCredentialScope(capability: string): boolean {
-  return capability.startsWith(CREDENTIAL_SCOPE_PREFIX);
-}
-
-/** The ref half of a `credential:<ref>` scope string. */
-export function credentialScopeRef(capability: string): string {
-  return capability.slice(CREDENTIAL_SCOPE_PREFIX.length);
-}
-
-type CredentialScopeValidity = { ok: true; ref: string } | { ok: false; reason: "malformed"; message: string };
-
-/**
- * Load-time validation of one `credential:<ref>` capability. A ref is a
- * non-empty printable name without whitespace — it must survive consent,
- * manifest and log as itself.
- */
-export function validateCredentialScope(capability: string): CredentialScopeValidity {
-  const ref = credentialScopeRef(capability);
-  if (ref.trim() === "" || /\s/.test(ref) || ref.includes("\0")) {
-    return { ok: false, reason: "malformed", message: `invalid credential scope "${capability}": a ref is a non-empty name without whitespace` };
-  }
-  return { ok: true, ref };
-}
-
-/** All credential scopes in a capability grant (order preserved). */
-export function credentialScopesOf(capabilities: readonly string[]): string[] {
-  return capabilities.filter(isCredentialScope);
-}
-
-/**
- * The consent effect sentence (ADR-0069): the owner approves "may use the
- * credential `ref`". A ref is not itself a secret; naming it in consent is
- * how the owner sees which secret a grant addresses.
- */
-export function credentialEffectSentence(ref: string): string {
-  return `may use the credential \`${ref}\``;
-}
-
 /**
  * ADR-0069: the storage seam. Injected by session assembly (keychain when
  * available, the 0600-file fallback otherwise, in-memory in tests). The

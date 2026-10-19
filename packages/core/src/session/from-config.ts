@@ -36,7 +36,7 @@ import type { AgentEvent, AskUserQuestionSet, AskUserSetResult, Provider, Tool }
 import { AgentSession } from "./session";
 import type { SessionConfig } from "./config";
 import { ExtensionRuntime } from "../extensions";
-import { defaultCredentialStore, type CredentialStore } from "../credential-scope";
+import { defaultCredentialStore, type CredentialStore } from "../credential-store";
 import type { ExtensionConsentRequest } from "../extensions";
 import { extensionSourceFiles } from "../extension-source";
 import { resolveBundledExtensions, type BundledWiring, type MountedBundledExtension } from "../bundled-extensions";

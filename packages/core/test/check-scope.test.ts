@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { checkScope } from "../src/check-scope";
+import { checkScope } from "../src/scopes";
 
 test("shared authorization keeps scope families distinct in mixed grants", () => {
   const scopes = ["path:**", "host:api.example.com", "credential:token", "tool:read", "endpoint:main"];

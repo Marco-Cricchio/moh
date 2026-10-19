@@ -11,10 +11,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ExtensionDefinition, ExtensionHost, ExtensionSetupContext } from "@moh/extension";
 import { ExtensionRuntime } from "../src/extensions";
-import { scopeEffectSentence } from "../src/scope-effect";
-import { hostMatchesScope, validateHostScope } from "../src/host-scope";
+import { scopeEffectSentence } from "../src/scopes";
+import { hostMatchesScope, validateHostScope } from "../src/scopes";
 import type { AgentEvent } from "../src/types";
-import type { CredentialStore } from "../src/credential-scope";
+import type { CredentialStore } from "../src/credential-store";
 
 /** Effect sentences for every scope in a grant, in order. */
 function scopeEffectSentences(capabilities: readonly string[]): string[] {

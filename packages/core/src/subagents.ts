@@ -8,7 +8,7 @@ import { AgentSession } from "./session/session";
 import { DevelopmentLaneStore } from "./development-lanes";
 import { SessionStore, lastAssistantText } from "./session-store";
 import { ExtensionSpawnRefusedError } from "./extension-scope";
-import { validatePathGlob } from "./host-scope";
+import { validatePathGlob } from "./scopes";
 import type { PermissionRule } from "./permissions";
 import { PromptComposer, BASE_PROMPT } from "./prompt-composer";
 import { tailChildLog } from "./child-tail";

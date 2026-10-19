@@ -9,8 +9,8 @@ import { describe, expect, test } from "bun:test";
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
-import { scopeEffectSentence } from "../src/scope-effect";
-import { checkScope } from "../src/check-scope";
+import { scopeEffectSentence } from "../src/scopes";
+import { checkScope } from "../src/scopes";
 import {
   HOST_SCOPE_PREFIX,
   HOST_SCOPE_REASONING_KEY,
@@ -25,7 +25,7 @@ import {
   validateHostScope,
   validatePathGlob,
   validatePathScope,
-} from "../src/host-scope";
+} from "../src/scopes";
 import { MAX_FETCH_BYTES, MAX_REDIRECTS, foldGlobCase } from "../src/host-scope";
 import {
   CONTRIBUTE_TOOL_SCOPE_PREFIX,
@@ -42,16 +42,16 @@ import {
   toolScopesOf,
   validateContributeToolScope,
   validateToolScope,
-} from "../src/tool-scope";
-import { ENDPOINT_SCOPE_PREFIX, endpointEffectSentence, endpointScopesOf, isEndpointScope, validateEndpointScope } from "../src/endpoint-scope";
+} from "../src/scopes";
+import { ENDPOINT_SCOPE_PREFIX, endpointEffectSentence, endpointScopesOf, isEndpointScope, validateEndpointScope } from "../src/scopes";
 import {
   CREDENTIAL_SCOPE_PREFIX,
   credentialScopeRef,
   credentialScopesOf,
   isCredentialScope,
   validateCredentialScope,
-} from "../src/credential-scope";
-import { defaultCredentialStore, fileCredentialStore, keychainAccount, keychainCredentialStore } from "../src/credential-scope";
+} from "../src/scopes";
+import { defaultCredentialStore, fileCredentialStore, keychainAccount, keychainCredentialStore } from "../src/credential-store";
 import { isKnownCapability, scopeGrammarValidity } from "../src/extension-registry";
 
 type Kind = "credential" | "host" | "endpoint" | "contribute-tool" | "tool" | "path" | null;

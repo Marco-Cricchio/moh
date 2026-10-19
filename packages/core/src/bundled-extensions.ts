@@ -25,7 +25,7 @@
 import type { ExtensionRuntime, RuntimeExtension } from "./extensions";
 import type { EndpointProfile } from "./config";
 import type { ModelPoolResult } from "./model-pool";
-import type { CredentialStore } from "./credential-scope";
+import type { CredentialStore } from "./credential-store";
 
 /** What `resolveBundledExtensions` hands an active descriptor. */
 export interface BundledActivationContext {
