@@ -206,13 +206,7 @@ rosterFromIndex
 routableTierCount
 routingQuestions
 saveTypesafeApiKey
-saveTypesafeClassification
-saveTypesafeGuardrail
-saveTypesafeInjection
-saveTypesafeLint
-saveTypesafeRerank
-saveTypesafeRouting
-saveTypesafeSkills
+saveTypesafeFlag
 sliceForJudgment
 taskDiff
 taskTypeFromAnswer
