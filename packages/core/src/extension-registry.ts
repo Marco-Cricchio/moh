@@ -19,10 +19,20 @@ import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, statSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { MANIFEST_FILE, readExtensionManifest, type ExtensionManifest } from "./extension-manifest";
-import { PATH_SCOPE_PREFIX, HOST_SCOPE_PREFIX, validatePathScope, validateHostScope } from "./host-scope";
-import { CREDENTIAL_SCOPE_PREFIX, validateCredentialScope } from "./credential-scope";
-import { TOOL_SCOPE_PREFIX, CONTRIBUTE_TOOL_SCOPE_PREFIX, validateToolScope, validateContributeToolScope } from "./tool-scope";
-import { ENDPOINT_SCOPE_PREFIX, validateEndpointScope } from "./endpoint-scope";
+import {
+  PATH_SCOPE_PREFIX,
+  HOST_SCOPE_PREFIX,
+  validatePathScope,
+  validateHostScope,
+  CREDENTIAL_SCOPE_PREFIX,
+  validateCredentialScope,
+  TOOL_SCOPE_PREFIX,
+  CONTRIBUTE_TOOL_SCOPE_PREFIX,
+  validateToolScope,
+  validateContributeToolScope,
+  ENDPOINT_SCOPE_PREFIX,
+  validateEndpointScope,
+} from "./scopes";
 import { removeExtensionDeps } from "./extension-deps";
 
 const EXTENSION_REGISTRY_USAGE_LINES = {

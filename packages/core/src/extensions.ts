@@ -56,15 +56,17 @@ import {
 import type { AgentEvent, ExtensionStatus, ThinkingLevel, TokenUsage } from "./types";
 import type { ExtensionSpawnSpec, PanelKeyEvent } from "@moh/extension";
 import type { SubagentHost } from "./subagents";
-import { checkScope } from "./check-scope";
+import { checkScope } from "./scopes";
 import { ExtensionSpawnRefusedError } from "./extension-scope";
 import { capabilityDiff, capabilitiesSubset, readExtensionManifest, type ManifestAuthority } from "./extension-manifest";
 import { depsTarballCache, extensionDepsDir, installExtensionDeps, linkDepsTree } from "./extension-deps";
 import { realRegistryIo, type RegistryIo } from "./extension-registry";
-import { hostScopesOf, isHostScope, isPathScope, MAX_FETCH_BYTES, MAX_REDIRECTS, HOST_SCOPE_REASONING_KEY, TOTAL_HOST_WILDCARD, validateHostScope, validatePathScope, pathScopesOf } from "./host-scope";
-import { credentialScopesOf, isCredentialScope, validateCredentialScope, type CredentialStore } from "./credential-scope";
-import { isToolScope, validateToolScope, toolScopesOf, isContributeToolScope, validateContributeToolScope, contributesTool, contributeToolScopesOf, contributeToolName, CONTRIBUTE_TOOL_SCOPE_PREFIX } from "./tool-scope";
-import { isEndpointScope, validateEndpointScope, endpointScopesOf } from "./endpoint-scope";
+import { MAX_FETCH_BYTES, MAX_REDIRECTS } from "./host-scope";
+import { hostScopesOf, isHostScope, isPathScope, HOST_SCOPE_REASONING_KEY, TOTAL_HOST_WILDCARD, validateHostScope, validatePathScope, pathScopesOf } from "./scopes";
+import { credentialScopesOf, isCredentialScope, validateCredentialScope } from "./scopes";
+import type { CredentialStore } from "./credential-store";
+import { isToolScope, validateToolScope, toolScopesOf, isContributeToolScope, validateContributeToolScope, contributesTool, contributeToolScopesOf, contributeToolName, CONTRIBUTE_TOOL_SCOPE_PREFIX } from "./scopes";
+import { isEndpointScope, validateEndpointScope, endpointScopesOf } from "./scopes";
 import { newUlid } from "./session/ulid";
 
 type HostOpName = "read" | "write" | "append" | "rename" | "delete" | "readlink" | "fetch" | "run_tool" | "model_call" | "list_models";

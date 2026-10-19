@@ -20,8 +20,8 @@ import {
   contributeToolEffectSentence,
   TOOL_SCOPE_PREFIX,
   CONTRIBUTE_TOOL_SCOPE_PREFIX,
-} from "../src/tool-scope";
-import { scopeEffectSentence } from "../src/scope-effect";
+} from "../src/scopes";
+import { scopeEffectSentence } from "../src/scopes";
 import { isKnownCapability } from "../src/extension-registry";
 
 describe("tool scope validation", () => {

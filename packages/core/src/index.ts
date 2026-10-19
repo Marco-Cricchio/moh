@@ -51,14 +51,14 @@ export {
   // ADR-0064/0065: the core-owned scope effect-sentence renderer the
   // clients' consent surfaces show instead of the naked scope string.
   scopeEffectSentence,
-} from "./scope-effect";
+} from "./scopes";
 export {
   // ADR-0069 (#1161): the user-mint credential store the CLI's
   // `moh secret` surface and session assembly share.
   defaultCredentialStore,
-  validateCredentialScope,
   type CredentialStore,
-} from "./credential-scope";
+} from "./credential-store";
+export { validateCredentialScope } from "./scopes";
 export { PromptComposer, type SkillIndexEntry } from "./prompt-composer";
 export type {
   AgentEvent,

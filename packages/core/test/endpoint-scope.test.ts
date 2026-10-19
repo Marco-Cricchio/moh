@@ -6,8 +6,8 @@ import {
   checkEndpointScope,
   endpointEffectSentence,
   ENDPOINT_SCOPE_PREFIX,
-} from "../src/endpoint-scope";
-import { scopeEffectSentence } from "../src/scope-effect";
+} from "../src/scopes";
+import { scopeEffectSentence } from "../src/scopes";
 
 describe("endpoint scope validation (ADR-0068)", () => {
   test("recognizes endpoint: prefixed capabilities", () => {
