@@ -23,3 +23,25 @@ Inherited without re-deciding: typed refusals, one check-scope module, revocatio
 ## Consequences
 
 The credential arc must resolve `credential:<ref>` host-side (injection into the request), never hand the value to extension code, and define the failure mode when a ref does not resolve.
+
+## Amendment — ablation (2026-10-19)
+
+The decision above is unchanged. This amendment records where the `host:` scope lives after #1424 (S3.2, delivered by #1571), the prerequisite recorded for this ADR. It adds no decision.
+
+### What changed
+
+- The `host:` grammar, validation, match and check are in `packages/core/src/scopes.ts`: `HOST_SCOPE_PREFIX`, `isHostScope`, `hostScopesOf`, `TOTAL_HOST_WILDCARD`, `HOST_SCOPE_REASONING_KEY`, `validateHostScope` and `hostMatchesScope` are exported from there; `checkHostScope` and `type HostFetchCheck` are file-local. The effect sentence ("may contact …", including the one for `host:*`) is in the `host` descriptor of the scope table (`prefix`, `validate`, `check`, `effectSentence`). The table and its descriptors are new in #1571.
+- Before #1571 the grammar, validation, match and check were in `packages/core/src/host-scope.ts` (`checkHostScope` and `type HostFetchCheck` were exported there), and the effect sentence was in `packages/core/src/scope-effect.ts`. The dispatch went through `packages/core/src/check-scope.ts`.
+- The line "one check-scope module", inherited from ADR-0064, now reads as `checkScope` in `scopes.ts`, which looks up the descriptor for the request kind; the module `check-scope.ts` no longer exists. The ADR-0064 amendment records that change for all scope kinds.
+- `MAX_FETCH_BYTES` and `MAX_REDIRECTS` are still exported from `packages/core/src/host-scope.ts`. The redirect loop, the limit of five, the `more than ${MAX_REDIRECTS} redirects` message and the `too_large` size limits are in `packages/core/src/extensions.ts`, where #1571 changes only import lines.
+
+### What stays
+
+- The rules in the Decision section are unchanged: the function bodies of `hostScopesOf`, `validateHostScope`, `hostMatchesScope` and `checkHostScope` are identical before and after #1571, apart from `export` dropped from `checkHostScope`.
+- The refusal reasons are unchanged. `checkHostScope` returns `outside_scope`, `invalid_url` or `denied`; load-time validation of a `host:` scope returns `malformed`. The runtime fetch in `extensions.ts` returns further reasons of its own (`too_large`, `failed`, `unknown_credential`, among others); the inherited line above names `outside_scope`, which is one reason among those.
+- The effect sentences for `host:` scopes are unchanged.
+- The `host_op` and `host_refused` log is not touched by #1571: in `extensions.ts`, which performs the request and writes both events, #1571 changes only import lines.
+
+### Tracked separately
+
+Two behaviors of `host:` scopes are tracked separately in #1573 and #1574, not changed by #1571. This amendment takes no position on them.
