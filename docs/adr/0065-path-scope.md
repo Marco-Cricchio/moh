@@ -22,14 +22,14 @@ The decision above is unchanged. This amendment records where the `path:` scope 
 
 ### What changed
 
-- The `path:` grammar, validation, check and effect sentence are in `packages/core/src/scopes.ts`: `validatePathScope`, `validatePathGlob`, `checkPathScope` (file-local), `matchesPathScopes`, and the `path` descriptor of the scope table (`prefix`, `validate`, `check`, `effectSentence`). Before #1571 they were in `packages/core/src/host-scope.ts`.
+- The `path:` grammar, validation, check and effect sentence are in `packages/core/src/scopes.ts`: `validatePathScope`, `validatePathGlob`, `checkPathScope` (file-local), `matchesPathScopes`, and the `path` descriptor of the scope table (`prefix`, `validate`, `check`, `effectSentence`). The table and its descriptors are new in #1571. Before #1571 the grammar, validation and check were in `packages/core/src/host-scope.ts`, and the effect sentence in `packages/core/src/scope-effect.ts`.
 - The line "one check-scope module", inherited from ADR-0064, now reads as `checkScope` in `scopes.ts`, which looks up the descriptor for the request kind; the module `check-scope.ts` no longer exists. The ADR-0064 amendment records that change for all scope kinds.
-- The glob and filesystem algorithms stay in `packages/core/src/host-scope.ts`: `globMatches`, `foldGlobCase`, `resolveReal` and `caseInsensitiveAt` are exported from there, and `scopes.ts` imports them. `export` was added to `globMatches`, `resolveReal` and `caseInsensitiveAt`; `foldGlobCase` was already exported.
-- `export` was dropped from `checkPathScope` and `pathScopeGlob`; both are now file-local to `scopes.ts`.
+- The glob and filesystem algorithms stay in `packages/core/src/host-scope.ts`: `globMatches`, `foldGlobCase`, `resolveReal` and `caseInsensitiveAt` are exported from there. `scopes.ts` imports `globMatches`, `resolveReal` and `caseInsensitiveAt`; `foldGlobCase` is called by `globMatches` inside `host-scope.ts`. `export` was added to `globMatches`, `resolveReal` and `caseInsensitiveAt`; `foldGlobCase` was already exported.
+- `export` was dropped from `checkPathScope`, `pathScopeGlob` and `type PathScopeCheck`; all three are now file-local to `scopes.ts`.
 
 ### What stays
 
 - The rules in the Decision section are unchanged: the function bodies of `validatePathScope`, `validatePathGlob`, `checkPathScope`, `matchesPathScopes`, `pathScopeGlob`, `globMatches`, `foldGlobCase`, `resolveReal` and `caseInsensitiveAt` are identical before and after #1571.
 - The refusal reasons are unchanged. `checkPathScope` returns `outside_scope`, `invalid_path` or `denied`; load-time validation returns `malformed` or `absolute`. The inherited line above names `outside_scope`, which is one of the three check reasons for `path:`.
 - The effect sentence for `path:<glob>` is unchanged: "may read and modify files under `<glob>`, including create, rename, delete".
-- The `host_op` log is not touched by #1571.
+- The `host_op` log is not touched by #1571: in `packages/core/src/extensions.ts`, which binds the user's deny rules and writes `host_op`, #1571 changes only import lines.
