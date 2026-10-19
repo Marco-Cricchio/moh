@@ -14,7 +14,7 @@ import { JEV_USE_CASE_DESCRIPTIONS, readTypesafeConfig, type JevKeyValidation } 
 import { SettingsPanel } from "../src/SettingsPanel";
 import { DEFAULT_USER_CONFIG, type UserConfig } from "../src/user-config";
 import { ThemeProvider, THEMES, DEFAULT_THEME } from "../src/themes";
-import { stripAnsi, waitForCondition } from "./helpers";
+import { pressSettled, stripAnsi, waitForCondition, waitStep, waitText } from "./helpers";
 import { fileCredentialStore } from "../../core/src/credential-scope";
 
 // #1162: these tests drive the credential store — the 0600-file fallback
@@ -417,6 +417,48 @@ describe("settings Jev entry: skill suggestion (#793)", () => {
     i.stdin.write("\r");
     await sleep(60);
     expect(storedSkills(home)).toBe(false);
+    i.unmount();
+  });
+});
+
+// #1430 characterization: the seed-rerank row had no test. It pins the whole
+// config file after each toggle (not only the flag), waiting on frames and
+// effects through the helpers rather than fixed sleeps.
+describe("settings Jev entry: seed rerank (#790, #1430)", () => {
+  const SEED = { provider: "mock", telemetry: true, typesafe: { timeoutMs: 1200, tiers: { "a/one": "potente" }, routing: true } };
+  const readFile = (home: string): Record<string, unknown> =>
+    JSON.parse(readFileSync(userConfigFile(home), "utf8")) as Record<string, unknown>;
+
+  /** Moves the cursor until the row carrying `label` is the highlighted one. */
+  const cursorOnRow = async (view: ReturnType<typeof render>, label: string) => {
+    const onRow = () => stripAnsi(view.lastFrame() ?? "").split("\n").some((l) => l.includes("›") && l.includes(label));
+    for (let k = 0; k < 24 && !onRow(); k++) {
+      const before = view.lastFrame();
+      await pressSettled(view, "\x1b[B");
+      await waitStep(view, () => view.lastFrame() !== before, `cursor move towards "${label}"`);
+    }
+    if (!onRow()) throw new Error(`the "${label}" row was not reachable by label`);
+  };
+
+  test("on and off rewrite only the rerank flag in the whole config file", async () => {
+    const { cwd, home } = setup();
+    mkdirSync(join(home, ".moh"), { recursive: true });
+    writeFileSync(userConfigFile(home), JSON.stringify(SEED));
+    const { i, toasts } = mount(cwd, home, async () => ({ status: "active", latencyMs: 1 }));
+    await waitText(i, "Jev (TypeSafe)", "settings main list");
+    await cursorOnRow(i, "Jev (TypeSafe)");
+    await pressSettled(i, "\r");
+    await waitText(i, "Seed rerank", "Jev sub-menu");
+    await cursorOnRow(i, "Seed rerank");
+    await pressSettled(i, "\r");
+    await waitStep(i, () => toasts.some((t) => t.includes("seed rerank on")), "toast: seed rerank on");
+    expect(readFile(home)).toEqual({ ...SEED, typesafe: { ...SEED.typesafe, rerank: true } });
+
+    await waitText(i, "Seed rerank", "back in the Jev sub-menu");
+    await cursorOnRow(i, "Seed rerank");
+    await pressSettled(i, "\r");
+    await waitStep(i, () => toasts.some((t) => t.includes("seed rerank off")), "toast: seed rerank off");
+    expect(readFile(home)).toEqual({ ...SEED, typesafe: { ...SEED.typesafe, rerank: false } });
     i.unmount();
   });
 });

@@ -52,7 +52,7 @@ import {
   readTypesafeConfig,
   resolveTypesafeConfig,
   saveTypesafeApiKey,
-  saveTypesafeGuardrail,
+  saveTypesafeFlag,
 } from "../src/typesafe";
 
 function tmpDir(prefix = "moh-jev-int-"): string {
@@ -118,12 +118,12 @@ describe("the typesafe config block (#784, #826)", () => {
     mkdirSync(dir, { recursive: true });
     writeFileSync(file, JSON.stringify({ provider: "mock", typesafe: { apiKey: "sk-keep" }, theme: "nord" }));
 
-    saveTypesafeGuardrail(file, false);
+    saveTypesafeFlag(file, "guardrail", false);
     expect(readTypesafeConfig(file)).toEqual({ apiKey: "sk-keep", guardrail: false });
     expect(resolveTypesafeConfig(readTypesafeConfig(file)).guardrail).toBe(false);
 
     // Back on: an explicit flag, not a deletion — the row states a choice.
-    saveTypesafeGuardrail(file, true);
+    saveTypesafeFlag(file, "guardrail", true);
     expect(readTypesafeConfig(file)).toEqual({ apiKey: "sk-keep", guardrail: true });
     const raw = JSON.parse(require("node:fs").readFileSync(file, "utf8")) as Record<string, unknown>;
     expect(raw.provider).toBe("mock");

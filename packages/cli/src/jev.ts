@@ -26,20 +26,14 @@ import {
   maskApiKey,
   readTypesafeConfig,
   resolveTypesafeConfig,
-  saveTypesafeClassification,
-  saveTypesafeGuardrail,
-  saveTypesafeInjection,
-  saveTypesafeLint,
-  saveTypesafeRerank,
-  saveTypesafeRouting,
-  saveTypesafeSkills,
+  saveTypesafeFlag,
   type ResolvedTypesafeConfig,
 } from "@moh/jev-guard";
 import { ArgError, parseArgs } from "./args";
 
 /**
- * Which use case a name refers to, and how it is written. One table owns the
- * names, the writer and the label the messages use, so `moh jev <name>` and
+ * Which use case a name refers to, and the label the messages use. One table
+ * owns the names and the labels, so `moh jev <name>` and
  * the status report can never disagree about what exists.
  *
  * All seven use cases are here (#1041): the guardrail used to be refused as
@@ -48,13 +42,13 @@ import { ArgError, parseArgs } from "./args";
  * name this command accepts is a dead end.
  */
 const USE_CASES = {
-  guardrail: { label: "guardrail", write: saveTypesafeGuardrail },
-  routing: { label: "model routing", write: saveTypesafeRouting },
-  injection: { label: "anti-injection", write: saveTypesafeInjection },
-  classification: { label: "prompt classification", write: saveTypesafeClassification },
-  lint: { label: "quality gate", write: saveTypesafeLint },
-  rerank: { label: "seed rerank", write: saveTypesafeRerank },
-  skills: { label: "skill suggestion", write: saveTypesafeSkills },
+  guardrail: { label: "guardrail" },
+  routing: { label: "model routing" },
+  injection: { label: "anti-injection" },
+  classification: { label: "prompt classification" },
+  lint: { label: "quality gate" },
+  rerank: { label: "seed rerank" },
+  skills: { label: "skill suggestion" },
 } as const;
 
 type UseCaseName = keyof typeof USE_CASES;
@@ -194,14 +188,14 @@ export async function jevCommand({
       stderr.write(`moh jev ${usecase}: --json belongs to status\n\n${JEV_USAGE}\n`);
       return 2;
     }
-    const { label, write } = USE_CASES[usecase];
+    const { label } = USE_CASES[usecase];
     try {
       // Read the block strictly before writing into it: a section we cannot
       // parse is refused loudly rather than quietly accepted and rewritten
       // around (the user would read "on" and get a config that still fails
       // at the next session).
       readTypesafeConfig(file);
-      write(file, action === "on");
+      saveTypesafeFlag(file, usecase, action === "on");
     } catch (e) {
       // A broken user config is a user error, reported as one — never
       // half-written and never flattened into a reassuring line.
