@@ -24,3 +24,22 @@ The #996 destination phrase "programmable providers" carried two readings: an ex
 ## Consequences
 
 All five scope grammars are now fixed (ADR-0065/0066/0067 and this one, custody pending in #1148); #1152 (phases and migration) can sequence them. A future provider-registration decision must reuse this ADR's requester-marking for attribution.
+
+## Amendment — ablation (2026-10-19)
+
+The decision above is unchanged. This amendment records where the `endpoint:` scope lives after #1424 (S3.2, delivered by #1571), the prerequisite recorded for this ADR. It adds no decision.
+
+### What changed
+
+- Before #1571 the scope was in `packages/core/src/endpoint-scope.ts`: `ENDPOINT_SCOPE_PREFIX`, `isEndpointScope`, `endpointScopeRef`, `validateEndpointScope`, `endpointScopesOf`, `checkEndpointScope` and the effect-sentence function `endpointEffectSentence`. For this scope, `packages/core/src/scope-effect.ts` dispatched `isEndpointScope` capabilities to `endpointEffectSentence(endpointScopeRef(…))`, and `packages/core/src/check-scope.ts` dispatched the `endpoint` kind to `checkEndpointScope`.
+- Those definitions are now in `packages/core/src/scopes.ts`. `ENDPOINT_SCOPE_PREFIX`, `isEndpointScope`, `validateEndpointScope`, `endpointScopesOf`, `checkEndpointScope` and `endpointEffectSentence` are still exported from there; `endpointScopeRef` lost its `export` and is file-local. `endpoint-scope.ts`, `scope-effect.ts` and `check-scope.ts` no longer exist.
+- The `endpoint` descriptor of the scope table in `scopes.ts` is new in #1571, with `prefix`, `validate`, `check` and `effectSentence`. Its `check` calls `checkEndpointScope`, and its `effectSentence` calls `endpointEffectSentence(endpointScopeRef(…))`.
+- `ctx.host.modelCall` and the model listing still go through `checkScope`: `extensions.ts` calls `checkScope({ kind: "endpoint", … })` in both. For `checkScope` itself, see the amendment to ADR-0064.
+
+### What stays
+
+- The rules in the Decision section are unchanged: apart from the dropped `export` on `endpointScopeRef`, the declarations and function bodies of the names listed above are identical before and after #1571.
+- The refusal reasons are unchanged, and each is still produced where it was. `validateEndpointScope` returns `malformed`, which the extension loader in `extensions.ts` reports as `invalid_endpoint_scope`. `checkEndpointScope` returns `outside_scope`. `unknown_endpoint` and `unsupported_level` are returned by the model seam in `session/session.ts`, and `failed` by that seam or by `extensions.ts` when no session is bound to the extension runtime; `extensions.ts` passes them on in the `ctx.host.modelCall` and listing results.
+- The effect sentence is unchanged: "may call and list the models of `<ref>`; may choose the reasoning level per call, within those supported". The Decision section quotes its first part.
+- The `model_call` record with `requester: { kind: "extension", … }`, the thinking-level handling and the Route resolution for the call are in `session/session.ts`; the `model_call` event type is in `types.ts`; the `host_op` audit lines are emitted in `extensions.ts`. #1571 does not touch `session/session.ts` or `types.ts`, and in `extensions.ts` it changes only import lines.
+- `registerProvider` is not touched by #1571: `provider-registry.ts`, `config.ts` and `packages/extension` are not in its diff.
