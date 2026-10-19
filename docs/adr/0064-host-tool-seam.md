@@ -22,3 +22,37 @@ The charting decision (host-owned tools) fixed the shape — the implementation 
 ## Consequences
 
 Each scope arc now decides only its own cell — which operations exist, fine semantics (redirects, glob dialect, custody), scope-specific refusal reasons — and inherits everything decided here. The ADRs for `path`, `host`, credential, `tool` and `endpoint` land next; the seam ADR is their prerequisite.
+
+## Amendment — ablation (2026-10-19)
+
+The decision above is unchanged. This amendment records where its enforcement
+point lives after #1424 (S3.2, delivered by #1571), the prerequisite recorded
+for this ADR.
+
+### What changed
+
+- "One core module (`checkScope`)" is now `packages/core/src/scopes.ts`. It
+  holds a table with one descriptor per scope kind — `path`, `host`, `tool`,
+  `contribute-tool`, `endpoint`, `credential` — each carrying the prefix, the
+  grammar validator, the check and the effect sentence.
+- `checkScope` and `scopeEffectSentence` are lookups in that table: the first
+  reads the entry for the request kind, the second walks the table by prefix.
+  Their names, refusals (`outside_scope`) and effect sentences are unchanged.
+- `contribute-tool` is not exercised through `checkScope`: `checkScope` returns
+  `undefined` for that kind, and the extension runtime reads it directly
+  through `contributesTool`, as before. The text above lists five scope arcs
+  and does not name `contribute-tool`.
+- The modules `check-scope.ts`, `scope-effect.ts`, `tool-scope.ts`,
+  `endpoint-scope.ts` and `credential-scope.ts` no longer exist. The credential
+  stores are in `packages/core/src/credential-store.ts`; `host-scope.ts` keeps
+  only the glob and filesystem helpers.
+- The `@moh/core` surface is unchanged: `scopeEffectSentence`,
+  `validateCredentialScope`, `defaultCredentialStore` and `type CredentialStore`
+  are exported as before, now from `scopes.ts` and `credential-store.ts`.
+
+### What stays
+
+- The table does not cover every scope-prefix dispatch. A second table, prefix
+  to grammar validation, `SHIPPED_SCOPE_GRAMMARS` in
+  `packages/core/src/extension-registry.ts`, was not part of #1424 (coordinator
+  decision); only its import lines changed.
