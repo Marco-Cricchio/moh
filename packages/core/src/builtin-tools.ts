@@ -18,6 +18,7 @@ import { pipeline } from "node:stream/promises";
 import { browserAvailability, BrowserSession } from "./browser";
 import { browserTool } from "./browser-tool";
 import { docsTool } from "./docs-tool";
+import { gitSync } from "./git";
 import { isPrivateHost } from "./net-guard";
 
 /**
@@ -284,11 +285,11 @@ function createRunLedger(root?: string): RunLedger {
 /** Best-effort git snapshot; null when not a repo or git fails → never intercept. */
 function gitSnapshot(cwd: string): string | null {
   try {
-    const head = Bun.spawnSync(["git", "rev-parse", "HEAD"], { cwd, stdout: "pipe", stderr: "ignore" });
+    const head = gitSync(cwd, ["rev-parse", "HEAD"], { dir: "cwd", stderr: "ignore" });
     if (head.exitCode !== 0) return null;
-    const status = Bun.spawnSync(["git", "status", "--porcelain", "--ignored=matching"], { cwd, stdout: "pipe", stderr: "ignore" });
+    const status = gitSync(cwd, ["status", "--porcelain", "--ignored=matching"], { dir: "cwd", stderr: "ignore" });
     if (status.exitCode !== 0) return null;
-    return `${head.stdout.toString().trim()}|${status.stdout.toString().trim()}`;
+    return `${head.stdout.trim()}|${status.stdout.trim()}`;
   } catch {
     return null;
   }
@@ -1381,12 +1382,12 @@ const gitTool: Tool<z.infer<typeof gitSchema>> = {
       const rest = a.slice(i + 1).filter((t) => !t.startsWith("-"));
       if (rest.length > 1) throw new Error("git: read-only tool: config writes are not allowed (use `config --get/--list <key>`)");
     }
-    const out = Bun.spawnSync(["git", ...a], { cwd, stdout: "pipe", stderr: "pipe" });
+    const out = gitSync(cwd, a, { dir: "cwd", stderr: "pipe" });
     if (out.exitCode !== 0) {
-      const err = out.stderr.toString().trim();
+      const err = out.stderr.trim();
       throw new Error(`git exited with code ${out.exitCode}${err ? `: ${err}` : ""}`);
     }
-    const text = out.stdout.toString();
+    const text = out.stdout;
     // #1262 (config exfil): `config --list` (and `--get` of a secret-shaped
     // key) lifts stored credentials into tool output. The same pass every
     // persisted event goes through masks them here too — read-only stays

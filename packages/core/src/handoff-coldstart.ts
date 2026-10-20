@@ -14,6 +14,7 @@ import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
 import { importHandoffFile } from "./handoff-file";
+import { git } from "./git";
 import { readRawHandoffText, type HandoffPayload, type HandoffTransportError } from "./handoff-transport";
 import { SessionStore } from "./session-store";
 import type { GistHandoffOffer } from "./handoff-gist";
@@ -30,18 +31,7 @@ export type GitRunner = (call: GitCall) => Promise<{ exitCode: number; stdout: s
 /** The real runner: async `git` child process. */
 const spawnGit: GitRunner = async (call) => {
   try {
-    const proc = Bun.spawn(["git", ...call.args], {
-      cwd: call.cwd,
-      stdout: "pipe",
-      stderr: "pipe",
-      stdin: "ignore",
-    });
-    const [stdout, stderr, exitCode] = await Promise.all([
-      new Response(proc.stdout).text(),
-      new Response(proc.stderr).text(),
-      proc.exited,
-    ]);
-    return { exitCode, stdout, stderr };
+    return await git(call.cwd, call.args, { dir: "cwd", stderr: "pipe", stdin: "ignore" });
   } catch (e) {
     return { exitCode: 127, stdout: "", stderr: e instanceof Error ? e.message : String(e) };
   }
