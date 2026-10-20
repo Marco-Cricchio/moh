@@ -11,7 +11,7 @@
  * registered through the generic door.
  */
 import { describe, expect, test } from "bun:test";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { sessionFromConfig, userConfigFile } from "@moh/core";
@@ -409,5 +409,113 @@ describe("activation through the generic door (#826)", () => {
     expect("error" in result).toBe(false);
     if ("error" in result) return;
     expect(result.session.extensionStatuses()).toEqual([]);
+  });
+});
+
+// #1431 (expand phase of S4.1): twins of the injected `readConfig` /
+// `read` tests above, on a real temporary file. Migration ticket #1435 deletes
+// the injected ones. The suite is not run by CI (#1498): run it locally.
+describe("typesafe config and activation — real file twins (#1431)", () => {
+  const raw = (file: string) => JSON.parse(readFileSync(file, "utf8")) as Record<string, unknown>;
+  const seeded = (body: unknown, fileMode = 0o644): string => {
+    const file = join(tmpDir(), "config");
+    writeFileSync(file, JSON.stringify(body));
+    chmodSync(file, fileMode);
+    return file;
+  };
+  const readReal = (f: string) => readFileSync(f, "utf8");
+
+  test("activation is the stored key, and nothing else (real file)", () => {
+    const store = memoryStore();
+    const file = join(tmpDir(), "config");
+    writeFileSync(file, "");
+    expect(jevBundledSource.evaluateActive(readReal, file, store)).toBe(false);
+    writeFileSync(file, JSON.stringify({ typesafe: { apiKey: "   " } }));
+    expect(jevBundledSource.evaluateActive(readReal, file, store)).toBe(false);
+    writeFileSync(file, JSON.stringify({ typesafe: { timeoutMs: -1 } }));
+    expect(jevBundledSource.evaluateActive(readReal, file, store)).toBe(false);
+    // Legacy: not migrated yet, but the extension runs exactly as before.
+    writeFileSync(file, JSON.stringify({ typesafe: { apiKey: "sk-test" } }));
+    expect(jevBundledSource.evaluateActive(readReal, file, store)).toBe(true);
+    // Migrated: the store's fact is the switch, the config is empty.
+    store.set(TYPESAFE_CREDENTIAL_REF, "sk-test");
+    writeFileSync(file, "");
+    expect(jevBundledSource.evaluateActive(readReal, file, store)).toBe(true);
+  });
+
+  test("activation with a stored credential or without one over a typesafe block with no key (real file)", () => {
+    const file = seeded({ typesafe: {} });
+    const store = memoryStore({ [TYPESAFE_CREDENTIAL_REF]: "sk-test" });
+    expect(jevBundledSource.evaluateActive(readReal, file, store)).toBe(true);
+    expect(jevBundledSource.evaluateActive(readReal, file)).toBe(false);
+  });
+
+  test("a malformed typesafe block means inactive, not a crash (real file)", () => {
+    const file = seeded({ typesafe: { timeoutMs: "soon" } });
+    expect(jevBundledSource.evaluateActive(readReal, file, memoryStore())).toBe(false);
+  });
+
+  test("a config path that cannot be read as a file means inactive, not a crash (real file: a directory)", () => {
+    // The injected twin throws EACCES from the reader; here the read fails with
+    // EISDIR instead. The cause differs, the outcome (`false`) is the same.
+    // No chmod 000: CI may run as root, which would make that test lie.
+    const dir = tmpDir();
+    expect(jevBundledSource.evaluateActive(readReal, dir)).toBe(false);
+  });
+
+  test("a malformed typesafe section: readers and the key writer throw, the migration swallows, the flag writers keep going (real file)", () => {
+    const bad = { keep: 1, typesafe: { timeoutMs: "soon" } };
+    const reader = seeded(bad);
+    expect(() => readTypesafeConfig(reader)).toThrow(/typesafe section/);
+
+    const migrate = seeded(bad);
+    migrateTypesafeKey(memoryStore(), migrate);
+    expect(raw(migrate)).toEqual(bad);
+
+    const save = seeded(bad);
+    const store = memoryStore();
+    expect(() => saveTypesafeApiKey(store, "k", save)).toThrow(/typesafe section/);
+    expect(raw(save)).toEqual(bad);
+
+    const flag = seeded(bad);
+    saveTypesafeFlag(flag, "routing", true);
+    expect(raw(flag)).toEqual({ keep: 1, typesafe: { timeoutMs: "soon", routing: true } });
+
+    // the key remover runs through the migration; a divergent block elsewhere stays
+    const remove = seeded({ keep: 1, typesafe: { timeoutMs: 1200, apiKey: "x" } });
+    migrateTypesafeKey(memoryStore(), remove);
+    expect(raw(remove)).toEqual({ keep: 1, typesafe: { timeoutMs: 1200 } });
+
+    const notObject = seeded({ keep: 1, typesafe: 5 });
+    saveTypesafeFlag(notObject, "routing", true);
+    expect(raw(notObject)).toEqual({ keep: 1, typesafe: { routing: true } });
+  });
+
+  test("unknown sections survive flag, save and remove; the whole file is read-modify-written (real file)", () => {
+    const seed = { theme: "nord", futureSection: { x: [1] }, typesafe: { apiKey: "sk-old", timeoutMs: 1200 } };
+    const file = seeded(seed);
+    saveTypesafeFlag(file, "lint", true);
+    expect(raw(file)).toEqual({ ...seed, typesafe: { ...seed.typesafe, lint: true } });
+    saveTypesafeApiKey(memoryStore(), "sk-new", file);
+    expect(raw(file)).toEqual({ theme: "nord", futureSection: { x: [1] }, typesafe: { timeoutMs: 1200, lint: true } });
+    const migrated = seeded(seed);
+    const store = memoryStore();
+    migrateTypesafeKey(store, migrated);
+    expect(store.get(TYPESAFE_CREDENTIAL_REF)).toBe("sk-old");
+    expect(raw(migrated)).toEqual({ theme: "nord", futureSection: { x: [1] }, typesafe: { timeoutMs: 1200 } });
+  });
+
+  test("final mode is 0600 after every writer, even over a pre-existing 0644 file (real file)", () => {
+    const seed = { typesafe: { apiKey: "sk-old" } };
+    const writers: Array<(f: string) => void> = [
+      (f) => saveTypesafeFlag(f, "guardrail", false),
+      (f) => saveTypesafeApiKey(memoryStore(), "k", f),
+      (f) => migrateTypesafeKey(memoryStore(), f),
+    ];
+    for (const write of writers) {
+      const file = seeded(seed, 0o644);
+      write(file);
+      expect(statSync(file).mode & 0o777).toBe(0o600);
+    }
   });
 });

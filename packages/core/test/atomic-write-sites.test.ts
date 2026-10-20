@@ -169,6 +169,20 @@ describe("user-config (updateUserConfigFile)", () => {
   });
 });
 
+describe("user-config (updateUserConfigFile) — real file twins (#1431)", () => {
+  test("temp is `<file>.tmp-<pid>`, written with 0600, left behind when the rename fails (real file)", () => {
+    const dir = join(root("uc-t-real"), "cfg");
+    const file = join(dir, "moh.json");
+    mkdirSync(dir, { recursive: true });
+    blockRename(file);
+    // the destination is a non-empty directory, so the guardian reads it as unreadable ({}) — as the injected `{}` reader does
+    expect(() => updateUserConfigFile(file, (d) => void (d.theme = "x"))).toThrow();
+    const tmp = `${file}.tmp-${pid}`;
+    expect(JSON.parse(readFileSync(tmp, "utf8")).theme).toBe("x");
+    expect(mode(tmp)).toBe(0o600);
+  });
+});
+
 describe("development lanes (writeState)", () => {
   test("fresh: 0600 file, 0700 directory, no temp left (the name carries a random UUID)", () => {
     const home = root("lanes");
