@@ -19,7 +19,7 @@
  */
 import { readFileSync } from "node:fs";
 import { z } from "zod";
-import { readUserConfigFile, updateUserConfigFile, type UserConfigIo } from "@moh/core";
+import { readUserConfigFile, updateUserConfigFile } from "@moh/core";
 
 /** Where the key is entered (the TUI Settings entry) — shown by the CLI hint. */
 export const TYPESAFE_SETTINGS_HINT = "set the key from the TUI Settings panel (Jev / TypeSafe)";
@@ -205,14 +205,12 @@ export function maskApiKey(key: string): string {
 export function migrateTypesafeKey(
   store: { get(ref: string): string | undefined; set(ref: string, value: string): void },
   file: string,
-  io: UserConfigIo = {},
-  read: (file: string) => string = (f) => readFileSync(f, "utf8"),
 ): void {
   // A malformed block is nothing to migrate (the CLI reports it loudly
   // elsewhere): migration must never be the thing that fails an assembly.
   let legacy: string | undefined;
   try {
-    legacy = resolveTypesafeConfig(readTypesafeConfig(file, read)).legacyApiKey;
+    legacy = resolveTypesafeConfig(readTypesafeConfig(file)).legacyApiKey;
   } catch {
     return;
   }
@@ -221,7 +219,7 @@ export function migrateTypesafeKey(
   if (stored === undefined) store.set(TYPESAFE_CREDENTIAL_REF, legacy);
   // Converged (same secret in two homes) or a true migration: the file
   // gives the value up. A diverging plaintext is not ours to delete.
-  if (stored === undefined || stored === legacy) removeTypesafeApiKey(file, io);
+  if (stored === undefined || stored === legacy) removeTypesafeApiKey(file);
 }
 
 /**
@@ -234,13 +232,11 @@ export function saveTypesafeApiKey(
   store: { set(ref: string, value: string): void },
   key: string,
   file?: string,
-  io: UserConfigIo = {},
-  read: (file: string) => string = (f) => readFileSync(f, "utf8"),
 ): void {
   const trimmed = key.trim();
   store.set(TYPESAFE_CREDENTIAL_REF, trimmed);
-  if (file !== undefined && resolveTypesafeConfig(readTypesafeConfig(file, read)).legacyApiKey !== undefined) {
-    removeTypesafeApiKey(file, io);
+  if (file !== undefined && resolveTypesafeConfig(readTypesafeConfig(file)).legacyApiKey !== undefined) {
+    removeTypesafeApiKey(file);
   }
 }
 
@@ -296,19 +292,18 @@ type TypesafeFlag = {
  * Persists the skill-suggestion opt-in (#793) — the Settings toggle's
  * writer, same lifecycle as the other flags: read at session assembly.
  */
-export function saveTypesafeFlag(file: string, useCase: TypesafeFlag, enabled: boolean, io: UserConfigIo = {}): void {
+export function saveTypesafeFlag(file: string, useCase: TypesafeFlag, enabled: boolean): void {
   updateUserConfigFile(
     file,
     (data) => {
       const current = (data.typesafe ?? {}) as Record<string, unknown>;
       data.typesafe = { ...current, [useCase]: enabled };
     },
-    io,
   );
 }
 
 /** Removes the key: the extension stays unregistered from the next session on. */
-export function removeTypesafeApiKey(file: string, io: UserConfigIo = {}): void {
+export function removeTypesafeApiKey(file: string): void {
   updateUserConfigFile(
     file,
     (data) => {
@@ -316,6 +311,5 @@ export function removeTypesafeApiKey(file: string, io: UserConfigIo = {}): void 
       delete current.apiKey;
       data.typesafe = current;
     },
-    io,
   );
 }
