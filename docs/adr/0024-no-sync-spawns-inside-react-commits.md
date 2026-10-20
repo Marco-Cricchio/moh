@@ -157,19 +157,19 @@ workaround obliged by it):
 
 ## Amendment — ablation (2026-10-20)
 
-The decision above is unchanged. This amendment records the spawn path that the synchronous probes take after #1427 (S3.5, delivered by #1582). It adds no decision.
+The decision above is unchanged. This amendment records the spawn path that the `remote get-url origin` probes take after #1427 (S3.5, delivered by #1582). It adds no decision.
 
 ### What changed
 
 - Line 23 of the Context section ("`canonicalRemoteSlug` runs `execFileSync("git", ["remote", "get-url", …])`") describes the code at the time of the incident and is kept as written. `packages/core/src/project-identity.ts` no longer contains `execFileSync`.
 - `canonicalRemoteSlug` still returns `canonicalRemoteSlugUncached(cwd)`. That function now calls `originUrlSync(cwd, "ignore")`, which is defined in `packages/core/src/git.ts` and runs `git -C <cwd> remote get-url origin` through `gitSync`, which calls `Bun.spawnSync`.
 - `resolveTrackerSync` in `packages/core/src/tracker.ts` calls `originUrlSync(cwd, "pipe")`. Before #1582 it called `Bun.spawnSync` directly.
-- `canonicalRemoteSlugAsync`, the boot-path twin from the #939 amendment, calls `originUrl(cwd)` from `packages/core/src/git.ts`; `originUrl` awaits `git(…)`, which wraps `Bun.spawn`.
+- `canonicalRemoteSlugAsync` (added by #939; the async `git` probe that the #939 amendment describes) calls `originUrl(cwd)` from `packages/core/src/git.ts`; `originUrl` awaits `git(…)`, which wraps `Bun.spawn`.
 
 ### What stays
 
 - The spawn behind `canonicalRemoteSlug` is still synchronous (`Bun.spawnSync` in place of `execFileSync`), so the rule in the Decision section applies to it as before.
-- Each call site keeps the sync or async form it had before #1582 (contract C12). The per-cwd memo in `resolveTrackerSync`, the `preparedIdentities` pin and the warm-up in `renderTui` from #939 are as the #939 amendment describes them.
+- Each call site keeps the sync or async form it had before #1582 (contract C12). The per-cwd memo in `resolveTrackerSync` and the warm-up in `renderTui` (Decision section), and the `preparedIdentities` pin added by #939, are as the #939 amendment describes them.
 - `resolveTracker` and `prepareTrackerRemote` do not go through `packages/core/src/git.ts`. They stay on the injectable `ShellRunner` (`run`, defaulting to `defaultRunner`), by decision D1 of #1427, so of the five `git remote get-url origin` implementations that #1427 listed, three moved to `git.ts`.
 
 ### References
