@@ -503,6 +503,7 @@ export {
   readStrandedDataRecord,
   type StrandedDataRecord,
 } from "./project-identity";
+export { writeFileAtomic } from "./fs-atomic";
 export {
   readUserConfigFile,
   updateUserConfigFile,

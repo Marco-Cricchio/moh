@@ -27,9 +27,10 @@
  * dotdir (`secret-redaction-misses.log`) — the ADR-0049 corpus precedent:
  * the evidence the next pattern is written from, never its content.
  */
-import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync } from "node:fs";
 import { randomBytes } from "node:crypto";
 import { dirname, join } from "node:path";
+import { writeFileAtomic } from "./fs-atomic";
 
 /** The fixed placeholder every masked value becomes (ADR-0058). */
 export const REDACTED = "[redacted]";
@@ -421,11 +422,11 @@ export function noteSecretRedactionMiss(input: {
     for (let attempt = 0; attempt < 3; attempt++) {
       const tmp = missReportTempPath(file);
       try {
-        writeFileSync(tmp, kept.map((e) => JSON.stringify(e)).join("\n") + "\n", {
-          flag: "wx",
+        writeFileAtomic(file, kept.map((e) => JSON.stringify(e)).join("\n") + "\n", {
           mode: 0o600,
+          temp: () => tmp,
+          exclusive: true,
         });
-        renameSync(tmp, file);
         break;
       } catch {
         if (attempt === 2) throw new Error("miss-report temp write failed");

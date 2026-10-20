@@ -21,13 +21,14 @@
  * (ADR-0058). Writing is fail-silent and can never fail a dispose.
  */
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync, renameSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { z } from "zod";
 import { redactString } from "./redact";
 import { projectSlug } from "./session-store";
 import type { AgentEvent } from "./types";
+import { writeFileAtomic, tempPidSuffix } from "./fs-atomic";
 
 /** moh.json `retro` block; `retro.enabled: false` disables everything. */
 export const retroConfigSchema = z.object({
@@ -417,19 +418,15 @@ export class RetroStore {
   }
 
   #writeFindings(findings: ReadonlyArray<RetroFinding>): void {
-    mkdirSync(this.dir, { recursive: true, mode: 0o700 });
-    let mode = 0o600;
-    try { mode = statSync(this.findingsFile).mode & 0o777; } catch { /* new file */ }
-    const tmp = `${this.findingsFile}.tmp-${process.pid}`;
-    writeFileSync(tmp, findings.map((f) => JSON.stringify(f)).join("\n") + "\n", { mode });
-    renameSync(tmp, this.findingsFile);
+    writeFileAtomic(this.findingsFile, findings.map((f) => JSON.stringify(f)).join("\n") + "\n", {
+      mode: "preserve",
+      mkdir: { mode: 0o700 },
+      temp: tempPidSuffix,
+    });
   }
 
   #writeAtomic(file: string, body: string): void {
-    mkdirSync(this.dir, { recursive: true, mode: 0o700 });
-    const tmp = `${file}.tmp-${process.pid}`;
-    writeFileSync(tmp, body, { mode: 0o600 });
-    renameSync(tmp, file);
+    writeFileAtomic(file, body, { mode: 0o600, mkdir: { mode: 0o700 }, temp: tempPidSuffix });
   }
 }
 

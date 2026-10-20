@@ -1,9 +1,10 @@
-import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { dirname, join } from "node:path";
+import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 import { projectSessionsDir } from "./session-store";
 import { sameInstallOutcome, type LaneInstallOutcome } from "./lane-install";
+import { writeFileAtomic, tempPidUuid } from "./fs-atomic";
 
 export type LaneRelation = "independent" | "depends-on" | "integration";
 export type LaneStatus = "active" | "paused" | "ready" | "integrating" | "conflicted" | "landed" | "abandoned";
@@ -103,11 +104,7 @@ function readState(file: string): LaneState {
 }
 
 function writeState(file: string, state: LaneState): void {
-  const dir = dirname(file);
-  mkdirSync(dir, { recursive: true, mode: 0o700 });
-  const temporary = `${file}.${process.pid}.${randomUUID()}.tmp`;
-  writeFileSync(temporary, `${JSON.stringify(state, null, 2)}\n`, { mode: 0o600 });
-  renameSync(temporary, file);
+  writeFileAtomic(file, `${JSON.stringify(state, null, 2)}\n`, { mode: 0o600, mkdir: { mode: 0o700 }, temp: tempPidUuid });
 }
 
 /** User-owned persistent state for feature groups and isolated development lanes. */

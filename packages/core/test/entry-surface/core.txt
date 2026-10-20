@@ -390,4 +390,5 @@ upsertMcpServer
 upsertUserEndpoint
 userConfigFile
 validateCredentialScope
+writeFileAtomic
 writeMohConfig

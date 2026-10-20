@@ -10,8 +10,9 @@
  * and fails with total silence — an update check must never degrade or
  * delay startup.
  */
-import { existsSync, readFileSync, statSync, writeFileSync, mkdirSync, renameSync } from "node:fs";
+import { existsSync, readFileSync, statSync, mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";
+import { writeFileAtomic, tempPidSuffix } from "./fs-atomic";
 
 /** GitHub endpoint for the newest stable release (no identifiers sent). */
 export const RELEASES_LATEST_URL = "https://api.github.com/repos/Marco-Cricchio/moh/releases/latest";
@@ -117,11 +118,9 @@ export function writeUpdateCache(mohHome: string, latestVersion: string, io: Upd
     if (io.write) io.write(file, data);
     else {
       mkdirSync(dirname(file), { recursive: true, mode: 0o700 });
-      const tmp = `${file}.tmp-${process.pid}`;
       // An atomic replacement must not silently tighten an existing file.
       const mode = existsSync(file) ? statSync(file).mode & 0o777 : 0o600;
-      writeFileSync(tmp, data, { mode });
-      renameSync(tmp, file);
+      writeFileAtomic(file, data, { mode, temp: tempPidSuffix });
     }
   } catch {
     // cache write failure is as silent as a network failure

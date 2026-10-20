@@ -4,6 +4,7 @@ import { anyOpenSessionInDir, isSessionFile, projectTrashDir } from "./session-s
 import { copyFileSync, existsSync, linkSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, join, resolve as pathResolve, sep } from "node:path";
+import { writeFileAtomic, tempPidInfix } from "./fs-atomic";
 
 /** The pre-#398 path-derived location, retained only to find old data. */
 export function legacyProjectSlug(cwd: string): string {
@@ -443,9 +444,7 @@ export function acknowledgeStrandedData(dir: string): void {
   if (typeof parsed !== "object" || parsed === null || typeof parsed.source !== "string") return;
   if (parsed.acknowledgedAt) return;
   parsed.acknowledgedAt = new Date().toISOString();
-  const tmp = `${file}.${process.pid}.tmp`;
-  writeFileSync(tmp, `${JSON.stringify(parsed, null, 2)}\n`, { mode: 0o600 });
-  renameSync(tmp, file);
+  writeFileAtomic(file, `${JSON.stringify(parsed, null, 2)}\n`, { mode: 0o600, temp: tempPidInfix });
 }
 
 /** Advisory classification of the stranded source directory (#1243): what

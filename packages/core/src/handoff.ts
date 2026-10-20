@@ -11,13 +11,14 @@
  * machine in T1. Publishing (secret gist) is the transport's job (T2+),
  * gated by moh.json `handoff.transport` (absent = Not Set = off).
  */
-import { renameSync, writeFileSync, mkdirSync } from "node:fs";
+import { mkdirSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { z } from "zod";
 import { gitSync } from "./git";
 import { projectSlug } from "./session-store";
 import type { AgentEvent } from "./types";
+import { writeFileAtomic, tempPidInfix } from "./fs-atomic";
 
 /** moh.json `handoff` block. `transport` absent = "Not Set" = off.
  * "gist" activates the secret-gist transport (T2+); "none" is the
@@ -300,9 +301,7 @@ export class HandoffRunner {
       const dir = join(this.#file, "..");
       mkdirSync(dir, { recursive: true, mode: 0o700 });
       const handoff = buildRawHandoff(events, this.#sessionId, turns, this.#cwd, new Date(), undefined, this.#supersedes);
-      const tmp = `${this.#file}.${process.pid}.tmp`;
-      writeFileSync(tmp, `${JSON.stringify(handoff, null, 2)}\n`, { mode: 0o600 });
-      renameSync(tmp, this.#file);
+      writeFileAtomic(this.#file, `${JSON.stringify(handoff, null, 2)}\n`, { mode: 0o600, temp: tempPidInfix });
     } catch {
       // Fail-silent: the artifact is a bridge, never a turn dependency.
     }
