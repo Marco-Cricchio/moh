@@ -7,7 +7,6 @@ import {
   defaultThinkingLevel,
   effectiveThinkingLevel,
   readThinkingPreference,
-  readThinkingPreferences,
   setThinkingPreference,
   THINKING_LEVELS,
   thinkingLevelStates,
@@ -201,14 +200,16 @@ describe("endpoint preferences — real file twins (#1431)", () => {
   test("the section is filtered per entry, not per section (real file)", () => {
     const file = tmpFile();
     writeFileSync(file, JSON.stringify({ thinkingLevels: { a: "ultra", b: "high", c: 4 } }));
-    expect(readThinkingPreferences(file)).toEqual({ b: "high" });
+    expect(readThinkingPreference(file, "a")).toBeUndefined();
+    expect(readThinkingPreference(file, "b")).toBe("high");
+    expect(readThinkingPreference(file, "c")).toBeUndefined();
   });
 
   test("a malformed section (array / non-object) reads as empty; a write replaces it, a clear keeps it (real file)", () => {
     for (const bad of [[1], "x", 5]) {
       const file = tmpFile();
       writeFileSync(file, JSON.stringify({ keep: 1, thinkingLevels: bad }));
-      expect(readThinkingPreferences(file)).toEqual({});
+      expect(readThinkingPreference(file, "a")).toBeUndefined();
       clearThinkingPreference(file, "a");
       expect(raw(file)).toEqual({ keep: 1, thinkingLevels: bad });
       setThinkingPreference(file, "a", "low");

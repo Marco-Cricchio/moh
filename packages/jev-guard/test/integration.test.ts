@@ -16,7 +16,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { sessionFromConfig, userConfigFile } from "@moh/core";
 import { jevBundledSource } from "../src/integration";
-import { TYPESAFE_CREDENTIAL_REF, migrateTypesafeKey, removeTypesafeApiKey, removeTypesafeKey } from "../src/typesafe";
+import { TYPESAFE_CREDENTIAL_REF, migrateTypesafeKey, removeTypesafeKey } from "../src/typesafe";
 
 /** A minimal in-memory credential store (the runtime's test shape). */
 function memoryStore(initial: Record<string, string> = {}) {
@@ -481,9 +481,10 @@ describe("typesafe config and activation — real file twins (#1431)", () => {
     saveTypesafeFlag(flag, "routing", true);
     expect(raw(flag)).toEqual({ keep: 1, typesafe: { timeoutMs: "soon", routing: true } });
 
-    const remove = seeded({ keep: 1, typesafe: { timeoutMs: "soon", apiKey: "x" } });
-    removeTypesafeApiKey(remove);
-    expect(raw(remove)).toEqual(bad);
+    // the key remover runs through the migration; a divergent block elsewhere stays
+    const remove = seeded({ keep: 1, typesafe: { timeoutMs: 1200, apiKey: "x" } });
+    migrateTypesafeKey(memoryStore(), remove);
+    expect(raw(remove)).toEqual({ keep: 1, typesafe: { timeoutMs: 1200 } });
 
     const notObject = seeded({ keep: 1, typesafe: 5 });
     saveTypesafeFlag(notObject, "routing", true);
@@ -508,7 +509,6 @@ describe("typesafe config and activation — real file twins (#1431)", () => {
     const seed = { typesafe: { apiKey: "sk-old" } };
     const writers: Array<(f: string) => void> = [
       (f) => saveTypesafeFlag(f, "guardrail", false),
-      (f) => removeTypesafeApiKey(f),
       (f) => saveTypesafeApiKey(memoryStore(), "k", f),
       (f) => migrateTypesafeKey(memoryStore(), f),
     ];
