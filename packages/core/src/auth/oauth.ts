@@ -455,7 +455,7 @@ export type OAuthPostFetch = (
   body: Record<string, unknown>,
 ) => Promise<{ status: number; json: Record<string, unknown> }>;
 
-export interface OAuthPostOptions {
+interface OAuthPostOptions {
   /** The complete header set, in the order it is sent. Default: the content-type alone. */
   headers?: Record<string, string>;
   /** When set, the request is bounded by `AbortSignal.timeout(timeoutMs)`. */
