@@ -33,9 +33,12 @@ import {
   confirmToSWarning,
   generatePkce,
   generateState,
+  LoginAborted,
+  postForm,
   raceForCode,
   startLoopbackCallback,
   type AuthorizationIo,
+  type OAuthPostFetch,
 } from "./oauth";
 
 /** Drift-prone captured values (re-verify against a fresh gemini-cli checkout). */
@@ -103,22 +106,9 @@ export function buildGoogleAuthorizeUrl(
 }
 
 /** HTTP seam for the token endpoint. Tests script it; production uses fetch. */
-export type GoogleEndpointFetch = (
-  tokenUrl: string,
-  body: Record<string, unknown>,
-) => Promise<{ status: number; json: Record<string, unknown> }>;
-
-const defaultGoogleEndpointFetch: GoogleEndpointFetch = async (tokenUrl, body) => {
-  const res = await fetch(tokenUrl, {
-    method: "POST",
-    headers: { "content-type": "application/x-www-form-urlencoded" },
-    // Standard google-auth-library form encoding; JSON also works on the
-    // Google token endpoint, but form is the library's captured shape.
-    body: new URLSearchParams(body as Record<string, string>).toString(),
-  });
-  const json = (await res.json().catch(() => ({}))) as Record<string, unknown>;
-  return { status: res.status, json };
-};
+// Standard google-auth-library form encoding; JSON also works on the
+// Google token endpoint, but form is the library's captured shape.
+const defaultGoogleEndpointFetch: OAuthPostFetch = postForm();
 
 interface GoogleTokenResponse {
   access_token: string;
@@ -174,7 +164,7 @@ export async function exchangeGoogleCode(
     redirectUri: string;
     /** Present only when the code was pasted (manual path, PKCE S256). */
     codeVerifier?: string;
-    fetchImpl?: GoogleEndpointFetch;
+    fetchImpl?: OAuthPostFetch;
     now?: number;
   },
 ): Promise<AuthToken> {
@@ -210,7 +200,7 @@ export async function exchangeGoogleCode(
 export async function refreshGoogleToken(
   config: GoogleOAuthConfig,
   token: AuthToken,
-  opts: { fetchImpl?: GoogleEndpointFetch; now?: number } = {},
+  opts: { fetchImpl?: OAuthPostFetch; now?: number } = {},
 ): Promise<AuthToken> {
   if (!token.refreshToken) {
     throw new Error("Google token has no refresh token; run `moh provider login`");
@@ -241,14 +231,6 @@ export async function refreshGoogleToken(
   };
 }
 
-/** Thrown by {@link loginGoogle} when the user declines the ToS warning. */
-export class GoogleLoginAborted extends Error {
-  constructor() {
-    super("subscription auth aborted: terms of service not acknowledged");
-    this.name = "GoogleLoginAborted";
-  }
-}
-
 /**
  * The full interactive Google login: ToS acknowledgement (spec invariant
  * 4), then the manual-paste race — the manual authorize URL (PKCE +
@@ -261,12 +243,13 @@ export async function loginGoogle(
   io: AuthorizationIo,
   opts: {
     overrides?: GoogleAuthOverrides;
-    fetchImpl?: GoogleEndpointFetch;
+    fetchImpl?: OAuthPostFetch;
     now?: number;
     timeoutMs?: number;
   } = {},
 ): Promise<AuthToken> {
-  if (!(await confirmToSWarning(io))) throw new GoogleLoginAborted();
+  /** Thrown by {@link loginGoogle} when the user declines the ToS warning. */
+  if (!(await confirmToSWarning(io))) throw new LoginAborted("GoogleLoginAborted");
 
   const config = resolveGoogleOAuthConfig(opts.overrides);
   const state = generateState();

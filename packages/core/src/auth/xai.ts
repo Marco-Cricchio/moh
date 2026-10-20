@@ -7,7 +7,14 @@
  * (already wired by #159).
  */
 import type { AuthToken, XaiAuthOverrides } from "./types";
-import { confirmToSWarningFor, oidcEmailFromIdToken, type AuthorizationIo } from "./oauth";
+import {
+  confirmToSWarningFor,
+  LoginAborted,
+  oidcEmailFromIdToken,
+  postForm,
+  type AuthorizationIo,
+  type OAuthPostFetch,
+} from "./oauth";
 import { pollDeviceCodeFlow, type DeviceFlowClock, type DevicePollOptions, type DevicePollResult } from "./device-code";
 
 export const XAI_OAUTH_DEFAULTS = {
@@ -39,20 +46,9 @@ export function resolveXaiOAuthConfig(overrides?: XaiAuthOverrides): XaiOAuthCon
 }
 
 /** HTTP seam for the form-encoded OAuth endpoints (test seam). */
-export type XaiEndpointFetch = (
-  url: string,
-  body: Record<string, unknown>,
-) => Promise<{ status: number; json: Record<string, unknown> }>;
-
-const defaultXaiEndpointFetch: XaiEndpointFetch = async (url, body) => {
-  const res = await fetch(url, {
-    method: "POST",
-    headers: { accept: "application/json", "content-type": "application/x-www-form-urlencoded" },
-    body: new URLSearchParams(body as Record<string, string>).toString(),
-  });
-  const json = (await res.json().catch(() => ({}))) as Record<string, unknown>;
-  return { status: res.status, json };
-};
+const defaultXaiEndpointFetch: OAuthPostFetch = postForm({
+  headers: { accept: "application/json", "content-type": "application/x-www-form-urlencoded" },
+});
 
 interface DeviceCode {
   deviceCode: string;
@@ -77,7 +73,7 @@ function validateVerificationUri(raw: unknown, field: string): string {
   return url.href;
 }
 
-async function requestDeviceCode(config: XaiOAuthConfig, fetchImpl: XaiEndpointFetch): Promise<DeviceCode> {
+async function requestDeviceCode(config: XaiOAuthConfig, fetchImpl: OAuthPostFetch): Promise<DeviceCode> {
   const result = await fetchImpl(config.deviceCodeUrl, {
     client_id: config.clientId,
     scope: XAI_SCOPES,
@@ -142,14 +138,6 @@ function tokenFromResponse(
   };
 }
 
-/** Thrown by {@link loginXai} when the user declines the ToS warning. */
-export class XaiLoginAborted extends Error {
-  constructor() {
-    super("subscription auth aborted: terms of service not acknowledged");
-    this.name = "XaiLoginAborted";
-  }
-}
-
 /**
  * The full interactive xAI login: ToS acknowledgement, device-code
  * request, then the standard poll loop (authorization_pending /
@@ -157,9 +145,10 @@ export class XaiLoginAborted extends Error {
  */
 export async function loginXai(
   io: AuthorizationIo,
-  opts: { overrides?: XaiAuthOverrides; fetchImpl?: XaiEndpointFetch; now?: number; clock?: DeviceFlowClock } = {},
+  opts: { overrides?: XaiAuthOverrides; fetchImpl?: OAuthPostFetch; now?: number; clock?: DeviceFlowClock } = {},
 ): Promise<AuthToken> {
-  if (!(await confirmToSWarningFor(io, "xai"))) throw new XaiLoginAborted();
+  /** Thrown by {@link loginXai} when the user declines the ToS warning. */
+  if (!(await confirmToSWarningFor(io, "xai"))) throw new LoginAborted("XaiLoginAborted");
 
   const config = resolveXaiOAuthConfig(opts.overrides);
   const fetchImpl = opts.fetchImpl ?? defaultXaiEndpointFetch;
@@ -214,7 +203,7 @@ export async function loginXai(
  */
 export async function refreshXaiToken(
   token: AuthToken,
-  opts: { overrides?: XaiAuthOverrides; fetchImpl?: XaiEndpointFetch; now?: number } = {},
+  opts: { overrides?: XaiAuthOverrides; fetchImpl?: OAuthPostFetch; now?: number } = {},
 ): Promise<AuthToken> {
   if (!token.refreshToken) {
     throw new Error("xAI token has no refresh token; run `moh provider login`");

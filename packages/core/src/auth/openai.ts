@@ -32,8 +32,11 @@ import {
   confirmToSWarning,
   generatePkce,
   generateState,
+  LoginAborted,
+  postJson,
   startLoopbackCallback,
   type AuthorizationIo,
+  type OAuthPostFetch,
   CODE_RECEIVED_MSG,
 } from "./oauth";
 
@@ -100,20 +103,7 @@ export function buildOpenaiAuthorizeUrl(
 }
 
 /** HTTP seam for all OpenAI auth endpoints. Tests script it; production uses fetch. */
-export type OpenAiEndpointFetch = (
-  url: string,
-  body: Record<string, unknown>,
-) => Promise<{ status: number; json: Record<string, unknown> }>;
-
-const defaultOpenAiEndpointFetch: OpenAiEndpointFetch = async (url, body) => {
-  const res = await fetch(url, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify(body),
-  });
-  const json = (await res.json().catch(() => ({}))) as Record<string, unknown>;
-  return { status: res.status, json };
-};
+const defaultOpenAiEndpointFetch: OAuthPostFetch = postJson();
 
 interface OpenAiTokenResponse {
   access_token: string;
@@ -204,7 +194,7 @@ export async function exchangeOpenaiCode(
     code: string;
     codeVerifier: string;
     redirectUri: string;
-    fetchImpl?: OpenAiEndpointFetch;
+    fetchImpl?: OAuthPostFetch;
     now?: number;
   },
 ): Promise<{ token: OpenAiTokenResponse; auth: AuthToken; mintError?: string }> {
@@ -249,7 +239,7 @@ export async function exchangeOpenaiCode(
 export async function exchangeOpenaiApiKey(
   config: OpenAiOAuthConfig,
   tokens: { id_token?: string },
-  opts: { fetchImpl?: OpenAiEndpointFetch } = {},
+  opts: { fetchImpl?: OAuthPostFetch } = {},
 ): Promise<string> {
   if (!tokens.id_token) {
     throw new Error("OpenAI token exchange needs an id_token; run `moh provider login` again");
@@ -278,7 +268,7 @@ export async function exchangeOpenaiApiKey(
 export async function refreshOpenaiToken(
   config: OpenAiOAuthConfig,
   token: AuthToken,
-  opts: { fetchImpl?: OpenAiEndpointFetch; now?: number } = {},
+  opts: { fetchImpl?: OAuthPostFetch; now?: number } = {},
 ): Promise<AuthToken> {
   if (!token.refreshToken) {
     throw new Error("OpenAI token has no refresh token; run `moh provider login`");
@@ -347,19 +337,11 @@ function friendlyMintNote(mintError: string): string {
     : mintError;
 }
 
-/** Thrown by {@link loginOpenAI} when the user declines the ToS warning. */
-export class OpenAiLoginAborted extends Error {
-  constructor() {
-    super("subscription auth aborted: terms of service not acknowledged");
-    this.name = "OpenAiLoginAborted";
-  }
-}
-
 /** Custom device-code flow, step 1 (device_code_auth.rs): request a user
  * code, binding it to our PKCE challenge. */
 export async function requestOpenaiUserCode(
   config: OpenAiOAuthConfig,
-  opts: { codeChallenge: string; fetchImpl?: OpenAiEndpointFetch },
+  opts: { codeChallenge: string; fetchImpl?: OAuthPostFetch },
 ): Promise<{ userCode: string; deviceAuthId: string; verificationUri?: string }> {
   const fetchImpl = opts.fetchImpl ?? defaultOpenAiEndpointFetch;
   const result = await fetchImpl(`${config.issuer}/deviceauth/usercode`, {
@@ -394,7 +376,7 @@ export async function pollOpenaiDeviceToken(
   config: OpenAiOAuthConfig,
   device: { deviceAuthId: string; userCode: string },
   opts: {
-    fetchImpl?: OpenAiEndpointFetch;
+    fetchImpl?: OAuthPostFetch;
     pollIntervalMs?: number;
     timeoutMs?: number;
     now?: () => number;
@@ -444,7 +426,7 @@ export async function loginOpenAI(
   io: AuthorizationIo,
   opts: {
     overrides?: OpenAiAuthOverrides;
-    fetchImpl?: OpenAiEndpointFetch;
+    fetchImpl?: OAuthPostFetch;
     now?: number;
     timeoutMs?: number;
     pollIntervalMs?: number;
@@ -452,7 +434,8 @@ export async function loginOpenAI(
     sleep?: (ms: number) => Promise<void>;
   } = {},
 ): Promise<AuthToken> {
-  if (!(await confirmToSWarning(io))) throw new OpenAiLoginAborted();
+  /** Thrown by {@link loginOpenAI} when the user declines the ToS warning. */
+  if (!(await confirmToSWarning(io))) throw new LoginAborted("OpenAiLoginAborted");
 
   const config = resolveOpenAiOAuthConfig(opts.overrides);
   const pkce = generatePkce();

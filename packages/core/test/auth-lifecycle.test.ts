@@ -13,7 +13,7 @@ import {
   runSubscriptionLogin,
   withdrawnSubscriptionReason,
 } from "../src/auth/lifecycle";
-import { AnthropicLoginAborted } from "../src/auth/anthropic";
+import { LoginAborted } from "../src/auth/oauth";
 import { TOS_WARNING } from "../src/auth/oauth";
 
 /** IO double: pre-scripted answers, recorded info lines. */
@@ -84,7 +84,8 @@ describe("offersSubscriptionAuth (#1317)", () => {
     // never a "has no subscription auth" refusal — and touches no network.
     const io = ioWith(["n"]);
     const failure = await runSubscriptionLogin("anthropic", io).catch((error: unknown) => error);
-    expect(failure).toBeInstanceOf(AnthropicLoginAborted);
+    expect(failure).toBeInstanceOf(LoginAborted);
+    expect((failure as Error).name).toBe("AnthropicLoginAborted");
     expect((failure as Error).message).toBe("subscription auth aborted: terms of service not acknowledged");
     expect(io.said.join("\n")).toContain(TOS_WARNING);
   });

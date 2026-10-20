@@ -3,7 +3,6 @@ import {
   CHATGPT_CODEX_BASE_URL,
   OPENAI_OAUTH_DEFAULTS,
   OPENAI_SCOPES,
-  OpenAiLoginAborted,
   buildOpenaiAuthorizeUrl,
   exchangeOpenaiApiKey,
   exchangeOpenaiCode,
@@ -12,10 +11,9 @@ import {
   refreshOpenaiToken,
   requestOpenaiUserCode,
   resolveOpenAiOAuthConfig,
-  type OpenAiEndpointFetch,
 } from "../src/auth/openai";
 import { authSectionSchema } from "../src/auth/types";
-import type { AuthorizationIo } from "../src/auth/oauth";
+import { LoginAborted, type OAuthPostFetch as OpenAiEndpointFetch, type AuthorizationIo } from "../src/auth/oauth";
 import type { AuthToken } from "../src/auth/types";
 
 const CONFIG = resolveOpenAiOAuthConfig();
@@ -382,7 +380,9 @@ describe("loginOpenAI", () => {
   test("ToS declined aborts before any network I/O", async () => {
     const io = loginIoDouble(["n"]);
     const fetchImpl = loginResults();
-    await expect(loginOpenAI(io, { fetchImpl })).rejects.toBeInstanceOf(OpenAiLoginAborted);
+    const failure = await loginOpenAI(io, { fetchImpl }).catch((error: unknown) => error);
+    expect(failure).toBeInstanceOf(LoginAborted);
+    expect((failure as Error).name).toBe("OpenAiLoginAborted");
     expect(fetchImpl.calls).toHaveLength(0);
   });
 

@@ -3,7 +3,6 @@ import {
   COPILOT_CLIENT_ID,
   COPILOT_DEFAULT_BASE_URL,
   COPILOT_EDITOR_HEADERS,
-  CopilotLoginAborted,
   copilotAuthContext,
   copilotBaseUrl,
   copilotBaseUrlFromToken,
@@ -17,7 +16,7 @@ import { isSubscriptionKind } from "../src/auth/lifecycle";
 import { resolveEndpointCredential } from "../src/auth/resolve";
 import { saveTokens } from "../src/auth/store";
 import { Endpoint } from "../src/route";
-import type { AuthorizationIo } from "../src/auth/oauth";
+import { LoginAborted, type AuthorizationIo } from "../src/auth/oauth";
 import type { DeviceFlowClock } from "../src/auth/device-code";
 import type { AuthToken } from "../src/auth/types";
 
@@ -109,7 +108,9 @@ describe("exchangeCopilotToken", () => {
 describe("loginGitHubCopilot", () => {
   test("declining the ToS aborts before any prompt or network I/O", async () => {
     const io: AuthorizationIo = { ask: async () => "n", info: async () => {} };
-    await expect(loginGitHubCopilot(io, { clock: fastClock })).rejects.toBeInstanceOf(CopilotLoginAborted);
+    const failure = await loginGitHubCopilot(io, { clock: fastClock }).catch((error: unknown) => error);
+    expect(failure).toBeInstanceOf(LoginAborted);
+    expect((failure as Error).name).toBe("CopilotLoginAborted");
   });
 
   test("device flow + two-hop exchange (github.com default)", async () => {

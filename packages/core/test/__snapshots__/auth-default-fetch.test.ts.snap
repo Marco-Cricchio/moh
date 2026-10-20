@@ -1,0 +1,195 @@
+// Bun Snapshot v1, https://bun.sh/docs/test/snapshots
+
+exports[`default fetch wire shape anthropic: JSON, content-type only (code exchange with long-lived retry, refresh) 1`] = `
+[
+  {
+    "body": "{"grant_type":"authorization_code","code":"c","redirect_uri":"http://r","client_id":"cid","code_verifier":"v","state":"s","expires_in":31536000}",
+    "headers": [
+      "content-type: application/json",
+      "accept: */*",
+    ],
+    "method": "POST",
+    "path": "/anthropic/token",
+  },
+  {
+    "body": "{"grant_type":"authorization_code","code":"c","redirect_uri":"http://r","client_id":"cid","code_verifier":"v","state":"s"}",
+    "headers": [
+      "content-type: application/json",
+      "accept: */*",
+    ],
+    "method": "POST",
+    "path": "/anthropic/token",
+  },
+  {
+    "body": "{"grant_type":"refresh_token","refresh_token":"rt","client_id":"cid","scope":"user:profile user:inference user:sessions:claude_code user:mcp_servers user:file_upload"}",
+    "headers": [
+      "content-type: application/json",
+      "accept: */*",
+    ],
+    "method": "POST",
+    "path": "/anthropic/token",
+  },
+]
+`;
+
+exports[`default fetch wire shape google: form, content-type only (code exchange, refresh) 1`] = `
+[
+  {
+    "body": "grant_type=authorization_code&code=c&redirect_uri=http%3A%2F%2Fr&client_id=cid&client_secret=sec&code_verifier=v",
+    "headers": [
+      "content-type: application/x-www-form-urlencoded",
+      "accept: */*",
+    ],
+    "method": "POST",
+    "path": "/google/token",
+  },
+  {
+    "body": "grant_type=refresh_token&refresh_token=rt&client_id=cid&client_secret=sec",
+    "headers": [
+      "content-type: application/x-www-form-urlencoded",
+      "accept: */*",
+    ],
+    "method": "POST",
+    "path": "/google/token",
+  },
+]
+`;
+
+exports[`default fetch wire shape openai: JSON, content-type only (code exchange, api-key mint, refresh, device user code, device poll) 1`] = `
+[
+  {
+    "body": "{"grant_type":"authorization_code","code":"c","redirect_uri":"http://r","client_id":"cid","code_verifier":"v","scope":"openid profile email offline_access api.connectors.read api.connectors.invoke"}",
+    "headers": [
+      "content-type: application/json",
+      "accept: */*",
+    ],
+    "method": "POST",
+    "path": "/openai/oauth/token",
+  },
+  {
+    "body": "{"grant_type":"urn:ietf:params:oauth:grant-type:token-exchange","requested_token":"openai-api-key","subject_token":"idt","subject_token_type":"urn:ietf:params:oauth:token-type:id_token","client_id":"cid"}",
+    "headers": [
+      "content-type: application/json",
+      "accept: */*",
+    ],
+    "method": "POST",
+    "path": "/openai/oauth/token",
+  },
+  {
+    "body": "{"grant_type":"refresh_token","refresh_token":"rt","client_id":"cid","scope":"openid profile email offline_access api.connectors.read api.connectors.invoke"}",
+    "headers": [
+      "content-type: application/json",
+      "accept: */*",
+    ],
+    "method": "POST",
+    "path": "/openai/oauth/token",
+  },
+  {
+    "body": "{"client_id":"cid","scope":"openid profile email offline_access api.connectors.read api.connectors.invoke","code_challenge":"ch","code_challenge_method":"S256"}",
+    "headers": [
+      "content-type: application/json",
+      "accept: */*",
+    ],
+    "method": "POST",
+    "path": "/openai/deviceauth/usercode",
+  },
+  {
+    "body": "{"device_auth_id":"da","user_code":"uc"}",
+    "headers": [
+      "content-type: application/json",
+      "accept: */*",
+    ],
+    "method": "POST",
+    "path": "/openai/deviceauth/token",
+  },
+]
+`;
+
+exports[`default fetch wire shape openrouter: JSON, accept + content-type (key exchange) 1`] = `
+[
+  {
+    "body": "{"code":"c","code_verifier":"v","code_challenge_method":"S256"}",
+    "headers": [
+      "accept: application/json",
+      "content-type: application/json",
+    ],
+    "method": "POST",
+    "path": "/openrouter/key",
+  },
+]
+`;
+
+exports[`default fetch wire shape xai: form, accept + content-type (device code, poll, refresh) 1`] = `
+[
+  {
+    "body": "client_id=b1a00492-073a-47ea-816f-4c329264a828&scope=openid+profile+email+offline_access+grok-cli%3Aaccess+api%3Aaccess&referrer=moh",
+    "headers": [
+      "accept: application/json",
+      "content-type: application/x-www-form-urlencoded",
+    ],
+    "method": "POST",
+    "path": "/xai/device",
+  },
+  {
+    "body": "grant_type=urn%3Aietf%3Aparams%3Aoauth%3Agrant-type%3Adevice_code&client_id=b1a00492-073a-47ea-816f-4c329264a828&device_code=dc",
+    "headers": [
+      "accept: application/json",
+      "content-type: application/x-www-form-urlencoded",
+    ],
+    "method": "POST",
+    "path": "/xai/token",
+  },
+  {
+    "body": "grant_type=refresh_token&client_id=b1a00492-073a-47ea-816f-4c329264a828&refresh_token=rt",
+    "headers": [
+      "accept: application/json",
+      "content-type: application/x-www-form-urlencoded",
+    ],
+    "method": "POST",
+    "path": "/xai/token",
+  },
+]
+`;
+
+exports[`default fetch wire shape kimi-coding: form, content-type + accept (device authorization, poll, refresh) 1`] = `
+[
+  {
+    "body": "client_id=17e5f671-d194-4dfb-9706-5516cb48c098",
+    "headers": [
+      "accept: application/json",
+      "content-type: application/x-www-form-urlencoded",
+    ],
+    "method": "POST",
+    "path": "/kimi/api/oauth/device_authorization",
+  },
+  {
+    "body": "client_id=17e5f671-d194-4dfb-9706-5516cb48c098&device_code=dc&grant_type=urn%3Aietf%3Aparams%3Aoauth%3Agrant-type%3Adevice_code",
+    "headers": [
+      "accept: application/json",
+      "content-type: application/x-www-form-urlencoded",
+    ],
+    "method": "POST",
+    "path": "/kimi/api/oauth/token",
+  },
+  {
+    "body": "client_id=17e5f671-d194-4dfb-9706-5516cb48c098&grant_type=refresh_token&refresh_token=rt",
+    "headers": [
+      "accept: application/json",
+      "content-type: application/x-www-form-urlencoded",
+    ],
+    "method": "POST",
+    "path": "/kimi/api/oauth/token",
+  },
+]
+`;
+
+exports[`default fetch response handling a non-JSON reply is absorbed as an empty object, never thrown raw 1`] = `
+[
+  "resolved",
+  "Google token refresh failed (200); run \`moh provider login\`",
+  "OpenAI token refresh failed (200); run \`moh provider login\`",
+  "OpenRouter key exchange failed (HTTP 200)",
+  "Invalid xAI token response: {}",
+  "Kimi Code token response missing fields: {}",
+]
+`;
