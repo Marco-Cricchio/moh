@@ -36,7 +36,7 @@ import { endpointProfileSchema, loadMohConfig, upsertEndpoint, type EndpointProf
 import { envApiKey } from "./route";
 import { readAuthSection } from "./auth/store";
 import type { AuthSection } from "./auth/types";
-import { readUserConfigFile, updateUserConfigFile, userConfigFile, type UserConfigData, type UserConfigIo } from "./user-config";
+import { readUserConfigFile, updateUserConfigFile, userConfigFile, type UserConfigData } from "./user-config";
 import { z } from "zod";
 
 /** The provider-relevant sections of `~/.moh/config`. */
@@ -179,20 +179,19 @@ export function loadMergedConfig(cwd: string, options: MergedConfigOptions = {})
  * Adds or replaces a user-level endpoint profile by name, through the
  * config guardian: unrelated keys and unknown sections survive (ADR-0006).
  */
-export function upsertUserEndpoint(file: string, profile: EndpointProfile, io: UserConfigIo = {}): void {
+export function upsertUserEndpoint(file: string, profile: EndpointProfile): void {
   updateUserConfigFile(
     file,
     (data) => {
       const current = Array.isArray(data.endpoints) ? data.endpoints : [];
       data.endpoints = upsertEndpoint({ endpoints: current as EndpointProfile[] }, profile).endpoints;
     },
-    io,
   );
 }
 
 /** Sets the user-level default provider reference through the guardian. */
-export function saveUserProviderRef(file: string, ref: string, io: UserConfigIo = {}): void {
-  updateUserConfigFile(file, (data) => void (data.provider = ref), io);
+export function saveUserProviderRef(file: string, ref: string): void {
+  updateUserConfigFile(file, (data) => void (data.provider = ref));
 }
 
 /**
@@ -210,7 +209,6 @@ export function setUserEndpointModel(
   file: string,
   name: string,
   modelId: string | null,
-  io: UserConfigIo = {},
 ): void {
   let found = false;
   updateUserConfigFile(
@@ -228,7 +226,6 @@ export function setUserEndpointModel(
         return { ...e, defaultModel: modelId };
       });
     },
-    io,
   );
   if (!found) {
     throw new Error(`no user-level endpoint "${name}" in ${file}; add it before setting a preferred model`);
@@ -250,7 +247,6 @@ export function setUserEndpointFallbackEligible(
   file: string,
   name: string,
   eligible: boolean,
-  io: UserConfigIo = {},
 ): void {
   let found = false;
   updateUserConfigFile(
@@ -268,7 +264,6 @@ export function setUserEndpointFallbackEligible(
         return { ...e, fallbackEligible: false };
       });
     },
-    io,
   );
   if (!found) {
     throw new Error(`no user-level endpoint "${name}" in ${file}; add it before excluding it from the chain`);
@@ -276,13 +271,12 @@ export function setUserEndpointFallbackEligible(
 }
 
 /** Removes a user-level endpoint profile by name, through the guardian. */
-export function removeUserEndpoint(file: string, name: string, io: UserConfigIo = {}): void {
+export function removeUserEndpoint(file: string, name: string): void {
   updateUserConfigFile(
     file,
     (data) => {
       if (!Array.isArray(data.endpoints)) return;
       data.endpoints = data.endpoints.filter((e) => (e as { name?: unknown }).name !== name);
     },
-    io,
   );
 }
