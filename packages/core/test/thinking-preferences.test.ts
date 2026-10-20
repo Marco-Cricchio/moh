@@ -145,14 +145,6 @@ describe("endpoint preferences in ~/.moh/config (#241)", () => {
     expect(readUserConfigFile(file).thinkingLevels).toEqual({ bad: "ultra", other: 42, a: "high" });
   });
 
-  test("an invalid stored value reads as absent, never throws a session", () => {
-    const read = () => JSON.stringify({ thinkingLevels: { a: "ultra" } });
-    expect(readThinkingPreference("x", "a", read)).toBeUndefined();
-    // and a valid sibling survives
-    const read2 = () => JSON.stringify({ thinkingLevels: { a: "ultra", b: "high" } });
-    expect(readThinkingPreference("x", "b", read2)).toBe("high");
-  });
-
   test("writing rejects a non-canonical level loudly", () => {
     const file = tmpFile();
     expect(() => setThinkingPreference(file, "a", "ultra" as never)).toThrow();

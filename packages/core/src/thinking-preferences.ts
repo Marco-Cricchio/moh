@@ -15,10 +15,9 @@
  *   Project `moh.json` is never touched; unrelated user config always
  *   survives through the guardian's read-modify-write.
  */
-import { readFileSync } from "node:fs";
 import { catalogEntryFor, type CatalogModel } from "./model-catalog";
 import { isThinkingLevel, THINKING_LEVELS, type ThinkingFormat, type ThinkingLevel } from "./types";
-import { readUserConfigFile, updateUserConfigFile, type UserConfigIo } from "./user-config";
+import { readUserConfigFile, updateUserConfigFile } from "./user-config";
 
 export { THINKING_LEVELS };
 
@@ -174,8 +173,8 @@ export function effectiveThinkingLevel(
 /** The `thinkingLevels` section of `~/.moh/config`: endpoint name → level. */
 type ThinkingPreferences = Record<string, ThinkingLevel>;
 
-function readSection(file: string, read?: (file: string) => string): ThinkingPreferences {
-  const data = readUserConfigFile(file, read);
+function readSection(file: string): ThinkingPreferences {
+  const data = readUserConfigFile(file);
   const raw = data.thinkingLevels;
   if (raw === undefined || typeof raw !== "object" || Array.isArray(raw)) return {};
   // Tolerant per-entry read: an invalid stored value reads as absent —
@@ -191,17 +190,15 @@ function readSection(file: string, read?: (file: string) => string): ThinkingPre
 export function readThinkingPreference(
   file: string,
   endpoint: string,
-  read: (file: string) => string = (f) => readFileSync(f, "utf8"),
 ): ThinkingLevel | undefined {
-  return readSection(file, read)[endpoint];
+  return readSection(file)[endpoint];
 }
 
 /** The whole stored section (e.g. for the settings panel). */
 export function readThinkingPreferences(
   file: string,
-  read: (file: string) => string = (f) => readFileSync(f, "utf8"),
 ): ThinkingPreferences {
-  return readSection(file, read);
+  return readSection(file);
 }
 
 /** The raw `thinkingLevels` section as a plain object, or undefined when
@@ -214,14 +211,13 @@ function asSection(raw: unknown): Record<string, unknown> | undefined {
 /** Persists one endpoint's level immediately through the guardian;
  * unrelated user config survives and moh.json is never touched. The
  * mutation reads `data` (the guardian's own read-modify-write view), not
- * the disk, so a mocked `io.read` can never fork the two. Invalid
+ * the disk. Invalid
  * hand-written sibling entries are preserved verbatim — reads filter
  * them, writes must not silently "fix" the file. */
 export function setThinkingPreference(
   file: string,
   endpoint: string,
   level: ThinkingLevel,
-  io: UserConfigIo = {},
 ): void {
   if (!isThinkingLevel(level)) {
     throw new Error(`invalid thinking level "${String(level)}"; canonical levels: ${THINKING_LEVELS.join(", ")}`);
@@ -230,13 +226,13 @@ export function setThinkingPreference(
     const existing = { ...(asSection(data.thinkingLevels) ?? {}) };
     existing[endpoint] = level;
     data.thinkingLevels = existing;
-  }, io);
+  });
 }
 
 /** Drops one endpoint's preference through the guardian; no-op when
  * absent. Checks the raw section, so clearing an invalid hand-written
  * entry removes it instead of being filtered into a no-op. */
-export function clearThinkingPreference(file: string, endpoint: string, io: UserConfigIo = {}): void {
+export function clearThinkingPreference(file: string, endpoint: string): void {
   updateUserConfigFile(file, (data) => {
     const existing = asSection(data.thinkingLevels);
     if (!existing || !(endpoint in existing)) return;
@@ -244,7 +240,7 @@ export function clearThinkingPreference(file: string, endpoint: string, io: User
     delete next[endpoint];
     if (Object.keys(next).length === 0) delete data.thinkingLevels;
     else data.thinkingLevels = next;
-  }, io);
+  });
 }
 
 
@@ -272,13 +268,12 @@ export function resolveEndpointThinking(
   ref: string,
   endpoints: ReadonlyArray<ThinkingEndpoint>,
   userConfig: string,
-  read: (file: string) => string = (f) => readFileSync(f, "utf8"),
 ): { level: ThinkingLevel } | undefined {
   const parts = splitRef(ref);
   if (!parts) return undefined;
   const states = thinkingStatesForRef(ref, endpoints);
   if (!states) return undefined;
-  const level = effectiveForStates(states, readThinkingPreference(userConfig, parts.endpointName, read));
+  const level = effectiveForStates(states, readThinkingPreference(userConfig, parts.endpointName));
   return level === undefined ? undefined : { level };
 }
 
@@ -290,12 +285,11 @@ export function endpointThinkingStatus(
   ref: string,
   endpoints: ReadonlyArray<ThinkingEndpoint>,
   userConfig: string,
-  read: (file: string) => string = (f) => readFileSync(f, "utf8"),
 ): { level?: ThinkingLevel; unsupported?: ThinkingLevel } {
   const parts = splitRef(ref);
   if (!parts) return {};
   const states = thinkingStatesForRef(ref, endpoints);
-  const preference = readThinkingPreference(userConfig, parts.endpointName, read);
+  const preference = readThinkingPreference(userConfig, parts.endpointName);
   if (!states) return { ...(preference ? { unsupported: preference } : {}) };
   const level = effectiveForStates(states, preference);
   const unsupported = preference !== undefined && states[preference] === "provider-default" ? preference : undefined;
