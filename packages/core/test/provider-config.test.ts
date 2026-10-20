@@ -1,11 +1,12 @@
 import { describe, expect, test } from "bun:test";
-import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   loadMergedConfig,
   mergeProviderConfigs,
   readUserProviderConfig,
+  removeUserEndpoint,
   upsertUserEndpoint,
   saveUserProviderRef,
   setUserEndpointModel,
@@ -522,5 +523,100 @@ describe("review fixes (#129)", () => {
   test("env unset: user-only endpoint keeps its inline key", () => {
     const merged = mergeProviderConfigs({}, userEndpoint(), {});
     expect(merged.endpoints![0]!.apiKey).toBe("sk-user-key");
+  });
+});
+
+// #1431 (expand phase of S4.1): real-file coverage of the provider-config
+// writers ahead of the removal of the `io` seam (#1432). They have no
+// injected-I/O tests; these pin malformed sections, unknown sections and modes.
+describe("user-level writes — real file (#1431)", () => {
+  const raw = (file: string) => JSON.parse(readFileSync(file, "utf8")) as Record<string, unknown>;
+  const withFile = (body: unknown, fn: (file: string) => void, fileMode = 0o644) => {
+    const { dir, cleanup } = tempDir("real");
+    try {
+      const file = join(dir, "config");
+      writeFileSync(file, JSON.stringify(body));
+      chmodSync(file, fileMode);
+      fn(file);
+    } finally {
+      cleanup();
+    }
+  };
+  const SEED = {
+    theme: "nord",
+    futureSection: { x: [1] },
+    provider: "work/m",
+    endpoints: [{ name: "work", type: "anthropic", defaultModel: "m" }, { name: "other", type: "openai-compat" }],
+  };
+
+  test("a malformed endpoints section: the reader throws, the writers behave as they do today (real file)", () => {
+    const bad = { keep: 1, endpoints: { nope: true } };
+    withFile(bad, (file) => {
+      expect(() => readUserProviderConfig(file)).toThrow(/endpoints/);
+      saveUserProviderRef(file, "a/b");
+      expect(raw(file)).toEqual({ ...bad, provider: "a/b" });
+    });
+    withFile(bad, (file) => {
+      upsertUserEndpoint(file, { name: "a", type: "anthropic" });
+      expect(raw(file)).toEqual({ keep: 1, endpoints: [{ name: "a", type: "anthropic" }] });
+    });
+    withFile(bad, (file) => {
+      removeUserEndpoint(file, "a");
+      expect(raw(file)).toEqual(bad);
+    });
+    withFile(bad, (file) => {
+      expect(() => setUserEndpointModel(file, "a", "m")).toThrow(/no user-level endpoint "a"/);
+      expect(raw(file)).toEqual(bad);
+      expect(() => setUserEndpointFallbackEligible(file, "a", false)).toThrow(/no user-level endpoint "a"/);
+      expect(raw(file)).toEqual(bad);
+    });
+  });
+
+  test("unknown sections and sibling endpoints survive every writer (real file)", () => {
+    withFile(SEED, (file) => {
+      setUserEndpointModel(file, "work", "m2");
+      setUserEndpointFallbackEligible(file, "other", false);
+      upsertUserEndpoint(file, { name: "third", type: "anthropic" });
+      removeUserEndpoint(file, "third");
+      saveUserProviderRef(file, "other/z");
+      expect(raw(file)).toEqual({
+        ...SEED,
+        provider: "other/z",
+        endpoints: [
+          { name: "work", type: "anthropic", defaultModel: "m2" },
+          { name: "other", type: "openai-compat", fallbackEligible: false },
+        ],
+      });
+    });
+  });
+
+  test("final mode is 0600 after every writer, even over a pre-existing 0644 file (real file)", () => {
+    const writers: Array<(f: string) => void> = [
+      (f) => upsertUserEndpoint(f, { name: "n", type: "anthropic" }),
+      (f) => saveUserProviderRef(f, "work/m"),
+      (f) => setUserEndpointModel(f, "work", "m2"),
+      (f) => setUserEndpointFallbackEligible(f, "work", false),
+      (f) => removeUserEndpoint(f, "other"),
+    ];
+    for (const write of writers) {
+      withFile(SEED, (file) => {
+        write(file);
+        expect(statSync(file).mode & 0o777).toBe(0o600);
+      });
+    }
+  });
+
+  test("loadMergedConfig reads the user sections from a real home file and ignores unknown ones (real file)", () => {
+    const { dir, cleanup } = tempDir("real-merged");
+    try {
+      const home = join(dir, "home");
+      mkdirSync(join(home, ".moh"), { recursive: true });
+      writeFileSync(userConfigFile(home), JSON.stringify(SEED));
+      const merged = loadMergedConfig(join(dir, "project"), { home, env: {} });
+      expect(merged.provider).toBe("work/m");
+      expect(merged.endpoints?.map((e) => e.name)).toEqual(["work", "other"]);
+    } finally {
+      cleanup();
+    }
   });
 });

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { mkdtempSync } from "node:fs";
+import { chmodSync, mkdtempSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -7,6 +7,7 @@ import {
   defaultThinkingLevel,
   effectiveThinkingLevel,
   readThinkingPreference,
+  readThinkingPreferences,
   setThinkingPreference,
   THINKING_LEVELS,
   thinkingLevelStates,
@@ -180,5 +181,59 @@ describe("endpoint preferences in ~/.moh/config (#241)", () => {
 
   test("missing section/file reads as no preference", () => {
     expect(readThinkingPreference(tmpFile(), "a")).toBeUndefined();
+  });
+});
+
+// #1431 (expand phase of S4.1): twins of the injected-`read` tests above, on a
+// real temporary file. Migration ticket #1433 deletes the injected ones.
+describe("endpoint preferences — real file twins (#1431)", () => {
+  const raw = (file: string) => JSON.parse(readFileSync(file, "utf8")) as Record<string, unknown>;
+
+  test("an invalid stored value reads as absent, never throws a session (real file)", () => {
+    const file = tmpFile();
+    writeFileSync(file, JSON.stringify({ thinkingLevels: { a: "ultra" } }));
+    expect(readThinkingPreference(file, "a")).toBeUndefined();
+    // and a valid sibling survives
+    writeFileSync(file, JSON.stringify({ thinkingLevels: { a: "ultra", b: "high" } }));
+    expect(readThinkingPreference(file, "b")).toBe("high");
+  });
+
+  test("the section is filtered per entry, not per section (real file)", () => {
+    const file = tmpFile();
+    writeFileSync(file, JSON.stringify({ thinkingLevels: { a: "ultra", b: "high", c: 4 } }));
+    expect(readThinkingPreferences(file)).toEqual({ b: "high" });
+  });
+
+  test("a malformed section (array / non-object) reads as empty; a write replaces it, a clear keeps it (real file)", () => {
+    for (const bad of [[1], "x", 5]) {
+      const file = tmpFile();
+      writeFileSync(file, JSON.stringify({ keep: 1, thinkingLevels: bad }));
+      expect(readThinkingPreferences(file)).toEqual({});
+      clearThinkingPreference(file, "a");
+      expect(raw(file)).toEqual({ keep: 1, thinkingLevels: bad });
+      setThinkingPreference(file, "a", "low");
+      expect(raw(file)).toEqual({ keep: 1, thinkingLevels: { a: "low" } });
+    }
+  });
+
+  test("unknown sections survive a write and a clear; the whole file is read-modify-written (real file)", () => {
+    const file = tmpFile();
+    const seed = { theme: "nord", futureSection: { x: [1, 2] }, thinkingLevels: { z: "low" } };
+    writeFileSync(file, JSON.stringify(seed));
+    setThinkingPreference(file, "a", "high");
+    expect(raw(file)).toEqual({ ...seed, thinkingLevels: { z: "low", a: "high" } });
+    clearThinkingPreference(file, "a");
+    expect(raw(file)).toEqual(seed);
+  });
+
+  test("final mode is 0600 after set and clear, even over a pre-existing 0644 file (real file)", () => {
+    const file = tmpFile();
+    writeFileSync(file, "{}");
+    chmodSync(file, 0o644);
+    setThinkingPreference(file, "a", "low");
+    expect(statSync(file).mode & 0o777).toBe(0o600);
+    chmodSync(file, 0o644);
+    clearThinkingPreference(file, "a");
+    expect(statSync(file).mode & 0o777).toBe(0o600);
   });
 });
