@@ -13,10 +13,11 @@
  *     {"at":"...","endpoint":"openai","model":"gpt-6-astra",
  *      "status":400,"param":"max_tokens","message":"..."}
  */
-import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { existsSync, readFileSync } from "node:fs";
+import { join } from "node:path";
 import type { EndpointProfile } from "./config";
 import type { ConnectionTestResult, ProviderTestFailure } from "./provider-onboarding";
+import { writeFileAtomic, tempPidSuffix } from "./fs-atomic";
 
 /** File name inside the user's moh home. */
 const PROVIDER_TEST_FAILURES_FILE = "provider-test-failures.log";
@@ -106,9 +107,9 @@ function readEntries(file: string): ProviderTestFailureEntry[] {
 }
 
 function writeEntries(file: string, entries: readonly ProviderTestFailureEntry[]): void {
-  const dir = dirname(file);
-  mkdirSync(dir, { recursive: true, mode: 0o700 });
-  const tmp = `${file}.tmp-${process.pid}`;
-  writeFileSync(tmp, entries.length ? `${entries.map((entry) => JSON.stringify(entry)).join("\n")}\n` : "", { mode: 0o600 });
-  renameSync(tmp, file);
+  writeFileAtomic(file, entries.length ? `${entries.map((entry) => JSON.stringify(entry)).join("\n")}\n` : "", {
+    mode: 0o600,
+    mkdir: { mode: 0o700 },
+    temp: tempPidSuffix,
+  });
 }

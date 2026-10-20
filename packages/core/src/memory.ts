@@ -14,8 +14,6 @@ import {
   existsSync,
   mkdirSync,
   readFileSync,
-  renameSync,
-  statSync,
   unlinkSync,
   writeFileSync,
 } from "node:fs";
@@ -33,6 +31,7 @@ import {
   readLockFile,
   releaseLockFile,
 } from "./memory-lock";
+import { writeFileAtomic, tempPidInfix } from "./fs-atomic";
 
 /** One durable fact, filed under a short topic label. */
 export interface MemoryEntry {
@@ -300,13 +299,9 @@ export class MemoryStore {
   }
 
   #writeIndex(index: MemoryIndex): void {
-    const tmp = join(this.dir, `index.json.${process.pid}.tmp`);
     // Replacing an existing index must retain its user-owned mode; a fresh
     // index is owner-only from birth.
-    let mode = 0o600;
-    try { mode = statSync(this.indexFile).mode & 0o777; } catch { /* new file */ }
-    writeFileSync(tmp, `${JSON.stringify(index, null, 2)}\n`, { mode });
-    renameSync(tmp, this.indexFile);
+    writeFileAtomic(this.indexFile, `${JSON.stringify(index, null, 2)}\n`, { mode: "preserve", temp: tempPidInfix });
   }
 
   async #withLock<T>(fn: () => T | Promise<T>): Promise<T> {

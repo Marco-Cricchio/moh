@@ -13,12 +13,13 @@
  * (`imported-handoff.json` beside the raw artifact): user data, never
  * inside the project's `.moh/`.
  */
-import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { projectSlug } from "./session-store";
 import { HandoffRunner, type RawHandoff } from "./handoff";
 import { readRawHandoff, readRawHandoffText, type HandoffTransportError } from "./handoff-transport";
+import { writeFileAtomic, tempPidInfix } from "./fs-atomic";
 
 /** Where the imported handoff is parked per project. */
 export function importedHandoffFile(cwd: string, home = homedir()): string {
@@ -61,9 +62,7 @@ export async function exportHandoffFile(options: ExportHandoffOptions): Promise<
     }
   }
   try {
-    const tmp = `${options.out}.${process.pid}.tmp`;
-    writeFileSync(tmp, `${JSON.stringify(payload, null, 2)}\n`, { mode: 0o600 });
-    renameSync(tmp, options.out);
+    writeFileAtomic(options.out, `${JSON.stringify(payload, null, 2)}\n`, { mode: 0o600, temp: tempPidInfix });
     return { ok: true, path: options.out };
   } catch (e) {
     return { ok: false, error: { reason: "failed", message: e instanceof Error ? e.message : String(e) } };
@@ -124,10 +123,7 @@ export async function importHandoffFile(options: ImportHandoffOptions): Promise<
   }
   const dest = importedHandoffFile(options.cwd, options.home);
   try {
-    mkdirSync(join(dest, ".."), { recursive: true, mode: 0o700 });
-    const tmp = `${dest}.${process.pid}.tmp`;
-    writeFileSync(tmp, `${JSON.stringify(payload, null, 2)}\n`, { mode: 0o600 });
-    renameSync(tmp, dest);
+    writeFileAtomic(dest, `${JSON.stringify(payload, null, 2)}\n`, { mode: 0o600, mkdir: { mode: 0o700 }, temp: tempPidInfix });
     return { ok: true, path: dest };
   } catch (e) {
     return { ok: false, error: { reason: "failed", message: e instanceof Error ? e.message : String(e) } };

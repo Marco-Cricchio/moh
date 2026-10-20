@@ -19,8 +19,9 @@
  * `CONTEXT_REFUSAL_MAX_ENTRIES` distinct wordings, the oldest-evicted
  * first. Writing it is fail-silent and can never affect a turn.
  */
-import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { existsSync, readFileSync } from "node:fs";
+import { join } from "node:path";
+import { writeFileAtomic, tempPidSuffix } from "./fs-atomic";
 
 /** File name inside the user's moh home. */
 const CONTEXT_REFUSALS_FILE = "context-refusals.log";
@@ -150,10 +151,6 @@ export function noteUnrecognizedContextRefusal(input: {
 }
 
 function writeEntries(file: string, entries: readonly ContextRefusalTraceEntry[]): void {
-  const dir = dirname(file);
-  mkdirSync(dir, { recursive: true, mode: 0o700 });
   const body = entries.map((entry) => JSON.stringify(entry)).join("\n");
-  const tmp = `${file}.tmp-${process.pid}`;
-  writeFileSync(tmp, body ? `${body}\n` : "", { mode: 0o600 });
-  renameSync(tmp, file);
+  writeFileAtomic(file, body ? `${body}\n` : "", { mode: 0o600, mkdir: { mode: 0o700 }, temp: tempPidSuffix });
 }

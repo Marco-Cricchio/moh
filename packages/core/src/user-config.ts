@@ -15,9 +15,10 @@
  * chrome in the TUI); the guardian is agnostic about sections it does not
  * know and tolerant of unknown ones.
  */
-import { chmodSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { chmodSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { dirname, join } from "node:path";
+import { join } from "node:path";
+import { writeFileAtomic, tempPidSuffix } from "./fs-atomic";
 
 /** The whole file, as JSON: known sections plus unknown ones, verbatim. */
 export type UserConfigData = Record<string, unknown>;
@@ -69,11 +70,12 @@ export function updateUserConfigFile(
 ): void {
   const data = readUserConfigFile(file, io.read);
   mutate(data);
-  mkdirSync(dirname(file), { recursive: true, mode: 0o700 });
-  const tmp = `${file}.tmp-${process.pid}`;
-  const write = io.write ?? ((f: string, d: string) => writeFileSync(f, d, { mode: 0o600 }));
-  write(tmp, `${JSON.stringify(data, null, 2)}\n`);
-  renameSync(tmp, file);
+  writeFileAtomic(file, `${JSON.stringify(data, null, 2)}\n`, {
+    mode: 0o600,
+    mkdir: { mode: 0o700 },
+    temp: tempPidSuffix,
+    ...(io.write ? { write: io.write } : {}),
+  });
   // Key-bearing file hygiene (issue #129): 0600 whenever the path is real.
   try {
     chmodSync(file, 0o600);

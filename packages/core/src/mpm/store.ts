@@ -7,6 +7,7 @@ import {
   type MpmJournalEntry,
   type MpmManifest,
 } from "./types";
+import { writeFileAtomic, tempPidInfix } from "../fs-atomic";
 
 /**
  * On-disk MPM projection (spec #613, decisions confirmed for #614): sharded
@@ -84,10 +85,8 @@ export class MpmStore {
       shards,
       fileCount: records.size,
     };
-    const tmp = `${this.manifestPath()}.${process.pid}.tmp`;
-    writeFileSync(tmp, `${JSON.stringify(manifest)}\n`, { mode: 0o600 });
     // rename over the manifest: readers see old or new, never partial.
-    renameSync(tmp, this.manifestPath());
+    writeFileAtomic(this.manifestPath(), `${JSON.stringify(manifest)}\n`, { mode: 0o600, temp: tempPidInfix });
     this.truncateJournal();
   }
 

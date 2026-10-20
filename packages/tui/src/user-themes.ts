@@ -5,10 +5,11 @@
  * real semantic tokens — omitted roles inherit from the base preset. No
  * executable code, no user-theme inheritance, no `$schema`.
  */
-import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
 import { COLOR_ROLES, DEFAULT_THEME, THEMES, isHexColor, type ColorRole, type Theme } from "./themes";
+import { writeFileAtomic } from "@moh/core";
 
 /** The on-disk v1 theme file. */
 export interface UserThemeFile {
@@ -138,9 +139,7 @@ export function saveUserTheme(home: string, theme: UserThemeFile): void {
     }
   }
   // Atomic-ish write: temp file + rename, so a crash can't truncate.
-  const tmp = join(dir, `.${theme.id}.json.tmp`);
-  writeFileSync(tmp, JSON.stringify(theme, null, 2) + "\n");
-  renameSync(tmp, file);
+  writeFileAtomic(file, JSON.stringify(theme, null, 2) + "\n", { temp: () => join(dir, `.${theme.id}.json.tmp`) });
 }
 
 /** Deletes a theme file; returns whether it existed. */

@@ -17,9 +17,10 @@
  * the raw artifact is published as `kind: "raw"` — a receiver may
  * synthesize locally at import.
  */
-import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import type { RawHandoff } from "./handoff";
+import { writeFileAtomic, tempPidInfix } from "./fs-atomic";
 /** The published handoff payload. T2 publishes the raw artifact as-is;
  * the chain fields (supersedes + anchor + timestamp, already present in
  * `RawHandoff`) are the append-only ordering keys T3/T4 consume. */
@@ -156,10 +157,11 @@ function readPublishedMarker(artifactFile: string): { sessionId: string; updated
 function writePublishedMarker(artifactFile: string, payload: RawHandoff): void {
   try {
     const file = handoffPublishedMarkerFile(artifactFile);
-    mkdirSync(join(file, ".."), { recursive: true, mode: 0o700 });
-    const tmp = `${file}.${process.pid}.tmp`;
-    writeFileSync(tmp, `${JSON.stringify({ sessionId: payload.sessionId, updatedAt: payload.updatedAt }, null, 2)}\n`, { mode: 0o600 });
-    renameSync(tmp, file);
+    writeFileAtomic(file, `${JSON.stringify({ sessionId: payload.sessionId, updatedAt: payload.updatedAt }, null, 2)}\n`, {
+      mode: 0o600,
+      mkdir: { mode: 0o700 },
+      temp: tempPidInfix,
+    });
   } catch {
     // a marker write failure never fails a publish that already succeeded
   }
