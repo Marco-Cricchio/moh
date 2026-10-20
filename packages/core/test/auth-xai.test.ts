@@ -3,18 +3,16 @@ import {
   XAI_API_BASE_URL,
   XAI_OAUTH_DEFAULTS,
   XAI_SCOPES,
-  XaiLoginAborted,
   loginXai,
   refreshXaiToken,
   resolveXaiOAuthConfig,
-  type XaiEndpointFetch,
 } from "../src/auth/xai";
 import { pollDeviceCodeFlow, type DeviceFlowClock } from "../src/auth/device-code";
 import { isSubscriptionKind } from "../src/auth/lifecycle";
 import { resolveEndpointCredential } from "../src/auth/resolve";
 import { saveTokens } from "../src/auth/store";
 import { Endpoint } from "../src/route";
-import type { AuthorizationIo } from "../src/auth/oauth";
+import { LoginAborted, type OAuthPostFetch as XaiEndpointFetch, type AuthorizationIo } from "../src/auth/oauth";
 import { oidcEmailFromIdToken } from "../src/auth/oauth";
 
 function makeIdToken(claims: Record<string, unknown> = {}): string {
@@ -116,7 +114,9 @@ describe("device-code poller", () => {
 describe("loginXai", () => {
   test("declining the ToS aborts before any network I/O", async () => {
     const io: AuthorizationIo = { ask: async () => "n", info: async () => {} };
-    await expect(loginXai(io, { clock: fastClock })).rejects.toBeInstanceOf(XaiLoginAborted);
+    const failure = await loginXai(io, { clock: fastClock }).catch((error: unknown) => error);
+    expect(failure).toBeInstanceOf(LoginAborted);
+    expect((failure as Error).name).toBe("XaiLoginAborted");
   });
 
   test("device flow completes: pending then token, expiry skewed 5 minutes early", async () => {

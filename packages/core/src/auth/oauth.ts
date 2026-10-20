@@ -439,3 +439,53 @@ async function confirmWarning(io: AuthorizationIo): Promise<boolean> {
   const answer = (await io.ask("Acknowledge and continue? (y/n): ")).trim().toLowerCase();
   return answer === "y" || answer === "yes";
 }
+
+/** Thrown by the subscription logins when the user declines the ToS warning.
+ * `name` is the provider's historical error name (e.g. `"XaiLoginAborted"`). */
+export class LoginAborted extends Error {
+  constructor(name: string) {
+    super("subscription auth aborted: terms of service not acknowledged");
+    this.name = name;
+  }
+}
+
+/** HTTP seam for the OAuth token endpoints: POST a body, read a JSON reply. */
+export type OAuthPostFetch = (
+  url: string,
+  body: Record<string, unknown>,
+) => Promise<{ status: number; json: Record<string, unknown> }>;
+
+export interface OAuthPostOptions {
+  /** The complete header set, in the order it is sent. Default: the content-type alone. */
+  headers?: Record<string, string>;
+  /** When set, the request is bounded by `AbortSignal.timeout(timeoutMs)`. */
+  timeoutMs?: number;
+}
+
+/** JSON-encoded POST; a non-JSON reply reads as `{}`. */
+export function postJson(opts: OAuthPostOptions = {}): OAuthPostFetch {
+  return async (url, body) => {
+    const res = await fetch(url, {
+      method: "POST",
+      headers: opts.headers ?? { "content-type": "application/json" },
+      body: JSON.stringify(body),
+      ...(opts.timeoutMs !== undefined ? { signal: AbortSignal.timeout(opts.timeoutMs) } : {}),
+    });
+    const json = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+    return { status: res.status, json };
+  };
+}
+
+/** Form-encoded POST; a non-JSON reply reads as `{}`. */
+export function postForm(opts: OAuthPostOptions = {}): OAuthPostFetch {
+  return async (url, body) => {
+    const res = await fetch(url, {
+      method: "POST",
+      headers: opts.headers ?? { "content-type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams(body as Record<string, string>).toString(),
+      ...(opts.timeoutMs !== undefined ? { signal: AbortSignal.timeout(opts.timeoutMs) } : {}),
+    });
+    const json = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+    return { status: res.status, json };
+  };
+}

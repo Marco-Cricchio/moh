@@ -19,7 +19,7 @@
  */
 import type { AuthToken, GithubCopilotAuthOverrides } from "./types";
 import type { EndpointAuthContext } from "./resolve";
-import { confirmToSWarningFor, type AuthorizationIo } from "./oauth";
+import { confirmToSWarningFor, LoginAborted, type AuthorizationIo } from "./oauth";
 import { pollDeviceCodeFlow, type DeviceFlowClock, type DevicePollOptions, type DevicePollResult } from "./device-code";
 
 /** pi stores this base64-obfuscated; moh keeps the literal. */
@@ -232,14 +232,6 @@ export function copilotAuthContext(token: AuthToken): EndpointAuthContext {
   };
 }
 
-/** Thrown by {@link loginGitHubCopilot} when the user declines the ToS warning. */
-export class CopilotLoginAborted extends Error {
-  constructor() {
-    super("subscription auth aborted: terms of service not acknowledged");
-    this.name = "CopilotLoginAborted";
-  }
-}
-
 /**
  * The full interactive Copilot login: ToS acknowledgement, optional
  * GitHub Enterprise domain, device flow for the GitHub token, then the
@@ -249,7 +241,8 @@ export async function loginGitHubCopilot(
   io: AuthorizationIo,
   opts: { overrides?: GithubCopilotAuthOverrides; fetchImpl?: CopilotEndpointFetch; now?: number; clock?: DeviceFlowClock } = {},
 ): Promise<AuthToken> {
-  if (!(await confirmToSWarningFor(io, "github-copilot"))) throw new CopilotLoginAborted();
+  /** Thrown by {@link loginGitHubCopilot} when the user declines the ToS warning. */
+  if (!(await confirmToSWarningFor(io, "github-copilot"))) throw new LoginAborted("CopilotLoginAborted");
 
   const fetchImpl = opts.fetchImpl ?? defaultCopilotEndpointFetch;
   const input = (await io.ask("GitHub Enterprise URL/domain (blank for github.com): ")).trim();

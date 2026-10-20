@@ -17,9 +17,12 @@ import {
   confirmToSWarningFor,
   generatePkce,
   generateState,
+  LoginAborted,
+  postJson,
   raceForCode,
   startLoopbackCallback,
   type AuthorizationIo,
+  type OAuthPostFetch,
 } from "./oauth";
 
 export const OPENROUTER_OAUTH_DEFAULTS = {
@@ -44,30 +47,11 @@ export const OPENROUTER_API_BASE_URL = "https://openrouter.ai/api/v1";
  * HTTP seam for the JSON key-exchange endpoint (OpenRouter is the only
  * grant so far whose token endpoint speaks JSON, not form encoding).
  */
-export type OpenrouterEndpointFetch = (
-  tokenUrl: string,
-  body: Record<string, unknown>,
-) => Promise<{ status: number; json: Record<string, unknown> }>;
-
-const defaultOpenrouterEndpointFetch: OpenrouterEndpointFetch = async (tokenUrl, body) => {
-  // pi pattern: a bounded exchange — 30s, never an infinite hang.
-  const res = await fetch(tokenUrl, {
-    method: "POST",
-    headers: { accept: "application/json", "content-type": "application/json" },
-    body: JSON.stringify(body),
-    signal: AbortSignal.timeout(30_000),
-  });
-  const json = (await res.json().catch(() => ({}))) as Record<string, unknown>;
-  return { status: res.status, json };
-};
-
-/** Thrown by {@link loginOpenRouter} when the user declines the ToS warning. */
-export class OpenrouterLoginAborted extends Error {
-  constructor() {
-    super("subscription auth aborted: terms of service not acknowledged");
-    this.name = "OpenrouterLoginAborted";
-  }
-}
+// pi pattern: a bounded exchange — 30s, never an infinite hang.
+const defaultOpenrouterEndpointFetch: OAuthPostFetch = postJson({
+  headers: { accept: "application/json", "content-type": "application/json" },
+  timeoutMs: 30_000,
+});
 
 /**
  * Exchanges the authorization code for the persistent API key. The
@@ -76,7 +60,7 @@ export class OpenrouterLoginAborted extends Error {
  */
 export async function exchangeOpenrouterCode(
   config: OpenrouterOAuthConfig,
-  opts: { code: string; codeVerifier: string; fetchImpl?: OpenrouterEndpointFetch; now?: number },
+  opts: { code: string; codeVerifier: string; fetchImpl?: OAuthPostFetch; now?: number },
 ): Promise<AuthToken> {
   const fetchImpl = opts.fetchImpl ?? defaultOpenrouterEndpointFetch;
   const now = opts.now ?? Date.now();
@@ -123,9 +107,10 @@ export function parseOpenrouterAuthorizationInput(input: string): string | undef
  */
 export async function loginOpenRouter(
   io: AuthorizationIo,
-  opts: { overrides?: OpenrouterAuthOverrides; fetchImpl?: OpenrouterEndpointFetch; now?: number; timeoutMs?: number } = {},
+  opts: { overrides?: OpenrouterAuthOverrides; fetchImpl?: OAuthPostFetch; now?: number; timeoutMs?: number } = {},
 ): Promise<AuthToken> {
-  if (!(await confirmToSWarningFor(io, "openrouter"))) throw new OpenrouterLoginAborted();
+  /** Thrown by {@link loginOpenRouter} when the user declines the ToS warning. */
+  if (!(await confirmToSWarningFor(io, "openrouter"))) throw new LoginAborted("OpenrouterLoginAborted");
 
   const config = resolveOpenrouterOAuthConfig(opts.overrides);
   const pkce = generatePkce();

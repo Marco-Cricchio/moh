@@ -3,16 +3,14 @@ import {
   GOOGLE_OAUTH_DEFAULTS,
   GOOGLE_API_BASE_URL,
   GOOGLE_SCOPES,
-  GoogleLoginAborted,
   buildGoogleAuthorizeUrl,
   exchangeGoogleCode,
   loginGoogle,
   refreshGoogleToken,
   resolveGoogleOAuthConfig,
-  type GoogleEndpointFetch,
 } from "../src/auth/google";
 import { googleAuthOverridesSchema, authSectionSchema } from "../src/auth/types";
-import { raceForCode, startLoopbackCallback, generateState, type AuthorizationIo } from "../src/auth/oauth";
+import { raceForCode, startLoopbackCallback, generateState, type AuthorizationIo, LoginAborted, type OAuthPostFetch as GoogleEndpointFetch } from "../src/auth/oauth";
 import type { AuthToken } from "../src/auth/types";
 
 const CONFIG = resolveGoogleOAuthConfig();
@@ -255,7 +253,9 @@ describe("loginGoogle", () => {
   test("ToS declined aborts before any network I/O", async () => {
     const io = loginIoDouble(["n"]);
     const fetchImpl = tokenResults();
-    await expect(loginGoogle(io, { fetchImpl })).rejects.toBeInstanceOf(GoogleLoginAborted);
+    const failure = await loginGoogle(io, { fetchImpl }).catch((error: unknown) => error);
+    expect(failure).toBeInstanceOf(LoginAborted);
+    expect((failure as Error).name).toBe("GoogleLoginAborted");
     expect(fetchImpl.calls).toHaveLength(0);
   });
 
