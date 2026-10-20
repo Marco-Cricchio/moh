@@ -9,6 +9,7 @@
 import { existsSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { basename, join, resolve } from "node:path";
 import { z } from "zod";
+import { originUrlSync } from "./git";
 import type { Tool } from "./types";
 
 /** One issue, normalized across backends. */
@@ -345,15 +346,9 @@ export function resolveTrackerSync(options: ResolveTrackerOptions = {}): Tracker
   // probe is guarded — git absent is the same answer as "no origin
   // remote": no tracker, panel hidden. Unguarded, this threw inside the
   // App's lazy useState and killed the TUI before the first frame.
-  let proc: Bun.SyncSubprocess<"pipe", "pipe"> | null = null;
-  try {
-    proc = Bun.spawnSync(["git", "-C", cwd, "remote", "get-url", "origin"], { stdout: "pipe", stderr: "pipe" });
-  } catch {
-    proc = null;
-  }
+  const url = originUrlSync(cwd, "pipe");
   let backend: TrackerBackend | null = null;
-  if (proc && proc.exitCode === 0) {
-    const url = proc.stdout.toString().trim();
+  if (url !== null) {
     const m = /[:/]([^/:]+\/[^/.]+)(?:\.git)?$/.exec(url);
     if (m) {
       const repo = m[1]!;

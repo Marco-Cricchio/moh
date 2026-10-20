@@ -1,6 +1,7 @@
 import { existsSync, lstatSync, readFileSync, rmSync, statSync } from "node:fs";
 import { dirname, isAbsolute, join, resolve, sep } from "node:path";
 import { homedir } from "node:os";
+import { git, type GitResult } from "./git";
 import { projectSessionsDir } from "./session-store";
 import { readUserConfigFile, userConfigFile } from "./user-config";
 import { DevelopmentLaneStore, type DevelopmentLane, type LaneRelation, type LaneStatus } from "./development-lanes";
@@ -29,17 +30,13 @@ export type LaneGitRunner = (args: string[], options: { cwd: string }) => Promis
 
 /** Default Git runner: `git -C <cwd> <args…>` with piped stdio. */
 const defaultLaneGitRunner: LaneGitRunner = async (args, options) => {
-  let proc: ReturnType<typeof Bun.spawn<"ignore", "pipe", "pipe">>;
+  let run: Promise<GitResult>;
   try {
-    proc = Bun.spawn(["git", "-C", options.cwd, ...args], { stdout: "pipe", stderr: "pipe" });
+    run = git(options.cwd, args, { dir: "-C", stderr: "pipe" });
   } catch (error) {
     return { code: 127, stdout: "", stderr: error instanceof Error ? error.message : String(error) };
   }
-  const [stdout, stderr, code] = await Promise.all([
-    new Response(proc.stdout).text(),
-    new Response(proc.stderr).text(),
-    proc.exited,
-  ]);
+  const { exitCode: code, stdout, stderr } = await run;
   return { code, stdout, stderr };
 };
 

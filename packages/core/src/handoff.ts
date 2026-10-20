@@ -15,6 +15,7 @@ import { renameSync, writeFileSync, mkdirSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { z } from "zod";
+import { gitSync } from "./git";
 import { projectSlug } from "./session-store";
 import type { AgentEvent } from "./types";
 
@@ -172,32 +173,23 @@ function wayfinderLinksFromEvents(events: ReadonlyArray<AgentEvent>): HandoffWay
 export function gitAnchor(cwd: string): HandoffGitAnchor {
   const anchor: HandoffGitAnchor = {};
   try {
-    const branch = Bun.spawnSync(["git", "-C", cwd, "branch", "--show-current"], {
-      stdout: "pipe",
-      stderr: "ignore",
-    });
+    const branch = gitSync(cwd, ["branch", "--show-current"], { dir: "-C", stderr: "ignore" });
     if (branch.exitCode === 0) {
-      const name = branch.stdout.toString().trim();
+      const name = branch.stdout.trim();
       if (name) anchor.branch = name;
     }
   } catch {
     // not a repo / git missing: no branch
   }
   try {
-    const head = Bun.spawnSync(["git", "-C", cwd, "rev-parse", "HEAD"], {
-      stdout: "pipe",
-      stderr: "ignore",
-    });
-    if (head.exitCode === 0 && head.stdout.toString().trim()) anchor.head = head.stdout.toString().trim();
+    const head = gitSync(cwd, ["rev-parse", "HEAD"], { dir: "-C", stderr: "ignore" });
+    if (head.exitCode === 0 && head.stdout.trim()) anchor.head = head.stdout.trim();
   } catch {
     // no HEAD (empty repo): absent, not fake
   }
   try {
-    const status = Bun.spawnSync(["git", "-C", cwd, "status", "--porcelain"], {
-      stdout: "pipe",
-      stderr: "ignore",
-    });
-    if (status.exitCode === 0) anchor.dirty = status.stdout.toString().trim().length > 0;
+    const status = gitSync(cwd, ["status", "--porcelain"], { dir: "-C", stderr: "ignore" });
+    if (status.exitCode === 0) anchor.dirty = status.stdout.trim().length > 0;
   } catch {
     // dirty stays unknown
   }

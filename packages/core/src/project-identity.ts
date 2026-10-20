@@ -1,5 +1,5 @@
-import { execFileSync } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
+import { originUrl, originUrlSync } from "./git";
 import { anyOpenSessionInDir, isSessionFile, projectTrashDir } from "./session-store";
 import { copyFileSync, existsSync, linkSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
@@ -83,12 +83,8 @@ export function canonicalRemoteSlug(cwd: string): string | null {
 }
 
 function canonicalRemoteSlugUncached(cwd: string): string | null {
-  let url: string;
-  try {
-    url = execFileSync("git", ["-C", cwd, "remote", "get-url", "origin"], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim();
-  } catch {
-    return null;
-  }
+  const url = originUrlSync(cwd, "ignore");
+  if (url === null) return null;
   return remoteSlugFromUrl(url);
 }
 
@@ -99,16 +95,9 @@ function canonicalRemoteSlugUncached(cwd: string): string | null {
  * normalization, same answer.
  */
 async function canonicalRemoteSlugAsync(cwd: string): Promise<string | null> {
-  let stdout: string;
-  try {
-    const proc = Bun.spawn(["git", "-C", cwd, "remote", "get-url", "origin"], { stdout: "pipe", stderr: "ignore" });
-    const [out, exitCode] = await Promise.all([new Response(proc.stdout).text(), proc.exited]);
-    if (exitCode !== 0) return null;
-    stdout = out;
-  } catch {
-    return null;
-  }
-  return remoteSlugFromUrl(stdout.trim());
+  const url = await originUrl(cwd);
+  if (url === null) return null;
+  return remoteSlugFromUrl(url);
 }
 
 function remoteSlugFromUrl(url: string): string | null {

@@ -17,6 +17,7 @@
  */
 import { chmodSync, existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { isAbsolute, join, relative, resolve } from "node:path";
+import { gitSync } from "./git";
 import { retroSignature, type RetroFinding } from "./retro";
 
 /** What kind of change an application is (ADR-0075's three shapes). */
@@ -34,12 +35,8 @@ export const PRE_COMMIT_TARGET = ".git/hooks/pre-commit";
  * repository (tests write to bare temp dirs).
  */
 function gitDir(projectRoot: string): string {
-  const probe = Bun.spawnSync(["git", "rev-parse", "--path-format=absolute", "--git-common-dir"], {
-    cwd: projectRoot,
-    stdout: "pipe",
-    stderr: "ignore",
-  });
-  const out = probe.stdout?.toString().trim();
+  const probe = gitSync(projectRoot, ["rev-parse", "--path-format=absolute", "--git-common-dir"], { dir: "cwd", stderr: "ignore" });
+  const out = probe.stdout.trim();
   return probe.exitCode === 0 && out ? out : join(projectRoot, ".git");
 }
 
