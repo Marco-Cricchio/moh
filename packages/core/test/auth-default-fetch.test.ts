@@ -54,7 +54,10 @@ beforeEach(async () => {
       for (let i = 0; i < req.rawHeaders.length; i += 2) {
         const name = req.rawHeaders[i]!;
         if (RUNTIME_HEADERS.has(name.toLowerCase())) continue;
-        headers.push(`${name}: ${req.rawHeaders[i + 1]}`);
+        // Name casing is the runtime's choice and varies across Bun versions
+        // (lowercase on 1.2.19, `Content-Type` / `Accept` on 1.4.2): not part
+        // of the contract. The order of rawHeaders and the values are.
+        headers.push(`${name.toLowerCase()}: ${req.rawHeaders[i + 1]}`);
       }
       const url = new URL(req.url ?? "/", "http://x");
       seen.push({ method: req.method ?? "", path: url.pathname, headers, body: Buffer.concat(chunks).toString("utf8") });
