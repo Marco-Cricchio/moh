@@ -13,11 +13,10 @@
  *     {"at":"...","endpoint":"openai","model":"gpt-6-astra",
  *      "status":400,"param":"max_tokens","message":"..."}
  */
-import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import type { EndpointProfile } from "./config";
 import type { ConnectionTestResult, ProviderTestFailure } from "./provider-onboarding";
-import { writeFileAtomic, tempPidSuffix } from "./fs-atomic";
+import { boundedLog } from "./bounded-log";
 
 /** File name inside the user's moh home. */
 const PROVIDER_TEST_FAILURES_FILE = "provider-test-failures.log";
@@ -77,39 +76,20 @@ export function noteProviderTestFailure(input: {
   };
   try {
     const file = providerTestFailuresFile(input.home);
-    const entries = [...readEntries(file), entry].slice(-PROVIDER_TEST_MAX_ENTRIES);
-    writeEntries(file, entries);
+    boundedLog<ProviderTestFailureEntry>(file, {
+      max: PROVIDER_TEST_MAX_ENTRIES,
+      validate: validateEntry,
+      update: (entries) => [...entries, entry],
+    });
   } catch {
     // Diagnostics never block onboarding.
   }
 }
 
-function readEntries(file: string): ProviderTestFailureEntry[] {
-  if (!existsSync(file)) return [];
-  try {
-    const entries: ProviderTestFailureEntry[] = [];
-    for (const line of readFileSync(file, "utf8").split("\n")) {
-      const trimmed = line.trim();
-      if (!trimmed) continue;
-      try {
-        const parsed = JSON.parse(trimmed) as Partial<ProviderTestFailureEntry>;
-        if (typeof parsed?.at === "string" && typeof parsed?.message === "string" && typeof parsed?.endpoint === "string") {
-          entries.push({ ...parsed, at: parsed.at, endpoint: parsed.endpoint, message: parsed.message } as ProviderTestFailureEntry);
-        }
-      } catch {
-        // A torn or hand-edited line is skipped, never fatal.
-      }
-    }
-    return entries.slice(-PROVIDER_TEST_MAX_ENTRIES);
-  } catch {
-    return [];
+function validateEntry(raw: unknown): ProviderTestFailureEntry | undefined {
+  const parsed = raw as Partial<ProviderTestFailureEntry>;
+  if (typeof parsed?.at === "string" && typeof parsed?.message === "string" && typeof parsed?.endpoint === "string") {
+    return { ...parsed, at: parsed.at, endpoint: parsed.endpoint, message: parsed.message } as ProviderTestFailureEntry;
   }
-}
-
-function writeEntries(file: string, entries: readonly ProviderTestFailureEntry[]): void {
-  writeFileAtomic(file, entries.length ? `${entries.map((entry) => JSON.stringify(entry)).join("\n")}\n` : "", {
-    mode: 0o600,
-    mkdir: { mode: 0o700 },
-    temp: tempPidSuffix,
-  });
+  return undefined;
 }
