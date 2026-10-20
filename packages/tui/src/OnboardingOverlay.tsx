@@ -428,7 +428,7 @@ export function Onboarding({ cwd, home, env, tester = defaultTester(home), force
       case "wizard-text": {
         if (key.escape) return applyPhase({ kind: "wizard-type", cursor: 0 });
         if (key.backspace || key.delete) return patchPhase((p) => (p.kind === "wizard-text" ? { ...p, value: p.value.slice(0, -1) } : p));
-        if (key.return || input === "\n") return submitField(phase, wizard, applyWizard, applyPhase, authKind, (name, apiKey, origin) => saveStoredApiKey(userFile, name, apiKey, {}, origin), (name, origin) => bindStoredApiKeyOrigin(userFile, name, origin));
+        if (key.return || input === "\n") return submitField(phase, wizard, applyWizard, applyPhase, authKind, (name, apiKey, origin) => saveStoredApiKey(userFile, name, apiKey, origin), (name, origin) => bindStoredApiKeyOrigin(userFile, name, origin));
         if (input && !key.ctrl && !key.meta)
           patchPhase((p) => (p.kind === "wizard-text" ? { ...p, value: p.value + input } : p));
         return;

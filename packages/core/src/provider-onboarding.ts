@@ -275,7 +275,7 @@ async function runOpenCodeAdd(io: OnboardingIo, tester: ConnectionTester, option
   const selected: readonly (keyof typeof OPENCODE_ENDPOINTS)[] = selection === "both" ? ["zen", "go"] : [selection as keyof typeof OPENCODE_ENDPOINTS];
   const profiles = selected.map((product) => {
     const endpoint = OPENCODE_ENDPOINTS[product];
-    saveStoredApiKey(options.authFile ?? userConfigFile(), endpoint.name, apiKey, {}, { type: "opencode", baseUrl: endpoint.baseUrl });
+    saveStoredApiKey(options.authFile ?? userConfigFile(), endpoint.name, apiKey, { type: "opencode", baseUrl: endpoint.baseUrl });
     return { name: endpoint.name, type: "opencode", baseUrl: endpoint.baseUrl, defaultModel: endpoint.defaultModel } satisfies EndpointProfile;
   });
   await io.info(`OpenCode API key stored securely in ${options.authFile ?? userConfigFile()} (not moh.json)`);

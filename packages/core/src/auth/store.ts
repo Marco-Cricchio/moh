@@ -7,18 +7,15 @@
  */
 import { readFileSync } from "node:fs";
 import { authSectionSchema, type AuthSection, type AuthToken, type StoredApiKeyOrigin } from "./types";
-import { readUserConfigFile, updateUserConfigFile, type UserConfigIo } from "../user-config";
+import { readUserConfigFile, updateUserConfigFile } from "../user-config";
 
 /**
  * Reads the `auth` section's tokens. Tolerant like the guardian: a file
  * without the section (or a corrupt file) reads as `{}`. An invalid
  * present section throws — token state must not fail silently.
  */
-export function readStoredTokens(
-  file: string,
-  read: (file: string) => string = (f) => readFileSync(f, "utf8"),
-): Record<string, AuthToken> {
-  return readAuthSection(file, read).tokens;
+export function readStoredTokens(file: string): Record<string, AuthToken> {
+  return readAuthSection(file).tokens;
 }
 
 /**
@@ -40,21 +37,12 @@ export function readAuthSection(
 }
 
 /** Tokens for one endpoint, or undefined when none are stored. */
-export function getStoredToken(
-  file: string,
-  endpoint: string,
-  read: (file: string) => string = (f) => readFileSync(f, "utf8"),
-): AuthToken | undefined {
-  return readStoredTokens(file, read)[endpoint];
+export function getStoredToken(file: string, endpoint: string): AuthToken | undefined {
+  return readStoredTokens(file)[endpoint];
 }
 
 /** Saves/replaces one endpoint's tokens through the guardian. */
-export function saveTokens(
-  file: string,
-  endpoint: string,
-  token: AuthToken,
-  io: UserConfigIo = {},
-): void {
+export function saveTokens(file: string, endpoint: string, token: AuthToken): void {
   updateUserConfigFile(
     file,
     (data) => {
@@ -66,12 +54,11 @@ export function saveTokens(
       tokens[endpoint] = token;
       data.auth = { ...(data.auth as Record<string, unknown>), tokens };
     },
-    io,
   );
 }
 
 /** Drops one endpoint's tokens through the guardian. No-op when absent. */
-export function clearTokens(file: string, endpoint: string, io: UserConfigIo = {}): void {
+export function clearTokens(file: string, endpoint: string): void {
   updateUserConfigFile(
     file,
     (data) => {
@@ -81,27 +68,18 @@ export function clearTokens(file: string, endpoint: string, io: UserConfigIo = {
       delete tokens[endpoint];
       data.auth = { ...(data.auth as Record<string, unknown>), tokens };
     },
-    io,
   );
 }
 
 /** SEC-06: reads an api key the wizard stored for one endpoint. */
-export function getStoredApiKey(
-  file: string,
-  endpoint: string,
-  read: (file: string) => string = (_f) => readFileSync(file, "utf8"),
-): string | undefined {
-  return readAuthSection(file, read).apiKeys?.[endpoint];
+export function getStoredApiKey(file: string, endpoint: string): string | undefined {
+  return readAuthSection(file).apiKeys?.[endpoint];
 }
 
 /** #1256: the endpoint identity a stored key was saved for, or undefined
  * when the key is absent or was stored before origins existed (unbound). */
-export function getStoredApiKeyOrigin(
-  file: string,
-  endpoint: string,
-  read: (file: string) => string = (_f) => readFileSync(file, "utf8"),
-): StoredApiKeyOrigin | undefined {
-  return readAuthSection(file, read).apiKeyOrigins?.[endpoint];
+export function getStoredApiKeyOrigin(file: string, endpoint: string): StoredApiKeyOrigin | undefined {
+  return readAuthSection(file).apiKeyOrigins?.[endpoint];
 }
 
 /** SEC-06: stores/replaces one endpoint's api key in the auth store. When
@@ -112,7 +90,6 @@ export function saveStoredApiKey(
   file: string,
   endpoint: string,
   key: string,
-  io: UserConfigIo = {},
   origin?: StoredApiKeyOrigin,
 ): void {
   updateUserConfigFile(
@@ -129,7 +106,6 @@ export function saveStoredApiKey(
         apiKeyOrigins: origins,
       };
     },
-    io,
   );
 }
 
@@ -141,7 +117,6 @@ export function bindStoredApiKeyOrigin(
   file: string,
   endpoint: string,
   origin: StoredApiKeyOrigin,
-  io: UserConfigIo = {},
 ): void {
   updateUserConfigFile(
     file,
@@ -150,13 +125,12 @@ export function bindStoredApiKeyOrigin(
       if (auth?.apiKeys?.[endpoint] === undefined) return;
       data.auth = { ...auth, apiKeyOrigins: { ...(auth.apiKeyOrigins ?? {}), [endpoint]: origin } };
     },
-    io,
   );
 }
 
 /** SEC-06: drops one endpoint's stored api key — and its #1256 origin
  * binding — through the guardian. No-op when absent. */
-export function clearStoredApiKey(file: string, endpoint: string, io: UserConfigIo = {}): void {
+export function clearStoredApiKey(file: string, endpoint: string): void {
   updateUserConfigFile(
     file,
     (data) => {
@@ -168,6 +142,5 @@ export function clearStoredApiKey(file: string, endpoint: string, io: UserConfig
       delete origins[endpoint];
       data.auth = { ...(data.auth as Record<string, unknown>), apiKeys, apiKeyOrigins: origins };
     },
-    io,
   );
 }
