@@ -77,7 +77,7 @@ describe("auth store", () => {
 
   test("api key origin binding: save with origin persists it (#1256)", () => {
     const file = tmpFile();
-    saveStoredApiKey(file, "acme", "sk-live", {}, { type: "openai-compat", baseUrl: "https://api.acme.com/v1" });
+    saveStoredApiKey(file, "acme", "sk-live", { type: "openai-compat", baseUrl: "https://api.acme.com/v1" });
     expect(getStoredApiKey(file, "acme")).toBe("sk-live");
     expect(getStoredApiKeyOrigin(file, "acme")).toEqual({ type: "openai-compat", baseUrl: "https://api.acme.com/v1" });
   });
@@ -86,7 +86,7 @@ describe("auth store", () => {
     const file = tmpFile();
     saveStoredApiKey(file, "acme", "sk-live");
     expect(getStoredApiKeyOrigin(file, "acme")).toBeUndefined();
-    saveStoredApiKey(file, "acme", "sk-live", {}, { type: "openai-compat", baseUrl: "https://api.acme.com/v1" });
+    saveStoredApiKey(file, "acme", "sk-live", { type: "openai-compat", baseUrl: "https://api.acme.com/v1" });
     saveStoredApiKey(file, "acme", "sk-rotated");
     expect(getStoredApiKey(file, "acme")).toBe("sk-rotated");
     expect(getStoredApiKeyOrigin(file, "acme")).toBeUndefined();
@@ -103,7 +103,7 @@ describe("auth store", () => {
 
   test("clearStoredApiKey removes the key and its origin binding (#1256)", () => {
     const file = tmpFile();
-    saveStoredApiKey(file, "acme", "sk-live", {}, { type: "anthropic" });
+    saveStoredApiKey(file, "acme", "sk-live", { type: "anthropic" });
     clearStoredApiKey(file, "acme");
     expect(getStoredApiKey(file, "acme")).toBeUndefined();
     expect(getStoredApiKeyOrigin(file, "acme")).toBeUndefined();
@@ -217,7 +217,7 @@ describe("auth store — real file (#1431)", () => {
   test("unknown sections and unknown auth keys survive every writer; the whole file is read-modify-written (real file)", () => {
     const file = seedFile({ theme: "nord", futureSection: { x: [1] }, auth: { tokens: {}, overrides: { o: 1 } } });
     saveTokens(file, "a", token);
-    saveStoredApiKey(file, "b", "k", {}, { type: "anthropic" });
+    saveStoredApiKey(file, "b", "k", { type: "anthropic" });
     bindStoredApiKeyOrigin(file, "b", { type: "openai", baseUrl: "https://x/v1" });
     const data = raw(file);
     expect(data.theme).toBe("nord");
