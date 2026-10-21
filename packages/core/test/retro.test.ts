@@ -297,3 +297,23 @@ describe("adaptive threshold (ADR-0075)", () => {
     expect(store.read().map((f) => f.evidence)).toEqual(["rule Y"]);
   });
 });
+
+describe("repeated bash evidence quoting (characterization, #1437)", () => {
+  test("a long repeated command is quoted whitespace-collapsed and cut at 120 characters", () => {
+    const command = `echo   ${"x".repeat(200)}`;
+    const calls = [toolCall("bash", { command }), toolCall("bash", { command }), toolCall("bash", { command })];
+    const log: AgentEvent[] = [...calls, ...calls.map((c) => toolResult(c.callId, true))];
+    const finding = extractRetroFindings(log, { cwd: tempDir(), session: "s" }).find((f) => f.category === "tool-economy");
+    const quoted = `\`echo ${"x".repeat(114)}…\``;
+    expect(finding?.evidence).toContain(quoted);
+    expect(finding?.evidence).not.toContain("x".repeat(115));
+  });
+
+  test("a short repeated command is quoted whole", () => {
+    const command = "bun run lint";
+    const calls = [toolCall("bash", { command }), toolCall("bash", { command }), toolCall("bash", { command })];
+    const log: AgentEvent[] = [...calls, ...calls.map((c) => toolResult(c.callId, true))];
+    const finding = extractRetroFindings(log, { cwd: tempDir(), session: "s" }).find((f) => f.category === "tool-economy");
+    expect(finding?.evidence).toContain("`bun run lint`");
+  });
+});

@@ -755,3 +755,27 @@ describe("#766: the marker records the serving summarizer", () => {
     expect((marker as { summarizer?: string }).summarizer).toBeUndefined();
   });
 });
+
+describe("deterministic digest list cap (characterization, #1437)", () => {
+  const base = compactionFacts(coveredSpan(), indicesFor(coveredSpan(), 0), coveredSpan().length);
+  const files = (n: number) => Array.from({ length: n }, (_, i) => `src/f${i}.ts`);
+  const render = (filesModified: string[]) =>
+    renderDeterministicDigest({ transcript: "", facts: { ...base, filesModified } });
+
+  test("a list longer than the cap shows the first 40 and counts the rest", () => {
+    const digest = render(files(45));
+    expect(digest).toContain("- src/f39.ts");
+    expect(digest).not.toContain("- src/f40.ts");
+    expect(digest).toContain("- (…and 5 more)");
+  });
+
+  test("a list exactly at the cap shows everything without a remainder line", () => {
+    const digest = render(files(40));
+    expect(digest).toContain("- src/f39.ts");
+    expect(digest).not.toContain("more)");
+  });
+
+  test("an empty list renders (none)", () => {
+    expect(render([])).toContain("## Files modified\n\n- (none)");
+  });
+});

@@ -510,3 +510,17 @@ describe("versionSatisfied", () => {
     expect(versionSatisfied("1.0.0", "0.1.0")).toBe(false);
   });
 });
+
+import { readBundledSkill } from "../src/workflow";
+
+describe("readBundledSkill (characterization, #1437)", () => {
+  test("returns the bundled skill by name", () => {
+    const skill = readBundledSkill("ask-moh");
+    expect(skill?.name).toBe("ask-moh");
+    expect(Object.keys(skill?.files ?? {})).toContain("SKILL.md");
+  });
+
+  test("returns null for a name that is not in the bundle", () => {
+    expect(readBundledSkill("no-such-skill")).toBeNull();
+  });
+});
