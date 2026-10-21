@@ -65,12 +65,6 @@ describe("updateUserConfigFile", () => {
     expect(existsSync(`${file}.tmp-${process.pid}`)).toBe(false);
     expect(readFileSync(file, "utf8").endsWith("\n")).toBe(true);
   });
-
-  test("mutating an existing corrupt file starts from {}", () => {
-    const file = tmpFile();
-    updateUserConfigFile(file, () => {}, { read: () => "garbage" });
-    expect(readUserConfigFile(file)).toEqual({});
-  });
 });
 
 // #1431 (expand phase of S4.1): twins of the injected-I/O tests above, driven
