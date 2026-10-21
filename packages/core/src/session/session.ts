@@ -434,174 +434,19 @@ export class AgentSession {
     this.#borrowedHooks = typeof borrowedRuntime?.withSession === "function" ? borrowedRuntime : undefined;
     // ADR-0037: the session is the runtime's turn entry — an extension's
     // `ctx.requestTurn` lands here, through the queue.
-    // ADR-0065: the session owns the live deny answer — its resolver is
-    // the user's rule set; a deny rule on a covered path beats every path
-    // grant per call.
-    if (this.#extensions && typeof (this.#extensions as { bindPathDeny?: unknown }).bindPathDeny === "function") {
-      (this.#extensions as { bindPathDeny(f: (abs: string) => boolean): void }).bindPathDeny((absPath: string) => {
-        const rel = this.#permissions.relativeInRoot(absPath);
-        if (rel === null) return false;
-        return this.#permissions.rules.some(
-          (rule) =>
-            rule.effect === "deny" &&
-            typeof rule.path === "string" &&
-            (rule.path === rel || new Bun.Glob(rule.path).match(rel)),
-        );
-      });
-    }
-    if (this.#extensions) this.#extensions.bindRequestTurn((text) => this.runSyntheticTurn(text).then((r) => r.ok));
-    // ADR-0067: the tool-execution seam behind `ctx.host.runTool`. The
-    // runtime owns scope + logging; here is lookup, gate and execution —
-    // the normal ToolRunner path, the extension named as the ask's
-    // requester, no tool_call/tool_result events (the seam logs host_op).
-    if (this.#extensions && typeof (this.#extensions as { bindToolSeam?: unknown }).bindToolSeam === "function") {
-      (this.#extensions as { bindToolSeam(s: unknown): void }).bindToolSeam({        runTool: async (request: { extension: string; tool: string; args: unknown }) => {
-          const tool = this.#allTools()[request.tool];
-          if (!tool) return { ok: false as const, reason: "unknown_tool" as const, message: `no session tool named "${request.tool}"` };
-          const outcome = await this.#toolRunner.runSeamCall(
-            request.tool,
-            request.args,
-            newUlid(),
-            new AbortController().signal,
-            { extension: request.extension },
-          );
-          if (outcome.ok) return { ok: true as const, output: outcome.output };
-          if (outcome.errorKind === "permission") return { ok: false as const, reason: "denied" as const, message: outcome.output };
-          if (outcome.output.startsWith(`unknown tool:`)) return { ok: false as const, reason: "unknown_tool" as const, message: outcome.output };
-          return { ok: false as const, reason: "failed" as const, message: outcome.output };
-        },
-      });
-    }
-    // ADR-0068: the model-call seam behind `ctx.host.modelCall` /
-    // `ctx.host.listModels`. The runtime owns scope + logging; here is
-    // endpoint resolution, the single-shot Route call (one stop, no
-    // fallbacks — a fallback would serve from an endpoint the grant did
-    // not name), the thinking-capability check and usage accounting.
-    // Credentials stay inside the Route; provider reasoning of these
-    // calls is never persisted. A completed call is recorded as an
-    // ordinary `model_call` event, requester-marked — no parallel type.
-    if (this.#extensions && typeof (this.#extensions as { bindModelSeam?: unknown }).bindModelSeam === "function") {
-      (this.#extensions as { bindModelSeam(s: unknown): void }).bindModelSeam({
-        modelCall: async (request: {
-          extension: string;
-          endpoint: string;
-          model: string;
-          messages: ReadonlyArray<{ role: "system" | "user" | "assistant"; content: string }>;
-          thinkingLevel?: ThinkingLevel;
-          signal?: AbortSignal;
-        }) => {
-          const profile = this.#endpoints.find((e) => e.name === request.endpoint);
-          if (!profile) {
-            return { ok: false as const, reason: "unknown_endpoint" as const, message: `no endpoint named "${request.endpoint}" in moh.json` };
-          }
-          const modelId = request.model || profile.defaultModel;
-          if (!modelId) {
-            return { ok: false as const, reason: "failed" as const, message: `endpoint "${request.endpoint}" has no defaultModel; name a model` };
-          }
-          const ref = `${profile.name}/${modelId}`;
-          // ADR-0068: the per-call thinking override is bounded by the
-          // model's declared capability — supported (or the explicit
-          // disable) passes; anything else is the typed refusal, never a
-          // remapping. No declared capability, no override: moh never
-          // invents capabilities. Without an override, the endpoint's own
-          // resolution (its stored preference) applies.
-          let thinking: { level: ThinkingLevel } | undefined;
-          if (request.thinkingLevel !== undefined) {
-            const states = thinkingStatesForRef(ref, this.#endpoints);
-            if (!states || states[request.thinkingLevel] === "provider-default") {
-              return { ok: false as const, reason: "unsupported_level" as const, message: `thinking level "${request.thinkingLevel}" is not supported by ${ref}` };
-            }
-            thinking = { level: request.thinkingLevel };
-          } else {
-            thinking = resolveEndpointThinking(ref, this.#endpoints, join(this.#mohHome, "config"));
-          }
-          const registry = this.#registry ?? defaultRegistry.freeze();
-          let provider: Provider;
-          try {
-            // Single stop: the granted endpoint only — no fallbacks (a
-            // fallback would serve from an endpoint the grant did not
-            // name) and no route-level thinking seam (the per-call
-            // override above is the authority).
-            const { thinkingForTarget: _ignored, ...resolution } = this.#routeResolutionOptions;
-            provider = resolveProviderRef(ref, registry, [profile], resolution);
-          } catch (err) {
-            return { ok: false as const, reason: "failed" as const, message: err instanceof Error ? err.message : String(err) };
-          }
-          const messages: Message[] = request.messages
-            .filter((m) => m && typeof m.content === "string")
-            .map((m) => ({ role: m.role, parts: [{ kind: "text" as const, text: m.content }] }));
-          const usage = { inputTokens: 0, outputTokens: 0 };
-          let text = "";
-          let served = ref;
-          let effectiveLevel: ThinkingLevel | undefined;
-          try {
-            for await (const event of provider.stream(messages, request.signal ?? new AbortController().signal, undefined, thinking ? { thinking } : undefined)) {
-              if (event.type === "text_delta") text += event.text;
-              else if (event.type === "usage") {
-                usage.inputTokens += event.inputTokens;
-                usage.outputTokens += event.outputTokens;
-              } else if (event.type === "model_call_start") {
-                served = event.model;
-                effectiveLevel = event.thinkingLevel;
-              }
-            }
-          } catch (err) {
-            // ADR-0068: tokens count even when the call fails mid-stream —
-            // the partial usage is recorded (failed `model_call`,
-            // requester-marked) and accounted, never dropped.
-            if (usage.inputTokens !== 0 || usage.outputTokens !== 0) {
-              this.#append({ type: "model_call", model: served, usage: { ...usage }, ...(effectiveLevel !== undefined ? { thinkingLevel: effectiveLevel } : {}), failed: true, requester: { kind: "extension", extension: request.extension } });
-              this.#loop.recordExtensionUsage(request.extension, usage);
-            }
-            return { ok: false as const, reason: "failed" as const, message: err instanceof Error ? err.message : String(err) };
-          }
-          if (request.signal?.aborted) {
-            if (usage.inputTokens !== 0 || usage.outputTokens !== 0) {
-              this.#append({ type: "model_call", model: served, usage: { ...usage }, ...(effectiveLevel !== undefined ? { thinkingLevel: effectiveLevel } : {}), failed: true, requester: { kind: "extension", extension: request.extension } });
-              this.#loop.recordExtensionUsage(request.extension, usage);
-            }
-            return { ok: false as const, reason: "failed" as const, message: "model call aborted" };
-          }
-          // The record: the same `model_call` event, marked with the
-          // requester (ADR-0068). Provider reasoning is deliberately not
-          // collected — a host-seam call is not part of the conversation.
-          this.#append({
-            type: "model_call",
-            model: served,
-            usage: { ...usage },
-            ...(effectiveLevel !== undefined ? { thinkingLevel: effectiveLevel } : {}),
-            requester: { kind: "extension", extension: request.extension },
-          });
-          this.#loop.recordExtensionUsage(request.extension, usage);
-          return { ok: true as const, text, usage: { ...usage }, model: served, ...(effectiveLevel !== undefined ? { thinkingLevel: effectiveLevel } : {}) };
-        },
-        listModels: async (request: { endpoint: string }) => {
-          const profile = this.#endpoints.find((e) => e.name === request.endpoint);
-          if (!profile) {
-            return { ok: false as const, reason: "unknown_endpoint" as const, message: `no endpoint named "${request.endpoint}" in moh.json` };
-          }
-          try {
-            // openai-compat has its own plain listing (endpoint-models.ts);
-            // every other kind goes through the verified live-models
-            // contracts. Either way the credential is resolved host-side
-            // and the ids are all the extension sees.
-            const models = profile.type === "openai-compat"
-              ? await listOpenAiCompatModels(profile.baseUrl!, profile.apiKey)
-              : await listProviderModels(profile.type, profile.name, { ...(profile.baseUrl ? { baseUrl: profile.baseUrl } : {}), ...(profile.apiKey ? { apiKey: profile.apiKey } : {}) });
-            return { ok: true as const, models };
-          } catch (err) {
-            return { ok: false as const, reason: "failed" as const, message: err instanceof Error ? err.message : String(err) };
-          }
-        },
-      });
-    }
-    // ADR-0067: the contributed-tool sink behind `ctx.registerTool`. A    // contributed tool rides the same runner and gate as every session
+    // ADR-0067: the contributed-tool sink behind `ctx.registerTool`. A
+    // contributed tool rides the same runner and gate as every session
     // tool — registration is just an entry in the model-visible registry;
     // its `tool_contributed` record is emitted by the runtime at
     // registration time. The wrapper adapts the extension's validator
     // (the `safeParse` slice of zod) to the core Tool contract.
-    if (this.#extensions && typeof (this.#extensions as { bindToolContributor?: unknown }).bindToolContributor === "function") {
-      (this.#extensions as { bindToolContributor(c: (r: { extension: string; tool: unknown }) => void): void }).bindToolContributor(({ tool }) => {
+    this.#extensions?.bindSession({
+      requestTurn: (text) => this.runSyntheticTurn(text).then((r) => r.ok),
+      isPathDenied: (absPath) => this.#seamPathDenied(absPath),
+      runTool: (request) => this.#seamRunTool(request),
+      modelCall: (request) => this.#seamModelCall(request),
+      listModels: (request) => this.#seamListModels(request),
+      contributeTool: ({ tool }) => {
         const contributed = tool as ContributedToolShape;
         this.addTools({
           [contributed.name]: {
@@ -611,8 +456,8 @@ export class AgentSession {
             execute: (args, ctx) => contributed.execute(args, ctx),
           },
         });
-      });
-    }
+      },
+    });
     this.#onDispose = config.onDispose;
     // Extension load results (including hot-reload outcomes) land in the log
     // — held until the session's own start chrome is in (#834). A load can
@@ -1140,6 +985,162 @@ export class AgentSession {
     this.#skills = discovered.map((s) => ({ name: s.name, description: s.description, path: s.file }));
     this.#skillDirs = [...new Set(discovered.map((s) => s.dir))];
     this.#assemblePrompt();
+  }
+
+  // ADR-0065: the session owns the live deny answer — its resolver is
+  // the user's rule set; a deny rule on a covered path beats every path
+  // grant per call.
+  #seamPathDenied(absPath: string): boolean {
+    const rel = this.#permissions.relativeInRoot(absPath);
+    if (rel === null) return false;
+    return this.#permissions.rules.some(
+      (rule) =>
+        rule.effect === "deny" &&
+        typeof rule.path === "string" &&
+        (rule.path === rel || new Bun.Glob(rule.path).match(rel)),
+    );
+  }
+
+  // ADR-0067: the tool-execution seam behind `ctx.host.runTool`. The
+  // runtime owns scope + logging; here is lookup, gate and execution —
+  // the normal ToolRunner path, the extension named as the ask's
+  // requester, no tool_call/tool_result events (the seam logs host_op).
+  async #seamRunTool(request: { extension: string; tool: string; args: unknown }) {
+    const tool = this.#allTools()[request.tool];
+    if (!tool) return { ok: false as const, reason: "unknown_tool" as const, message: `no session tool named "${request.tool}"` };
+    const outcome = await this.#toolRunner.runSeamCall(
+      request.tool,
+      request.args,
+      newUlid(),
+      new AbortController().signal,
+      { extension: request.extension },
+    );
+    if (outcome.ok) return { ok: true as const, output: outcome.output };
+    if (outcome.errorKind === "permission") return { ok: false as const, reason: "denied" as const, message: outcome.output };
+    if (outcome.output.startsWith(`unknown tool:`)) return { ok: false as const, reason: "unknown_tool" as const, message: outcome.output };
+    return { ok: false as const, reason: "failed" as const, message: outcome.output };
+  }
+
+  // ADR-0068: the model-call seam behind `ctx.host.modelCall` /
+  // `ctx.host.listModels`. The runtime owns scope + logging; here is
+  // endpoint resolution, the single-shot Route call (one stop, no
+  // fallbacks — a fallback would serve from an endpoint the grant did
+  // not name), the thinking-capability check and usage accounting.
+  // Credentials stay inside the Route; provider reasoning of these
+  // calls is never persisted. A completed call is recorded as an
+  // ordinary `model_call` event, requester-marked — no parallel type.
+  async #seamModelCall(request: {
+    extension: string;
+    endpoint: string;
+    model: string;
+    messages: ReadonlyArray<{ role: "system" | "user" | "assistant"; content: string }>;
+    thinkingLevel?: ThinkingLevel;
+    signal?: AbortSignal;
+  }) {
+    const profile = this.#endpoints.find((e) => e.name === request.endpoint);
+    if (!profile) {
+      return { ok: false as const, reason: "unknown_endpoint" as const, message: `no endpoint named "${request.endpoint}" in moh.json` };
+    }
+    const modelId = request.model || profile.defaultModel;
+    if (!modelId) {
+      return { ok: false as const, reason: "failed" as const, message: `endpoint "${request.endpoint}" has no defaultModel; name a model` };
+    }
+    const ref = `${profile.name}/${modelId}`;
+    // ADR-0068: the per-call thinking override is bounded by the
+    // model's declared capability — supported (or the explicit
+    // disable) passes; anything else is the typed refusal, never a
+    // remapping. No declared capability, no override: moh never
+    // invents capabilities. Without an override, the endpoint's own
+    // resolution (its stored preference) applies.
+    let thinking: { level: ThinkingLevel } | undefined;
+    if (request.thinkingLevel !== undefined) {
+      const states = thinkingStatesForRef(ref, this.#endpoints);
+      if (!states || states[request.thinkingLevel] === "provider-default") {
+        return { ok: false as const, reason: "unsupported_level" as const, message: `thinking level "${request.thinkingLevel}" is not supported by ${ref}` };
+      }
+      thinking = { level: request.thinkingLevel };
+    } else {
+      thinking = resolveEndpointThinking(ref, this.#endpoints, join(this.#mohHome, "config"));
+    }
+    const registry = this.#registry ?? defaultRegistry.freeze();
+    let provider: Provider;
+    try {
+      // Single stop: the granted endpoint only — no fallbacks (a
+      // fallback would serve from an endpoint the grant did not
+      // name) and no route-level thinking seam (the per-call
+      // override above is the authority).
+      const { thinkingForTarget: _ignored, ...resolution } = this.#routeResolutionOptions;
+      provider = resolveProviderRef(ref, registry, [profile], resolution);
+    } catch (err) {
+      return { ok: false as const, reason: "failed" as const, message: err instanceof Error ? err.message : String(err) };
+    }
+    const messages: Message[] = request.messages
+      .filter((m) => m && typeof m.content === "string")
+      .map((m) => ({ role: m.role, parts: [{ kind: "text" as const, text: m.content }] }));
+    const usage = { inputTokens: 0, outputTokens: 0 };
+    let text = "";
+    let served = ref;
+    let effectiveLevel: ThinkingLevel | undefined;
+    try {
+      for await (const event of provider.stream(messages, request.signal ?? new AbortController().signal, undefined, thinking ? { thinking } : undefined)) {
+        if (event.type === "text_delta") text += event.text;
+        else if (event.type === "usage") {
+          usage.inputTokens += event.inputTokens;
+          usage.outputTokens += event.outputTokens;
+        } else if (event.type === "model_call_start") {
+          served = event.model;
+          effectiveLevel = event.thinkingLevel;
+        }
+      }
+    } catch (err) {
+      // ADR-0068: tokens count even when the call fails mid-stream —
+      // the partial usage is recorded (failed `model_call`,
+      // requester-marked) and accounted, never dropped.
+      if (usage.inputTokens !== 0 || usage.outputTokens !== 0) {
+        this.#append({ type: "model_call", model: served, usage: { ...usage }, ...(effectiveLevel !== undefined ? { thinkingLevel: effectiveLevel } : {}), failed: true, requester: { kind: "extension", extension: request.extension } });
+        this.#loop.recordExtensionUsage(request.extension, usage);
+      }
+      return { ok: false as const, reason: "failed" as const, message: err instanceof Error ? err.message : String(err) };
+    }
+    if (request.signal?.aborted) {
+      if (usage.inputTokens !== 0 || usage.outputTokens !== 0) {
+        this.#append({ type: "model_call", model: served, usage: { ...usage }, ...(effectiveLevel !== undefined ? { thinkingLevel: effectiveLevel } : {}), failed: true, requester: { kind: "extension", extension: request.extension } });
+        this.#loop.recordExtensionUsage(request.extension, usage);
+      }
+      return { ok: false as const, reason: "failed" as const, message: "model call aborted" };
+    }
+    // The record: the same `model_call` event, marked with the
+    // requester (ADR-0068). Provider reasoning is deliberately not
+    // collected — a host-seam call is not part of the conversation.
+    this.#append({
+      type: "model_call",
+      model: served,
+      usage: { ...usage },
+      ...(effectiveLevel !== undefined ? { thinkingLevel: effectiveLevel } : {}),
+      requester: { kind: "extension", extension: request.extension },
+    });
+    this.#loop.recordExtensionUsage(request.extension, usage);
+    return { ok: true as const, text, usage: { ...usage }, model: served, ...(effectiveLevel !== undefined ? { thinkingLevel: effectiveLevel } : {}) };
+  }
+
+  async #seamListModels(request: { endpoint: string }) {
+    const profile = this.#endpoints.find((e) => e.name === request.endpoint);
+    if (!profile) {
+      return { ok: false as const, reason: "unknown_endpoint" as const, message: `no endpoint named "${request.endpoint}" in moh.json` };
+    }
+    try {
+      // openai-compat has its own plain listing (endpoint-models.ts);
+      // every other kind goes through the verified live-models
+      // contracts. Either way the credential is resolved host-side
+      // and the ids are all the extension sees.
+      const models = profile.type === "openai-compat"
+        ? await listOpenAiCompatModels(profile.baseUrl!, profile.apiKey)
+        : await listProviderModels(profile.type, profile.name, { ...(profile.baseUrl ? { baseUrl: profile.baseUrl } : {}), ...(profile.apiKey ? { apiKey: profile.apiKey } : {}) });
+      // #1438: non-openai-compat kinds return LiveModelListing[], not the promised ids; kept as is on purpose (ablation step, see the issue draft).
+      return { ok: true as const, models: models as string[] };
+    } catch (err) {
+      return { ok: false as const, reason: "failed" as const, message: err instanceof Error ? err.message : String(err) };
+    }
   }
 
   /**
