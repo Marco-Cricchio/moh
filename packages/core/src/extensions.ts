@@ -107,6 +107,18 @@ interface ModelSeam {
     | { ok: false; reason: "unknown_endpoint" | "failed"; message?: string }
   >;
 }
+
+/**
+ * #1438: everything the owning session lends its runtime, bound once by
+ * `bindSession` — the synthetic-turn entry (ADR-0037), the live path deny
+ * answer (ADR-0065), the tool and model seams (ADR-0067, ADR-0068) and the
+ * contributed-tool sink (ADR-0067).
+ */
+interface SessionPort extends ToolSeam, ModelSeam {
+  requestTurn(text: string): Promise<boolean>;
+  isPathDenied(resolvedAbsPath: string): boolean;
+  contributeTool(registration: { extension: string; tool: unknown }): void;
+}
 import { redactKeys } from "./redact";
 import { assertNoExtensionScope, runInExtensionScope } from "./extension-scope";
 
@@ -221,12 +233,6 @@ interface ExtensionRuntimeOptions {
    */
   projectRoot?: string;
   /**
-   * ADR-0065: the user's per-call deny answer for a resolved absolute
-   * path (the session binds its permission resolver here). A deny beats
-   * every path grant per call; absent, no deny check runs.
-   */
-  isPathDenied?: (resolvedAbsPath: string) => boolean;
-  /**
    * ADR-0066: the user's per-call deny answer for a request hostname.
    * A deny beats every `host:` grant per call; absent, no deny check
    * runs. Separate from `isPathDenied`: path rules never match hosts.
@@ -269,14 +275,6 @@ interface ExtensionRuntimeOptions {
    * outcome mid-session).
    */
   onWarning?: (message: string) => void;
-  /**
-   * ADR-0037: the session-mediated synthetic-turn entry the
-   * `requestTurn` setup method delegates to. Present only when the host
-   * session can run turns; its `false` answers are the contract's
-   * refusals (depth cap, busy, disposed), which the runtime renders as a
-   * visible `extension_failed` event.
-   */
-  requestTurn?: (text: string) => Promise<boolean>;
   /**
    * ADR-0056 (#1126): the wall-clock ceiling for every turn-path hook
    * invocation (`beforeTurn`, `beforeModelCall`, `onToolCall`,
@@ -1346,8 +1344,8 @@ export class ExtensionRuntime {
       });
       return false;
     }
-    const entry = this.#options.requestTurn;
-    if (!entry) {
+    const session = this.#session;
+    if (!session) {
       this.#emit({ type: "extension_failed", name, reason: "request_turn", message: "no turn entry on this session" });
       return false;
     }
@@ -1355,7 +1353,7 @@ export class ExtensionRuntime {
     // the contract) requests again from its own synthetic turn finds the
     // budget already spent, and the chain is cut here in the core.
     this.#syntheticStreaks.set(name, streak + 1);
-    const ok = await entry(text);
+    const ok = await session.requestTurn(text);
     return ok;
   }
 
@@ -1365,58 +1363,12 @@ export class ExtensionRuntime {
   }
 
   /**
-   * ADR-0037: binds the session's synthetic-turn entry (called by the
-   * owning session once, after construction — the runtime is created
-   * before the session in the assembly path). Idempotent; the last
-   * binding wins.
+   * #1438: the owning session, bound once by `bindSession` (the runtime is
+   * created before the session in the assembly path). Extension setup may
+   * run before a session exists: a seam call made with none bound is
+   * refused loudly, never silently dropped.
    */
-  bindRequestTurn(entry: (text: string) => Promise<boolean>): void {
-    (this.#options as { requestTurn?: (text: string) => Promise<boolean> }).requestTurn = entry;
-  }
-
-  /**
- * ADR-0064 + ADR-0065: the session binds its live deny answer for the path
- * scope. A deny rule on a covered path beats every path grant per call —
- * the grant never widens what moh itself may do. Read at call time, so a
- * runtime rule added mid-session applies to the next host operation.
- */
-#pathDeny: ((resolvedAbsPath: string) => boolean) | null = null;
-
-bindPathDeny(isDenied: (resolvedAbsPath: string) => boolean): void {
-  this.#pathDeny = isDenied;
-}
-
-  /**
-   * ADR-0067: the session binds its tool-execution seam. The `runTool`
-   * host method exists only when a `tool:` scope was granted, but the
-   * session (which owns the runner and the gate) may not exist yet at
-   * load time — the seam binds later, like the deny answers.
-   */
-  #toolSeam: ToolSeam | null = null;
-
-  bindToolSeam(seam: ToolSeam): void {
-    this.#toolSeam = seam;
-  }
-
-  /**
-   * ADR-0068: the session binds its model-call seam. Extension setup may
-   * run before a session exists — the seam binds later, like the tool
-   * seam. A call made with no session bound is refused loudly, never
-   * silently dropped.
-   */
-  #modelSeam: ModelSeam | null = null;
-
-  bindModelSeam(seam: ModelSeam): void {
-    this.#modelSeam = seam;
-  }
-
-  /**
-   * ADR-0067: the session binds its contributed-tool sink. A registration
-   * made before a session exists (setup runs during load) is held and
-   * applied — and logged — at bind time, so the `tool_contributed` event
-   * lands inside the session's log deterministically.
-   */
-  #toolContributor: ((registration: { extension: string; tool: unknown }) => void) | null = null;
+  #session: SessionPort | null = null;
   #pendingContributed: { extension: string; tool: unknown }[] = [];
   /** ADR-0055 (#1222): names of accepted contributed tools — the set the
    * subagent host excludes from every child's toolset. */
@@ -1427,11 +1379,21 @@ bindPathDeny(isDenied: (resolvedAbsPath: string) => boolean): void {
     return [...this.#contributedToolNames];
   }
 
-  bindToolContributor(contributor: (registration: { extension: string; tool: unknown }) => void): void {
-    this.#toolContributor = contributor;
+  /**
+   * #1438: binds the owning session (called by its constructor). The
+   * synthetic-turn entry (ADR-0037) and the tool and model seams
+   * (ADR-0067, ADR-0068) are read at call time; the path deny answer
+   * (ADR-0064 + ADR-0065) is read when a file host is built. A
+   * contributed-tool registration made before a session exists (setup
+   * runs during load) is held and applied — and logged — here, so the
+   * `tool_contributed` event lands inside the session's log
+   * deterministically. Idempotent; the last binding wins.
+   */
+  bindSession(port: SessionPort): void {
+    this.#session = port;
     const pending = this.#pendingContributed.splice(0);
     for (const registration of pending) {
-      contributor(registration);
+      port.contributeTool(registration);
       // ADR-0067: the registration record lands with the session's log —
       // emitted at bind time, never during setup, so a replay sees it
       // where the tool became callable.
@@ -1444,7 +1406,7 @@ bindPathDeny(isDenied: (resolvedAbsPath: string) => boolean): void {
    * mismatch is a loud `extension_failed` and the tool never reaches the
    * model. With a session bound, the tool registers immediately (and the
    * `tool_contributed` record rides the session's log); without one, the
-   * registration is held for `bindToolContributor`.
+   * registration is held for `bindSession`.
    */
   #registerContributedTool(instance: RuntimeExtension, tool: ExtensionContributedTool, grantedNames: readonly string[]): void {
     const extension = instance.def.name;
@@ -1459,9 +1421,9 @@ bindPathDeny(isDenied: (resolvedAbsPath: string) => boolean): void {
     }
     const registration = { extension, tool };
     this.#contributedToolNames.add(name);
-    if (this.#toolContributor) this.#toolContributor(registration);
+    if (this.#session) this.#session.contributeTool(registration);
     else this.#pendingContributed.push(registration);
-    // The `tool_contributed` record is emitted by `bindToolContributor`
+    // The `tool_contributed` record is emitted by `bindSession`
     // at bind time — the log of the session where the tool became
     // callable, never a setup-time orphan event.
   }
@@ -2151,7 +2113,7 @@ bindPathDeny(isDenied: (resolvedAbsPath: string) => boolean): void {
    * ADR-0067: the `runTool` half of the host seam. Scope + logging live
    * here (the runtime stamps the extension and writes `host_op` /
    * `host_refused`); lookup, gate and execution live in the session
-   * behind `#toolSeam` — the model's exact gate path, with this
+   * behind `#session` — the model's exact gate path, with this
    * extension named as the ask's requester.
    */
   #hostRefused(event: Omit<Extract<AgentEvent, { type: "host_refused" }>, "type">): void {
@@ -2171,7 +2133,7 @@ bindPathDeny(isDenied: (resolvedAbsPath: string) => boolean): void {
           this.#hostRefused({ callId, extension: name, op: "run_tool", tool, reason: "outside_scope" });
           return { ok: false, reason: "outside_scope" };
         }
-        const seam = this.#toolSeam;
+        const seam = this.#session;
         if (!seam) {
           // No session bound (a bare runtime, a test): the tool cannot
           // run — refused loudly, never silently dropped.
@@ -2200,7 +2162,7 @@ bindPathDeny(isDenied: (resolvedAbsPath: string) => boolean): void {
    * live here (the runtime stamps the extension and writes `host_op` /
    * `host_refused`); endpoint resolution, the single-shot Route call, the
    * thinking-capability check and usage accounting live in the session
-   * behind `#modelSeam`. One ref per grant, exact match, per call; the
+   * behind `#session`. One ref per grant, exact match, per call; the
    * model id is never scoped. A refusal is a typed result plus one
    * `host_refused` event — never an exception, never `extension_failed`.
    */
@@ -2230,7 +2192,7 @@ bindPathDeny(isDenied: (resolvedAbsPath: string) => boolean): void {
           refused(callId, "model_call", "outside_scope", modelRef);
           return { ok: false, reason: "outside_scope" };
         }
-        const seam = this.#modelSeam;
+        const seam = this.#session;
         if (!seam) {
           refused(callId, "model_call", "failed", modelRef);
           return { ok: false, reason: "failed", message: "no session is bound to this extension runtime" };
@@ -2258,7 +2220,7 @@ bindPathDeny(isDenied: (resolvedAbsPath: string) => boolean): void {
           refused(callId, "list_models", "outside_scope", endpoint);
           return { ok: false, reason: "outside_scope" };
         }
-        const seam = this.#modelSeam;
+        const seam = this.#session;
         if (!seam) {
           refused(callId, "list_models", "failed", endpoint);
           return { ok: false, reason: "failed", message: "no session is bound to this extension runtime" };
@@ -2281,7 +2243,8 @@ bindPathDeny(isDenied: (resolvedAbsPath: string) => boolean): void {
   #fileHostFor(instance: RuntimeExtension, scopes: readonly string[]): Omit<ExtensionHost, "fetch" | "runTool" | "modelCall" | "listModels"> {
     const name = instance.def.name;
     const root = this.#options.projectRoot ?? process.cwd();
-    const isDenied = this.#pathDeny ?? this.#options.isPathDenied ?? (() => false);
+    const session = this.#session;
+    const isDenied = session ? (resolvedAbsPath: string) => session.isPathDenied(resolvedAbsPath) : () => false;
     const opEvent = (
       op: HostOpName,
       resolved: string,
