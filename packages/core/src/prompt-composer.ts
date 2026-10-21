@@ -149,10 +149,10 @@ interface PromptComposerConfig {
 const TURN_NOTE_MAX_CHARS = 300;
 
 /** Truncates an oversized turn note on a code-point boundary, with a marker. */
-function truncateTurnNote(text: string, maxChars = TURN_NOTE_MAX_CHARS): string {
+function truncateTurnNote(text: string): string {
   const chars = [...text];
-  if (chars.length <= maxChars) return text;
-  return `${chars.slice(0, maxChars).join("")} [truncated]`;
+  if (chars.length <= TURN_NOTE_MAX_CHARS) return text;
+  return `${chars.slice(0, TURN_NOTE_MAX_CHARS).join("")} [truncated]`;
 }
 
 function readIfExists(file: string): string | null {  if (!existsSync(file)) return null;

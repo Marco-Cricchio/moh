@@ -16,8 +16,8 @@ export const MENTION_POPUP_CAP = 50;
  * path's basename first, then the whole path; contiguous runs and word
  * boundaries score higher). Caller order breaks ties. Capped results.
  */
-export function fuzzyRank(paths: readonly string[], query: string, cap = MENTION_POPUP_CAP): string[] {
-  if (!query) return paths.slice(0, cap);
+export function fuzzyRank(paths: readonly string[], query: string): string[] {
+  if (!query) return paths.slice(0, MENTION_POPUP_CAP);
   const lowerQuery = query.toLowerCase();
   const scored: Array<{ path: string; score: number }> = [];
   for (const path of paths) {
@@ -25,7 +25,7 @@ export function fuzzyRank(paths: readonly string[], query: string, cap = MENTION
     if (score !== null) scored.push({ path, score });
   }
   scored.sort((a, b) => b.score - a.score || a.path.localeCompare(b.path));
-  return scored.slice(0, cap).map((entry) => entry.path);
+  return scored.slice(0, MENTION_POPUP_CAP).map((entry) => entry.path);
 }
 
 function fuzzyScore(path: string, lowerQuery: string): number | null {

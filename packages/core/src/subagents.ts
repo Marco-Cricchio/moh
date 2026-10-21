@@ -821,7 +821,7 @@ function resultJson(result: SubagentResult): string {
 /** #320: the transcript preview of a subagent's output — its first lines,
  * bounded, so the chat block and replay hint at what the child produced
  * without re-reading the child log. `undefined` when there is no output. */
-export function subagentPreview(output: string, maxLines = 3): string | undefined {
-  const lines = output.split("\n").filter((l) => l.trim() !== "").slice(0, maxLines);
+export function subagentPreview(output: string): string | undefined {
+  const lines = output.split("\n").filter((l) => l.trim() !== "").slice(0, 3);
   return lines.length ? lines.join("\n") : undefined;
 }

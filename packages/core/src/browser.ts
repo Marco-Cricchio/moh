@@ -584,19 +584,19 @@ export class BrowserSession {
   }
 
   /** #777: wait until a text appears in the page or a ref becomes visible. */
-  async waitFor(target: { text?: string; ref?: string }, timeoutMs = ACT_TIMEOUT_MS): Promise<string> {
+  async waitFor(target: { text?: string; ref?: string }): Promise<string> {
     const page = await this.#page;
     if (!page) throw new Error("browser: no page open — navigate first");
     if (target.ref !== undefined) {
       const locator = await this.#resolveRef(target.ref); // stale refs fail fast, with the fresh snapshot
-      await waitForLocatorVisible(locator, timeoutMs);
+      await waitForLocatorVisible(locator, ACT_TIMEOUT_MS);
       return this.#actResult(`ref ${target.ref} is visible`);
     }
     if (typeof target.text === "string") {
       const fn = (page as { waitForFunction?: (fn: string, arg: string, o: { timeout?: number }) => Promise<void> })
         .waitForFunction;
       if (!fn) throw new Error("browser: wait_for text unavailable (no waitForFunction seam)");
-      await fn.call(page, "(text) => document.body?.innerText?.includes(text)", target.text, { timeout: timeoutMs });
+      await fn.call(page, "(text) => document.body?.innerText?.includes(text)", target.text, { timeout: ACT_TIMEOUT_MS });
       return this.#actResult(`text "${target.text}" appeared`);
     }
     throw new Error("browser: wait_for needs 'text' or 'ref'");

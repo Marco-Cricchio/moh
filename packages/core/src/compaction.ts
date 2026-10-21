@@ -1028,10 +1028,10 @@ export const DETERMINISTIC_DIGEST_BUDGET_CHARS = 16_000;
 
 /** Formats one bullet list with a cap; the input lists are already
  * deduplicated and stable-ordered by the facts extractor. */
-function digestList(items: readonly string[], cap = FACT_LIST_CAP): string {
+function digestList(items: readonly string[]): string {
   if (items.length === 0) return "- (none)";
-  const shown = items.slice(0, cap);
-  return shown.map((s) => `- ${s}`).join("\n") + (items.length > cap ? `\n- (…and ${items.length - cap} more)` : "");
+  const shown = items.slice(0, FACT_LIST_CAP);
+  return shown.map((s) => `- ${s}`).join("\n") + (items.length > FACT_LIST_CAP ? `\n- (…and ${items.length - FACT_LIST_CAP} more)` : "");
 }
 
 /** #766: renders the deterministic digest from a summarizer input. Pure

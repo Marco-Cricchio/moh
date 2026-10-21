@@ -94,10 +94,10 @@ export interface FirstPartySkillSource {
   files: Record<string, string>;
 }
 
-function readdirFiles(dir: string, skip: string[] = []): Record<string, string> {
+function readdirFiles(dir: string): Record<string, string> {
   const files: Record<string, string> = {};
   for (const entry of readdirSync(dir, { withFileTypes: true })) {
-    if (entry.isFile() && !skip.includes(entry.name)) files[entry.name] = readFileSync(join(dir, entry.name), "utf8");
+    if (entry.isFile()) files[entry.name] = readFileSync(join(dir, entry.name), "utf8");
   }
   return files;
 }
@@ -222,9 +222,8 @@ export function versionSatisfied(need: string, have: string): boolean {
  * Returns null when the skill is not in the bundle. */
 export function readBundledSkill(
   name: string,
-  bundleDir?: string,
 ): FirstPartySkillSource | null {
-  return (bundleDir ? firstPartySkillSources(bundleDir) : bundledSkillSources()).find((s) => s.name === name) ?? null;
+  return bundledSkillSources().find((s) => s.name === name) ?? null;
 }
 
 interface SkillInstallReport {
