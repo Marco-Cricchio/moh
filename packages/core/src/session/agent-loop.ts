@@ -30,6 +30,7 @@ import { normalizeProviderError } from "../provider-errors";
 import { PRICING_SNAPSHOT } from "../pricing";
 import { newUlid } from "./ulid";
 import { wireToolSchema } from "./wire-schema";
+import type { ToolRunner } from "./tool-runner";
 import { endpointIdentity, ProviderError } from "../types";
 import type { AttemptTelemetry, EndpointIdentity, UsageProvenance } from "../types";
 import { quotaEventsFromProviderError, quotaRecoveryEvent, scopeKeyFor } from "../quota/telemetry";
@@ -136,14 +137,6 @@ export function resolveMaxIterations(configured?: number): number {
   return configured;
 }
 
-/** The tool-execution surface AgentLoop needs — satisfied by ToolRunner (#91). */
-interface LoopToolRunner {
-  run(
-    calls: ToolCall[],
-    signal: AbortSignal,
-  ): Promise<{ outcome: "ok" | "aborted"; parts: Message["parts"] }>;
-}
-
 interface AgentLoopOptions {
   provider: () => Provider;
   /** Iteration cap per turn. */
@@ -151,7 +144,7 @@ interface AgentLoopOptions {
   /** All registered tools, including MCP ones (live accessor). */
   tools: () => Record<string, Tool>;
   /** Same-turn tool execution (ToolRunner). */
-  toolRunner: LoopToolRunner;
+  toolRunner: ToolRunner;
   /** Extension hooks; absent in headless sessions. */
   extensions?: LoopExtensions;
   /**
@@ -262,7 +255,7 @@ export class AgentLoop {
   readonly #provider: () => Provider;
   readonly #maxIterations: number;
   readonly #tools: () => Record<string, Tool>;
-  readonly #toolRunner: LoopToolRunner;
+  readonly #toolRunner: ToolRunner;
   readonly #extensions: LoopExtensions | undefined;
   readonly #beforeTurn: LoopBeforeTurn | undefined;
   readonly #modelRetry: LoopModelRetry | undefined;
