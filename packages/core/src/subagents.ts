@@ -706,7 +706,7 @@ export class SubagentHost {
         },
         ...(this.#options.onPermissionRequest ? { onPermissionRequest: this.#options.onPermissionRequest } : {}),
         ...(this.#options.onConfirmTurn ? { onConfirmTurn: this.#options.onConfirmTurn } : {}),
-        ...(this.#options.extensions ? { toolHooks: this.#options.extensions } : {}),
+        ...(this.#options.extensions ? { borrowedRuntime: this.#options.extensions } : {}),
         sink: (event) => store.append(event),
         promptComposer: new PromptComposer({
           projectDir: this.#options.cwd,

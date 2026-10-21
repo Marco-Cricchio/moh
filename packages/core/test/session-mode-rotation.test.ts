@@ -9,7 +9,8 @@ import { describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { MockProvider, createSession, type Tool } from "../src/index";
+import { defineExtension, MOH_EXTENSION_API_VERSION } from "@moh/extension";
+import { ExtensionRuntime, MockProvider, createSession, type Tool } from "../src/index";
 
 function tmpDir(prefix = "moh-mode-"): string {
   const dir = mkdtempSync(join(tmpdir(), prefix));
@@ -88,15 +89,21 @@ describe("#849 session mode rotation", () => {
 
   test("auto-accept still routes an extension ask to the consent seam", async () => {
     let asked = 0;
-    const hookRt = {
-      checkToolHooks: async () => ({ veto: false, ask: true, reason: "guardrail", by: "jev", errors: [] }),
-    };
+    const hookRt = new ExtensionRuntime({ mohHome: tmpDir(), consent: () => true });
+    await hookRt.register(
+      defineExtension({
+        name: "jev",
+        version: "1.0.0",
+        apiVersion: MOH_EXTENSION_API_VERSION,
+        setup: (ctx) => ctx.onToolCall(() => ({ ask: true, reason: "guardrail" })),
+      }),
+    );
     const session = createSession({
       provider: MockProvider.scripted(toolTurn()),
       tools: { echo: echoTool },
       permissions: { mode: "normal" },
-      // The core accepts the ToolHookChecker shape via `toolHooks`.
-      toolHooks: hookRt as any,
+      // A child's shape: no owned runtime, the parent's borrowed.
+      borrowedRuntime: hookRt,
       onPermissionRequest: () => {
         asked += 1;
         return "no";

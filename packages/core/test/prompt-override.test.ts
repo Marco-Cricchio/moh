@@ -188,14 +188,14 @@ describe("prompt-section replacement (ADR-0054, #1129)", () => {
     expect(restored.find((e) => e.section === "memory" && e.mode === "restored")).toBeTruthy();
   });
 
-  test("the borrowed surface (toolHooks, no owned runtime) composes replacements with its own chrome", async () => {
+  test("the borrowed surface (borrowedRuntime, no owned runtime) composes replacements with its own chrome", async () => {
     const system: string[] = [];
     const rt = await runtimeWith([{ name: "mem-ext", sections: { memory: "borrowed text" } }]);
     const session = createSession({
       provider: capture(system),
       cwd: tmpDir(),
       // #784 shape: a child owns no runtime; it borrows the dispatch.
-      toolHooks: rt as never,
+      borrowedRuntime: rt,
     });
     await session.send("hi");
     await session.dispose();
