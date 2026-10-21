@@ -61,7 +61,7 @@ describe("borrowed runtime (#944)", () => {
       provider: MockProvider.scripted(echoTurn()),
       tools: { echo: echoTool },
       permissions: { mode: "auto-accept" },
-      toolHooks: rt,
+      borrowedRuntime: rt,
     });
 
     const result = await child.send("child turn");
@@ -103,7 +103,7 @@ describe("borrowed runtime (#944)", () => {
         return MockProvider.scripted(stopTurn());
       });
     const parent = createSession({ provider: MockProvider.scripted(stopTurn()), extensions: rt });
-    const child = createSession({ provider: "pa", registry, toolHooks: rt });
+    const child = createSession({ provider: "pa", registry, borrowedRuntime: rt });
 
     const result = await child.send("child turn");
     expect(result.status).toBe("done");
@@ -143,7 +143,7 @@ describe("borrowed runtime (#944)", () => {
       },
     };
     const parent = createSession({ provider: MockProvider.scripted(stopTurn()), cwd: tmpDir(), extensions: rt });
-    const child = createSession({ provider: capture, cwd: tmpDir(), toolHooks: rt });
+    const child = createSession({ provider: capture, cwd: tmpDir(), borrowedRuntime: rt });
 
     await child.send("child turn");
     expect(system[0]).toContain("borrowed text");
@@ -165,7 +165,7 @@ describe("borrowed runtime (#944)", () => {
       provider: MockProvider.scripted(echoTurn()),
       tools: { echo: echoTool },
       permissions: { mode: "normal" },
-      toolHooks: rt,
+      borrowedRuntime: rt,
       onPermissionRequest: () => {
         asked += 1;
         return "no";

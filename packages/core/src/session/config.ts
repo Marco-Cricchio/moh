@@ -172,13 +172,7 @@ export interface SessionConfig {
    * a child ending must never end the extension's session, and a child's
    * `appendEvent` still lands in the runtime's single event channel.
    */
-  toolHooks?: import("./permission-gate").ToolHookChecker &
-    Partial<
-      Pick<
-        import("../extensions").ExtensionRuntime,
-        "dispatchBeforeTurn" | "dispatchModelError" | "checkToolResultHooks" | "dispatchBeforeModelCall"
-      >
-    >;
+  borrowedRuntime?: ExtensionRuntime;
   /**
    * MCP tool sources (#15): merged project + user server declarations.
    * Servers start lazily on the first turn and shut down at dispose;

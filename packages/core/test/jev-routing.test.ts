@@ -178,7 +178,7 @@ describe("Jev routing in a session (#787)", () => {
 
   test("#944: a child's turns never advance the parent's router state", async () => {
     // A subagent child runs its turns through the parent's runtime
-    // (`toolHooks`), which is what makes this the real seam: same judge,
+    // (`borrowedRuntime`), which is what makes this the real seam: same judge,
     // same pool, same client — and two sessions' state that must not mix.
     const served: string[] = [];
     const rt = new ExtensionRuntime({ mohHome: tmpDir(), consent: () => true });
@@ -197,8 +197,8 @@ describe("Jev routing in a session (#787)", () => {
     // Two children, one turn each, in the same parent turn (the shape #944
     // reports): two sandwiched judgments that used to complete the
     // hysteresis *between children*.
-    const childA = createSession({ provider: "pa", registry, toolHooks: rt });
-    const childB = createSession({ provider: "pa", registry, toolHooks: rt });
+    const childA = createSession({ provider: "pa", registry, borrowedRuntime: rt });
+    const childB = createSession({ provider: "pa", registry, borrowedRuntime: rt });
 
     await childA.send("hard task one");
     await childB.send("hard task two");
@@ -274,7 +274,7 @@ describe("Jev routing in a session (#787)", () => {
     parent.setExtensionState("jev-guard", { cmd: "off" });
     await Bun.sleep(5);
 
-    const child = createSession({ provider: "pa", registry, toolHooks: rt });
+    const child = createSession({ provider: "pa", registry, borrowedRuntime: rt });
     await child.send("hard task two");
     expect(calls).toBe(1);
     expect(child.activeModel).toBe("pa/m");

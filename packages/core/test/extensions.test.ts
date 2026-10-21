@@ -285,7 +285,7 @@ describe("apiVersion policy (additive-only)", () => {
 
   test("#944: a borrowed session's dispatch carries its identity, not the owner's", async () => {
     // The subagent wiring: a session with no runtime of its own borrows the
-    // parent's through `toolHooks`, and its `beforeTurn` dispatch must say
+    // parent's through `borrowedRuntime`, and its `beforeTurn` dispatch must say
     // which of the two sessions it is judging.
     const seen: { id: string; owner: boolean }[] = [];
     const rt = runtime(tempDir());
@@ -302,7 +302,7 @@ describe("apiVersion policy (additive-only)", () => {
       }),
     );
     const parent = createSession({ provider: MockProvider.scripted([{ deltas: ["ok"], finish: "stop" }]), extensions: rt });
-    const child = createSession({ provider: MockProvider.scripted([{ deltas: ["ok"], finish: "stop" }]), toolHooks: rt });
+    const child = createSession({ provider: MockProvider.scripted([{ deltas: ["ok"], finish: "stop" }]), borrowedRuntime: rt });
     await child.send("child turn");
     await parent.send("parent turn");
 
@@ -329,7 +329,7 @@ describe("apiVersion policy (additive-only)", () => {
       }),
     );
     const parent = createSession({ provider: MockProvider.scripted([{ deltas: ["ok"], finish: "stop" }]), extensions: rt });
-    const child = createSession({ provider: MockProvider.scripted([{ deltas: ["ok"], finish: "stop" }]), toolHooks: rt });
+    const child = createSession({ provider: MockProvider.scripted([{ deltas: ["ok"], finish: "stop" }]), borrowedRuntime: rt });
 
     await child.send("child turn");
     // The child's chrome is the child's: the parent's transcript — the one
@@ -365,7 +365,7 @@ describe("apiVersion policy (additive-only)", () => {
       }),
     );
     const parent = createSession({ provider: MockProvider.scripted([{ deltas: ["ok"], finish: "stop" }]), extensions: rt });
-    const child = createSession({ provider: MockProvider.scripted([{ deltas: ["ok"], finish: "stop" }]), toolHooks: rt });
+    const child = createSession({ provider: MockProvider.scripted([{ deltas: ["ok"], finish: "stop" }]), borrowedRuntime: rt });
 
     await child.send("child turn");
     const failures = (s: typeof parent) => s.history().filter((e) => e.type === "extension_failed");
@@ -1117,7 +1117,7 @@ describe("#981: the event budget is per session", () => {
     createSession({
       provider: MockProvider.scripted(turns),
       tools: { echo: echoTool },
-      ...(borrowed ? { toolHooks: rt } : { extensions: rt }),
+      ...(borrowed ? { borrowedRuntime: rt } : { extensions: rt }),
     });
 
   const records = (session: ReturnType<typeof sessionOf>) =>

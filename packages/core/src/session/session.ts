@@ -307,9 +307,9 @@ export class AgentSession {
     if (this.#resumeProjection) this.#eventLog.seed(this.#resumeProjection);
     this.#sessionFile = config.sessionFile;
     this.#externalGrowth = config.externalGrowth;
-    const toolHookSource = config.extensions ?? config.toolHooks;
+    const toolHookSource = config.extensions ?? config.borrowedRuntime;
     const toolHookChecker: ToolHookChecker | undefined =
-      typeof toolHookSource?.checkToolHooks === "function"
+      toolHookSource
         ? {
             checkToolHooks: (call) => this.#scopedDispatch(() => toolHookSource.checkToolHooks(call)),
           }
@@ -329,13 +329,9 @@ export class AgentSession {
     // parent's, so a fetched page is judged in the child exactly as in the
     // parent (#944: scoped, so the chrome it produces is the child's).
     // Absent runtime = no seam: every result proceeds untouched.
-    const toolResultSource: Pick<ExtensionRuntime, "checkToolResultHooks"> | undefined =
-      typeof toolHookSource?.checkToolResultHooks === "function"
-        ? (toolHookSource as Pick<ExtensionRuntime, "checkToolResultHooks">)
-        : undefined;
-    const toolResultHooks: ToolResultHookChecker | undefined = toolResultSource
+    const toolResultHooks: ToolResultHookChecker | undefined = toolHookSource
       ? {
-          checkToolResultHooks: (call) => this.#scopedDispatch(() => toolResultSource.checkToolResultHooks(call)),
+          checkToolResultHooks: (call) => this.#scopedDispatch(() => toolHookSource.checkToolResultHooks(call)),
         }
       : undefined;
     this.#toolRunner = new ToolRunner({
@@ -426,12 +422,11 @@ export class AgentSession {
       this.#tools = { ...this.#tools, spawn: host.spawnTool() };
     }
     this.#extensions = config.extensions;
-    // #944: a session that owns no runtime but borrows one (`toolHooks`) is
-    // a subagent child. Its dispatches run scoped: extension chrome belongs
+    // #944: a session that owns no runtime but borrows one (`borrowedRuntime`)
+    // is a subagent child. Its dispatches run scoped: extension chrome belongs
     // to the child's log, and an extension's per-session state must not be
     // the parent's.
-    const borrowedRuntime = config.extensions ? undefined : (config.toolHooks as ExtensionRuntime | undefined);
-    this.#borrowedHooks = typeof borrowedRuntime?.withSession === "function" ? borrowedRuntime : undefined;
+    this.#borrowedHooks = config.extensions ? undefined : config.borrowedRuntime;
     // ADR-0037: the session is the runtime's turn entry — an extension's
     // `ctx.requestTurn` lands here, through the queue.
     // ADR-0067: the contributed-tool sink behind `ctx.registerTool`. A
@@ -657,9 +652,8 @@ export class AgentSession {
     // parent's for the turn-start decision point (its switch then lands in
     // the child's own log, because the seam below is *this* session's
     // switchModel).
-    const borrowedBeforeTurn: Pick<ExtensionRuntime, "dispatchBeforeTurn" | "dispatchModelError"> | undefined =
-      typeof config.toolHooks?.dispatchBeforeTurn === "function" ? config.toolHooks as Pick<ExtensionRuntime, "dispatchBeforeTurn" | "dispatchModelError"> : undefined;
-    const beforeTurnSeam = this.#extensions ?? borrowedBeforeTurn;
+    const borrowedRuntime = this.#borrowedHooks;
+    const beforeTurnSeam = this.#extensions ?? borrowedRuntime;
     const dispatchBeforeTurn = beforeTurnSeam
       ? (ctx: Parameters<ExtensionRuntime["dispatchBeforeTurn"]>[0]) =>
           this.#scopedDispatch(() =>
@@ -682,13 +676,11 @@ export class AgentSession {
           // beforeModelCall dispatch from its parent (scoped, so the
           // chrome — refusals and `prompt_override` — lands in the
           // child's log, #944). The borrowed surface widens per ADR-0054.
-          typeof config.toolHooks?.dispatchBeforeModelCall === "function"
+          borrowedRuntime
           ? {
               extensions: {
                 dispatchBeforeModelCall: (ctx: Parameters<ExtensionRuntime["dispatchBeforeModelCall"]>[0]) =>
-                  this.#scopedDispatch(() =>
-                    (config.toolHooks as Pick<ExtensionRuntime, "dispatchBeforeModelCall">).dispatchBeforeModelCall(ctx),
-                  ),
+                  this.#scopedDispatch(() => borrowedRuntime.dispatchBeforeModelCall(ctx)),
               },
             }
           : {}),
