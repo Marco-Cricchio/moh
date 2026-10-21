@@ -57,9 +57,11 @@ delivered by #1600) and #1440 (S4.5, delivered by #1601). It adds no decision.
   and `bindToolContributor` in `packages/core/src/extensions.ts` are replaced
   by one `bindSession(port: SessionPort)`. `SessionPort` is an interface local
   to `extensions.ts`; it is not exported. `AgentSession` calls `bindSession`
-  once, in its constructor (`packages/core/src/session/session.ts`). The four
-  closures that the constructor used to build are now the private methods
-  `#seamPathDenied`, `#seamRunTool`, `#seamModelCall` and `#seamListModels`.
+  once, in its constructor (`packages/core/src/session/session.ts`). Four of
+  the closures that the constructor used to build (path deny, `runTool`,
+  `modelCall`, `listModels`) are now the private methods `#seamPathDenied`,
+  `#seamRunTool`, `#seamModelCall` and `#seamListModels`; `requestTurn` and
+  `contributeTool` stay inline in the `bindSession` call.
   `ExtensionRuntimeOptions.requestTurn` and `ExtensionRuntimeOptions.isPathDenied`
   are removed; no construction in the repository passed them. Three behaviors
   that predate #1596 were left as they were and are tracked as #1597, #1598
@@ -83,22 +85,26 @@ delivered by #1600) and #1440 (S4.5, delivered by #1601). It adds no decision.
   in `agent-loop.ts`, because the borrowed-runtime branch of the session passes
   it an object literal, not an `ExtensionRuntime`. `EventDispatcher` stays in
   `session/event-log.ts`, because the tests of `event-log` implement it.
-  `LoopBeforeTurn` and `LoopModelRetry` stay as parameter objects. The
-  collaborators were not otherwise reshaped.
+  `LoopBeforeTurn` and `LoopModelRetry` stay as parameter objects, as the
+  #1440 brief foresaw. The collaborators were not otherwise reshaped.
 - The `session/` layout in Consequences is as it was: `agent-loop.ts`,
   `event-log.ts`, `permission-gate.ts`, `tool-runner.ts` and `turn-queue.ts`
   are still the collaborator files.
 - "No new public exports": no collaborator or `SessionPort` is exported from
   `packages/core/src/index.ts`. The sentence does not cover `bindSession`:
   `ExtensionRuntime` is exported from `@moh/core` (it is not a session
-  collaborator), and its public methods changed — five setters removed,
-  `bindSession` added. #1596 records that change as authorized by the owner.
+  collaborator), and its public methods and constructor options changed — five
+  setters removed, `bindSession` added, `requestTurn` and `isPathDenied`
+  removed from the options. #1596 records that change as authorized by the
+  owner.
   `SessionConfig`, the parameter type of `createSession`, also changed one
-  field name, as described above.
+  field, its name and its type, as described above.
 
 ### References
 
 - #1438 and PR #1596 (merge commit `3750b183`); #1439 and PR #1600 (merge
   commit `825d0b2d`); #1440 and PR #1601 (merge commit `2b233e49`).
-- #1597, #1598, #1599: behaviors of the runtime binding that predate #1596 and
-  were left unchanged.
+- #1597, #1598: behaviors of the runtime binding that predate #1596 and were
+  left unchanged. #1599: the shape of the `listModels` result returned by the
+  session's model seam, which predates #1596 and surfaced when #1596 removed a
+  cast; left unchanged.
