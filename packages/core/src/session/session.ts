@@ -798,7 +798,7 @@ export class AgentSession {
         ? {
             dispatchAfterTurn: (result: TurnResult, synthetic: boolean) =>
               this.#extensions!.dispatchAfterTurn(result, synthetic),
-            append: (event: unknown) => this.#append(event as AgentEvent),
+            append: (event) => this.#append(event),
           }
         : {}),
       onTurnSettled: () => {
@@ -825,9 +825,8 @@ export class AgentSession {
         // Applied at turn start, not enqueue time: a steering send that
         // waited out a cancelled turn keeps its prompt (the settling
         // turn's cleanup runs before this).
-        const prompt = attachment as SkillPrompt;
-        this.#skillPrompt = prompt;
-        this.#append({ type: "skill_invoked", name: prompt.name });
+        this.#skillPrompt = attachment;
+        this.#append({ type: "skill_invoked", name: attachment.name });
         this.#assemblePrompt();
       },
     });
