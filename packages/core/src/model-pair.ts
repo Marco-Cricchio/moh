@@ -24,18 +24,10 @@
  */
 import type { Provider } from "./types";
 
-/** A `Provider` that is in fact a route: it knows its chain, its selection
- * and what currently serves. Structural on purpose (`Route` lives in
- * `route.ts`, whose transport imports this module must not need). */
-interface ServingAware {
-  readonly selected?: unknown;
-  readonly serving?: unknown;
-}
-
 /** The user's standing choice for this provider: the route's selected
  * reference, or the provider's own name when it is not a route. */
 export function selectedModelOf(provider: Provider): string {
-  const { selected } = provider as Provider & ServingAware;
+  const { selected } = provider;
   return typeof selected === "string" ? selected : provider.name;
 }
 
@@ -44,7 +36,7 @@ export function selectedModelOf(provider: Provider): string {
  * it is not a route. Every behaviour that depends on the model in use
  * (image capability, the compaction window) reads this one. */
 export function servingModelOf(provider: Provider): string {
-  const { serving } = provider as Provider & ServingAware;
+  const { serving } = provider;
   return typeof serving === "string" ? serving : provider.name;
 }
 

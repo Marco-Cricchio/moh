@@ -69,7 +69,7 @@ function finiteNumber(value: unknown): number | undefined {
 function endpointIdentityOf(provider: Provider): EndpointIdentity {
   const slash = provider.name.indexOf("/");
   const kind = slash === -1 ? provider.name : provider.name.slice(0, slash);
-  return endpointIdentity(kind || "unknown", (provider as { baseUrl?: string }).baseUrl);
+  return endpointIdentity(kind || "unknown", provider.baseUrl);
 }
 
 /** The extension surface AgentLoop needs — satisfied by ExtensionRuntime. */
@@ -558,7 +558,7 @@ export class AgentLoop {
     this.#modelRetriesThisTurn = 0;
     // #363: a Route may probe its selected target once at a user-turn
     // boundary. Follow-up calls after tools keep the serving target.
-    if ("beginTurn" in provider && typeof provider.beginTurn === "function") provider.beginTurn();
+    if (typeof provider.beginTurn === "function") provider.beginTurn();
     // #488: assemble mention attachments before anything is logged so the
     // `user_message` event carries the snapshots the model will see.
     let attachments: MentionAttachment[] | undefined;
