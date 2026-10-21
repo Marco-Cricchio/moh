@@ -5,7 +5,6 @@
  * survive). The `auth` section is never a merge candidate: the #129
  * provider merge reads only `provider`/`endpoints` and must never see it.
  */
-import { readFileSync } from "node:fs";
 import { authSectionSchema, type AuthSection, type AuthToken, type StoredApiKeyOrigin } from "./types";
 import { readUserConfigFile, updateUserConfigFile } from "../user-config";
 
@@ -22,11 +21,8 @@ export function readStoredTokens(file: string): Record<string, AuthToken> {
  * The whole parsed `auth` section: tokens plus provider overrides.
  * Same tolerance/strictness rules as {@link readStoredTokens}.
  */
-export function readAuthSection(
-  file: string,
-  read: (file: string) => string = (f) => readFileSync(f, "utf8"),
-): AuthSection {
-  const data = readUserConfigFile(file, read);
+export function readAuthSection(file: string): AuthSection {
+  const data = readUserConfigFile(file);
   if (data.auth === undefined) return { tokens: {} };
   const parsed = authSectionSchema.safeParse(data.auth);
   if (!parsed.success) {

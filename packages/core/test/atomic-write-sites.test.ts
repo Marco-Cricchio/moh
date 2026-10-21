@@ -139,34 +139,6 @@ describe("user-config (updateUserConfigFile)", () => {
     expect(mode(dir)).toBe(0o700);
     expect(temps(dir)).toEqual([]);
   });
-
-  test("temp is `<file>.tmp-<pid>`, written with 0600, left behind when the rename fails", () => {
-    const dir = join(root("uc-t"), "cfg");
-    const file = join(dir, "moh.json");
-    blockRename(file);
-    expect(() => updateUserConfigFile(file, (d) => void (d.theme = "x"), { read: () => "{}" })).toThrow();
-    const tmp = `${file}.tmp-${pid}`;
-    expect(JSON.parse(readFileSync(tmp, "utf8")).theme).toBe("x");
-    expect(mode(tmp)).toBe(0o600);
-  });
-
-  test("an injected writer receives (temp, data) with no mode, and the file is chmod 0600 after the rename", () => {
-    const dir = join(root("uc-io"), "cfg");
-    const file = join(dir, "moh.json");
-    const calls: unknown[][] = [];
-    updateUserConfigFile(file, (d) => void (d.theme = "x"), {
-      write: (...args: unknown[]) => {
-        calls.push(args);
-        writeFileSync(args[0] as string, args[1] as string);
-        chmodSync(args[0] as string, 0o644);
-      },
-    });
-    expect(calls).toHaveLength(1);
-    expect(calls[0]).toHaveLength(2);
-    expect(calls[0]![0]).toBe(`${file}.tmp-${pid}`);
-    expect(JSON.parse(calls[0]![1] as string).theme).toBe("x");
-    expect(mode(file)).toBe(0o600);
-  });
 });
 
 describe("user-config (updateUserConfigFile) — real file twins (#1431)", () => {

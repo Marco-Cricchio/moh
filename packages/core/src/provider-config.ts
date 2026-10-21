@@ -31,7 +31,6 @@
  *   the file stays tolerant/preservative per the guardian design.
  */
 import { join } from "node:path";
-import { readFileSync } from "node:fs";
 import { endpointProfileSchema, loadMohConfig, upsertEndpoint, type EndpointProfile, type MohConfig } from "./config";
 import { envApiKey } from "./route";
 import { readAuthSection } from "./auth/store";
@@ -58,11 +57,8 @@ const userProviderSectionSchema = z
  * start must fail loudly, decision 6). A file without them — including a
  * corrupt whole file (guardian tolerance for chrome) — reads as empty.
  */
-export function readUserProviderConfig(
-  file: string,
-  read: (file: string) => string = (f) => readFileSync(f, "utf8"),
-): UserProviderConfig {
-  const data: UserConfigData = readUserConfigFile(file, read);
+export function readUserProviderConfig(file: string): UserProviderConfig {
+  const data: UserConfigData = readUserConfigFile(file);
   if (data.provider === undefined && data.endpoints === undefined) return {};
   const parsed = userProviderSectionSchema.safeParse({ provider: data.provider, endpoints: data.endpoints });
   if (!parsed.success) {
@@ -160,7 +156,6 @@ export function mergeProviderConfigs(
 interface MergedConfigOptions {
   home?: string;
   env?: Record<string, string | undefined>;
-  read?: (file: string) => string;
 }
 
 /**
@@ -169,9 +164,9 @@ interface MergedConfigOptions {
  * user `provider`/`endpoints` section.
  */
 export function loadMergedConfig(cwd: string, options: MergedConfigOptions = {}): MohConfig {
-  const project = loadMohConfig(join(cwd, "moh.json"), options.read);
-  const user = readUserProviderConfig(userConfigFile(options.home), options.read);
-  const auth = readAuthSection(userConfigFile(options.home), options.read);
+  const project = loadMohConfig(join(cwd, "moh.json"));
+  const user = readUserProviderConfig(userConfigFile(options.home));
+  const auth = readAuthSection(userConfigFile(options.home));
   return mergeProviderConfigs(project, user, options.env ?? process.env, auth);
 }
 

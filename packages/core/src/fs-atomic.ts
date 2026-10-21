@@ -23,8 +23,6 @@ interface WriteFileAtomicOptions {
   mkdir?: { mode?: number };
   /** Write the temp with `flag: "wx"` (fails when it already exists). */
   exclusive?: boolean;
-  /** Replaces the temp-file write (test seam of `updateUserConfigFile`). */
-  write?: (tmp: string, data: string) => void;
 }
 
 /** `<file>.tmp-<pid>` */
@@ -47,8 +45,7 @@ export function writeFileAtomic(file: string, data: string, options: WriteFileAt
     try { mode = statSync(file).mode & 0o777; } catch { /* new file */ }
   }
   const tmp = options.temp(file);
-  if (options.write) options.write(tmp, data);
-  else if (options.exclusive) writeFileSync(tmp, data, { flag: "wx", mode });
+  if (options.exclusive) writeFileSync(tmp, data, { flag: "wx", mode });
   else if (mode === undefined) writeFileSync(tmp, data);
   else writeFileSync(tmp, data, { mode });
   renameSync(tmp, file);

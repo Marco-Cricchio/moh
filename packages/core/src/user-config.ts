@@ -51,12 +51,6 @@ export function readUserConfigFile(
   }
 }
 
-/** Injectable IO for tests. `write` receives the temp file, then rename. */
-interface UserConfigIo {
-  read?: (file: string) => string;
-  write?: (file: string, data: string) => void;
-}
-
 /**
  * Read-modify-write of the whole file through the guardian. `mutate`
  * receives the current content (unknown sections included) and may change
@@ -66,15 +60,13 @@ interface UserConfigIo {
 export function updateUserConfigFile(
   file: string,
   mutate: (data: UserConfigData) => void,
-  io: UserConfigIo = {},
 ): void {
-  const data = readUserConfigFile(file, io.read);
+  const data = readUserConfigFile(file);
   mutate(data);
   writeFileAtomic(file, `${JSON.stringify(data, null, 2)}\n`, {
     mode: 0o600,
     mkdir: { mode: 0o700 },
     temp: tempPidSuffix,
-    ...(io.write ? { write: io.write } : {}),
   });
   // Key-bearing file hygiene (issue #129): 0600 whenever the path is real.
   try {

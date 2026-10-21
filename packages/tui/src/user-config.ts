@@ -6,7 +6,6 @@
  * core guardian (ADR-0006): every read/write goes through it, so unknown
  * sections (`mcpServers`, future ones) survive TUI writes.
  */
-import { readFileSync, writeFileSync } from "node:fs";
 import { clampHomeListMax, HOME_LIST_DEFAULT } from "./viewport";
 import { readUserConfigFile, updateUserConfigFile, userConfigFile as coreUserConfigFile } from "@moh/core";
 import { DEFAULT_THEME, THEMES, type ThemeName } from "./themes";
@@ -153,29 +152,18 @@ function coerce(raw: unknown): Partial<UserConfig> {
  * Reads `~/.moh/config`. Missing, empty or partially invalid files fall
  * back to defaults field-by-field — user chrome never hard-fails.
  */
-export function loadUserConfig(
-  file: string = userConfigFile(),
-  read: (file: string) => string = (f) => readFileSync(f, "utf8"),
-): UserConfig {
-  return { ...DEFAULT_USER_CONFIG, ...coerce(readUserConfigFile(file, read)) };
+export function loadUserConfig(file: string = userConfigFile()): UserConfig {
+  return { ...DEFAULT_USER_CONFIG, ...coerce(readUserConfigFile(file)) };
 }
 
 /**
  * Writes the chrome fields back through the guardian (read-modify-write):
  * unrelated keys and unknown sections in the file are preserved.
  */
-export function saveUserConfig(
-  config: UserConfig,
-  file: string = userConfigFile(),
-  write: (file: string, data: string) => void = (f, d) => writeFileSync(f, d),
-): void {
-  updateUserConfigFile(
-    file,
-    (data) => {
-      for (const key of Object.keys(config) as (keyof UserConfig)[]) data[key] = config[key];
-    },
-    { write },
-  );
+export function saveUserConfig(config: UserConfig, file: string = userConfigFile()): void {
+  updateUserConfigFile(file, (data) => {
+    for (const key of Object.keys(config) as (keyof UserConfig)[]) data[key] = config[key];
+  });
 }
 
 /** Immutable field update helper. */

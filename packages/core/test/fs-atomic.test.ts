@@ -69,21 +69,6 @@ describe("writeFileAtomic", () => {
     expect(existsSync(join(base, "fresh"))).toBe(false);
   });
 
-  test("an injected writer replaces the file write; the rename still happens", () => {
-    const base = dir();
-    const f = join(base, "f");
-    const seen: string[] = [];
-    writeFileAtomic(f, "d", {
-      temp: tempPidSuffix,
-      write: (tmp, data) => {
-        seen.push(tmp);
-        writeFileSync(tmp, data);
-      },
-    });
-    expect(seen).toEqual([`${f}.tmp-${process.pid}`]);
-    expect(readFileSync(f, "utf8")).toBe("d");
-  });
-
   test("a failed rename leaves the temp behind and throws", () => {
     const base = dir();
     const f = join(base, "f");
