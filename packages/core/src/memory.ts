@@ -351,7 +351,8 @@ export class MemoryStore {
  * Builds the extraction transcript from the event log since `from`:
  * user and assistant text only, newest kept when the cap applies.
  */
-export function memoryTranscript(events: ReadonlyArray<AgentEvent>, from: number, capChars = 24_000): string {
+export function memoryTranscript(events: ReadonlyArray<AgentEvent>, from: number): string {
+  const capChars = 24_000;
   const parts: string[] = [];
   let assistant = "";
   const flush = () => {

@@ -89,7 +89,8 @@ function HomeRow({
 }
 
 /** Relative time for the pertinent-session banner (T3 #470). */
-function relativeTime(mtimeMs: number, now = Date.now()): string {
+function relativeTime(mtimeMs: number): string {
+  const now = Date.now();
   const diff = now - mtimeMs;
   if (diff < 60_000) return "adesso";
   const minutes = Math.floor(diff / 60_000);

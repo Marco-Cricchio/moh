@@ -197,7 +197,7 @@ function splitList(v?: string): string[] {
   return v ? v.split(",").map((s) => s.trim()).filter(Boolean) : [];
 }
 
-export function localMarkdownTracker(dir: string, user = "@me"): TrackerBackend {
+export function localMarkdownTracker(dir: string): TrackerBackend {
   const readIssues = (): TrackerIssue[] => {
     if (!existsSync(dir)) return [];
     const issues: TrackerIssue[] = [];
@@ -247,7 +247,7 @@ export function localMarkdownTracker(dir: string, user = "@me"): TrackerBackend 
         }
         if ((fields.get("id") ?? basename(entry.name, ".md")) !== id) continue;
         const claimed = splitList(fields.get("claimed-by"));
-        if (!claimed.includes(user)) claimed.push(user);
+        if (!claimed.includes("@me")) claimed.push("@me");
         fields.set("claimed-by", claimed.join(", "));
         const body = raw.replace(/^---\r?\n[\s\S]*?\r?\n---/, "");
         const fmText = [...fields.entries()].map(([k, v]) => `${k}: ${v}`).join("\n");
@@ -269,7 +269,7 @@ export function localMarkdownTracker(dir: string, user = "@me"): TrackerBackend 
           if (kv) fields.set(kv[1]!, kv[2]!.trim());
         }
         if ((fields.get("id") ?? basename(entry.name, ".md")) !== id) continue;
-        const claimed = splitList(fields.get("claimed-by")).filter((a) => a !== user);
+        const claimed = splitList(fields.get("claimed-by")).filter((a) => a !== "@me");
         fields.set("claimed-by", claimed.join(", "));
         const body = raw.replace(/^---\r?\n[\s\S]*?\r?\n---/, "");
         const fmText = [...fields.entries()].map(([k, v]) => `${k}: ${v}`).join("\n");

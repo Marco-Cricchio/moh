@@ -138,3 +138,38 @@ describe("memory lock ownership", () => {
     expect(() => readFileSync(lockFileOf(s))).toThrow(); // file is gone
   });
 });
+
+import { spawnSync } from "node:child_process";
+import { ownerIsGone } from "../src/memory-lock";
+
+describe("ownerIsGone (characterization, #1437)", () => {
+  const owner = (over: Partial<Parameters<typeof ownerIsGone>[0]> = {}) => ({
+    v: 1 as const,
+    pid: LIVE_OTHER_PID,
+    machineId: "machine-a",
+    boot: 7,
+    createdAt: 0,
+    ...over,
+  });
+
+  test("a live pid on the same machine and boot is not gone", () => {
+    setLockIdentityForTests("machine-a", 7);
+    expect(ownerIsGone(owner())).toBe(false);
+  });
+
+  test("a foreign machine is always reclaimable", () => {
+    setLockIdentityForTests("machine-a", 7);
+    expect(ownerIsGone(owner({ machineId: "machine-b" }))).toBe(true);
+  });
+
+  test("an owner recorded before the last reboot is gone, even with a live pid", () => {
+    setLockIdentityForTests("machine-a", 7);
+    expect(ownerIsGone(owner({ boot: 6 }))).toBe(true);
+  });
+
+  test("a dead pid on the same machine and boot is gone", () => {
+    setLockIdentityForTests("machine-a", 7);
+    const dead = spawnSync(process.execPath, ["-e", ""]).pid;
+    expect(ownerIsGone(owner({ pid: dead! }))).toBe(true);
+  });
+});

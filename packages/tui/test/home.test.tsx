@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { render } from "ink-testing-library";
-import { mkdtempSync, mkdirSync, writeFileSync, existsSync, readFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, writeFileSync, existsSync, readFileSync, readdirSync, utimesSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -740,5 +740,38 @@ describe("stranded-data warning row (#1243)", () => {
     expect(frame()).not.toContain("older data kept");
     expect(frame()).toContain("New session");
     i.unmount();
+  });
+});
+
+describe("pertinent banner relative time (characterization, #1437)", () => {
+  /** Ages the only session file by `ms` and renders Home over it. */
+  async function bannerAged(ms: number | null) {
+    const { cwd, home } = await homeWithSessions(1);
+    if (ms !== null) {
+      const dir = projectSessionsDir(cwd, home);
+      const when = new Date(Date.now() - ms);
+      for (const f of readdirSync(dir)) if (f.endsWith(".jsonl")) utimesSync(join(dir, f), when, when);
+    }
+    const i = render(<Home intro={false} cwd={cwd} home={home} mode="vibe" onOpen={() => {}} />);
+    await waitText(i, "title s1", "the banner title");
+    const frame = stripAnsi(i.lastFrame() ?? "");
+    i.unmount();
+    return frame;
+  }
+
+  test("a fresh session reads 'adesso'", async () => {
+    expect(await bannerAged(null)).toContain("adesso · title s1");
+  });
+
+  test("minutes, hours and days use their own units", async () => {
+    expect(await bannerAged(5 * 60_000 + 5_000)).toMatch(/\b5 min · title s1/);
+    expect(await bannerAged(3 * 3_600_000 + 5_000)).toContain("3h · title s1");
+    expect(await bannerAged(2 * 86_400_000 + 5_000)).toContain("2g · title s1");
+  });
+
+  test("a week or older shows the ISO date", async () => {
+    const ms = 10 * 86_400_000;
+    const expected = new Date(Date.now() - ms).toISOString().slice(0, 10);
+    expect(await bannerAged(ms)).toContain(`${expected} · title s1`);
   });
 });

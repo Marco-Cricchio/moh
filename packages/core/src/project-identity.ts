@@ -169,19 +169,13 @@ export function isProjectIdentityPrepared(cwd: string, home: string): boolean {
  * answer — plus the migration work `resolveProjectIdentityUncached` owns —
  * lands in `preparedIdentities`, so a plain `render(<App/>)` can boot
  * without any synchronous spawn reachable from its render phase.
- *
- * `warm: true` answers with the synchronous probe instead. Callers that run
- * *outside* React (the TUI entry point, before the first frame) use it to
- * keep the first frame free of a boot state.
  */
-export async function prepareProjectIdentity(cwd: string, home: string, opts: { warm?: boolean } = {}): Promise<{ slug: string; legacySlug: string; declared: boolean }> {
+export async function prepareProjectIdentity(cwd: string, home: string): Promise<{ slug: string; legacySlug: string; declared: boolean }> {
   const key = identityKey(cwd, home);
   const known = preparedIdentities.get(key);
   if (known) return known;
   const legacySlug = legacyProjectSlug(cwd);
-  const result = opts.warm
-    ? resolveProjectIdentityUncached(cwd, home, legacySlug)
-    : resolveProjectIdentityUncached(cwd, home, legacySlug, await canonicalRemoteSlugAsync(cwd));
+  const result = resolveProjectIdentityUncached(cwd, home, legacySlug, await canonicalRemoteSlugAsync(cwd));
   preparedIdentities.set(key, result);
   pinnedSlugs.set(key, result);
   return result;

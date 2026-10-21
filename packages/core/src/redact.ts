@@ -84,8 +84,8 @@ function isSecretKey(normalized: string): boolean {
 }
 
 /** Returns a structurally-redacted copy (ADR-0032 layer). Cycles safe. */
-export function redactKeys(value: unknown, depth = 0): unknown {
-  return walkValue(value, depth, (v) => v);
+export function redactKeys(value: unknown): unknown {
+  return walkValue(value, 0, (v) => v);
 }
 
 /**
@@ -322,12 +322,12 @@ interface RedactionResult {
  * masking in one structural walk, plus lookalike detection on the
  * strings that passed unmasked. Never mutates the input.
  */
-export function redactValue(value: unknown, depth = 0): RedactionResult {
+export function redactValue(value: unknown): RedactionResult {
   const misses: RedactionMiss[] = [];
   const cut = { depthCut: false };
   const value2 = walkValue(
     value,
-    depth,
+    0,
     (s) => {
       const redacted = redactString(s);
       if (redacted === s) {

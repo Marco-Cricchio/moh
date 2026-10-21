@@ -438,9 +438,9 @@ const REPEAT_THRESHOLD = 3;
 /** Timed-out tool calls before the timeout pattern fires. */
 const TIMEOUT_THRESHOLD = 2;
 
-function head(text: string, max = 120): string {
+function head(text: string): string {
   const one = text.replace(/\s+/g, " ").trim();
-  return one.length > max ? `${one.slice(0, max - 1)}…` : one;
+  return one.length > 120 ? `${one.slice(0, 120 - 1)}…` : one;
 }
 
 /**

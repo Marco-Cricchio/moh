@@ -425,3 +425,29 @@ describe("dispose budget (#exit-latency, vision note 14)", () => {
     expect(done).toBe(true);
   });
 });
+
+describe("memoryTranscript cap (characterization, #1437)", () => {
+  test("a user message over the default cap keeps the newest characters", () => {
+    const text = `${"a".repeat(30_000)}TAIL`;
+    const out = memoryTranscript([{ type: "user_message", text }] as const, 0);
+    expect(out).toHaveLength(24_000);
+    expect(out.endsWith("aaTAIL")).toBe(true);
+  });
+
+  test("assistant text over the default cap keeps the newest characters", () => {
+    const events = [
+      { type: "assistant_delta", text: "b".repeat(30_000) },
+      { type: "assistant_delta", text: "TAIL" },
+      { type: "done" },
+    ] as const;
+    const out = memoryTranscript(events, 0);
+    expect(out).toHaveLength(24_000);
+    expect(out.endsWith("bbTAIL")).toBe(true);
+  });
+
+  test("a transcript exactly at the cap is returned whole", () => {
+    const text = "c".repeat(24_000 - "user: ".length);
+    const out = memoryTranscript([{ type: "user_message", text }] as const, 0);
+    expect(out).toBe(`user: ${text}`);
+  });
+});

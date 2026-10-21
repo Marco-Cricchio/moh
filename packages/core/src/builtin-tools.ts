@@ -251,7 +251,8 @@ interface RunLedger {
 }
 
 /** Remove abandoned per-session ledgers after their reuse window expires. */
-function pruneRunLedgers(root: string, now = Date.now()): void {
+function pruneRunLedgers(root: string): void {
+  const now = Date.now();
   try {
     for (const entry of readdirSync(root, { withFileTypes: true })) {
       if (!entry.isDirectory() || !entry.name.startsWith("bash-")) continue;

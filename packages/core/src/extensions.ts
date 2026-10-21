@@ -1772,9 +1772,6 @@ bindPathDeny(isDenied: (resolvedAbsPath: string) => boolean): void {
     /** The instance this one replaces (a hot-reload): excluded from the
      * rail's capacity count, whose slot is being handed over (#1132). */
     replacing?: RuntimeExtension,
-    /** ADR-0066: the manifest authority the consent signed (its
-     * `reasoning` travels from the same bytes, never a re-read). */
-    _manifestAuthority?: ManifestAuthority,
   ): Promise<
     | { ok: true; instance: RuntimeExtension }
     | ({ ok: false; name?: string; reason: string; message: string })

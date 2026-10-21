@@ -157,7 +157,8 @@ const SESSION_ID_RE = /^\d{8}T\d{6}\d{3}Z-[0-9a-f]{8}$/;
  */
 let lastStampMs = 0;
 
-export function newSessionId(now = new Date()): string {
+export function newSessionId(): string {
+  const now = new Date();
   let ms = now.getTime();
   if (ms <= lastStampMs) ms = lastStampMs + 1;
   lastStampMs = ms;
