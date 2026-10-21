@@ -52,7 +52,7 @@ export function readUserConfigFile(
 }
 
 /** Injectable IO for tests. `write` receives the temp file, then rename. */
-export interface UserConfigIo {
+interface UserConfigIo {
   read?: (file: string) => string;
   write?: (file: string, data: string) => void;
 }

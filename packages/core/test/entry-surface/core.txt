@@ -216,7 +216,6 @@ UpdateNotice
 UpdatePlatform
 UpstreamCheckResult
 UpstreamUpdate
-UserConfigIo
 VerificationCategory
 acceptedTaskFixture
 acknowledgeStrandedData

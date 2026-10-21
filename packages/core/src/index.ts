@@ -508,7 +508,6 @@ export {
   readUserConfigFile,
   updateUserConfigFile,
   userConfigFile,
-  type UserConfigIo,
 } from "./user-config";
 // #826: the bundled-extension seam. The core knows how to host first-party
 // code that ships inside the binary; it does not know which extension that
