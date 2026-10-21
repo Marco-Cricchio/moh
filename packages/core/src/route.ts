@@ -79,7 +79,7 @@ export function resolveApiKey(endpointName: string, kind: string, env: Record<st
  * failure that put it there, and when it expires. The same shape travels in
  * both directions — out through `Route.health()` (the routing layer reads
  * it) and down through `RouteConfig.inherited` (a child is born knowing it). */
-interface RouteCooldown {
+export interface RouteCooldown {
   ref: string;
   kind: string;
   until: number;

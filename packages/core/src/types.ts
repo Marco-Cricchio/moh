@@ -40,6 +40,7 @@ import { z } from "zod";
 import type { FilesystemScope, PermissionRule } from "./permissions";
 import type { SkillArgs } from "./skill-args";
 import type { MentionAttachment, MentionWarning } from "./mentions";
+import type { RouteCooldown } from "./route";
 
 type TextPart = { kind: "text"; text: string };
 /** Vision note 4: an image riding a user message as a multimodal content
@@ -319,6 +320,19 @@ export interface Provider {
   readonly name: string;
   /** Feature flags of the underlying endpoint; drive capability downgrades. */
   readonly capabilities?: EndpointCapabilities;
+  /** Route only (ADR-0050): the user's standing choice; stable while a
+   * fallback serves. Custom providers may put other values here — readers
+   * check the type. */
+  readonly selected?: string;
+  /** Route only: the reference currently serving calls (moved by a fallback). */
+  readonly serving?: string;
+  /** The endpoint base URL, when the provider has one; feeds the sanitized
+   * endpoint identity. */
+  readonly baseUrl?: string;
+  /** Route only: starts a user turn (allows one expired-selected recovery probe). */
+  beginTurn?(): void;
+  /** Route only (#852): chain stops in a failure cooldown at decision time. */
+  health?(): ReadonlyArray<RouteCooldown>;
   stream(
     messages: Message[],
     signal: AbortSignal,

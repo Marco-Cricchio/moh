@@ -1319,9 +1319,9 @@ export class AgentSession {
    * a non-route provider (a pre-built instance, a bare registered id).
    */
   get endpointCooldowns(): readonly { ref: string; kind: string }[] {
-    const route = this.#provider as Partial<import("../route").Route>;
-    return typeof route.health === "function"
-      ? route.health().map(({ ref, kind }) => ({ ref, kind }))
+    const provider = this.#provider;
+    return typeof provider.health === "function"
+      ? provider.health().map(({ ref, kind }) => ({ ref, kind }))
       : [];
   }
 
