@@ -1442,6 +1442,53 @@ describe("ADR-0056 hook deadlines (#1126)", () => {
     ]);
   });
 
+  test("the four beforeModelCall failure records keep their reason and message text", async () => {
+    const { rt } = await setup(
+      [
+        defineExtension({
+          name: "gone",
+          version: "1.0.0",
+          apiVersion: MOH_EXTENSION_API_VERSION,
+          setup: (ctx) => ctx.beforeModelCall(() => Bun.sleep(500).then(() => ({ sections: { memory: "never" } }))),
+        }),
+        defineExtension({
+          name: "late",
+          version: "1.0.0",
+          apiVersion: MOH_EXTENSION_API_VERSION,
+          setup: (ctx) =>
+            ctx.beforeModelCall(async () => {
+              await Bun.sleep(60); // past the 40ms window, inside the 80ms ceiling
+              throw new Error("late boom");
+            }),
+        }),
+        defineExtension({
+          name: "instant",
+          version: "1.0.0",
+          apiVersion: MOH_EXTENSION_API_VERSION,
+          setup: (ctx) =>
+            ctx.beforeModelCall(() => {
+              throw new Error("instant boom");
+            }),
+        }),
+      ],
+      { runtime: deadlineRuntime() },
+    );
+    const dispatch = await rt.dispatchBeforeModelCall(bmcCtx as any);
+    const windowMsg = "the beforeModelCall hook answered after the 40ms replacement window; the core's own sections serve this call";
+    expect(dispatch.errors).toEqual([
+      { type: "extension_failed", name: "gone", reason: "replacement_timeout", message: windowMsg },
+      {
+        type: "extension_failed",
+        name: "gone",
+        reason: "hook_timeout",
+        message: "the beforeModelCall hook did not answer within 80ms; it contributed nothing",
+      },
+      { type: "extension_failed", name: "late", reason: "replacement_timeout", message: windowMsg },
+      { type: "extension_failed", name: "late", reason: "hook", message: "late boom" },
+      { type: "extension_failed", name: "instant", reason: "hook", message: "instant boom" },
+    ]);
+  });
+
   test("a void-returning hook inside the window is neither a replacement nor a timeout", async () => {
     const { rt } = await setup(
       defineExtension({

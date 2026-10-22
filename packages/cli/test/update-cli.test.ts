@@ -193,3 +193,71 @@ describe("moh update progress lines (non-TTY)", () => {
     expect(errStream.err.join("")).toContain("could not download");
   });
 });
+
+/** Characterization of the download line's byte detail (`formatBytes`, and the
+ * private detail rendered by `moh update` itself): pinned text per size. Sizes
+ * up to 1 MiB are real buffers; larger ones are a stub `byteLength`, the only
+ * value the download path reads before the checksum aborts the update. */
+describe("moh update download detail (characterization)", () => {
+  const cases: Array<[number, string]> = [
+    [0, "0 B"],
+    [1023, "1023 B"],
+    [1024, "1.0 KB"],
+    [1536, "1.5 KB"],
+    [1048576, "1.0 MB"],
+    [47 * 1048576, "47.0 MB"],
+    [150 * 1048576, "150 MB"],
+    [5 * 1024 ** 3, "5.0 GB"],
+    [1023 * 1024, "1023 KB"],
+    [1024 ** 2, "1.0 MB"],
+    [100 * 1024 ** 2, "100 MB"],
+    [1024 ** 3, "1.0 GB"],
+    [1024 ** 4, "1024 GB"],
+  ];
+
+  test.each(cases)("formatBytes(%p) is %s", (n, text) => {
+    expect(formatBytes(n)).toBe(text);
+  });
+
+  function sizedFetch(byteLength: number): NonNullable<Parameters<typeof updateCommand>[0]["fetch"]> {
+    const sums = `${"0".repeat(64)}  moh-darwin-arm64\n`;
+    const asset = byteLength <= 1048576 ? new ArrayBuffer(byteLength) : ({ byteLength } as unknown as ArrayBuffer);
+    return async (url: string) => {
+      if (url.includes("checksums.txt")) {
+        return { ok: true, status: 200, json: async () => ({}), arrayBuffer: async () => new ArrayBuffer(0), text: async () => sums };
+      }
+      if (url.includes("moh-darwin-arm64")) {
+        return { ok: true, status: 200, json: async () => ({}), arrayBuffer: async () => asset, text: async () => "" };
+      }
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          tag_name: "v0.2.0",
+          assets: [
+            { name: "moh-darwin-arm64", browser_download_url: "http://x/dl/moh-darwin-arm64" },
+            { name: "checksums.txt", browser_download_url: "http://x/dl/checksums.txt" },
+          ],
+        }),
+        arrayBuffer: async () => new ArrayBuffer(0),
+        text: async () => "",
+      };
+    };
+  }
+
+  // 0 bytes never reaches the line: the progress commit waits for receivedBytes > 0.
+  test.each(cases.slice(1))("the download line for %p bytes shows %s", async (n, text) => {
+    const { stdout, out } = io();
+    await updateCommand({
+      argv: [],
+      stdout,
+      stderr: io().stderr,
+      devRun: false,
+      execPath: join(mkdtempSync(join(tmpdir(), "moh-update-cli-")), "moh"),
+      platform: "darwin-arm64",
+      currentVersion: "0.1.0",
+      fetch: sizedFetch(n),
+    });
+    expect(out.join("")).toContain(`✓ Downloading the update — ${text}\n`);
+  });
+});
