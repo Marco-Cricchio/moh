@@ -51,7 +51,6 @@ import {
   type AppliedCut,
   type CompactionHook,
   type CompactionHookContext,
-  type CompactionHookResult,
 } from "@moh/extension";
 import type { AgentEvent, ExtensionStatus, ThinkingLevel, TokenUsage } from "./types";
 import type { ExtensionSpawnSpec, PanelKeyEvent } from "@moh/extension";
@@ -338,6 +337,11 @@ interface SessionScope {
    */
   errors: AgentEvent[];
 }
+
+/** #1444: how one hook invocation settled (never a rejection). */
+type HookSettlement<T> = { outcome: "ok"; out: T } | { outcome: "threw"; error: unknown };
+/** #1444: a hook race — settled in time, or abandoned with its late settlement. */
+type HookRace<T> = HookSettlement<T> | { outcome: "timeout"; late: Promise<HookSettlement<T>> };
 
 interface HookSet {
   sessionStart: SessionStartHook[];
@@ -1021,35 +1025,8 @@ export class ExtensionRuntime {
     run: () => Promise<T> | T,
     ceilingMs: number = this.#hookTimeoutMs,
   ): Promise<{ out: T | undefined; timedOut: boolean }> {
-    let timedOut = false;
-    let deadline: ReturnType<typeof setTimeout> | undefined;
-    // The throw is captured INSIDE the racing promise: a rejecting race
-    // member and the wall clock settle in either order, and the outcome
-    // (one visible record, no contribution) must not depend on which won.
-    let failed = false;
-    let failure: unknown;
-    const pending = (async () => {
-      try {
-        // ADR-0053: extension code runs marked, so the core's privileged
-        // seams can refuse a prohibition attempted from inside a hook.
-        return await runInExtensionScope(instance.def.name, run);
-      } catch (err) {
-        failed = true;
-        failure = err;
-        return undefined as T;
-      }
-    })();
-    const out = await Promise.race([
-      pending,
-      new Promise<undefined>((resolve) => {
-        deadline = setTimeout(() => {
-          timedOut = true;
-          resolve(undefined);
-        }, ceilingMs);
-      }),
-    ]);
-    if (deadline !== undefined) clearTimeout(deadline);
-    if (timedOut) {
+    const raced = await this.#race(instance, run, ceilingMs);
+    if (raced.outcome === "timeout") {
       this.#recordHookError({
         type: "extension_failed",
         name: instance.def.name,
@@ -1057,34 +1034,77 @@ export class ExtensionRuntime {
         message: `the ${hookLabel} hook did not answer within ${ceilingMs}ms; it contributed nothing`,
       });
       // #1143: a throw that lands after the timeout won the race would
-      // otherwise go unrecorded — `failed`/`failure` in the abandoned
-      // promise are never read. One bounded late-error record keeps "a
+      // otherwise go unrecorded. One bounded late-error record keeps "a
       // non-answer is absence, never authority" honest. The record rides
       // the same error bucket this dispatch drained into: captured here,
       // because the abandoned promise resumes outside the async scope.
       const bucket = this.#borrowedSessions.getStore()?.errors ?? this.#hookErrors;
-      void pending.catch(() => {}).then(() => {
-        if (failed) {
+      void raced.late.catch(() => undefined).then((late) => {
+        if (late?.outcome === "threw") {
           bucket.push({
             type: "extension_failed",
             name: instance.def.name,
             reason: "hook_late_error",
-            message: `the ${hookLabel} hook threw after its ${ceilingMs}ms timeout: ${errMessage(failure)}`,
+            message: `the ${hookLabel} hook threw after its ${ceilingMs}ms timeout: ${errMessage(late.error)}`,
           });
         }
       });
-      return { out: undefined, timedOut };
+      return { out: undefined, timedOut: true };
     }
-    if (failed) {
+    if (raced.outcome === "threw") {
       this.#recordHookError({
         type: "extension_failed",
         name: instance.def.name,
         reason: "hook",
-        message: errMessage(failure),
+        message: errMessage(raced.error),
       });
       return { out: undefined, timedOut: false };
     }
-    return { out: out as T, timedOut: false };
+    return { out: raced.out, timedOut: false };
+  }
+
+  /**
+   * #1444: the one hook-timeout race. Runs `run` marked as extension code
+   * (ADR-0053) — or, given the settlement of a hook already started,
+   * races that same promise again — against a `ms` wall clock. Never
+   * rejects: a throw is captured INSIDE the racing promise, so a rejecting
+   * hook and the clock settle in either order with one outcome. On expiry
+   * `abort` fires first, then the race resolves `timeout` with the late
+   * settlement; a settled race clears its timer. Not `async`: the caller
+   * resumes on the race itself, one microtask after it settles.
+   */
+  #race<T>(
+    instance: RuntimeExtension,
+    run: (() => Promise<T> | T) | Promise<HookSettlement<T>>,
+    ms: number,
+    opts: { abort?: AbortController } = {},
+  ): Promise<HookRace<T>> {
+    const pending: Promise<HookSettlement<T>> =
+      typeof run === "function"
+        ? (async () => {
+            try {
+              // ADR-0053: extension code runs marked, so the core's privileged
+              // seams can refuse a prohibition attempted from inside a hook.
+              return { outcome: "ok" as const, out: await runInExtensionScope(instance.def.name, run) };
+            } catch (error) {
+              return { outcome: "threw" as const, error };
+            }
+          })()
+        : run;
+    let deadline: ReturnType<typeof setTimeout> | undefined;
+    const raced = Promise.race<HookRace<T>>([
+      pending,
+      new Promise<HookRace<T>>((resolve) => {
+        deadline = setTimeout(() => {
+          opts.abort?.abort();
+          resolve({ outcome: "timeout", late: pending });
+        }, ms);
+      }),
+    ]);
+    void raced.then(() => {
+      if (deadline !== undefined) clearTimeout(deadline);
+    });
+    return raced;
   }
 
   /** Successfully loaded instances, in registration order. */
@@ -2757,64 +2777,43 @@ export class ExtensionRuntime {
     const onApplied: ((applied: AppliedCut) => void)[] = [];
     for (const instance of this.#instances) {
       for (const hook of instance.hooks.onCompaction) {
-        let timedOut = false;
-        let out: CompactionHookResult | void;
         // #979: the hook's own budget — the window it is told about, and
         // the signal that fires when the runtime stops waiting.
         const abandoned = new AbortController();
-        let deadline: ReturnType<typeof setTimeout> | undefined;
-        const pending = (async () =>
-          // ADR-0053: extension code runs marked (see #runCapped).
-          runInExtensionScope(instance.def.name, () =>
+        // The one ADR-0035 fail-open leg the throw does not cover: a hook
+        // that never answers must not stall a background compaction.
+        // (The window is per hook; every section of this hook shares it.)
+        const raced = await this.#race(
+          instance,
+          () =>
             hook({
               ...ctx,
               hookTimeoutMs,
               signal: abandoned.signal,
             }),
-          ))();
-        // A late answer is not worthless: it still tells its own author the
-        // cut never landed. Registered before the race so no resolution can
-        // slip past it, and only acted on when the window actually won.
-        void pending
-          .then((late) => {
-            if (!timedOut || !late || typeof late.onApplied !== "function") return;
-            try {
-              late.onApplied({ keptByFloor: false, bytesAfter: offeredBytes, droppedIds: [], applied: false });
-            } catch {
-              /* observability only */
-            }
-          })
-          .catch(() => {
-            /* already recorded as a hook error by the race below */
-          });
-        try {
-          // The one ADR-0035 fail-open leg the throw does not cover: a hook
-          // that never answers must not stall a background compaction.
-          // (The window is per hook; every section of this hook shares it.)
-          out = await Promise.race([
-            pending,
-            new Promise<undefined>((resolve) => {
-              deadline = setTimeout(() => {
-                timedOut = true;
-                abandoned.abort();
-                resolve(undefined);
-              }, hookTimeoutMs);
-            }),
-          ]);
-        } catch (err) {
+          hookTimeoutMs,
+          { abort: abandoned },
+        );
+        if (raced.outcome === "threw") {
           this.#recordHookError({
             type: "extension_failed",
             name: instance.def.name,
             reason: "hook",
-            message: errMessage(err),
+            message: errMessage(raced.error),
           });
           continue;
-        } finally {
-          // A settled hook leaves no timer behind — and the flag stays
-          // false, so the late-answer path above never fires for it.
-          if (deadline !== undefined) clearTimeout(deadline);
         }
-        if (timedOut) {
+        if (raced.outcome === "timeout") {
+          // A late answer is not worthless: it still tells its own author the
+          // cut never landed. A late throw was already counted by the window.
+          void raced.late.then((late) => {
+            if (late.outcome !== "ok" || !late.out || typeof late.out.onApplied !== "function") return;
+            try {
+              late.out.onApplied({ keptByFloor: false, bytesAfter: offeredBytes, droppedIds: [], applied: false });
+            } catch {
+              /* observability only */
+            }
+          });
           this.#recordHookError({
             type: "extension_failed",
             name: instance.def.name,
@@ -2822,6 +2821,7 @@ export class ExtensionRuntime {
             message: `the compaction hook did not answer within ${hookTimeoutMs}ms; no drops were applied`,
           });
         }
+        const out = raced.outcome === "ok" ? raced.out : undefined;
         if (!out || !Array.isArray(out.drop)) continue;
         for (const id of out.drop) {
           if (typeof id === "string" && !offered.has(id)) {
@@ -2860,10 +2860,6 @@ export class ExtensionRuntime {
   async dispatchBeforeModelCall(ctx: Parameters<BeforeModelCallHook>[0]): Promise<BeforeModelCallDispatch> {
     const replacements: BeforeModelCallDispatch["replacements"] = [];
     const timeouts: BeforeModelCallDispatch["timeouts"] = [];
-    // The sentinel keeps a hook's own `void` return distinguishable from
-    // a lost race, and the ceiling from the hook's own answer.
-    const WINDOW_LOST = Symbol("replacement_window_lost");
-    const CEILING_HIT = Symbol("hook_ceiling_hit");
     const recordHookFailure = (name: string, reason: string, message: string): void =>
       this.#recordHookError({ type: "extension_failed", name, reason, message });
     for (const instance of this.#instances) {
@@ -2874,26 +2870,8 @@ export class ExtensionRuntime {
         // budget. A lost window forfeits only the sections; the hook's
         // other work still counts until the ceiling.
         const started = Date.now();
-        let windowTimer: ReturnType<typeof setTimeout> | undefined;
-        let ceilingTimer: ReturnType<typeof setTimeout> | undefined;
-        let failed = false;
-        let failure: unknown;
-        const pending = (async () => {
-          try {
-            // ADR-0053: extension code runs marked (see #runCapped).
-            return await runInExtensionScope(instance.def.name, () => hook(ctx));
-          } catch (err) {
-            failed = true;
-            failure = err;
-            return undefined;
-          }
-        })();
-        const window = new Promise<symbol>((resolve) => {
-          windowTimer = setTimeout(() => resolve(WINDOW_LOST), this.#replacementWindowMs);
-        });
-        let out = await Promise.race([pending, window]);
-        if (windowTimer !== undefined) clearTimeout(windowTimer);
-        if (out === WINDOW_LOST) {
+        const windowed = await this.#race(instance, () => hook(ctx), this.#replacementWindowMs);
+        if (windowed.outcome === "timeout") {
           // The replacement is forfeit; the core's own text serves this
           // call. One visible record says so. The hook keeps its
           // remaining budget to the ceiling.
@@ -2905,12 +2883,8 @@ export class ExtensionRuntime {
           );
           const elapsed = Date.now() - started;
           const remaining = Math.max(0, this.#hookTimeoutMs - elapsed);
-          const ceiling = new Promise<symbol>((resolve) => {
-            ceilingTimer = setTimeout(() => resolve(CEILING_HIT), remaining);
-          });
-          out = await Promise.race([pending, ceiling]);
-          if (ceilingTimer !== undefined) clearTimeout(ceilingTimer);
-          if (out === CEILING_HIT) {
+          const capped = await this.#race(instance, windowed.late, remaining);
+          if (capped.outcome === "timeout") {
             timeouts.push({ by: instance.def.name, window: "hook" });
             recordHookFailure(
               instance.def.name,
@@ -2921,16 +2895,16 @@ export class ExtensionRuntime {
           }
           // Answered late: its other contributions counted (they already
           // happened); the forfeited replacement is not revived.
-          if (failed) {
-            recordHookFailure(instance.def.name, "hook", errMessage(failure));
+          if (capped.outcome === "threw") {
+            recordHookFailure(instance.def.name, "hook", errMessage(capped.error));
           }
           continue;
         }
-        if (failed) {
-          recordHookFailure(instance.def.name, "hook", errMessage(failure));
+        if (windowed.outcome === "threw") {
+          recordHookFailure(instance.def.name, "hook", errMessage(windowed.error));
           continue;
         }
-        const answered = (out ?? {}) as BeforeModelCallResult;
+        const answered = (windowed.out ?? {}) as BeforeModelCallResult;
         if (answered.sections && typeof answered.sections === "object") {
           replacements.push({
             by: instance.def.name,
