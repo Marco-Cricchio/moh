@@ -77,6 +77,65 @@ async function tuiCommand(yolo = false): Promise<number> {
   return finishExit(2500, 0);
 }
 
+/**
+ * One subcommand in the dispatch table. `usage` answers `-h`/`--help`
+ * anywhere in the arguments, before `run` is reached. A command without it
+ * either handles help itself (`manual`) or has none (`init`).
+ */
+interface Command {
+  usage?: string;
+  run(rest: string[]): number | Promise<number>;
+}
+
+/**
+ * Subcommands dispatched by name. `help`, `--help`, `--version`, `tui` and
+ * the bare / `--yolo` launch stay explicit in `main`: they have their own
+ * argument rules.
+ */
+const COMMANDS = new Map<string, Command>([
+  ["run", { usage: RUN_USAGE, run: (rest) => runCommand({ argv: rest, home: process.env.HOME }) }],
+  ["serve", { usage: SERVE_USAGE, run: (rest) => serveCommand({ argv: rest, home: process.env.HOME }) }],
+  ["mcp", { usage: MCP_USAGE, run: (rest) => mcpCommand({ argv: rest }) }],
+  ["extension", { usage: EXTENSION_USAGE, run: (rest) => extensionCommand({ argv: rest, home: process.env.HOME }) }],
+  [
+    "init",
+    {
+      run: (rest) => {
+        if (rest.length) {
+          process.stderr.write(`moh init takes no arguments\n`);
+          return 2;
+        }
+        initCommand({ cwd: process.cwd() });
+        return 0;
+      },
+    },
+  ],
+  ["provider", { usage: PROVIDER_USAGE, run: (rest) => providerCommand({ argv: rest, cwd: process.cwd() }) }],
+  ["manual", { run: (rest) => manualCommand({ argv: rest }) }],
+  ["update", { usage: UPDATE_USAGE, run: (rest) => updateCommand({ argv: rest }) }],
+  ["compact", { usage: COMPACT_USAGE, run: (rest) => compactCommand({ argv: rest, home: process.env.HOME, err: process.stderr }) }],
+  ["mpm", { usage: MPM_USAGE, run: (rest) => mpmCommand({ argv: rest, home: process.env.HOME, err: process.stderr }) }],
+  ["sessions", { usage: SESSIONS_USAGE, run: (rest) => sessionsCommand({ argv: rest, home: process.env.HOME, err: process.stderr }) }],
+  ["trash", { usage: TRASH_USAGE, run: (rest) => trashCommand({ argv: rest, home: process.env.HOME, err: process.stderr }) }],
+  [
+    "lanes",
+    {
+      usage: LANES_USAGE,
+      run: (rest) => {
+        if (rest[0] === "remove") return lanesRemoveCommand({ argv: rest.slice(1), home: process.env.HOME, err: process.stderr });
+        if (rest[0] === "delete") return lanesDeleteCommand({ argv: rest.slice(1), home: process.env.HOME, err: process.stderr });
+        return lanesCommand({ argv: rest, home: process.env.HOME, err: process.stderr });
+      },
+    },
+  ],
+  ["usage", { usage: USAGE_USAGE, run: (rest) => usageCommand({ argv: rest, home: process.env.HOME }) }],
+  ["jev", { usage: JEV_USAGE, run: (rest) => jevCommand({ argv: rest, home: process.env.HOME }) }],
+  ["secret", { usage: SECRET_USAGE, run: (rest) => secretCommand({ argv: rest, home: process.env.HOME }) }],
+  ["handoff", { usage: HANDOFF_USAGE, run: (rest) => handoffCommand({ argv: rest, home: process.env.HOME }) }],
+  ["browser", { usage: BROWSER_USAGE, run: (rest) => browserCommand({ argv: rest, home: process.env.HOME }) }],
+  ["retro", { usage: RETRO_USAGE, run: (rest) => retroCommand({ argv: rest, home: process.env.HOME }) }],
+]);
+
 export async function main(
   argv: string[] = process.argv.slice(2),
 ): Promise<number> {
@@ -133,137 +192,13 @@ export async function main(
     }
     return tuiCommand(false);
   }
-  if (command === "run") {
-    if (rest.includes("--help") || rest.includes("-h")) {
-      process.stdout.write(RUN_USAGE + "\n");
+  const entry = COMMANDS.get(command);
+  if (entry) {
+    if (entry.usage !== undefined && (rest.includes("--help") || rest.includes("-h"))) {
+      process.stdout.write(entry.usage + "\n");
       return 0;
     }
-    return runCommand({ argv: rest, home: process.env.HOME });
-  }
-  if (command === "serve") {
-    if (rest.includes("--help") || rest.includes("-h")) {
-      process.stdout.write(SERVE_USAGE + "\n");
-      return 0;
-    }
-    return serveCommand({ argv: rest, home: process.env.HOME });
-  }
-  if (command === "mcp") {
-    if (rest.includes("--help") || rest.includes("-h")) {
-      process.stdout.write(MCP_USAGE + "\n");
-      return 0;
-    }
-    return mcpCommand({ argv: rest });
-  }
-  if (command === "extension") {
-    if (rest.includes("--help") || rest.includes("-h")) {
-      process.stdout.write(EXTENSION_USAGE + "\n");
-      return 0;
-    }
-    return extensionCommand({ argv: rest, home: process.env.HOME });
-  }
-  if (command === "init") {
-    if (rest.length) {
-      process.stderr.write(`moh init takes no arguments\n`);
-      return 2;
-    }
-    initCommand({ cwd: process.cwd() });
-    return 0;
-  }
-  if (command === "provider") {
-    if (rest.includes("--help") || rest.includes("-h")) {
-      process.stdout.write(PROVIDER_USAGE + "\n");
-      return 0;
-    }
-    return providerCommand({ argv: rest, cwd: process.cwd() });
-  }
-  if (command === "manual") {
-    return manualCommand({ argv: rest });
-  }
-  if (command === "update") {
-    if (rest.includes("--help") || rest.includes("-h")) {
-      process.stdout.write(UPDATE_USAGE + "\n");
-      return 0;
-    }
-    return updateCommand({ argv: rest });
-  }
-  if (command === "compact") {
-    if (rest.includes("--help") || rest.includes("-h")) {
-      process.stdout.write(COMPACT_USAGE + "\n");
-      return 0;
-    }
-    return compactCommand({ argv: rest, home: process.env.HOME, err: process.stderr });
-  }
-  if (command === "mpm") {
-    if (rest.includes("--help") || rest.includes("-h")) {
-      process.stdout.write(MPM_USAGE + "\n");
-      return 0;
-    }
-    return mpmCommand({ argv: rest, home: process.env.HOME, err: process.stderr });
-  }
-  if (command === "sessions") {
-    if (rest.includes("--help") || rest.includes("-h")) {
-      process.stdout.write(SESSIONS_USAGE + "\n");
-      return 0;
-    }
-    return sessionsCommand({ argv: rest, home: process.env.HOME, err: process.stderr });
-  }
-  if (command === "trash") {
-    if (rest.includes("--help") || rest.includes("-h")) {
-      process.stdout.write(TRASH_USAGE + "\n");
-      return 0;
-    }
-    return trashCommand({ argv: rest, home: process.env.HOME, err: process.stderr });
-  }
-  if (command === "lanes") {
-    if (rest.includes("--help") || rest.includes("-h")) {
-      process.stdout.write(LANES_USAGE + "\n");
-      return 0;
-    }
-    if (rest[0] === "remove") return lanesRemoveCommand({ argv: rest.slice(1), home: process.env.HOME, err: process.stderr });
-    if (rest[0] === "delete") return lanesDeleteCommand({ argv: rest.slice(1), home: process.env.HOME, err: process.stderr });
-    return lanesCommand({ argv: rest, home: process.env.HOME, err: process.stderr });
-  }
-  if (command === "usage") {
-    if (rest.includes("--help") || rest.includes("-h")) {
-      process.stdout.write(USAGE_USAGE + "\n");
-      return 0;
-    }
-    return usageCommand({ argv: rest, home: process.env.HOME });
-  }
-  if (command === "jev") {
-    if (rest.includes("--help") || rest.includes("-h")) {
-      process.stdout.write(JEV_USAGE + "\n");
-      return 0;
-    }
-    return jevCommand({ argv: rest, home: process.env.HOME });
-  }
-  if (command === "secret") {
-    if (rest.includes("--help") || rest.includes("-h")) {
-      process.stdout.write(SECRET_USAGE + "\n");
-      return 0;
-    }
-    return secretCommand({ argv: rest, home: process.env.HOME });
-  }
-  if (command === "handoff") {
-    if (rest.includes("--help") || rest.includes("-h")) {
-      process.stdout.write(HANDOFF_USAGE + "\n");
-      return 0;
-    }
-    return handoffCommand({ argv: rest, home: process.env.HOME });
-  }
-  if (command === "browser") {
-    if (rest.includes("--help") || rest.includes("-h")) {
-      process.stdout.write(BROWSER_USAGE + "\n");
-      return 0;
-    }
-    return browserCommand({ argv: rest, home: process.env.HOME });
-  }
-  if (command === "retro") {
-    if (rest.includes("--help") || rest.includes("-h")) {
-      process.stdout.write(RETRO_USAGE + "\n");
-      return 0;
-    }
-    return retroCommand({ argv: rest, home: process.env.HOME });
+    return entry.run(rest);
   }
   process.stderr.write(`moh: unknown command "${command}"\n\n${HELP}`);
   return 2;
