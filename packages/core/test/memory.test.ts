@@ -412,6 +412,24 @@ describe("dispose budget (#exit-latency, vision note 14)", () => {
     expect(elapsed).toBeLessThan(1500); // returned at the budget, not at the extractor's mercy
   });
 
+  test("dispose({timeoutMs}) still awaits a memory flush that settles within the budget (#1443)", async () => {
+    const dir = tmpDir("dispose-budget-fast");
+    let done = false;
+    let aborted = false;
+    const session = newBudgetSession(dir, async (input) => {
+      input.signal?.addEventListener("abort", () => {
+        aborted = true;
+      });
+      await new Promise((r) => setTimeout(r, 30));
+      done = true;
+      return [];
+    });
+    await session.send("trigger extraction");
+    await session.dispose({ timeoutMs: 5_000 });
+    expect(done).toBe(true);
+    expect(aborted).toBe(false);
+  });
+
   test("default dispose still waits for the pending run (no behavior change without a budget)", async () => {
     const dir = tmpDir("dispose-wait");
     let done = false;

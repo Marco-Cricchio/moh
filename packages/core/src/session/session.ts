@@ -1088,30 +1088,35 @@ export class AgentSession {
       // the partial usage is recorded (failed `model_call`,
       // requester-marked) and accounted, never dropped.
       if (usage.inputTokens !== 0 || usage.outputTokens !== 0) {
-        this.#append({ type: "model_call", model: served, usage: { ...usage }, ...(effectiveLevel !== undefined ? { thinkingLevel: effectiveLevel } : {}), failed: true, requester: { kind: "extension", extension: request.extension } });
-        this.#loop.recordExtensionUsage(request.extension, usage);
+        this.#recordSeamCall(served, usage, effectiveLevel, request.extension, true);
       }
       return { ok: false as const, reason: "failed" as const, message: err instanceof Error ? err.message : String(err) };
     }
     if (request.signal?.aborted) {
       if (usage.inputTokens !== 0 || usage.outputTokens !== 0) {
-        this.#append({ type: "model_call", model: served, usage: { ...usage }, ...(effectiveLevel !== undefined ? { thinkingLevel: effectiveLevel } : {}), failed: true, requester: { kind: "extension", extension: request.extension } });
-        this.#loop.recordExtensionUsage(request.extension, usage);
+        this.#recordSeamCall(served, usage, effectiveLevel, request.extension, true);
       }
       return { ok: false as const, reason: "failed" as const, message: "model call aborted" };
     }
     // The record: the same `model_call` event, marked with the
     // requester (ADR-0068). Provider reasoning is deliberately not
     // collected — a host-seam call is not part of the conversation.
+    this.#recordSeamCall(served, usage, effectiveLevel, request.extension, false);
+    return { ok: true as const, text, usage: { ...usage }, model: served, ...(effectiveLevel !== undefined ? { thinkingLevel: effectiveLevel } : {}) };
+  }
+
+  /** The seam call's `model_call` record (failed or not) and its usage
+   * accounting — `failed` is written only when true. */
+  #recordSeamCall(served: string, usage: { inputTokens: number; outputTokens: number }, level: ThinkingLevel | undefined, extension: string, failed: boolean): void {
     this.#append({
       type: "model_call",
       model: served,
       usage: { ...usage },
-      ...(effectiveLevel !== undefined ? { thinkingLevel: effectiveLevel } : {}),
-      requester: { kind: "extension", extension: request.extension },
+      ...(level !== undefined ? { thinkingLevel: level } : {}),
+      ...(failed ? { failed: true } : {}),
+      requester: { kind: "extension", extension },
     });
-    this.#loop.recordExtensionUsage(request.extension, usage);
-    return { ok: true as const, text, usage: { ...usage }, model: served, ...(effectiveLevel !== undefined ? { thinkingLevel: effectiveLevel } : {}) };
+    this.#loop.recordExtensionUsage(extension, usage);
   }
 
   async #seamListModels(request: { endpoint: string }) {
@@ -1887,35 +1892,25 @@ export class AgentSession {
     // starts the turn synchronously, exactly as before.
     const start = (): Promise<TurnResult> => this.#queue.send(text, options?.prompt);
     // #790: the rerank rescue runs inside the turn-start chain (it must
-    // land before the first prompt assembly), but the no-rerank path
-    // keeps today's synchronous start — `send` begins the turn in the
-    // same tick, exactly as before.
-    if (!(this.#mpmOrientation && this.#orientationHasRerank)) {
-      const run = this.#extensions?.hasPendingRegistrations() === true ? this.#extensions.ready().then(start) : start();
-      return run.finally(() => {
-        this.#turnHead = undefined;
-      });
+    // land before the first prompt assembly). Nothing to wait for keeps
+    // today's synchronous start — `send` begins the turn in the same tick,
+    // exactly as before.
+    const waits: Promise<unknown>[] = [];
+    if (this.#mpmOrientation && this.#orientationHasRerank) {
+      waits.push(
+        this.#orientationPlanWithRerank().then((plan) => {
+          if (plan !== null) this.#mpmPlan = plan;
+        }),
+      );
     }
-    const run = Promise.all([
-      this.#orientationPlanWithRerank().then((plan) => {
-        if (plan !== null) this.#mpmPlan = plan;
-      }),
-      this.#extensions?.hasPendingRegistrations() === true ? this.#extensions.ready() : Promise.resolve(),
-    ]).then(start);
+    if (this.#extensions?.hasPendingRegistrations() === true) waits.push(this.#extensions.ready());
+    const run =
+      waits.length === 0 ? start() : waits.length === 1 ? waits[0]!.then(start) : Promise.all(waits).then(start);
     return run.finally(() => {
       this.#turnHead = undefined;
     });
   }
 
-  /**
-   * ADR-0037: the session-mediated entry behind an extension's
-   * `ctx.requestTurn` — one turn with a synthetic user-side message,
-   * through the normal queue so preemption, usage accounting and
-   * settlement stay the session's. Resolves `{ ok: false }` when the
-   * session is disposed or a turn is already in flight (the runtime
-   * renders every refusal as a visible `extension_failed`); the depth
-   * limit itself is enforced by the runtime, not here.
-   */
   /**
    * ADR-0037: the session-mediated entry behind an extension's
    * `ctx.requestTurn` — one turn with a synthetic user-side message,
@@ -2006,17 +2001,8 @@ export class AgentSession {
    * orientation's internal cache returns it without a second call.
    */
   #orientationPlan(): string | null {
-    const orientation = this.#mpmOrientation;
-    if (!orientation || this.#mpmTaskText === null) return null;
-    // #788: the per-turn eligibility gate (an active classifier's
-    // codebase-oriented opinion). `false` suppresses this turn's plan —
-    // the projection, `mpm_query` and the manual commands are untouched;
-    // `undefined`/`true` change nothing.
-    if (this.#mpmTurnGate?.() === false) {
-      orientation.noteGated();
-      return null;
-    }
-    return orientation.planFor(this.#mpmTaskText, this.#mpmReasoningText ?? undefined);
+    const gated = this.#gatedOrientation();
+    return gated ? gated.orientation.planFor(gated.task, this.#mpmReasoningText ?? undefined) : null;
   }
 
   /**
@@ -2028,13 +2014,25 @@ export class AgentSession {
    * no-plan, never a broken send.
    */
   async #orientationPlanWithRerank(): Promise<string | null> {
+    const gated = this.#gatedOrientation();
+    if (!gated) return null;
+    return gated.orientation.planForWithRerank(gated.task, this.#mpmReasoningText ?? undefined);
+  }
+
+  /** The orientation and task text of this turn, or null when there is no
+   * orientation, no task, or the turn gate suppresses the plan. */
+  #gatedOrientation(): { orientation: MpmOrientation; task: string } | null {
     const orientation = this.#mpmOrientation;
     if (!orientation || this.#mpmTaskText === null) return null;
+    // #788: the per-turn eligibility gate (an active classifier's
+    // codebase-oriented opinion). `false` suppresses this turn's plan —
+    // the projection, `mpm_query` and the manual commands are untouched;
+    // `undefined`/`true` change nothing.
     if (this.#mpmTurnGate?.() === false) {
       orientation.noteGated();
       return null;
     }
-    return orientation.planForWithRerank(this.#mpmTaskText, this.#mpmReasoningText ?? undefined);
+    return { orientation, task: this.#mpmTaskText };
   }
 
   /** #790: whether the rerank hook is wired (config + extension state). */
@@ -2417,20 +2415,7 @@ export class AgentSession {
     this.#disposed = true;
     if (this.#compaction?.pending) await this.#compaction.pending.catch(() => {});
     if (this.#memory?.pending) {
-      const flush = this.#memory.pending.catch(() => {});
-      if (options.timeoutMs === undefined) {
-        await flush;
-      } else {
-        await Promise.race([
-          flush,
-          new Promise<void>((resolve) => {
-            setTimeout(() => {
-              this.#memory?.cancel();
-              resolve();
-            }, options.timeoutMs).unref?.();
-          }),
-        ]);
-      }
+      await this.#raceBudget(this.#memory.pending.catch(() => {}), options.timeoutMs, () => this.#memory?.cancel());
     }
     await this.#mcp?.shutdown();
     this.#mpmLifecycle?.dispose();
@@ -2452,17 +2437,7 @@ export class AgentSession {
     // awaited here under the same budget as the memory flush — a slow
     // subagent never holds the process open past the UI's exit.
     if (this.#retroJudgmentRun) {
-      const run = this.#retroJudgmentRun.catch(() => {});
-      if (options.timeoutMs === undefined) {
-        await run;
-      } else {
-        await Promise.race([
-          run,
-          new Promise<void>((resolve) => {
-            setTimeout(resolve, options.timeoutMs).unref?.();
-          }),
-        ]);
-      }
+      await this.#raceBudget(this.#retroJudgmentRun.catch(() => {}), options.timeoutMs);
     }
     // ADR-0055 (#1222): the extension-spawned children kept alive for
     // steering die with the session that spawned them — no orphans at exit.
@@ -2483,5 +2458,21 @@ export class AgentSession {
     // The end-of-session events were just queued: let the dispatch drain
     // settle before the session is considered disposed.
     await this.#eventLog.idle();
+  }
+
+  /** `promise` itself without a budget; otherwise raced against a timer
+   * that runs `onTimeout` when it fires. The timer is unref'd and never
+   * cleared. */
+  #raceBudget(promise: Promise<void>, timeoutMs: number | undefined, onTimeout?: () => void): Promise<void> {
+    if (timeoutMs === undefined) return promise;
+    return Promise.race([
+      promise,
+      new Promise<void>((resolve) => {
+        setTimeout(() => {
+          onTimeout?.();
+          resolve();
+        }, timeoutMs).unref?.();
+      }),
+    ]);
   }
 }
