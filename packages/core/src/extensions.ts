@@ -2582,7 +2582,7 @@ export class ExtensionRuntime {
       if (result.ok) return { ok: true };
       return { ok: false, message: `dependency install failed for ${name}: ${result.reason}` };
     } catch (err) {
-      return { ok: false, message: `dependency install failed for ${name}: ${err instanceof Error ? err.message : String(err)}` };
+      return { ok: false, message: `dependency install failed for ${name}: ${errMessage(err)}` };
     }
   }
 
@@ -2864,6 +2864,8 @@ export class ExtensionRuntime {
     // a lost race, and the ceiling from the hook's own answer.
     const WINDOW_LOST = Symbol("replacement_window_lost");
     const CEILING_HIT = Symbol("hook_ceiling_hit");
+    const recordHookFailure = (name: string, reason: string, message: string): void =>
+      this.#recordHookError({ type: "extension_failed", name, reason, message });
     for (const instance of this.#instances) {
       for (const hook of instance.hooks.beforeModelCall) {
         // The composed clocks (ADR-0054 + ADR-0056): the hook promise is
@@ -2896,12 +2898,11 @@ export class ExtensionRuntime {
           // call. One visible record says so. The hook keeps its
           // remaining budget to the ceiling.
           timeouts.push({ by: instance.def.name, window: "replacement" });
-          this.#recordHookError({
-            type: "extension_failed",
-            name: instance.def.name,
-            reason: "replacement_timeout",
-            message: `the beforeModelCall hook answered after the ${this.#replacementWindowMs}ms replacement window; the core's own sections serve this call`,
-          });
+          recordHookFailure(
+            instance.def.name,
+            "replacement_timeout",
+            `the beforeModelCall hook answered after the ${this.#replacementWindowMs}ms replacement window; the core's own sections serve this call`,
+          );
           const elapsed = Date.now() - started;
           const remaining = Math.max(0, this.#hookTimeoutMs - elapsed);
           const ceiling = new Promise<symbol>((resolve) => {
@@ -2911,33 +2912,22 @@ export class ExtensionRuntime {
           if (ceilingTimer !== undefined) clearTimeout(ceilingTimer);
           if (out === CEILING_HIT) {
             timeouts.push({ by: instance.def.name, window: "hook" });
-            this.#recordHookError({
-              type: "extension_failed",
-              name: instance.def.name,
-              reason: "hook_timeout",
-              message: `the beforeModelCall hook did not answer within ${this.#hookTimeoutMs}ms; it contributed nothing`,
-            });
+            recordHookFailure(
+              instance.def.name,
+              "hook_timeout",
+              `the beforeModelCall hook did not answer within ${this.#hookTimeoutMs}ms; it contributed nothing`,
+            );
             continue;
           }
           // Answered late: its other contributions counted (they already
           // happened); the forfeited replacement is not revived.
           if (failed) {
-            this.#recordHookError({
-              type: "extension_failed",
-              name: instance.def.name,
-              reason: "hook",
-              message: errMessage(failure),
-            });
+            recordHookFailure(instance.def.name, "hook", errMessage(failure));
           }
           continue;
         }
         if (failed) {
-          this.#recordHookError({
-            type: "extension_failed",
-            name: instance.def.name,
-            reason: "hook",
-            message: errMessage(failure),
-          });
+          recordHookFailure(instance.def.name, "hook", errMessage(failure));
           continue;
         }
         const answered = (out ?? {}) as BeforeModelCallResult;
