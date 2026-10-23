@@ -15,7 +15,7 @@ import {
   releaseVersionProblem,
   type AggregatorSnapshots,
   type CatalogOverrides,
-} from "../src/model-catalog-build";
+} from "../scripts/model-catalog-build";
 
 const md = (models: Record<string, unknown>) => ({ models: models as never });
 const snapshots = (options: {
