@@ -90,6 +90,7 @@ describe("McpRuntime (stdio)", () => {
     await timed.ensureStarted();
     const failure = events.find((e) => e.type === "mcp_server_failed") as Extract<AgentEvent, { type: "mcp_server_failed" }>;
     expect(failure?.reason).toBe("handshake_timeout");
+    expect(failure?.message).toMatch(/timed out after 300ms/);
     expect(timed.status()[0]!.state).toBe("failed");
     expect(Object.keys(timed.tools)).toHaveLength(0);
   });
@@ -222,6 +223,7 @@ describe("McpRuntime (stdio)", () => {
       threw = err;
     }
     expect(threw).toBeInstanceOf(McpError);
+    expect(threw).toMatchObject({ name: "McpError", kind: "crashed", message: "MCP connection lost" });
     await Bun.sleep(50); // crash event lands asynchronously
     expect(runtime.status()[0]!.state).toBe("crashed");
     expect(events.some((e) => e.type === "mcp_server_failed" && e.reason === "crashed")).toBe(true);
@@ -229,6 +231,14 @@ describe("McpRuntime (stdio)", () => {
     await expect(
       runtime.tools["mcp__srv__echo"]!.execute({ text: "x" }, { signal: new AbortController().signal, cwd: process.cwd(), onProgress: () => {} }),
     ).rejects.toThrow(/crashed.*moh mcp restart/);
+    let unavailable: unknown;
+    try {
+      await runtime.tools["mcp__srv__echo"]!.execute({ text: "x" }, { signal: new AbortController().signal, cwd: process.cwd(), onProgress: () => {} });
+    } catch (err) {
+      unavailable = err;
+    }
+    expect(unavailable).toBeInstanceOf(McpError);
+    expect(unavailable).toMatchObject({ kind: "unavailable", message: expect.stringMatching(/crashed.*moh mcp restart/) });
     // no auto-restart happened
     expect(runtime.status()[0]!.state).toBe("crashed");
     // manual restart recovers
@@ -316,6 +326,7 @@ describe("McpRuntime (HTTP streamable)", () => {
     await runtime.ensureStarted();
     const failure = events.find((e) => e.type === "mcp_server_failed") as Extract<AgentEvent, { type: "mcp_server_failed" }>;
     expect(failure?.reason).toBe("start_failed");
+    expect(failure?.message).toMatch(/^MCP endpoint unreachable: /);
     expect(runtime.status()[0]!.state).toBe("failed");
   });
 });
@@ -446,7 +457,7 @@ describe("#1254: http transport redirect pinning + per-request timeout", () => {
       // so the per-request abort is observable only at the seam itself.
       const conn = new HttpConnection({ url: `http://localhost:${s.port}/mcp`, onRequest: () => {}, onCrash: () => {} });
       try {
-        await expect(conn.request("ping", {}, 30_000)).rejects.toMatchObject({ kind: "timeout" });
+        await expect(conn.request("ping", {}, 30_000)).rejects.toMatchObject({ name: "McpError", kind: "timeout", message: expect.stringMatching(/^MCP endpoint request timed out after \d+ms$/) });
       } finally {
         await conn.close();
       }
