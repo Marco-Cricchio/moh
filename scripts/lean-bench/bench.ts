@@ -11,7 +11,7 @@
 import { spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { Writable } from "node:stream";
 import { initCommand } from "../../packages/cli/src/init";
 
@@ -72,8 +72,18 @@ export function parseBasePrompt(source: string): string {
     .join("\n");
 }
 
+/**
+ * A history-free snapshot of `repo` at `base`: a worktree would share every
+ * ref, and the model could `git log --all` its way to the shipped solution.
+ */
 function prepare(task: Task, condition: Condition, wt: string): void {
-  sh("git", ["worktree", "add", "--detach", wt, task.base], resolve(ROOT, task.repo));
+  const repo = resolve(ROOT, task.repo);
+  if (exec("git", ["cat-file", "-e", `${task.base}^{commit}`], repo).status !== 0) sh("git", ["fetch", "-q", "origin", task.base], repo);
+  mkdirSync(wt, { recursive: true });
+  sh("sh", ["-c", 'git -C "$1" archive "$2" | tar -x -C "$3"', "sh", repo, task.base, wt], ROOT);
+  sh("git", ["init", "-q"], wt);
+  // moh's own state (prompt override, project id) is harness, never part of the change.
+  writeFileSync(join(wt, ".git/info/exclude"), ".moh/\n");
   for (const path of task.strip) rmSync(join(wt, path), { recursive: true, force: true });
   const source =
     condition === "v2" ? sh("git", ["show", `${V2_REV}:${COMPOSER}`], ROOT) : readFileSync(join(ROOT, COMPOSER), "utf8");
@@ -119,7 +129,7 @@ function changedCodeFiles(wt: string): string[] {
 /** jscpd clones with at least one fragment in a changed file; null when the tool fails. */
 function duplicatesTouchingChange(wt: string, changed: string[]): number | null {
   if (changed.length === 0) return 0;
-  const out = mkdtempSync(join(tmpdir(), "lean-bench-jscpd-"));
+  const out = mkdtempSync(join(tmpdir(), "jscpd-"));
   try {
     exec("npx", ["--yes", "jscpd@4.0.5", "--silent", "--gitignore", "--min-tokens", "50", "--reporters", "json", "--output", out, "."], wt);
     const report = join(out, "jscpd-report.json");
@@ -141,24 +151,29 @@ function highCcnFunctions(wt: string, changed: string[]): number | null {
 }
 
 /**
- * An isolated HOME for `moh run`: the user's ~/.moh/config (endpoints and
- * credentials) with auto-lanes off — a lane worktree would not carry the
- * gitignored `.moh/prompts/system.md` and would move the edits out of the
- * cell. No user sessions, skills or extensions leak into a run.
+ * `moh run` under a throwaway HOME holding the user's ~/.moh/config
+ * (endpoints and credentials) with auto-lanes off: a lane worktree would not
+ * carry the gitignored `.moh/prompts/system.md` and would move the edits out
+ * of the cell. No user sessions, skills or extensions reach a run, and HOME
+ * never points the model at the bench's output.
  */
-function benchEnv(out: string): NodeJS.ProcessEnv {
-  const home = resolve(out, ".home");
-  const config = JSON.parse(readFileSync(join(homedir(), ".moh", "config"), "utf8")) as { lanes?: object };
-  mkdirSync(join(home, ".moh"), { recursive: true });
-  writeFileSync(join(home, ".moh", "config"), JSON.stringify({ ...config, lanes: { ...config.lanes, auto: false } }), { mode: 0o600 });
-  return { ...process.env, HOME: home };
+function mohRun(args: string[], cwd: string) {
+  const home = mkdtempSync(join(tmpdir(), "home-"));
+  try {
+    const config = JSON.parse(readFileSync(join(homedir(), ".moh", "config"), "utf8")) as { lanes?: object };
+    mkdirSync(join(home, ".moh"));
+    writeFileSync(join(home, ".moh", "config"), JSON.stringify({ ...config, lanes: { ...config.lanes, auto: false } }), { mode: 0o600 });
+    return exec("bun", [CLI, "run", "--cwd", cwd, ...args], cwd, RUN_TIMEOUT_MS, { ...process.env, HOME: home });
+  } finally {
+    rmSync(home, { recursive: true, force: true });
+  }
 }
 
-function runCell(task: Task, condition: Condition, model: string, cell: string, env: NodeJS.ProcessEnv): void {
-  const wt = join(mkdtempSync(join(tmpdir(), "lean-bench-")), "wt");
+function runCell(task: Task, condition: Condition, model: string, cell: string): void {
+  const wt = join(mkdtempSync(join(tmpdir(), "task-")), "repo");
   try {
     prepare(task, condition, wt);
-    const r = exec("bun", [CLI, "run", "--cwd", wt, "--provider", model, "--auto-accept", "-p", task.prompt], wt, RUN_TIMEOUT_MS, env);
+    const r = mohRun(["--provider", model, "--auto-accept", "-p", task.prompt], wt);
     mkdirSync(cell, { recursive: true });
     writeFileSync(join(cell, "events.jsonl"), r.stdout ?? "");
     sh("git", ["add", "-A"], wt);
@@ -172,7 +187,7 @@ function runCell(task: Task, condition: Condition, model: string, cell: string, 
     };
     writeFileSync(join(cell, "metrics.json"), `${JSON.stringify(metrics, null, 2)}\n`);
   } finally {
-    exec("git", ["worktree", "remove", "--force", wt], resolve(ROOT, task.repo));
+    rmSync(dirname(wt), { recursive: true, force: true });
   }
 }
 
@@ -216,15 +231,14 @@ function assistantText(jsonl: string): string {
 }
 
 function judge(out: string, model: string): void {
-  const env = benchEnv(out);
   // Shuffled, and run from an empty directory with the diff only: the judge never sees the condition.
   const pending = cells(out)
     .filter((c) => existsSync(join(c.dir, "diff.patch")) && !existsSync(join(c.dir, "judge.json")))
     .sort(() => Math.random() - 0.5);
   for (const c of pending) {
-    const cwd = mkdtempSync(join(tmpdir(), "lean-bench-judge-"));
+    const cwd = mkdtempSync(join(tmpdir(), "review-"));
     const prompt = judgePrompt(readFileSync(join(c.dir, "diff.patch"), "utf8"));
-    const r = exec("bun", [CLI, "run", "--cwd", cwd, "--provider", model, "--deny", "bash", "--deny", "write", "--deny", "edit", "-p", prompt], cwd, RUN_TIMEOUT_MS, env);
+    const r = mohRun(["--provider", model, "--deny", "bash", "--deny", "write", "--deny", "edit", "-p", prompt], cwd);
     rmSync(cwd, { recursive: true, force: true });
     const text = assistantText(r.stdout ?? "");
     const json = text.slice(text.indexOf("{"), text.lastIndexOf("}") + 1);
@@ -303,7 +317,6 @@ if (import.meta.main) {
       (task) => only.length === 0 || only.includes(task.id),
     );
     const runs = Number(flag(args, "--runs") ?? 3);
-    const env = benchEnv(out);
     // Runs interleave tasks and conditions so provider drift spreads evenly; existing cells are kept (resumable).
     for (let n = 1; n <= runs; n++) {
       for (const task of tasks) {
@@ -311,7 +324,7 @@ if (import.meta.main) {
           const cell = join(out, task.id, condition, String(n));
           if (existsSync(join(cell, "metrics.json"))) continue;
           console.error(`run ${n}/${runs} ${task.id} ${condition}`);
-          runCell(task, condition, model!, cell, env);
+          runCell(task, condition, model!, cell);
         }
       }
     }

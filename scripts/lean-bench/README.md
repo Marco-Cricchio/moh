@@ -16,7 +16,9 @@ Keep `<dir>` outside the repository.
 ## Corpus
 
 `corpus.json`: ten closed moh feature issues merged before principle 8
-(2026-10-14), each frozen as `base` (the parent of its merge commit) and
+(2026-10-14) whose base holds no earlier commit for the same issue, each
+frozen as `base` (the PR's `baseRefOid`: a merge's first parent can already
+contain the PR's commits) and
 `prompt` (the issue text at corpus time); `reference` names the PR that
 shipped it. `strip` removes the repository's own doctrine (AGENTS.md,
 CLAUDE.md, `.moh/`) so the conditions start from the same blank slate;
@@ -25,8 +27,10 @@ with `repo` pointing at its local checkout.
 
 ## Conditions
 
-Each cell is a detached worktree of `repo` at `base`, where the base prompt is
-injected through the `.moh/prompts/system.md` override:
+Each cell is a history-free snapshot of `repo` at `base` (`git archive`, then
+`git init`; a worktree would expose the shipped solution through its refs),
+fetched by SHA when missing. The base prompt is injected through the
+`.moh/prompts/system.md` override:
 
 - `v2` — the BASE_PROMPT text at `8f06512d` (develop before #1634);
 - `v3` — the BASE_PROMPT text of this checkout;
@@ -34,11 +38,12 @@ injected through the `.moh/prompts/system.md` override:
   `docs/agents/code-quality.md`).
 
 The model runs once per cell through this checkout's `moh run --auto-accept`;
-the diff is taken against the setup commit. Runs use an isolated HOME,
-`<dir>/.home`, holding a copy of `~/.moh/config` (endpoints and credentials,
-mode 600) with `lanes.auto` off: an auto-lane would move the edits out of the
-cell and lose the gitignored prompt override. No user sessions, skills or
-extensions reach a run. Delete `<dir>` when done.
+the diff is taken against the setup commit. Each run gets a throwaway HOME
+holding a copy of `~/.moh/config` (endpoints and credentials, mode 600) with
+`lanes.auto` off, deleted after the run: an auto-lane would move the edits out
+of the cell and lose the gitignored prompt override, and a HOME under `<dir>`
+would point the model at earlier cells. No user sessions, skills or
+extensions reach a run.
 
 ## Metrics
 
