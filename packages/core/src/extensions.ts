@@ -1071,13 +1071,16 @@ export class ExtensionRuntime {
    * hook and the clock settle in either order with one outcome. On expiry
    * `abort` fires first, then the race resolves `timeout` with the late
    * settlement; a settled race clears its timer. Not `async`: the caller
-   * resumes on the race itself, one microtask after it settles.
+   * resumes on the race itself, one microtask after it settles. `onLate`
+   * hears the settlement of a hook the clock beat: registered before the
+   * race, so a hook settling inside `abort` is heard before the caller
+   * resumes; a throw inside it is swallowed (observability only).
    */
   #race<T>(
     instance: RuntimeExtension,
     run: (() => Promise<T> | T) | Promise<HookSettlement<T>>,
     ms: number,
-    opts: { abort?: AbortController } = {},
+    opts: { abort?: AbortController; onLate?: (late: HookSettlement<T>) => void } = {},
   ): Promise<HookRace<T>> {
     const pending: Promise<HookSettlement<T>> =
       typeof run === "function"
@@ -1091,11 +1094,21 @@ export class ExtensionRuntime {
             }
           })()
         : run;
+    let expired = false;
+    const { onLate } = opts;
+    if (onLate) {
+      void pending
+        .then((late) => {
+          if (expired) onLate(late);
+        })
+        .catch(() => {});
+    }
     let deadline: ReturnType<typeof setTimeout> | undefined;
     const raced = Promise.race<HookRace<T>>([
       pending,
       new Promise<HookRace<T>>((resolve) => {
         deadline = setTimeout(() => {
+          expired = true;
           opts.abort?.abort();
           resolve({ outcome: "timeout", late: pending });
         }, ms);
@@ -2792,7 +2805,20 @@ export class ExtensionRuntime {
               signal: abandoned.signal,
             }),
           hookTimeoutMs,
-          { abort: abandoned },
+          {
+            abort: abandoned,
+            // A late answer is not worthless: it still tells its own author
+            // the cut never landed. A late throw was already counted by the
+            // window.
+            onLate: (late) => {
+              if (late.outcome !== "ok" || !late.out || typeof late.out.onApplied !== "function") return;
+              try {
+                late.out.onApplied({ keptByFloor: false, bytesAfter: offeredBytes, droppedIds: [], applied: false });
+              } catch {
+                /* observability only */
+              }
+            },
+          },
         );
         if (raced.outcome === "threw") {
           this.#recordHookError({
@@ -2804,16 +2830,6 @@ export class ExtensionRuntime {
           continue;
         }
         if (raced.outcome === "timeout") {
-          // A late answer is not worthless: it still tells its own author the
-          // cut never landed. A late throw was already counted by the window.
-          void raced.late.then((late) => {
-            if (late.outcome !== "ok" || !late.out || typeof late.out.onApplied !== "function") return;
-            try {
-              late.out.onApplied({ keptByFloor: false, bytesAfter: offeredBytes, droppedIds: [], applied: false });
-            } catch {
-              /* observability only */
-            }
-          });
           this.#recordHookError({
             type: "extension_failed",
             name: instance.def.name,
