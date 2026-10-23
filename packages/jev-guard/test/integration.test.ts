@@ -412,9 +412,8 @@ describe("activation through the generic door (#826)", () => {
   });
 });
 
-// #1431 (expand phase of S4.1): twins of the injected `readConfig` /
-// `read` tests above, on a real temporary file. Migration ticket #1435 deletes
-// the injected ones. The suite is not run by CI (#1498): run it locally.
+// Real temporary file twins of the `readConfig` / `read` tests above (#1431).
+// The suite is not run by CI (#1498): run it locally.
 describe("typesafe config and activation — real file twins (#1431)", () => {
   const raw = (file: string) => JSON.parse(readFileSync(file, "utf8")) as Record<string, unknown>;
   const seeded = (body: unknown, fileMode = 0o644): string => {

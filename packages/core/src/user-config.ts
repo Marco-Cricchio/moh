@@ -72,6 +72,6 @@ export function updateUserConfigFile(
   try {
     chmodSync(file, 0o600);
   } catch {
-    // injected/test paths — best effort only
+    // best effort: the file may have been removed since the write
   }
 }
