@@ -31,7 +31,7 @@
  *   namespace(s) supplying the subscription-plan pricing entry of the same
  *   row (`planCost`). The metered entry stays `cost`.
  */
-import type { ModelPricing, ModelPricingTier } from "./model-catalog";
+import type { ModelPricing, ModelPricingTier } from "../src/model-catalog";
 
 /** The `{ <api>: { <id>: row } }` shape of a catalog file. */
 export type CatalogFileJson = Record<string, Record<string, CatalogRowJson>>;

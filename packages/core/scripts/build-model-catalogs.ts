@@ -3,7 +3,7 @@
  *
  * The generator owns no logic: the join, the unit conversions, the override
  * merge, the guards, the manifest and the report live in
- * `packages/core/src/model-catalog-build.ts` (tested without network or
+ * `packages/core/scripts/model-catalog-build.ts` (tested without network or
  * disk). This file is the I/O half.
  *
  * Usage:
@@ -54,7 +54,7 @@ import {
   type ModelsDevSnapshot,
   type OpenRouterSnapshot,
   type SourceSnapshotInfo,
-} from "../src/model-catalog-build";
+} from "./model-catalog-build";
 
 const CATALOG_DIR = join(import.meta.dir, "../src/model-catalogs");
 const MANIFEST_FILE = join(CATALOG_DIR, "manifest.json");
