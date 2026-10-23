@@ -1,5 +1,8 @@
 import { describe, expect, test } from "bun:test";
-import { createSession } from "../src/index";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { createSession, MockProvider } from "../src/index";
 import type { AgentSession, Provider } from "../src/index";
 import { ProviderError } from "../src/types";
 import type { AgentEvent, Message, StreamEvent, ToolSpec } from "../src/types";
@@ -352,5 +355,126 @@ describe("AgentLoop main stream consumption under abort (#1442 characterization)
       { type: "model_call", model: "m", failed: true, usage: { inputTokens: 0, outputTokens: 0 }, outcome: "aborted" },
       { type: "cancelled" },
     ]);
+  });
+});
+
+/** Events outside the `StreamEvent` type, as an untyped (plain-JS or
+ * cassette) provider can produce them. */
+const untyped = (event: Record<string, unknown>): StreamEvent => event as unknown as StreamEvent;
+
+describe("AgentLoop stream consumption with out-of-type events (#1442 review)", () => {
+  test("a wrap-up finish with reason null still finishes the wrap-up", async () => {
+    const { session } = open([
+      toolRound,
+      async function* () {
+        yield { type: "model_call_start", model: "m" };
+        yield { type: "text_delta", text: "wrap" };
+        yield untyped({ type: "finish", reason: null });
+      },
+    ]);
+    expect(await session.send("go")).toEqual({ status: "done" });
+    expect(tail(session).map(shape)).toEqual([
+      { type: "assistant_delta", text: "wrap" },
+      { type: "model_call", model: "m", usage: { inputTokens: 0, outputTokens: 0 }, outcome: "completed" },
+      { type: "done", usage: { inputTokens: 0, outputTokens: 0 } },
+    ]);
+  });
+
+  test("a wrap-up finish stop followed by a finish null still finishes the wrap-up", async () => {
+    const { session } = open([
+      toolRound,
+      async function* () {
+        yield { type: "model_call_start", model: "m" };
+        yield { type: "text_delta", text: "wrap" };
+        yield { type: "finish", reason: "stop" };
+        yield untyped({ type: "finish", reason: null });
+      },
+    ]);
+    expect(await session.send("go")).toEqual({ status: "done" });
+    expect(tail(session).map(shape)).toEqual([
+      { type: "assistant_delta", text: "wrap" },
+      { type: "model_call", model: "m", usage: { inputTokens: 0, outputTokens: 0 }, outcome: "completed" },
+      { type: "done", usage: { inputTokens: 0, outputTokens: 0 } },
+    ]);
+  });
+
+  test("a cassette wrap-up turn with finish null is done", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "moh-1442-"));
+    try {
+      const file = join(dir, "cassette.json");
+      writeFileSync(
+        file,
+        JSON.stringify([
+          { deltas: [], finish: "tool_calls", toolCalls: [{ name: "bash", args: {} }] },
+          { deltas: ["wrap"], finish: null },
+        ]),
+      );
+      const session = createSession({ provider: MockProvider.cassette(file), maxIterations: 1 });
+      expect(await session.send("go")).toEqual({ status: "done" });
+      expect(tail(session).map(shape)).toEqual([
+        { type: "assistant_delta", text: "wrap" },
+        { type: "model_call", model: "mock", usage: { inputTokens: 0, outputTokens: 0 }, outcome: "completed" },
+        { type: "done", usage: { inputTokens: 0, outputTokens: 0 } },
+      ]);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("a wrap-up tool_calls event without calls is ignored", async () => {
+    const { session } = open([
+      toolRound,
+      async function* () {
+        yield { type: "model_call_start", model: "m" };
+        yield untyped({ type: "tool_calls" });
+        yield { type: "text_delta", text: "w" };
+        yield { type: "finish", reason: "stop" };
+      },
+    ]);
+    expect(await session.send("go")).toEqual({ status: "done" });
+    expect(tail(session).map(shape)).toEqual([
+      { type: "assistant_delta", text: "w" },
+      { type: "model_call", model: "m", usage: { inputTokens: 0, outputTokens: 0 }, outcome: "completed" },
+      { type: "done", usage: { inputTokens: 0, outputTokens: 0 } },
+    ]);
+  });
+
+  test("the main loop still cancels on a finish with reason null", async () => {
+    const { session } = open(
+      [
+        async function* () {
+          yield { type: "model_call_start", model: "m" };
+          yield { type: "text_delta", text: "main" };
+          yield untyped({ type: "finish", reason: null });
+        },
+      ],
+      5,
+    );
+    expect(await session.send("go")).toEqual({ status: "cancelled" });
+    expect(tail(session).map(shape)).toEqual([
+      { type: "assistant_delta", text: "main" },
+      { type: "model_call", model: "m", failed: true, usage: { inputTokens: 0, outputTokens: 0 }, outcome: "aborted" },
+      { type: "cancelled" },
+    ]);
+  });
+
+  test("the main loop still fails on a tool_calls event without calls", async () => {
+    const { session } = open(
+      [
+        async function* () {
+          yield { type: "model_call_start", model: "m" };
+          yield untyped({ type: "tool_calls" });
+          yield { type: "finish", reason: "stop" };
+        },
+      ],
+      5,
+    );
+    const result = await session.send("go");
+    expect(result.status).toBe("error");
+    expect((result as { reason?: string }).reason).toBe("provider_failure");
+    const events = tail(session).map(shape);
+    expect(events.map((e) => e.type)).toEqual(["model_call", "error"]);
+    expect(events[0]).toMatchObject({ failed: true, outcome: "failed" });
+    expect(events[1]).toMatchObject({ reason: "provider_failure" });
   });
 });
