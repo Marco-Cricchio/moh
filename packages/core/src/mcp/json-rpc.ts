@@ -1,4 +1,4 @@
-import { McpError, type McpErrorKind } from "./errors";
+import { McpError, type McpErrorKind } from "./types";
 
 export interface ServerHandlers {
   /** Server -> client request; may be refused (capabilities we do not support). */

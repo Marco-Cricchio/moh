@@ -1,4 +1,4 @@
-import { McpError } from "./errors";
+import { McpError } from "./types";
 import { JsonRpcConnection, type ServerHandlers } from "./json-rpc";
 
 /** #1254: an unconsumed partial line (a server that never emits a newline)
