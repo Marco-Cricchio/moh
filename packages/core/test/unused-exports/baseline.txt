@@ -20,7 +20,7 @@ packages/core/src/development-lane-service.ts LaneServiceOptions
 packages/core/src/development-lanes.ts CreateFeatureGroupInput
 packages/core/src/development-lanes.ts CreateLaneInput
 packages/core/src/extensions.ts ExtensionCommandRefusal
-packages/core/src/handoff-gist.ts DiscoverGistHandoffsOptions
+packages/core/src/handoff-transport.ts DiscoverGistHandoffsOptions
 packages/core/src/handoff-transport.ts PublishHandoffOptions
 packages/core/src/handoff-transport.ts PublishHandoffResult
 packages/core/src/mentions.ts AssembleMentionsOptions
