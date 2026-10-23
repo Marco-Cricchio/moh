@@ -291,7 +291,7 @@ export function routingQuestions(assignment: TierAssignment): Record<string, Jev
 }
 
 /** The tier a Choice answer named, or undefined when it is not a tier. */
-export function tierFromAnswer(choice: string | undefined): RoutingTier | undefined {
+function tierFromAnswer(choice: string | undefined): RoutingTier | undefined {
   return choice !== undefined && isTier(choice) ? choice : undefined;
 }
 
