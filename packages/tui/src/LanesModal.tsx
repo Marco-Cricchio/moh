@@ -2,7 +2,7 @@ import React, { useCallback, useMemo, useState } from "react";
 import { Text, useInput } from "ink";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
-import { DevelopmentLaneService, DevelopmentLaneStore, laneInstallLine, type DevelopmentLane, type FeatureGroup } from "@moh/core";
+import { DevelopmentLaneService, laneInstallLine, type DevelopmentLane, type FeatureGroup } from "@moh/core";
 import { homedir } from "node:os";
 import { useTheme } from "./themes";
 import { Dialog, Dim, truncate } from "./ui";
@@ -47,7 +47,7 @@ type Row =
   | { kind: "group"; weight: 1; group: FeatureGroup; laneCount: number }
   | { kind: "lane"; weight: 2; lane: DevelopmentLane };
 
-export interface LanesModalProps {
+interface LanesModalProps {
   /** Project root whose lane registry is inspected. */
   cwd: string;
   /** Home for the user-data registry (tests inject a temp home). */

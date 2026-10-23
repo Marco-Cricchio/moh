@@ -1,5 +1,4 @@
 import { describe, expect, test } from "bun:test";
-import React from "react";
 import { render } from "ink-testing-library";
 import { mkdtempSync } from "node:fs";
 import { execFileSync } from "node:child_process";
@@ -10,7 +9,7 @@ import { MockProvider } from "@moh/core";
 import { App } from "../src/App";
 import { settledBoundary } from "../src/Chat";
 import { projectTranscript } from "../src/transcript";
-import { stripAnsi } from "./helpers";
+import { sendPrompt, stripAnsi, waitStep } from "./helpers";
 import { DevelopmentLaneService } from "@moh/core";
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -180,10 +179,7 @@ describe("open-turn scrollback is scrollable mid-turn (#194)", () => {
     Object.defineProperty(ink.stdout, "columns", { value: 120, configurable: true });
     Object.defineProperty(ink.stdout, "rows", { value: 40, configurable: true });
     ink.rerender(app);
-    await sleep(30);
-    ink.stdin.write("check files");
-    await sleep(20);
-    ink.stdin.write("\r");
+    await sendPrompt(ink, "check files");
     // Poll (no fixed sleeps): the promoted tool block must be visible while
     // the turn is still pending — "thinking" rides the pending status bar.
     const deadline = Date.now() + 4000;
@@ -197,7 +193,7 @@ describe("open-turn scrollback is scrollable mid-turn (#194)", () => {
       await sleep(50);
     }
     expect(midTurn).toBeTruthy();
-    await sleep(1500);
+    await waitStep(ink, () => stripAnsi(ink.lastFrame() ?? "").includes("✓ done"), "the turn finished", { timeoutMs: 10_000 });
     const settled = stripAnsi(ink.lastFrame() ?? "");
     // After settle, exactly one promoted tool block — no Static duplication.
     expect(settled.split("looked for files").length - 1).toBe(1);
@@ -234,10 +230,7 @@ describe("live prose rows reach scrollback in reply order (#970)", () => {
     Object.defineProperty(ink.stdout, "columns", { value: 100, configurable: true });
     Object.defineProperty(ink.stdout, "rows", { value: 30, configurable: true });
     ink.rerender(app);
-    await sleep(40);
-    ink.stdin.write("explain the architecture");
-    await sleep(20);
-    ink.stdin.write("\r");
+    await sendPrompt(ink, "explain the architecture");
     // Poll: the turn ends a beat after the last delta lands.
     const deadline = Date.now() + 10_000;
     while (Date.now() < deadline && !stripAnsi(ink.lastFrame() ?? "").includes("done")) await sleep(50);
@@ -290,10 +283,7 @@ describe("the open tail paragraph reaches scrollback while it streams (#972)", (
     Object.defineProperty(ink.stdout, "columns", { value: 100, configurable: true });
     Object.defineProperty(ink.stdout, "rows", { value: 24, configurable: true });
     ink.rerender(app);
-    await sleep(40);
-    ink.stdin.write("explain");
-    await sleep(20);
-    ink.stdin.write("\r");
+    await sendPrompt(ink, "explain");
     const frames: string[] = [];
     const deadline = Date.now() + 20_000;
     while (Date.now() < deadline && !(stripAnsi(ink.frames.at(-1) ?? "").includes("PEND"))) {
@@ -355,11 +345,10 @@ describe("ADR-0060 decision: the first prompt never names the lane", () => {
     Object.defineProperty(ink.stdout, "columns", { value: 120, configurable: true });
     Object.defineProperty(ink.stdout, "rows", { value: 40, configurable: true });
     ink.rerender(app);
-    await sleep(30);
-    ink.stdin.write("se controlli i comandi bash che ho eseguito ce ne sono alcuni che non danno output");
-    await sleep(20);
-    ink.stdin.write("\r");
-    await sleep(1200);
+    await sendPrompt(ink, "se controlli i comandi bash che ho eseguito ce ne sono alcuni che non danno output");
+    // The prompt must really reach a finished turn: before #1471 it was typed
+    // before the composer mounted and this assertion passed vacuously.
+    await waitStep(ink, () => stripAnsi(ink.lastFrame() ?? "").includes("✓ done"), "the turn finished", { timeoutMs: 10_000 });
     const after = registry.listLanes().find((lane) => lane.id === laneId);
     expect(after?.label).toBe("team-chosen label");
     ink.unmount();

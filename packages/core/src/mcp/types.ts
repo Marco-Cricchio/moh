@@ -83,7 +83,7 @@ export function mcpToolName(server: string, tool: string): string {
  * Invalid entries are skipped: user chrome never hard-fails a session.
  * Reads go through the config guardian (ADR-0006).
  */
-export function loadUserMcpServers(file = userConfigFile()): Record<string, McpServerEntry> {
+function loadUserMcpServers(file = userConfigFile()): Record<string, McpServerEntry> {
   const servers = readUserConfigFile(file).mcpServers;
   if (typeof servers !== "object" || servers === null) return {};
   const out: Record<string, McpServerEntry> = {};
@@ -106,7 +106,7 @@ export function declaredUserMcpServers(file?: string): DeclaredMcpServer[] {
  * repository cannot write there: a `trusted: true` shipped in the
  * project's `moh.json` is ignored.
  */
-export const MCP_TRUST_SECTION = "mcpTrust";
+const MCP_TRUST_SECTION = "mcpTrust";
 
 /** Whether the user already consented "always" to this project server. */
 export function isProjectServerTrusted(file: string, projectPath: string, server: string): boolean {
@@ -131,4 +131,27 @@ export function persistProjectMcpTrust(file: string, projectPath: string, server
     section[key] = names;
     data[MCP_TRUST_SECTION] = section;
   });
+}
+
+/**
+ * The MCP error taxonomy. Distinct from provider errors: these classify
+ * transport/lifecycle failures of external tool sources. `handshake_timeout`
+ * is the categorized 10s-timeout failure mode.
+ */
+export type McpErrorKind =
+  | "start_failed" // process could not be spawned / endpoint unreachable
+  | "handshake_timeout" // initialize not answered within the budget
+  | "timeout" // post-handshake request timed out (e.g. tools/call)
+  | "crashed" // running server died or the connection broke
+  | "protocol" // well-formed transport, invalid MCP payloads
+  | "unavailable"; // used after a crash/stop without a manual restart
+
+export class McpError extends Error {
+  constructor(
+    readonly kind: McpErrorKind,
+    message: string,
+  ) {
+    super(message);
+    this.name = "McpError";
+  }
 }

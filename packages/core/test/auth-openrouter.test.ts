@@ -2,18 +2,16 @@ import { describe, expect, test } from "bun:test";
 import {
   OPENROUTER_OAUTH_DEFAULTS,
   OPENROUTER_API_BASE_URL,
-  OpenrouterLoginAborted,
   exchangeOpenrouterCode,
   loginOpenRouter,
   parseOpenrouterAuthorizationInput,
   resolveOpenrouterOAuthConfig,
-  type OpenrouterEndpointFetch,
 } from "../src/auth/openrouter";
-import { runSubscriptionLogin, isSubscriptionKind, SUBSCRIPTION_KINDS } from "../src/auth/lifecycle";
+import { isSubscriptionKind, SUBSCRIPTION_KINDS } from "../src/auth/lifecycle";
 import { resolveEndpointCredential } from "../src/auth/resolve";
 import { saveTokens, readAuthSection } from "../src/auth/store";
 import { Endpoint } from "../src/route";
-import type { AuthorizationIo } from "../src/auth/oauth";
+import { LoginAborted, type OAuthPostFetch as OpenrouterEndpointFetch, type AuthorizationIo } from "../src/auth/oauth";
 
 const NOW = 1_700_000_000_000;
 
@@ -96,7 +94,9 @@ describe("exchangeOpenrouterCode", () => {
 describe("loginOpenRouter", () => {
   test("declining the ToS aborts before any network I/O", async () => {
     const io: AuthorizationIo = { ask: async () => "n", info: async () => {} };
-    await expect(loginOpenRouter(io, { now: NOW })).rejects.toBeInstanceOf(OpenrouterLoginAborted);
+    const failure = await loginOpenRouter(io, { now: NOW }).catch((error: unknown) => error);
+    expect(failure).toBeInstanceOf(LoginAborted);
+    expect((failure as Error).name).toBe("OpenrouterLoginAborted");
   });
 
   test("headless paste path: pasted redirect URL exchanges into a key grant", async () => {

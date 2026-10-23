@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { discoverGistHandoffs, type GhCall, type GhRunner } from "../src/handoff-gist";
+import { discoverGistHandoffs, type GhCall, type GhRunner } from "../src/handoff-transport";
 
 function fakeGh(responses: Array<{ args: string[]; exitCode?: number; stdout?: string; stderr?: string }>): GhRunner & { calls: GhCall[] } {
   const calls: GhCall[] = [];

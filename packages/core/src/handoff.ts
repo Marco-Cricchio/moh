@@ -11,12 +11,15 @@
  * machine in T1. Publishing (secret gist) is the transport's job (T2+),
  * gated by moh.json `handoff.transport` (absent = Not Set = off).
  */
-import { renameSync, writeFileSync, mkdirSync } from "node:fs";
+import { mkdirSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { z } from "zod";
+import { gitSync } from "./git";
 import { projectSlug } from "./session-store";
 import type { AgentEvent } from "./types";
+import { writeFileAtomic, tempPidInfix } from "./fs-atomic";
+import { projectFrontier, type TrackerBackend } from "./tracker";
 
 /** moh.json `handoff` block. `transport` absent = "Not Set" = off.
  * "gist" activates the secret-gist transport (T2+); "none" is the
@@ -29,7 +32,7 @@ export const handoffConfigSchema = z.object({
   onboarding: z.enum(["dismissed", "reminded"]).optional(),
 });
 
-export type HandoffConfig = z.infer<typeof handoffConfigSchema>;
+type HandoffConfig = z.infer<typeof handoffConfigSchema>;
 
 /** True when the transport is configured and active. Absent/none = off. */
 export function transportActive(config: HandoffConfig | undefined): boolean {
@@ -49,17 +52,17 @@ export interface HandoffReference {
   updatedAt: string;
 }
 
-export type HandoffTicketRelation = "claimed" | "mentioned";
+type HandoffTicketRelation = "claimed" | "mentioned";
 
 /** A session-linked Wayfinder ticket, distilled from the event log. */
-export interface HandoffWayfinderLink {
+interface HandoffWayfinderLink {
   id: string;
   relations: HandoffTicketRelation[];
 }
 
 /** Read-only Wayfinder context attached at publish time. The raw links are
  * crash-safe local state; citations and frontier are a best-effort snapshot. */
-export interface HandoffWayfinderContext {
+interface HandoffWayfinderContext {
   tickets: Array<HandoffWayfinderLink & { title: string; url?: string }>;
   frontier: { ready: number; inProgress: number; blocked: number };
 }
@@ -108,10 +111,10 @@ export interface RawHandoff {
 }
 
 /** Caps: the artifact is a bridge, not a transcript. */
-export const MAX_FILES = 200;
-export const MAX_TESTS = 50;
-export const MAX_MESSAGE_CHARS = 4_000;
-export const MAX_USER_CHARS = 500;
+const MAX_FILES = 200;
+const MAX_TESTS = 50;
+const MAX_MESSAGE_CHARS = 4_000;
+const MAX_USER_CHARS = 500;
 
 /** Tool names whose args declare a touched file path. */
 const FILE_TOOLS = new Set(["write", "edit"]);
@@ -147,7 +150,7 @@ function ticketReferences(text: string): string[] {
 
 /** Links come only from model-visible messages and successful tracker claims:
  * tool results remain private and failed claims never become working state. */
-export function wayfinderLinksFromEvents(events: ReadonlyArray<AgentEvent>): HandoffWayfinderLink[] {
+function wayfinderLinksFromEvents(events: ReadonlyArray<AgentEvent>): HandoffWayfinderLink[] {
   const relations = new Map<string, Set<HandoffTicketRelation>>();
   const claims = new Map<string, string>();
   const add = (id: string, relation: HandoffTicketRelation) => {
@@ -172,32 +175,23 @@ export function wayfinderLinksFromEvents(events: ReadonlyArray<AgentEvent>): Han
 export function gitAnchor(cwd: string): HandoffGitAnchor {
   const anchor: HandoffGitAnchor = {};
   try {
-    const branch = Bun.spawnSync(["git", "-C", cwd, "branch", "--show-current"], {
-      stdout: "pipe",
-      stderr: "ignore",
-    });
+    const branch = gitSync(cwd, ["branch", "--show-current"], { dir: "-C", stderr: "ignore" });
     if (branch.exitCode === 0) {
-      const name = branch.stdout.toString().trim();
+      const name = branch.stdout.trim();
       if (name) anchor.branch = name;
     }
   } catch {
     // not a repo / git missing: no branch
   }
   try {
-    const head = Bun.spawnSync(["git", "-C", cwd, "rev-parse", "HEAD"], {
-      stdout: "pipe",
-      stderr: "ignore",
-    });
-    if (head.exitCode === 0 && head.stdout.toString().trim()) anchor.head = head.stdout.toString().trim();
+    const head = gitSync(cwd, ["rev-parse", "HEAD"], { dir: "-C", stderr: "ignore" });
+    if (head.exitCode === 0 && head.stdout.trim()) anchor.head = head.stdout.trim();
   } catch {
     // no HEAD (empty repo): absent, not fake
   }
   try {
-    const status = Bun.spawnSync(["git", "-C", cwd, "status", "--porcelain"], {
-      stdout: "pipe",
-      stderr: "ignore",
-    });
-    if (status.exitCode === 0) anchor.dirty = status.stdout.toString().trim().length > 0;
+    const status = gitSync(cwd, ["status", "--porcelain"], { dir: "-C", stderr: "ignore" });
+    if (status.exitCode === 0) anchor.dirty = status.stdout.trim().length > 0;
   } catch {
     // dirty stays unknown
   }
@@ -308,9 +302,7 @@ export class HandoffRunner {
       const dir = join(this.#file, "..");
       mkdirSync(dir, { recursive: true, mode: 0o700 });
       const handoff = buildRawHandoff(events, this.#sessionId, turns, this.#cwd, new Date(), undefined, this.#supersedes);
-      const tmp = `${this.#file}.${process.pid}.tmp`;
-      writeFileSync(tmp, `${JSON.stringify(handoff, null, 2)}\n`, { mode: 0o600 });
-      renameSync(tmp, this.#file);
+      writeFileAtomic(this.#file, `${JSON.stringify(handoff, null, 2)}\n`, { mode: 0o600, temp: tempPidInfix });
     } catch {
       // Fail-silent: the artifact is a bridge, never a turn dependency.
     }
@@ -326,4 +318,64 @@ export interface HandoffOptions {
   /** Client-owned best-effort callback after a successful `git push` bash tool call.
    * The core observes the command but never knows the transport or `gh`. */
   onGitPush?: () => void;
+}
+
+/*
+ * Session Handoff T6 (#439): read-only Wayfinder enrichment. Raw links
+ * are persisted by the post-turn runner; this module resolves their titles,
+ * URLs and the exact parent-map frontier only immediately before a manual
+ * or automatic publish. Failure deliberately leaves the raw handoff intact.
+ */
+
+/** Best-effort, read-only projection. No tracker operation here writes. */
+export async function enrichHandoffWithWayfinder(
+  handoff: RawHandoff,
+  tracker: TrackerBackend | null,
+): Promise<RawHandoff> {
+  if (!tracker || !handoff.wayfinderLinks?.length || !tracker.wayfinderSnapshot) return handoff;
+  try {
+    const snapshot = await tracker.wayfinderSnapshot(handoff.wayfinderLinks.map((link) => link.id));
+    if (!snapshot) return handoff;
+    const byId = new Map(snapshot.issues.map((issue) => [issue.id, issue]));
+    const tickets = handoff.wayfinderLinks.flatMap((link) => {
+      const issue = byId.get(link.id);
+      // Only Wayfinder tickets belonging to the single resolved map travel.
+      if (!issue || !issue.labels.some((label) => label.startsWith("wayfinder:"))) return [];
+      return [{ ...link, title: issue.title, ...(issue.url ? { url: issue.url } : {}) }];
+    });
+    if (!tickets.length) return handoff;
+    const frontier = projectFrontier(snapshot.issues);
+    return {
+      ...handoff,
+      wayfinder: {
+        tickets,
+        frontier: {
+          ready: frontier.ready.length,
+          inProgress: frontier.inProgress.length,
+          blocked: frontier.blocked.length,
+        },
+      },
+    };
+  } catch {
+    return handoff;
+  }
+}
+
+/** One deliberate tracker write path: called only by `moh handoff --notify-ticket`.
+ * Mentioned tickets are context only; only a successful claimed link is notified. */
+export async function notifyClaimedWayfinderTickets(
+  handoff: RawHandoff,
+  tracker: TrackerBackend | null,
+  handoffUrl: string,
+): Promise<number> {
+  if (!tracker?.comment || !handoff.wayfinder) return 0;
+  const claimed = handoff.wayfinder.tickets.filter((ticket) => ticket.relations.includes("claimed"));
+  const frontier = handoff.wayfinder.frontier;
+  const body = `moh session handoff published: ${handoffUrl}\n\nWayfinder frontier: ${frontier.ready} ready · ${frontier.inProgress} in progress · ${frontier.blocked} blocked.`;
+  let notified = 0;
+  for (const ticket of claimed) {
+    await tracker.comment(ticket.id, body);
+    notified += 1;
+  }
+  return notified;
 }

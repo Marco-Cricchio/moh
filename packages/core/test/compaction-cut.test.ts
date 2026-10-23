@@ -262,7 +262,7 @@ describe("dispatch through a runtime", () => {
         version: "0.0.1",
         apiVersion: "1.9",
         setup(ctx) {
-          ctx.onCompaction((c) => ({
+          ctx.onCompaction((_c) => ({
             drop: ["s0"],
             onApplied: (a) => applied.push(a),
           }));

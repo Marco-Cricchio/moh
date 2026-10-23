@@ -8,7 +8,6 @@ import { MockProvider, SessionStore, builtinTools, type AskUserQuestionSet, type
 import { AskUserBlock, askBlockMinRows, askUserBlockRows } from "../src/AskUserBlock";
 import { AskUserGate } from "../src/ask-user-gate";
 import { makeSession } from "../src/factory";
-import { projectTurns } from "../src/turns";
 import { toolArgSummary } from "../src/permission-gate";
 import { Chat } from "../src/Chat";
 import { COMPOSER_READY, stripAnsi, unwrap, waitForFrame } from "./helpers";
@@ -288,8 +287,12 @@ describe("ask_user inline block (ADR-0019 / #412)", () => {
     gate.resolve({ answers: [{ labels: ["Postgres"] }] });
     await sleep(300);
 
-    const turns = projectTurns(store.load());
-    const call = turns.flatMap((t) => t.toolCalls).find((c) => c.name === "ask_user")!;
+    const events = store.load();
+    const toolCall = events.find((e) => e.type === "tool_call" && e.name === "ask_user");
+    if (toolCall?.type !== "tool_call") throw new Error("no ask_user tool_call in the event log");
+    const toolResult = events.find((e) => e.type === "tool_result" && e.callId === toolCall.callId);
+    if (toolResult?.type !== "tool_result") throw new Error("no tool_result for the ask_user call");
+    const call = { args: toolCall.args, ok: toolResult.ok, output: toolResult.output };
     expect(toolArgSummary(call.args)).toBe("Which database should I use?");
     expect(call.ok).toBe(true);
     expect(call.output).toBe("Which database should I use?: Postgres");
@@ -467,7 +470,6 @@ async function mountChat(
   void session.send("ask me");
   // The session's own ask_user drives the gate — never pre-ask manually.
   const frame = () => stripAnsi(ink.lastFrame() ?? "");
-  const first = BIG_SET.questions[0]!.question;
   await waitForFrame(frame, set.questions[0]!.question, { timeoutMs: 4000 });
   await sleep(80); // let ink install the block's useInput handler
   return { ink, session, element };
@@ -637,7 +639,7 @@ describe("ask_user options window (#874)", () => {
 
   test("askUserBlockRows no longer scales with the option count past the window", () => {
     const few = askUserBlockRows([{ question: "q", options: [{}, {}, {}] }], 100);
-    const many = askUserBlockRows(MANY.questions.map((q) => ({ question: q.question, options: q.options.map((o) => ({ preview: undefined })) })), 100);
+    const many = askUserBlockRows(MANY.questions.map((q) => ({ question: q.question, options: q.options.map(() => ({ preview: undefined })) })), 100);
     // The reservation tracks the windowed screen (12 options × ~2 rows
     // with interleave + markers), not the raw option count: 30 options
     // reserve like ~12–13, not 30.

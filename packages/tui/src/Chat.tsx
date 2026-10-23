@@ -12,7 +12,7 @@ import { useViewport } from "./viewport";
 import { RAIL_MIN_ROWS, RAIL_WIDTH } from "./rail-layout";
 import { sanitizeLine, truncate, truncate as truncateText } from "./ui";
 import { advanceReveal, DEFAULT_REVEAL_SETTINGS, type RevealSettings } from "./reveal";
-import { MultilineInput, pasteAsPath, type ComposerHandle } from "./Input";
+import { MultilineInput, type ComposerHandle } from "./Input";
 import { BASE_COMMANDS, type CommandEntry } from "./commands";
 import { projectTranscript, assistantRunOrigin, closedPrefixLength, openBlockStableRows, TranscriptBlockView, userBlockRows, type TranscriptBlock } from "./transcript";
 import { updateToolTimings, type ToolTimings } from "./tool-timing";
@@ -23,13 +23,12 @@ import {
   useSubagentTails,
   useVisibleSubagents,
   subagentGlyph,
-  type TrackedSubagent,
 } from "./subagent-panel";
 import { SubagentPanel } from "./SubagentPanel";
 import { AskUserBlock, askBlockMinRows, askUserBlockRows } from "./AskUserBlock";
 import type { AskUserGate } from "./ask-user-gate";
 import { useGitBranch } from "./git-branch";
-import { bangActiveTurnRefusal, parseBangCommand, stripBangEscape, type BangCommand } from "./bang-command";
+import { bangActiveTurnRefusal, parseBangCommand, type BangCommand } from "./bang-command";
 import type { SidebarTokens } from "./sidebar";
 
 
@@ -62,7 +61,7 @@ const EMPTY_TOKENS: SidebarTokens = { contextIn: 0, totalOut: 0, calls: 0 };
  * would defeat the footer's memo comparison on every keystroke. */
 const EMPTY_EXTENSION_STATUSES: ExtensionStatus[] = [];
 
-export interface ChatProps {
+interface ChatProps {
   session: AgentSession;
   /** Working root (branch label + filesystem chrome read from here). */
   cwd: string;
@@ -250,7 +249,6 @@ export function Chat({
   bufferFlipPending = false,
   focusedSubagent = null,
   panelSubagent = null,
-  onToggleSubagentPanel,
   reveal,
   branch,
   displayCwd,
@@ -1396,7 +1394,7 @@ export interface ReasoningHeadChain {
  * how many of its lines they cover, and where they sit in the Static items —
  * the settled block prints only the remainder, so a long reasoning stream
  * lands in scrollback exactly once. */
-export type SealedReasoningHead = Omit<ReasoningHeadChain, "key" | "reset">;
+type SealedReasoningHead = Omit<ReasoningHeadChain, "key" | "reset">;
 
 /** One #329 promotion step. Pure: takes the current chain and the leading
  * thinking block (key + lines), returns the advanced chain. Only lines past

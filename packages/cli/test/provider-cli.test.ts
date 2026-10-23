@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { AuthToken, ConnectionTester, EndpointProfile, OnboardingIo } from "@moh/core";
 import { providerCommand, PROVIDER_USAGE } from "../src/provider";
-import type { SubscriptionLogin } from "@moh/core";
+import type { SubscriptionLogin } from "../../core/src/auth/lifecycle";
 
 const dirs: string[] = [];
 function tmp(): string {
@@ -48,7 +48,7 @@ async function run(
 }
 
 /** Scripted wizard IO: subscription login always "succeeds" with a fake token. */
-function wizardIo(answers: string[], token: AuthToken): OnboardingIo & { said: string[] } {
+function wizardIo(answers: string[], _token: AuthToken): OnboardingIo & { said: string[] } {
   const said: string[] = [];
   let i = 0;
   return {
@@ -312,5 +312,32 @@ describe("moh provider fallback (ADR-0012 preferred model)", () => {
     expect(r.out).toContain("fallback: 📌 glm-5.3-flash");
     expect(r.out).toContain("fallback: —");
     expect(r.out).toContain("(no preferred model set)");
+  });
+});
+
+describe("moh provider status expiry wording (characterization, #1437)", () => {
+  async function statusWith(token: Record<string, unknown>): Promise<string> {
+    const cwd = tmp();
+    const home = fakeHome();
+    const eps: EndpointProfile[] = [
+      { name: "anthropic", type: "anthropic", defaultModel: "claude-sonnet-4-5", auth: { kind: "subscription" } },
+    ];
+    writeFileSync(join(cwd, "moh.json"), JSON.stringify({ provider: "mock", endpoints: eps }));
+    writeFileSync(join(home, ".moh", "config"), JSON.stringify({ auth: { tokens: { anthropic: { accessToken: "acc", updatedAt: 1, ...token } } } }));
+    const r = await run(["status"], { cwd, home });
+    expect(r.code).toBe(0);
+    return r.out;
+  }
+
+  test("a token without an expiry says so", async () => {
+    expect(await statusWith({})).toContain("no expiry recorded");
+  });
+
+  test("a long-expired token reports minutes since expiry", async () => {
+    expect(await statusWith({ expiresAt: 1 })).toMatch(/expired \d+ min ago/);
+  });
+
+  test("a far-future token reports hours until expiry", async () => {
+    expect(await statusWith({ expiresAt: Date.now() + 10 * 3600_000 + 60_000 })).toMatch(/expires in (9|10) h/);
   });
 });

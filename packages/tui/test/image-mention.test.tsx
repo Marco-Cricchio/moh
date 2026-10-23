@@ -5,11 +5,9 @@
  * environment, and the fallback chip is the universal text marker.
  */
 import { describe, expect, test } from "bun:test";
-import React from "react";
 import { render } from "ink-testing-library";
 import { MultilineInput, pasteAsPath } from "../src/Input";
 import { detectPreviewMode, emitImage, imageChip } from "../src/image-preview";
-import { stripAnsi } from "./helpers";
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 

@@ -1,5 +1,4 @@
 import { describe, expect, test } from "bun:test";
-import React from "react";
 import { render } from "ink-testing-library";
 import { existsSync, readFileSync } from "node:fs";
 import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
@@ -7,13 +6,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { loadMohConfig } from "@moh/core";
 import { Onboarding } from "../src/OnboardingOverlay";
-import { stripAnsi } from "./helpers";
+import { stripAnsi, waitText } from "./helpers";
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const tempHome = () => mkdtempSync(join(tmpdir(), "moh-obt-home-"));
 const tempCwd = () => mkdtempSync(join(tmpdir(), "moh-obt-"));
 const okTester = async () => ({ ok: true as const, modelId: "tested" });
-const failTester = async () => ({ ok: false as const, error: "HTTP 401 unauthorized" });
 
 function typeInto(i: ReturnType<typeof render>, text: string) {
   i.stdin.write(text);
@@ -466,6 +464,37 @@ describe("OpenCode onboarding (#794)", () => {
     expect(config.endpoints?.map((profile) => profile.name)).toEqual(["opencode-zen", "opencode-go"]);
     expect(JSON.stringify(config)).not.toContain("key-794");
     expect(readFileSync(join(home, ".moh", "config"), "utf8")).toContain("key-794");
+    i.unmount();
+  });
+
+  test("the stored OpenCode keys are bound to their endpoint identity in the user config (#1434)", async () => {
+    const cwd = tempCwd();
+    const home = tempHome();
+    const done: (string | null)[] = [];
+    const i = render(<Onboarding
+      cwd={cwd}
+      home={home}
+      env={{}}
+      tester={async (profile) => ({ ok: true as const, modelId: profile.defaultModel! })}
+      openUrl={async () => false}
+      onDone={(ref) => done.push(ref)}
+    />);
+    await waitText(i, "Pick a provider type", "provider type list");
+    for (let n = 0; n < 8; n++) i.stdin.write("\x1b[B");
+    i.stdin.write("\r");
+    await waitText(i, "OpenCode product", "OpenCode product picker");
+    i.stdin.write("\x1b[B\x1b[B\r");
+    await waitText(i, "API key", "OpenCode key field");
+    typeInto(i, "key-1434");
+    await waitText(i, "********", "typed key echoed (masked)");
+    i.stdin.write("\r");
+    await waitText(i, "Where should", "save-scope chooser");
+    const auth = JSON.parse(readFileSync(join(home, ".moh", "config"), "utf8")).auth;
+    expect(auth.apiKeys).toEqual({ "opencode-zen": "key-1434", "opencode-go": "key-1434" });
+    expect(auth.apiKeyOrigins).toEqual({
+      "opencode-zen": { type: "opencode", baseUrl: "https://opencode.ai/zen/v1" },
+      "opencode-go": { type: "opencode", baseUrl: "https://opencode.ai/zen/go/v1" },
+    });
     i.unmount();
   });
 });

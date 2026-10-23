@@ -9,10 +9,16 @@ dist/
 prototype/
 /research/
 research-*/
-AGENTS.md
-docs/agents/
 docs/spec/
 docs/research/
+
+# Agent docs: AGENTS.md (+ CLAUDE.md, which imports it) and the three
+# companion files `moh init` scaffolds are tracked, so every clone and every
+# git worktree carries the agent rules. Drafts and other notes stay local.
+docs/agents/*
+!docs/agents/issue-tracker.md
+!docs/agents/triage-labels.md
+!docs/agents/domain.md
 
 # Private vision notes (never commit to the official repository)
 docs/vision/
@@ -20,3 +26,4 @@ docs/vision/
 __pycache__/
 .moh-test-*.log
 .tmp-home-compact-*.bin
+.tmp-prompt-*/

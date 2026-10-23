@@ -16,6 +16,12 @@ export interface PtySpec {
   meta?: boolean;
   /** Optional project moh.json written to the temp cwd. */
   project?: Record<string, unknown>;
+  /** Harness budget override (default 45s): long key-sequence scripts
+   * (ablation B5 overlay walks) need more than one modal cycle. */
+  timeoutMs?: number;
+  /** Ablation B5: write a bare project moh.json (no default `handoff`
+   * key), so the first-project handoff offer can trigger. */
+  bareProject?: boolean;
   /** Optional path to dump the raw PTY byte stream. */
   rawDump?: string;
   /** Extra environment variables for the child (#490 image-preview
@@ -27,6 +33,15 @@ export interface PtySpec {
   /** #1023: number of seeded existing sessions in the temp project's
    * session directory, so the Home list has rows. */
   seedSessions?: number;
+  /** Ablation B5: seed the #1217 stranded-data state — a declared
+   * `.moh/project.json` identity whose live directory holds a
+   * `stranded-data.json` record plus a source directory with data — so
+   * Home's warning row and the resolution overlay are reachable. */
+  seedStranded?: boolean;
+  /** Ablation B5 (stranded): use fixed temp home/cwd names — the frames
+   * under test print absolute paths that wrap, and a random mkdtemp
+   * suffix would leak into the normalized frames at the wrap points. */
+  fixedTempNames?: boolean;
   /** `checkpoint` snapshots physical screen + native scrollback after this
    * step, letting one script assert a mid-stream viewport and final settle. */
   steps: ReadonlyArray<{ wait?: number; send?: string; until?: string; untilOnScreen?: boolean; untilFromBuffer?: boolean; checkpoint?: string; mark?: boolean; markEnd?: boolean }>;
@@ -49,6 +64,9 @@ export async function runPty(spec: PtySpec): Promise<PtyLine[]> {
 
 export interface PtyMeta {
   lines: PtyLine[];
+  /** The harness's temp home/cwd (B5 frame normalization). */
+  home?: string;
+  cwd?: string;
   /** Rows that left the main screen through native terminal scrolling. */
   scrollback?: string[];
   exited: boolean;
@@ -91,14 +109,14 @@ export async function runPtyRaw(spec: PtySpec): Promise<PtyMeta> {
     stderr: "pipe",
   });
   let timedOut = false;
-  const timer = setTimeout(() => { timedOut = true; proc.kill("SIGKILL"); }, 45_000);
+  const timer = setTimeout(() => { timedOut = true; proc.kill("SIGKILL"); }, spec.timeoutMs ?? 45_000);
   const [stdout, stderr, exitCode] = await Promise.all([
     new Response(proc.stdout).text(),
     new Response(proc.stderr).text(),
     proc.exited,
   ]);
   clearTimeout(timer);
-  if (timedOut) throw new Error("pty harness timed out after 45000ms");
+  if (timedOut) throw new Error(`pty harness timed out after ${spec.timeoutMs ?? 45_000}ms`);
   if (exitCode !== 0) {
     throw new Error(`pty harness failed (${exitCode}): ${stderr}`);
   }

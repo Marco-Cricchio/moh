@@ -19,11 +19,11 @@
  * `CONTEXT_REFUSAL_MAX_ENTRIES` distinct wordings, the oldest-evicted
  * first. Writing it is fail-silent and can never affect a turn.
  */
-import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { join } from "node:path";
+import { boundedLog } from "./bounded-log";
 
 /** File name inside the user's moh home. */
-export const CONTEXT_REFUSALS_FILE = "context-refusals.log";
+const CONTEXT_REFUSALS_FILE = "context-refusals.log";
 /** Distinct refusal wordings kept; beyond this the oldest (`last`) goes. */
 export const CONTEXT_REFUSAL_MAX_ENTRIES = 50;
 /** Chars of the provider's own text kept per entry. The provider states
@@ -32,7 +32,7 @@ export const CONTEXT_REFUSAL_MAX_ENTRIES = 50;
  * text under its own 300-character bound — `ProviderError.message`). */
 export const CONTEXT_REFUSAL_EXCERPT_CHARS = 300;
 
-export interface ContextRefusalTraceEntry {
+interface ContextRefusalTraceEntry {
   /** ISO date of the first sighting. */
   at: string;
   /** ISO date of the most recent sighting. */
@@ -72,34 +72,19 @@ function wordingKey(entry: Pick<ContextRefusalTraceEntry, "endpoint" | "model" |
   return `${entry.endpoint ?? ""}\u0000${entry.model}\u0000${entry.message.replace(/\d{3,}/g, "#")}`;
 }
 
-function readEntries(file: string): ContextRefusalTraceEntry[] {
-  if (!existsSync(file)) return [];
-  try {
-    const entries: ContextRefusalTraceEntry[] = [];
-    for (const line of readFileSync(file, "utf8").split("\n")) {
-      const trimmed = line.trim();
-      if (!trimmed) continue;
-      try {
-        const parsed = JSON.parse(trimmed) as Partial<ContextRefusalTraceEntry>;
-        if (typeof parsed?.message === "string" && typeof parsed?.model === "string" && typeof parsed?.count === "number") {
-          entries.push({
-            at: typeof parsed.at === "string" ? parsed.at : "",
-            last: typeof parsed.last === "string" ? parsed.last : "",
-            ...(typeof parsed.endpoint === "string" ? { endpoint: parsed.endpoint } : {}),
-            model: parsed.model,
-            message: parsed.message,
-            count: parsed.count,
-          });
-        }
-      } catch {
-        // A torn or hand-edited line is skipped, never fatal: this file is
-        // a diagnostic, and losing one line cannot lose a turn.
-      }
-    }
-    return entries.slice(-CONTEXT_REFUSAL_MAX_ENTRIES);
-  } catch {
-    return [];
+function validateEntry(raw: unknown): ContextRefusalTraceEntry | undefined {
+  const parsed = raw as Partial<ContextRefusalTraceEntry>;
+  if (typeof parsed?.message === "string" && typeof parsed?.model === "string" && typeof parsed?.count === "number") {
+    return {
+      at: typeof parsed.at === "string" ? parsed.at : "",
+      last: typeof parsed.last === "string" ? parsed.last : "",
+      ...(typeof parsed.endpoint === "string" ? { endpoint: parsed.endpoint } : {}),
+      model: parsed.model,
+      message: parsed.message,
+      count: parsed.count,
+    };
   }
+  return undefined;
 }
 
 /**
@@ -123,37 +108,31 @@ export function noteUnrecognizedContextRefusal(input: {
   };
   try {
     const file = contextRefusalsFile(input.home);
-    const entries = readEntries(file);
     const key = wordingKey(entry);
-    const existing = entries.find((candidate) => wordingKey(candidate) === key);
-    if (existing) {
-      existing.count += 1;
-      existing.last = stamp;
-    } else {
-      entries.push({
-        at: stamp,
-        last: stamp,
-        ...(entry.endpoint ? { endpoint: entry.endpoint } : {}),
-        model: entry.model,
-        message: entry.message,
-        count: 1,
-      });
-    }
-    const kept = entries.length > CONTEXT_REFUSAL_MAX_ENTRIES
-      ? [...entries].sort((a, b) => (a.last < b.last ? 1 : a.last > b.last ? -1 : 0)).slice(0, CONTEXT_REFUSAL_MAX_ENTRIES)
-      : entries;
-    writeEntries(file, kept);
+    boundedLog<ContextRefusalTraceEntry>(file, {
+      max: CONTEXT_REFUSAL_MAX_ENTRIES,
+      validate: validateEntry,
+      update: (entries) => {
+        const existing = entries.find((candidate) => wordingKey(candidate) === key);
+        if (existing) {
+          existing.count += 1;
+          existing.last = stamp;
+        } else {
+          entries.push({
+            at: stamp,
+            last: stamp,
+            ...(entry.endpoint ? { endpoint: entry.endpoint } : {}),
+            model: entry.model,
+            message: entry.message,
+            count: 1,
+          });
+        }
+        return entries;
+      },
+      evict: "recency",
+    });
   } catch {
     // Diagnostics never block: an unwritable home (read-only, permissions)
     // leaves the refusal in the session log, exactly as before.
   }
-}
-
-function writeEntries(file: string, entries: readonly ContextRefusalTraceEntry[]): void {
-  const dir = dirname(file);
-  mkdirSync(dir, { recursive: true, mode: 0o700 });
-  const body = entries.map((entry) => JSON.stringify(entry)).join("\n");
-  const tmp = `${file}.tmp-${process.pid}`;
-  writeFileSync(tmp, body ? `${body}\n` : "", { mode: 0o600 });
-  renameSync(tmp, file);
 }

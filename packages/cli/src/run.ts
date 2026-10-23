@@ -105,7 +105,7 @@ export function headlessConfirm(stderr: { write(s: string): void }): {
   };
 }
 
-export interface RunOptions {
+interface RunOptions {
   argv: string[];
   cwd?: string;
   /** Isolated home for tests; defaults to the real user home. */

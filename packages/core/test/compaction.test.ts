@@ -7,8 +7,7 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { mkdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
-import { AgentSession, MockProvider, createSession } from "../src/index";
-import { ProviderRegistry } from "../src/provider-registry";
+import { MockProvider, createSession } from "../src/index";
 import {
   CompactionRunner,
   FALLBACK_CONTEXT_WINDOW,
@@ -60,7 +59,7 @@ function legalBoundariesOk(events: AgentEvent[], start: number): boolean {
   return first === "user_message" || first === "assistant_delta" || first === "reasoning" || first === "tool_call";
 }
 
-function runner(events: AgentEvent[], summarizer: CompactionSummarizer = scriptedSummarizer, window?: number) {  const appended: AgentEvent[] = [];
+function runner(_events: AgentEvent[], summarizer: CompactionSummarizer = scriptedSummarizer, window?: number) {  const appended: AgentEvent[] = [];
   const r = new CompactionRunner({
     sessionId: "session-test",
     provider: () => MockProvider.scripted([{ deltas: ["x"], finish: "stop" }]),
@@ -754,5 +753,29 @@ describe("#766: the marker records the serving summarizer", () => {
     expect(result.ok).toBe(true);
     const marker = appended.find((e) => e.type === "compaction")!;
     expect((marker as { summarizer?: string }).summarizer).toBeUndefined();
+  });
+});
+
+describe("deterministic digest list cap (characterization, #1437)", () => {
+  const base = compactionFacts(coveredSpan(), indicesFor(coveredSpan(), 0), coveredSpan().length);
+  const files = (n: number) => Array.from({ length: n }, (_, i) => `src/f${i}.ts`);
+  const render = (filesModified: string[]) =>
+    renderDeterministicDigest({ transcript: "", facts: { ...base, filesModified } });
+
+  test("a list longer than the cap shows the first 40 and counts the rest", () => {
+    const digest = render(files(45));
+    expect(digest).toContain("- src/f39.ts");
+    expect(digest).not.toContain("- src/f40.ts");
+    expect(digest).toContain("- (…and 5 more)");
+  });
+
+  test("a list exactly at the cap shows everything without a remainder line", () => {
+    const digest = render(files(40));
+    expect(digest).toContain("- src/f39.ts");
+    expect(digest).not.toContain("more)");
+  });
+
+  test("an empty list renders (none)", () => {
+    expect(render([])).toContain("## Files modified\n\n- (none)");
   });
 });

@@ -1,8 +1,7 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { tailChildLog, type ChildTailLine } from "@moh/core";
 import type { AgentEvent, AgentSession } from "@moh/core";
 import { useSidebarState } from "./session-bridge";
-import { sanitizeLine } from "./ui";
 
 /**
  * Subagent chips + live panel data (#497, vision note 25). Pure data:
@@ -76,7 +75,7 @@ export function trackSubagents(events: ReadonlyArray<AgentEvent>): TrackedSubage
 export const PANEL_TAIL_LINES = 8;
 /** Settled chrome is intentionally ephemeral: its static transcript block
  * remains permanent, but the chip and peek leave after this grace window. */
-export const SETTLED_SUBAGENT_GRACE_MS = 30_000;
+const SETTLED_SUBAGENT_GRACE_MS = 30_000;
 
 /** One live view of a child: accumulated tail lines + activity. */
 export interface SubagentTail {
@@ -101,7 +100,6 @@ export function useSubagentTails(subagents: TrackedSubagent[]): Map<string, Suba
   const [tails, setTails] = useState<Map<string, SubagentTail>>(new Map());
   // trackSubagents/useVisibleSubagents return fresh arrays every render.
   // The effect must not restart its poll timer after every tail repaint.
-  const signature = subagents.map((sub) => `${sub.callId}:${sub.status}:${sub.log}`).join("|");
   // Offsets and accumulated lines live in a ref: they persist across polls
   // without re-rendering, and keyed renders read only the snapshot state.
   const stateRef = useRef(new Map<string, { offset: number; tail: SubagentTail }>());
@@ -254,12 +252,6 @@ export function subagentGlyph(sub: TrackedSubagent, tail: SubagentTail | undefin
   return isStalled(sub, tail, now) ? "⏸" : "◐";
 }
 
-/** (Deprecated) former split-layout thresholds — kept only because the
- * owner's revision removed the split entirely; the peek is now the only
- * layout. Kept exported for one release so clients importing them don't
- * break; do not use in new code. */
-export const PANEL_MIN_COLUMNS = 100;
-
 /** (Deprecated) former split-layout width; unused since the split was
  * removed. Kept exported for one release. */
 export function panelWidth(columns: number): number {
@@ -274,7 +266,7 @@ export function formatElapsed(ms: number): string {
 }
 
 /** Human-readable state label for the panel header ("running"/"stalled"/…). */
-export function subagentStateLabel(sub: TrackedSubagent, tail: SubagentTail | undefined, now: number): string {
+function subagentStateLabel(sub: TrackedSubagent, tail: SubagentTail | undefined, now: number): string {
   if (sub.status !== "running") return sub.status;
   return isStalled(sub, tail, now) ? "stalled" : "running";
 }

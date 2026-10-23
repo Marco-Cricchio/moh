@@ -47,6 +47,7 @@ import { homedir } from "node:os";
 import type { CatalogModel } from "./model-catalog";
 import { subscriptionModelCatalog } from "./model-catalog";
 import { providerProfile } from "./provider-profiles";
+import { PROVIDER_KINDS } from "./provider-kinds";
 import { OAUTH_BUILTIN_BASE_URLS } from "./wire";
 import { CHATGPT_CODEX_BASE_URL, CHATGPT_CODEX_ORIGINATOR } from "./auth/openai";
 import { ANTHROPIC_OAUTH_BETA } from "./auth/anthropic";
@@ -63,7 +64,7 @@ export interface LiveModelListing {
 }
 
 /** Injectable fetch seam (tests). */
-export type ListingFetch = (url: string, headers: Record<string, string>) => Promise<{ status: number; json: unknown }>;
+type ListingFetch = (url: string, headers: Record<string, string>) => Promise<{ status: number; json: unknown }>;
 
 /**
  * The `client_version` the Codex backend requires on its model listing.
@@ -223,23 +224,7 @@ const codexHeaders = (credential?: string) => ({ ...ACCEPT, ...(credential ? { A
  * code, not fifteen: the base URL is the profile's documented default,
  * or the endpoint's own configured URL.
  */
-const OPENAI_LISTING_PROFILES = [
-  "zai",
-  "deepseek",
-  "groq",
-  "cerebras",
-  "nvidia-nim",
-  "together",
-  "fireworks",
-  "huggingface",
-  "mistral",
-  "moonshot",
-  "minimax",
-  "qwen",
-  "xiaomi-mimo",
-  "vercel-ai-gateway",
-  "cloudflare-ai-gateway",
-] as const;
+const OPENAI_LISTING_PROFILES = PROVIDER_KINDS.filter((row) => "liveListing" in row && row.liveListing === "openai").map((row) => row.kind);
 
 /** OAuth providers whose base URL is a protocol constant rather than a
  * provider profile (#726 profiles carry their own documented default). */
@@ -325,7 +310,7 @@ function listingBase(kind: string, endpointName: string, endpointBaseUrl: string
  * store; a stale token degrades to the static list, same as an error).
  * `subscription` marks a credential resolved from the token store: the
  * header shape differs (Bearer vs x-api-key for Anthropic). */
-function listingCredential(kind: string, endpointName: string, inlineApiKey: string | undefined, configFile: string): { credential: string | undefined; subscription: boolean } {
+function listingCredential(_kind: string, endpointName: string, inlineApiKey: string | undefined, configFile: string): { credential: string | undefined; subscription: boolean } {
   if (inlineApiKey) return { credential: inlineApiKey, subscription: false };
   const section = readAuthSection(configFile);
   const token = section.tokens[endpointName];
@@ -452,7 +437,7 @@ export function mergeLiveCatalog(shipped: CatalogModel[], live: LiveModelListing
 
 // ── user config (`~/.moh/config`, `liveModels` section) ─────────────────
 
-export interface LiveModelsConfig {
+interface LiveModelsConfig {
   /** Default true. `false` restores fully static behavior. */
   enabled?: boolean;
   /** Cache TTL in hours. Default 24. */
@@ -578,7 +563,7 @@ export function freshCacheEntries(
   return out;
 }
 
-export interface FetchLiveCatalogsOptions {
+interface FetchLiveCatalogsOptions {
   mohHome?: string;
   configFile?: string;
   cacheFile?: string;
@@ -595,7 +580,7 @@ export interface FetchLiveCatalogsOptions {
  * old bare projection could not carry: a list you are seeing is one of
  * these five things, and only the first is a refresh you just performed.
  */
-export type LiveCatalogStatus =
+type LiveCatalogStatus =
   /** The provider answered this run; a fresh cache entry was written. */
   | { kind: "fresh" }
   /** A cache entry within its TTL; no network call was made. This is the
@@ -612,7 +597,7 @@ export type LiveCatalogStatus =
   | { kind: "unsupported" };
 
 /** One endpoint's outcome: the status, plus the listing it is a status of. */
-export interface LiveCatalogResult {
+interface LiveCatalogResult {
   /** Live-only models to overlay on the shipped catalog (empty for
    * `failed` and `unsupported`). */
   models: LiveModelListing[];

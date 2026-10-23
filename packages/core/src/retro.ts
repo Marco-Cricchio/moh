@@ -21,13 +21,14 @@
  * (ADR-0058). Writing is fail-silent and can never fail a dispose.
  */
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync, renameSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { z } from "zod";
 import { redactString } from "./redact";
 import { projectSlug } from "./session-store";
 import type { AgentEvent } from "./types";
+import { writeFileAtomic, tempPidSuffix } from "./fs-atomic";
 
 /** moh.json `retro` block; `retro.enabled: false` disables everything. */
 export const retroConfigSchema = z.object({
@@ -64,12 +65,12 @@ export interface RetroCandidate {
 /** Distinct findings kept; beyond this the oldest (`appendedAt`) goes. */
 export const RETRO_MAX_FINDINGS = 200;
 /** Chars of evidence kept per finding (the session log holds the rest). */
-export const RETRO_EVIDENCE_CHARS = 300;
+const RETRO_EVIDENCE_CHARS = 300;
 /** Digest cadence (ADR-0075): at most one per 48 hours. */
 export const RETRO_DIGEST_INTERVAL_MS = 48 * 60 * 60 * 1000;
 /** Repeated dismissals raise a category's bar (ADR-0075): each dismissal
  * adds this to the minimum confidence that category must clear. */
-export const RETRO_THRESHOLD_STEP = 0.05;
+const RETRO_THRESHOLD_STEP = 0.05;
 /** The bar a category can never exceed — beyond it extraction would be
  * silent rather than selective. */
 export const RETRO_THRESHOLD_CAP = 0.9;
@@ -110,7 +111,7 @@ interface JudgmentState {
   lastSkipAt?: string;
 }
 
-export interface RetroDismissal {
+interface RetroDismissal {
   signature: string;
   category: string;
   dismissedAt: string;
@@ -417,19 +418,15 @@ export class RetroStore {
   }
 
   #writeFindings(findings: ReadonlyArray<RetroFinding>): void {
-    mkdirSync(this.dir, { recursive: true, mode: 0o700 });
-    let mode = 0o600;
-    try { mode = statSync(this.findingsFile).mode & 0o777; } catch { /* new file */ }
-    const tmp = `${this.findingsFile}.tmp-${process.pid}`;
-    writeFileSync(tmp, findings.map((f) => JSON.stringify(f)).join("\n") + "\n", { mode });
-    renameSync(tmp, this.findingsFile);
+    writeFileAtomic(this.findingsFile, findings.map((f) => JSON.stringify(f)).join("\n") + "\n", {
+      mode: "preserve",
+      mkdir: { mode: 0o700 },
+      temp: tempPidSuffix,
+    });
   }
 
   #writeAtomic(file: string, body: string): void {
-    mkdirSync(this.dir, { recursive: true, mode: 0o700 });
-    const tmp = `${file}.tmp-${process.pid}`;
-    writeFileSync(tmp, body, { mode: 0o600 });
-    renameSync(tmp, file);
+    writeFileAtomic(file, body, { mode: 0o600, mkdir: { mode: 0o700 }, temp: tempPidSuffix });
   }
 }
 
@@ -441,9 +438,9 @@ const REPEAT_THRESHOLD = 3;
 /** Timed-out tool calls before the timeout pattern fires. */
 const TIMEOUT_THRESHOLD = 2;
 
-function head(text: string, max = 120): string {
+function head(text: string): string {
   const one = text.replace(/\s+/g, " ").trim();
-  return one.length > max ? `${one.slice(0, max - 1)}…` : one;
+  return one.length > 120 ? `${one.slice(0, 120 - 1)}…` : one;
 }
 
 /**

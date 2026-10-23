@@ -2,10 +2,10 @@ import { describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { cloneHandoffRepo, isColdDirectory, pullHandoffTo, type GitCall, type GitRunner } from "../src/handoff-coldstart";
+import { cloneHandoffRepo, isColdDirectory, pullHandoffTo, type GitCall, type GitRunner } from "../src/handoff-reception";
 import { legacyProjectSlug } from "../src/project-identity";
 import { resolve as pathResolve } from "node:path";
-import type { GhCall, GhRunner } from "../src/handoff-gist";
+import type { GhCall, GhRunner } from "../src/handoff-transport";
 
 function payload(overrides: Record<string, unknown> = {}) {
   return {
@@ -166,7 +166,7 @@ describe("gh integration contract", () => {
   test("the scan's fetched payload satisfies pullHandoffTo directly", async () => {
     // Pins the seam between #594 discovery and the #595 pull: one payload
     // object flows from scan → wizard → import without reshaping.
-    const gh: GhRunner = async (call: GhCall) => ({ exitCode: 0, stdout: JSON.stringify(payload({ author: "marco" })), stderr: "" });
+    const gh: GhRunner = async (_call: GhCall) => ({ exitCode: 0, stdout: JSON.stringify(payload({ author: "marco" })), stderr: "" });
     const clone = mkdtempSync(join(tmpdir(), "moh-seam-"));
     const home = join(clone, "home");
     mkdirSync(join(home, ".moh"), { recursive: true });

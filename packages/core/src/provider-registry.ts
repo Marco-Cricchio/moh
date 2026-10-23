@@ -8,9 +8,10 @@ import { MockProvider } from "./mock-provider";
 import { EchoProvider } from "./echo-provider";
 import { Endpoint, createRoute, resolveApiKey, type ProviderKind, type RouteTarget } from "./route";
 import { providerProfile } from "./provider-profiles";
+import { PROVIDER_KINDS } from "./provider-kinds";
 import type { EndpointProfile, MohConfig } from "./config";
 import type { Provider, StreamOptions } from "./types";
-import { OAUTH_BUILTIN_BASE_URLS, isOAuthBuiltinKind, type OAuthBuiltinKind } from "./wire";
+import { OAUTH_BUILTIN_BASE_URLS, type OAuthBuiltinKind } from "./wire";
 import { catalogEntryFor } from "./model-catalog";
 import { contextFitFor } from "./context-fit";
 import type { DeclaredWindowLookup } from "./declared-window";
@@ -19,14 +20,14 @@ import { getStoredApiKey } from "./auth/store";
 import { userConfigFile } from "./user-config";
 
 /** Options a custom provider factory receives from an endpoint profile. */
-export interface ProviderFactoryOptions {
+interface ProviderFactoryOptions {
   apiKey?: string;
   baseUrl?: string;
   modelId?: string;
 }
 
 /** A custom provider implementation: returns a single-shot Provider. */
-export type ProviderFactory = (options: ProviderFactoryOptions) => Provider;
+type ProviderFactory = (options: ProviderFactoryOptions) => Provider;
 
 /**
  * Immutable snapshot of a registry. What AgentSession holds: taken at
@@ -101,19 +102,7 @@ function splitRef(ref: string): { name: string; modelId: string | undefined } {
   return { name: ref.slice(0, slash), modelId: modelId === "" ? undefined : modelId };
 }
 
-const BUILTIN_KINDS = new Set([
-  "anthropic",
-  "openai",
-  "google",
-  // ADR-0010 (#159): the four new OAuth providers are builtin kinds.
-  "github-copilot",
-  "openrouter",
-  "kimi-coding",
-  "xai",
-  "deepseek", "groq", "cerebras", "nvidia-nim", "together", "fireworks", "huggingface", "mistral",
-  "moonshot", "minimax", "zai", "qwen", "xiaomi-mimo", "vercel-ai-gateway", "cloudflare-ai-gateway", "baseten",
-  "opencode",
-]);
+const BUILTIN_KINDS = new Set<string>(PROVIDER_KINDS.map((row) => row.kind));
 
 function resolveProfile(
   profile: EndpointProfile,
@@ -158,7 +147,7 @@ export function catalogTargetOverrides(kind: string, modelId: string, baseUrl?: 
  * openai-compat travels the OpenAI Chat Completions wire protocol as a
  * plain "openai" endpoint; every other builtin keeps its own kind —
  * the wire mapping lives in wire.ts (ADR-0010), not here. */
-export function routeTargetFor(profile: EndpointProfile, modelId: string, apiKey: string | undefined): RouteTarget {
+function routeTargetFor(profile: EndpointProfile, modelId: string, apiKey: string | undefined): RouteTarget {
   // openai-compat travels the OpenAI Chat Completions wire protocol as a
   // plain "openai" endpoint; every other builtin keeps its own kind —
   // the wire mapping lives in wire.ts (ADR-0010), not here.

@@ -1,12 +1,10 @@
 import { describe, expect, test } from "bun:test";
-import React from "react";
 import { render } from "ink-testing-library";
-import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { ThemeProvider, THEMES } from "../src/themes";
 import { cycleTreeFilter, TreePanel } from "../src/TreePanel";
-import { sessionTree, switchBranch, bookmarkNode, SessionStore, createSession, MockProvider } from "@moh/core";
+import { sessionTree, switchBranch, SessionStore, createSession, MockProvider } from "@moh/core";
 import { stripAnsi, waitForCondition, waitForFrame } from "./helpers";
 import type { TreeView } from "@moh/core";
 
@@ -309,7 +307,6 @@ describe("TreePanel (#581)", () => {
     await session.send("second turn");
     const file = store.file as string;
     const view = viewOf(file);
-    const firstTurn = view.nodes.find((n) => n.kind === "turn" && n.label.startsWith("first turn"))!;
     const i = mount({
       view,
       onSwitch: (id) => session.switchBranch(id),

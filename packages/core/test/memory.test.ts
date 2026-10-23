@@ -6,7 +6,7 @@
  */
 import { afterEach, describe, expect, test } from "bun:test";
 import { execFileSync } from "node:child_process";
-import { mkdirSync, readFileSync, existsSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, existsSync, rmSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { AgentSession, MockProvider } from "../src/index";
 import {
@@ -412,6 +412,24 @@ describe("dispose budget (#exit-latency, vision note 14)", () => {
     expect(elapsed).toBeLessThan(1500); // returned at the budget, not at the extractor's mercy
   });
 
+  test("dispose({timeoutMs}) still awaits a memory flush that settles within the budget (#1443)", async () => {
+    const dir = tmpDir("dispose-budget-fast");
+    let done = false;
+    let aborted = false;
+    const session = newBudgetSession(dir, async (input) => {
+      input.signal?.addEventListener("abort", () => {
+        aborted = true;
+      });
+      await new Promise((r) => setTimeout(r, 30));
+      done = true;
+      return [];
+    });
+    await session.send("trigger extraction");
+    await session.dispose({ timeoutMs: 5_000 });
+    expect(done).toBe(true);
+    expect(aborted).toBe(false);
+  });
+
   test("default dispose still waits for the pending run (no behavior change without a budget)", async () => {
     const dir = tmpDir("dispose-wait");
     let done = false;
@@ -423,5 +441,31 @@ describe("dispose budget (#exit-latency, vision note 14)", () => {
     await session.send("trigger extraction");
     await session.dispose();
     expect(done).toBe(true);
+  });
+});
+
+describe("memoryTranscript cap (characterization, #1437)", () => {
+  test("a user message over the default cap keeps the newest characters", () => {
+    const text = `${"a".repeat(30_000)}TAIL`;
+    const out = memoryTranscript([{ type: "user_message", text }] as const, 0);
+    expect(out).toHaveLength(24_000);
+    expect(out.endsWith("aaTAIL")).toBe(true);
+  });
+
+  test("assistant text over the default cap keeps the newest characters", () => {
+    const events = [
+      { type: "assistant_delta", text: "b".repeat(30_000) },
+      { type: "assistant_delta", text: "TAIL" },
+      { type: "done" },
+    ] as const;
+    const out = memoryTranscript(events, 0);
+    expect(out).toHaveLength(24_000);
+    expect(out.endsWith("bbTAIL")).toBe(true);
+  });
+
+  test("a transcript exactly at the cap is returned whole", () => {
+    const text = "c".repeat(24_000 - "user: ".length);
+    const out = memoryTranscript([{ type: "user_message", text }] as const, 0);
+    expect(out).toBe(`user: ${text}`);
   });
 });

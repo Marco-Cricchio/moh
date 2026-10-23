@@ -15,8 +15,14 @@
  * correction.
  */
 import { createGitReader, taskDiff } from "./diff";
-import { containsCodeChanges, correctionText, LINT_DIFF_MAX_BYTES, LINT_DIFF_TRUNCATION_MARKER } from "./lint";
-import type { LintJudge, LintState } from "./lint-judge";
+import {
+  containsCodeChanges,
+  correctionText,
+  LINT_DIFF_MAX_BYTES,
+  LINT_DIFF_TRUNCATION_MARKER,
+  type LintJudge,
+  type LintState,
+} from "./lint";
 import { truncateToBytes } from "./routing";
 import { discoverRubrics } from "./rubrics";
 import { isAbsolute, relative, resolve } from "node:path";
@@ -45,7 +51,7 @@ export function scopePaths(root: string, paths: readonly string[]): string[] {
   return kept;
 }
 
-export interface LintGateDeps {
+interface LintGateDeps {
   judge: Pick<LintJudge, "evaluate">;
   /** The project root (rubric discovery + git). */
   root: string;

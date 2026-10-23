@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { selectionStyle } from "./color";
 import { Text, useInput } from "ink";
 import { manualIndex, manualPage } from "@moh/core";

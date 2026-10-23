@@ -5,7 +5,7 @@
  * the code's declared capabilities are a subset of the manifest's.
  */
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { capabilityDiff, readExtensionManifest } from "../src/extension-manifest";

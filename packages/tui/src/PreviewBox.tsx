@@ -2,7 +2,7 @@ import { useMemo } from "react";
 import { Box, Text } from "ink";
 import type { Marked } from "marked";
 import { createMarkdownRenderer, parseAnsiSegments, wrapRenderedLines } from "./markdown";
-import { sanitizeForDisplay } from "./render-sanitize";
+import { sanitizeForDisplay } from "@moh/core";
 import { useTheme } from "./themes";
 import { fgTruecolor } from "./color";
 
@@ -21,7 +21,7 @@ const visibleWidth = (line: string): number => line.replace(/\u001b\[[0-9;]*m/g,
 
 /** Truncates a rendered line to `width` visible columns, keeping ANSI
  * codes: slicing the plain spans and re-emitting the running style. */
-export function truncateAnsiLine(line: string, width: number): string {
+function truncateAnsiLine(line: string, width: number): string {
   const segments = parseAnsiSegments(line);
   let used = 0;
   const out: string[] = [];
@@ -42,7 +42,7 @@ export function truncateAnsiLine(line: string, width: number): string {
   return out.join("");
 }
 
-export interface PreviewBoxProps {
+interface PreviewBoxProps {
   /** Preview content: markdown (code fences highlighted) or plain text. */
   content: string;
   /** Max content rows before truncation (the caller's height budget). */

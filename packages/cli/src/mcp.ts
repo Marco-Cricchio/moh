@@ -18,7 +18,6 @@ import {
   mcpServerEntrySchema,
   upsertMcpServer,
   writeMohConfig,
-  type DeclaredMcpServer,
   type McpServerEntry,
 } from "@moh/core";
 import { ArgError, parseArgs } from "./args";
@@ -44,7 +43,7 @@ Server URLs must be http(s) — anything else is refused at add time and
 at config load. Responses are capped at 10 MB per request: a server
 that streams more is failed, not buffered without bound.`;
 
-export interface McpOptions {
+interface McpOptions {
   argv: string[];
   cwd?: string;
   /** Home dir override (tests): user-scope servers live in <home>/.moh/config. */

@@ -121,7 +121,7 @@ describe("compaction cut judge (#792)", () => {
   });
 
   test("one aggregate record carries the verdicts, the drops and the sizes", async () => {
-    const { run, applied } = await dispatch(SECTIONS);
+    const { applied } = await dispatch(SECTIONS);
     const aggregate = applied({ keptByFloor: false, bytesAfter: 0 })!;
     expect(aggregate.useCase).toBe("compact-cut");
     expect(aggregate.kind).toBe("compaction");
@@ -142,7 +142,7 @@ describe("compaction cut judge (#792)", () => {
 
 describe("the per-compaction record volume is bounded (#979)", () => {
   test("a span far above the per-turn event cap produces exactly one record", async () => {
-    const { run, records, applied } = await dispatch(span(200), { fake: fake(0.95) });
+    const { records, applied } = await dispatch(span(200), { fake: fake(0.95) });
     // No per-section records at all: the one aggregate is the whole volume.
     expect(records).toEqual([]);
     const aggregate = applied({ keptByFloor: false, bytesAfter: 0 })!;

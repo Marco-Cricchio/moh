@@ -23,9 +23,12 @@ import {
   confirmToSWarning,
   generatePkce,
   generateState,
+  LoginAborted,
+  postJson,
   raceForCode,
   startLoopbackCallback,
   type AuthorizationIo,
+  type OAuthPostFetch,
 } from "./oauth";
 
 /** Drift-prone captured values (re-verify against a fresh Claude Code copy). */
@@ -41,7 +44,7 @@ export const ANTHROPIC_OAUTH_DEFAULTS = {
 } as const;
 
 /** Scope of the long-lived inference-only token variant. */
-export const ANTHROPIC_INFERENCE_SCOPE = "user:inference";
+const ANTHROPIC_INFERENCE_SCOPE = "user:inference";
 
 /** Full Claude.ai subscriber scope set (used at login fallback + refresh). */
 export const ANTHROPIC_SUBSCRIPTION_SCOPES = [
@@ -60,7 +63,7 @@ export const ANTHROPIC_OAUTH_BETA = {
   "anthropic-beta": "claude-code-20250219,oauth-2025-04-20",
 } as const;
 
-export interface AnthropicOAuthConfig {
+interface AnthropicOAuthConfig {
   authorizeUrl: string;
   tokenUrl: string;
   clientId: string;
@@ -100,20 +103,7 @@ export function buildAnthropicAuthorizeUrl(
 }
 
 /** HTTP seam for the token endpoint. Tests script it; production uses fetch. */
-export type TokenEndpointFetch = (
-  tokenUrl: string,
-  body: Record<string, unknown>,
-) => Promise<{ status: number; json: Record<string, unknown> }>;
-
-export const defaultTokenEndpointFetch: TokenEndpointFetch = async (tokenUrl, body) => {
-  const res = await fetch(tokenUrl, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify(body),
-  });
-  const json = (await res.json().catch(() => ({}))) as Record<string, unknown>;
-  return { status: res.status, json };
-};
+const defaultTokenEndpointFetch: OAuthPostFetch = postJson();
 
 interface AnthropicTokenResponse {
   access_token: string;
@@ -181,7 +171,7 @@ export async function exchangeAnthropicCode(
     state: string;
     redirectUri: string;
     inferenceOnly: boolean;
-    fetchImpl?: TokenEndpointFetch;
+    fetchImpl?: OAuthPostFetch;
     now?: number;
   },
 ): Promise<AuthToken> {
@@ -224,7 +214,7 @@ export async function exchangeAnthropicCode(
 export async function refreshAnthropicToken(
   config: AnthropicOAuthConfig,
   token: AuthToken,
-  opts: { fetchImpl?: TokenEndpointFetch; now?: number } = {},
+  opts: { fetchImpl?: OAuthPostFetch; now?: number } = {},
 ): Promise<AuthToken> {
   if (!token.refreshToken) {
     throw new Error("Anthropic token has no refresh token; run `moh provider login`");
@@ -249,14 +239,6 @@ export async function refreshAnthropicToken(
   };
 }
 
-/** Thrown by {@link loginAnthropic} when the user declines the ToS warning. */
-export class AnthropicLoginAborted extends Error {
-  constructor() {
-    super("subscription auth aborted: terms of service not acknowledged");
-    this.name = "AnthropicLoginAborted";
-  }
-}
-
 /**
  * The full interactive Anthropic login: ToS acknowledgement (spec
  * invariant 4), PKCE + loopback callback raced against the hosted
@@ -267,12 +249,13 @@ export async function loginAnthropic(
   io: AuthorizationIo,
   opts: {
     overrides?: AnthropicAuthOverrides;
-    fetchImpl?: TokenEndpointFetch;
+    fetchImpl?: OAuthPostFetch;
     now?: number;
     timeoutMs?: number;
   } = {},
 ): Promise<AuthToken> {
-  if (!(await confirmToSWarning(io))) throw new AnthropicLoginAborted();
+  /** Thrown by {@link loginAnthropic} when the user declines the ToS warning. */
+  if (!(await confirmToSWarning(io))) throw new LoginAborted("AnthropicLoginAborted");
 
   const config = resolveAnthropicOAuthConfig(opts.overrides);
   const pkce = generatePkce();

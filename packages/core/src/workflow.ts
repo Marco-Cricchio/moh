@@ -15,7 +15,7 @@
 import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { dirname, join, resolve } from "node:path";
-import { parseSkillFrontmatter, FIRST_PARTY_MANIFEST, firstPartySkillNames } from "./skills";
+import { parseSkillFrontmatter, FIRST_PARTY_MANIFEST } from "./skills";
 
 /** The moh version skills compare their `minMohVersion` against. */
 export const MOH_VERSION = "0.1.0";
@@ -26,7 +26,7 @@ export const MOH_VERSION = "0.1.0";
  * lives at `packages/core/assets/skills` and `index.json` there is generated
  * by `scripts/gen-skills-index.ts` (#344 — the old `moh-workflow/skills`
  * org URL never existed). */
-export const DEFAULT_UPSTREAM_URL =
+const DEFAULT_UPSTREAM_URL =
   "https://raw.githubusercontent.com/Marco-Cricchio/moh/main/packages/core/assets/skills/index.json";
 
 /** Where the bundled first-party skills ship inside the package. */
@@ -78,7 +78,7 @@ export function embeddedSkillSources(registry: Record<string, string>): FirstPar
  * the registry is present (invariant 2: no repo-relative reads), otherwise
  * the on-disk bundle (repo-checkout dev run, unchanged).
  */
-export function bundledSkillSources(): FirstPartySkillSource[] {
+function bundledSkillSources(): FirstPartySkillSource[] {
   const registry = embeddedRegistry();
   if (registry) return embeddedSkillSources(registry);
   return firstPartySkillSources();
@@ -94,16 +94,16 @@ export interface FirstPartySkillSource {
   files: Record<string, string>;
 }
 
-function readdirFiles(dir: string, skip: string[] = []): Record<string, string> {
+function readdirFiles(dir: string): Record<string, string> {
   const files: Record<string, string> = {};
   for (const entry of readdirSync(dir, { withFileTypes: true })) {
-    if (entry.isFile() && !skip.includes(entry.name)) files[entry.name] = readFileSync(join(dir, entry.name), "utf8");
+    if (entry.isFile()) files[entry.name] = readFileSync(join(dir, entry.name), "utf8");
   }
   return files;
 }
 
 /** Builds one skill source from its files (SKILL.md always present); null when unparsable. */
-function toSkillSource(name: string, files: Map<string, string>): FirstPartySkillSource | null {
+function toSkillSource(_name: string, files: Map<string, string>): FirstPartySkillSource | null {
   const raw = files.get("SKILL.md");
   if (raw === undefined) return null;
   const parsed = parseSkillFrontmatter(raw);
@@ -141,7 +141,7 @@ const SKILL_NAME_RE = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
  * segment (`SKILL.md`), never a path, never `..`. Returns null when valid,
  * a reason string when the entry is malformed/malicious.
  */
-export function validateSkillEntry(name: string, files: Record<string, string>): string | null {
+function validateSkillEntry(name: string, files: Record<string, string>): string | null {
   if (typeof name !== "string" || !SKILL_NAME_RE.test(name)) return `invalid skill name "${String(name)}"`;
   for (const key of Object.keys(files ?? {})) {
     if (key === "" || key === "." || key === ".." || key.includes("/") || key.includes("\\")) {
@@ -186,7 +186,7 @@ function installedHash(mohHome: string, name: string): string | null {
 }
 
 /** The manifest tracking moh-owned skill copies (hash at install time). */
-export interface FirstPartyManifest {
+interface FirstPartyManifest {
   skills: Record<string, { hash: string; installedAt: string }>;
 }
 
@@ -222,12 +222,11 @@ export function versionSatisfied(need: string, have: string): boolean {
  * Returns null when the skill is not in the bundle. */
 export function readBundledSkill(
   name: string,
-  bundleDir?: string,
 ): FirstPartySkillSource | null {
-  return (bundleDir ? firstPartySkillSources(bundleDir) : bundledSkillSources()).find((s) => s.name === name) ?? null;
+  return bundledSkillSources().find((s) => s.name === name) ?? null;
 }
 
-export interface SkillInstallReport {
+interface SkillInstallReport {
   /** Newly copied skills. */
   installed: string[];
   /** Unmodified copies refreshed to a newer bundled version. */
@@ -244,7 +243,7 @@ export interface SkillInstallReport {
   skippedInvalid: string[];
 }
 
-export interface InstallFirstPartySkillsOptions {
+interface InstallFirstPartySkillsOptions {
   /** User-level moh dir (`~/.moh`). */
   mohHome: string;
   /** Bundled sources override (tests). Default: the shipped assets. */
@@ -326,11 +325,11 @@ export interface UpstreamUpdate {
   minMohVersion?: string;
 }
 
-export interface UpstreamIndex {
+interface UpstreamIndex {
   skills: { name: string; files: Record<string, string>; minMohVersion?: string }[];
 }
 
-export interface CheckUpstreamOptions {
+interface CheckUpstreamOptions {
   mohHome: string;
   /** Upstream index URL. Default: DEFAULT_UPSTREAM_URL. */
   upstream?: string;
@@ -437,7 +436,7 @@ export function diffSkillFiles(current: Record<string, string>, next: Record<str
   return lines.join("\n");
 }
 
-export interface ApplyUpstreamOptions {
+interface ApplyUpstreamOptions {
   mohHome: string;
   updates: UpstreamUpdate[];
   /**
@@ -450,7 +449,7 @@ export interface ApplyUpstreamOptions {
   writeInstalled?: (mohHome: string, name: string, files: Record<string, string>) => void;
 }
 
-export interface ApplyUpstreamReport {
+interface ApplyUpstreamReport {
   applied: string[];
   declined: string[];
   /** Re-check found the local copy modified since the plan was built. */

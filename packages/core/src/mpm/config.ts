@@ -10,14 +10,14 @@
  * named here: only patterns, budgets, and an on/off decision.
  */
 import { z } from "zod";
-import { MPM_DEFAULT_MAX_FILES, MPM_DEFAULT_MAX_TOTAL_BYTES, type MpmQuota } from "./service";
+import { type MpmQuota } from "./service";
 import { readUserConfigFile, userConfigFile } from "../user-config";
 
 /**
  * Extra workspace exclusions, gitignore-style patterns matched from the
  * root (MPM never accepts negations — the hard denylist is not rescuable).
  */
-export const mpmQuotaSchema = z
+const mpmQuotaSchema = z
   .object({
     maxFiles: z.number().int().min(0).optional(),
     maxTotalBytes: z.number().int().min(0).optional(),
@@ -129,9 +129,4 @@ export function readMpmUserConfig(file = userConfigFile()): MpmUserConfig {
     if (exclude.length > 0) config.exclude = exclude;
   }
   return config;
-}
-
-/** The defaults the projection runs under when no config narrows them. */
-export function mpmDefaultQuota(): Required<MpmQuota> {
-  return { maxFiles: MPM_DEFAULT_MAX_FILES, maxTotalBytes: MPM_DEFAULT_MAX_TOTAL_BYTES };
 }

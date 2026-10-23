@@ -75,7 +75,7 @@ stats describe the full topology. --json emits the same data as JSON.
   --cwd     project root the session belongs to (default: process.cwd())`;
 
 /** Resolves a session file from a raw path or a session id within the project. */
-export function resolveSessionFile(ref: string, cwd: string, home?: string): string | null {
+function resolveSessionFile(ref: string, cwd: string, home?: string): string | null {
   // A filesystem path (absolute or relative) wins when the file exists.
   const asPath = resolve(ref);
   try {
@@ -268,7 +268,7 @@ function analysisJson(report: SessionAnalysisReport): string {
 }
 
 /** `moh sessions analyze` — renders the single-session report as text. */
-export function renderAnalysis(report: SessionAnalysisReport): string {
+function renderAnalysis(report: SessionAnalysisReport): string {
   const lines: string[] = [];
   const totalTok = report.models.reduce((a, m) => a + m.inputTokens + m.outputTokens, 0);
   const unpriced = report.models.filter((m) => m.estimatedCostUsd === undefined).length;
@@ -345,7 +345,7 @@ function sessionsAnalyze(file: string, json: boolean, cwd: string, home: string,
 }
 
 /** One text row per node: indent by depth, ●/○ path, ◆ bookmark, ← head. */
-export function renderTree(view: TreeView): string {
+function renderTree(view: TreeView): string {
   const lines = view.nodes.map((n) => {
     const indent = "  ".repeat(n.depth);
     const path = n.onActivePath ? "●" : "○";

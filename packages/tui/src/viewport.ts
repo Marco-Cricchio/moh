@@ -11,7 +11,7 @@ import { useStdout } from "ink";
  * muxers), so `useViewport()` is live in both directions.
  */
 
-export interface Viewport {
+interface Viewport {
   columns: number;
   rows: number;
 }
@@ -20,14 +20,14 @@ export interface Viewport {
 export const MEASURE = 100;
 /** Below this many columns the UI switches to compact styling (style guide §10 Q12). */
 export const COMPACT_COLS = 70;
-export const WIDE_COLS = 110;
+const WIDE_COLS = 110;
 
 // ── Home session-list geometry (#112) ─────────────────────────────────────
 
 /** Rows of the home recent-sessions list shown at once by default. */
 export const HOME_LIST_DEFAULT = 5;
 /** Upper bound for the configurable list height (user setting `homeListMax`). */
-export const HOME_LIST_MAX = 10;
+const HOME_LIST_MAX = 10;
 /** Small-screen floor: the home list never shrinks below this. */
 export const HOME_LIST_MIN_VISIBLE = 3;
 /** Rough row budget consumed by the home chrome (inline logo, search box,
@@ -36,11 +36,11 @@ export const HOME_LIST_MIN_VISIBLE = 3;
 const HOME_CHROME_ROWS = 14;
 /** Minimum terminal height for the big ASCII banner (#292); below it the
  * home falls back to the one-line `moh > — My Own Harness` logo. */
-export const HOME_BANNER_MIN_ROWS = 30;
+const HOME_BANNER_MIN_ROWS = 30;
 /** Below this many rows the home drops every filler row and hint line (#1023). */
-export const HOME_TIGHT_ROWS = 15;
+const HOME_TIGHT_ROWS = 15;
 /** Below this many rows the home starts degrading padding and fillers (#1023). */
-export const HOME_COMPACT_ROWS = 20;
+const HOME_COMPACT_ROWS = 20;
 
 /** #1023 vertical degradation tiers for the settled home frame. At small
  * terminal heights the home's own chrome (padding, blank spacers, hint
@@ -49,7 +49,7 @@ export const HOME_COMPACT_ROWS = 20;
  * shed filler rows before content: the list shrinks first, then the
  * spacers, then the padding — the logo, the search box, the "New session"
  * row and the footer hint are the floor that always survives. */
-export interface HomeVertical {
+interface HomeVertical {
   /** Vertical padding around the whole home frame. */
   paddingY: number;
   /** Blank filler rows: one after the logo, two after the logo, one after
@@ -153,7 +153,7 @@ export function dialogWidth(v: Viewport): number {
   return Math.max(40, Math.min(MEASURE, Math.round(v.columns * 0.62), v.columns));
 }
 
-export interface Windowed {
+interface Windowed {
   start: number;
   count: number;
   /** Rows hidden above the window (`↑ N more`). */

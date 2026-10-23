@@ -8,10 +8,9 @@ import { describe, expect, test } from "bun:test";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { readFileSync, writeFileSync } from "node:fs";
+import { writeFileSync } from "node:fs";
 import { SessionStore, bookmarkNode, switchBranch, sessionTree, newSessionId, deleteSession } from "../src/session-store";
 import { sessionTree as sessionTreeFromIndex } from "../src/index";
-import type { AgentEvent } from "../src/types";
 import type { TreeView } from "../src/session-store";
 
 function tempStore(): { store: SessionStore; file: string } {

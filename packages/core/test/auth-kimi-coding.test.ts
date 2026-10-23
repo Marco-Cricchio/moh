@@ -2,17 +2,15 @@ import { describe, expect, test } from "bun:test";
 import {
   KIMI_CODE_API_BASE_URL,
   KIMI_CODE_OAUTH_DEFAULTS,
-  KimiCodingLoginAborted,
   loginKimiCoding,
   refreshKimiCodingToken,
   resolveKimiCodingOAuthConfig,
-  type KimiCodingEndpointFetch,
 } from "../src/auth/kimi-coding";
 import { isSubscriptionKind } from "../src/auth/lifecycle";
 import { resolveEndpointCredential } from "../src/auth/resolve";
 import { saveTokens } from "../src/auth/store";
 import { Endpoint } from "../src/route";
-import type { AuthorizationIo } from "../src/auth/oauth";
+import { LoginAborted, type OAuthPostFetch as KimiCodingEndpointFetch, type AuthorizationIo } from "../src/auth/oauth";
 
 function makeIdToken(claims: Record<string, unknown> = {}): string {
   const b64 = (obj: unknown) => Buffer.from(JSON.stringify(obj)).toString("base64url");
@@ -79,7 +77,9 @@ describe("kimi-coding config", () => {
 describe("loginKimiCoding", () => {
   test("declining the ToS aborts before any network I/O", async () => {
     const io: AuthorizationIo = { ask: async () => "n", info: async () => {} };
-    await expect(loginKimiCoding(io, { clock: fastClock })).rejects.toBeInstanceOf(KimiCodingLoginAborted);
+    const failure = await loginKimiCoding(io, { clock: fastClock }).catch((error: unknown) => error);
+    expect(failure).toBeInstanceOf(LoginAborted);
+    expect((failure as Error).name).toBe("KimiCodingLoginAborted");
   });
 
   test("device flow completes: pending then token with expiry", async () => {

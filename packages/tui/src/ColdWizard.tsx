@@ -1,9 +1,8 @@
-import React, { useState } from "react";
+import { useState } from "react";
 import { selectionStyle } from "./color";
 import { Text, useInput } from "ink";
 import {
   cloneHandoffRepo,
-  createGistHandoffTransport,
   pullHandoffTo,
   ghUsername,
   spawnGh,
@@ -26,7 +25,7 @@ export interface ColdWizardSeams {
   ghUser?: () => Promise<{ ok: true; user: string } | { ok: false }>;
 }
 
-export interface ColdWizardProps {
+interface ColdWizardProps {
   offers: GistHandoffOffer[];
   /** The directory moh was launched in: the proposed clone destination. */
   cwd: string;

@@ -6,7 +6,7 @@
  */
 import { describe, expect, test } from "bun:test";
 import type { JevAnswer, JevJudgeInput, JevOutcome } from "../src/client";
-import { createRoutingJudge } from "../src/routing-judge";
+import { createRoutingJudge } from "../src/routing";
 import { isContinuationMessage, type RoutingModel } from "../src/routing";
 
 const pool: RoutingModel[] = [

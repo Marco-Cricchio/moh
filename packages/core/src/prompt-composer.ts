@@ -60,7 +60,7 @@ export interface PromptContext {
   mpmOrientation?: string;
 }
 
-export type SectionRenderer = (ctx: PromptContext) => string;
+type SectionRenderer = (ctx: PromptContext) => string;
 
 /** The assembled, read-only prompt view handed to hooks and hashing. */
 export interface AssembledPrompt {
@@ -83,7 +83,7 @@ export interface BeforeModelCallContext {
 
 
 /** Default combined character budget for AGENTS.md + CONTEXT.md. */
-export const DEFAULT_INSTRUCTIONS_BUDGET = 20_000;
+const DEFAULT_INSTRUCTIONS_BUDGET = 20_000;
 
 /** The shipped base prompt. English; replies follow the user's language.
  * v2 (ADR-0073): harness behavior distilled from the Claude Code and Codex
@@ -132,7 +132,7 @@ export const BASE_PROMPT = [
   "- Don't introduce vulnerabilities (injection, XSS, OWASP top 10); fix insecure code on sight.",
 ].join("\n");
 
-export interface PromptComposerConfig {
+interface PromptComposerConfig {
   /** User-level moh dir (`~/.moh`). Default: `<homedir>/.moh`. */
   mohHome?: string;
   /** Project root; instructions files and `.moh/prompts/` are read from here. */
@@ -146,13 +146,13 @@ export interface PromptComposerConfig {
 }
 
 /** ADR-0036: a turn note is a hint, not a channel — hard character cap. */
-export const TURN_NOTE_MAX_CHARS = 300;
+const TURN_NOTE_MAX_CHARS = 300;
 
 /** Truncates an oversized turn note on a code-point boundary, with a marker. */
-export function truncateTurnNote(text: string, maxChars = TURN_NOTE_MAX_CHARS): string {
+function truncateTurnNote(text: string): string {
   const chars = [...text];
-  if (chars.length <= maxChars) return text;
-  return `${chars.slice(0, maxChars).join("")} [truncated]`;
+  if (chars.length <= TURN_NOTE_MAX_CHARS) return text;
+  return `${chars.slice(0, TURN_NOTE_MAX_CHARS).join("")} [truncated]`;
 }
 
 function readIfExists(file: string): string | null {  if (!existsSync(file)) return null;

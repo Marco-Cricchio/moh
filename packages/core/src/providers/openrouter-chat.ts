@@ -347,7 +347,7 @@ function mergeReasoning(inner: Promise<{ stream: ReadableStream<Part> }>, buffer
   });
 }
 
-export interface OpenRouterChatModelOptions {
+interface OpenRouterChatModelOptions {
   modelId: string;
   apiKey?: string;
   baseUrl?: string;

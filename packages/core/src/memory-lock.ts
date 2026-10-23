@@ -7,10 +7,10 @@
  */
 import { closeSync, existsSync, openSync, readFileSync, unlinkSync, writeSync } from "node:fs";
 import { execFileSync } from "node:child_process";
-import { hostname, uptime } from "node:os";
+import { hostname } from "node:os";
 
 /** Lock file payload; `v` gates forward-compatible parsing. */
-export interface LockOwner {
+interface LockOwner {
   v: 1;
   pid: number;
   machineId: string;
@@ -83,7 +83,7 @@ export function setLockIdentityForTests(id: string | undefined, boot?: number): 
 }
 
 /** `kill(pid, 0)` liveness probe; false for dead/recycled-away pids. */
-export function isProcessAlive(pid: number): boolean {
+function isProcessAlive(pid: number): boolean {
   if (!Number.isInteger(pid) || pid <= 0) return false;
   try {
     process.kill(pid, 0);
@@ -118,7 +118,7 @@ export function ownIdentity(): Omit<LockOwner, "createdAt"> {
 }
 
 /** True when the recorded owner can no longer be holding the lock. */
-export function ownerIsGone(owner: LockOwner, isPidAlive = isProcessAlive): boolean {
+export function ownerIsGone(owner: LockOwner): boolean {
   // Foreign machine in a shared home: liveness is unverifiable and the
   // acceptance contract (#399) says a foreign owner never blocks — reclaim.
   if (owner.machineId !== machineId()) return true;
@@ -126,7 +126,7 @@ export function ownerIsGone(owner: LockOwner, isPidAlive = isProcessAlive): bool
   // even if this boot recycled its pid.
   if (owner.boot < bootCount()) return true;
   // Same machine and boot: dead pid means stale.
-  return !isPidAlive(owner.pid);
+  return !isProcessAlive(owner.pid);
 }
 
 /**

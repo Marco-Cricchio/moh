@@ -8,7 +8,6 @@ import {
   statSync,
   writeFileSync,
 } from "node:fs";
-import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createHash } from "node:crypto";
 import { MockProvider, SessionStore, createSession, listSessionSummaries } from "../src";

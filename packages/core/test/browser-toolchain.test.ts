@@ -32,7 +32,6 @@ import {
   probeBrowserToolchain,
   resolvePlaywright,
   type BrowserToolchainCommand,
-  type BrowserToolchainCommandResult,
   type BrowserToolchainRunner,
 } from "../src/browser-toolchain";
 import { ownIdentity } from "../src/memory-lock";

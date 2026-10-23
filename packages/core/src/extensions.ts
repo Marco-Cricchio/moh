@@ -10,7 +10,7 @@
  */
 import { existsSync, watch, type FSWatcher } from "node:fs";
 import { appendFileSync, readFileSync, realpathSync, writeFileSync, mkdirSync, renameSync, rmSync, readlinkSync, statSync } from "node:fs";
-import { createHash, randomBytes } from "node:crypto";
+import { createHash } from "node:crypto";
 import { AsyncLocalStorage } from "node:async_hooks";
 import { homedir } from "node:os";
 import { basename, dirname, isAbsolute, resolve } from "node:path";
@@ -30,7 +30,6 @@ import {
   type HostReadLinkResult,
   type HostFetchResult,
   type HostRunToolResult,
-  type HostModelCallRequest,
   type HostModelCallResult,
   type HostListModelsResult,
   type HostFetchOptions,
@@ -47,28 +46,26 @@ import {
   type SessionEndHook,
   type SessionStartHook,
   type ToolCallHook,
-  type ToolCallHookResult,
   type ToolResultHook,
-  type ToolResultHookResult,
   type TurnConfirmOutcome,
   type AppliedCut,
   type CompactionHook,
   type CompactionHookContext,
-  type CompactionHookResult,
 } from "@moh/extension";
-import type { BeforeTurnResult } from "@moh/extension";
 import type { AgentEvent, ExtensionStatus, ThinkingLevel, TokenUsage } from "./types";
 import type { ExtensionSpawnSpec, PanelKeyEvent } from "@moh/extension";
 import type { SubagentHost } from "./subagents";
-import { checkScope } from "./check-scope";
+import { checkScope } from "./scopes";
 import { ExtensionSpawnRefusedError } from "./extension-scope";
 import { capabilityDiff, capabilitiesSubset, readExtensionManifest, type ManifestAuthority } from "./extension-manifest";
 import { depsTarballCache, extensionDepsDir, installExtensionDeps, linkDepsTree } from "./extension-deps";
 import { realRegistryIo, type RegistryIo } from "./extension-registry";
-import { hostScopesOf, isHostScope, isPathScope, MAX_FETCH_BYTES, MAX_REDIRECTS, HOST_SCOPE_REASONING_KEY, TOTAL_HOST_WILDCARD, validateHostScope, validatePathScope, pathScopesOf } from "./host-scope";
-import { credentialScopesOf, isCredentialScope, validateCredentialScope, type CredentialStore } from "./credential-scope";
-import { isToolScope, validateToolScope, toolScopesOf, isContributeToolScope, validateContributeToolScope, contributesTool, toolScopeName, contributeToolScopesOf, contributeToolName, CONTRIBUTE_TOOL_SCOPE_PREFIX } from "./tool-scope";
-import { isEndpointScope, validateEndpointScope, endpointScopesOf } from "./endpoint-scope";
+import { MAX_FETCH_BYTES, MAX_REDIRECTS } from "./host-scope";
+import { hostScopesOf, isHostScope, isPathScope, HOST_SCOPE_REASONING_KEY, TOTAL_HOST_WILDCARD, validateHostScope, validatePathScope, pathScopesOf } from "./scopes";
+import { credentialScopesOf, isCredentialScope, validateCredentialScope } from "./scopes";
+import type { CredentialStore } from "./credential-store";
+import { isToolScope, validateToolScope, toolScopesOf, isContributeToolScope, validateContributeToolScope, contributesTool, contributeToolScopesOf, contributeToolName, CONTRIBUTE_TOOL_SCOPE_PREFIX } from "./scopes";
+import { isEndpointScope, validateEndpointScope, endpointScopesOf } from "./scopes";
 import { newUlid } from "./session/ulid";
 
 type HostOpName = "read" | "write" | "append" | "rename" | "delete" | "readlink" | "fetch" | "run_tool" | "model_call" | "list_models";
@@ -78,7 +75,7 @@ type HostOpName = "read" | "write" | "append" | "rename" | "delete" | "readlink"
  * half of `ctx.host.runTool`. The runtime owns scope + logging; the
  * session owns lookup, gate and execution (the normal ToolRunner path).
  */
-export interface ToolSeam {
+interface ToolSeam {
   runTool(request: { extension: string; tool: string; args: unknown }): Promise<
     | { ok: true; output: string }
     | { ok: false; reason: "unknown_tool" | "denied" | "failed"; message?: string }
@@ -92,7 +89,7 @@ export interface ToolSeam {
  * Route execution, the thinking-capability check and usage accounting.
  * Credentials never cross this seam in either direction.
  */
-export interface ModelSeam {
+interface ModelSeam {
   modelCall(request: {
     extension: string;
     endpoint: string;
@@ -108,6 +105,18 @@ export interface ModelSeam {
     | { ok: true; models: string[] }
     | { ok: false; reason: "unknown_endpoint" | "failed"; message?: string }
   >;
+}
+
+/**
+ * #1438: everything the owning session lends its runtime, bound once by
+ * `bindSession` — the synthetic-turn entry (ADR-0037), the live path deny
+ * answer (ADR-0065), the tool and model seams (ADR-0067, ADR-0068) and the
+ * contributed-tool sink (ADR-0067).
+ */
+interface SessionPort extends ToolSeam, ModelSeam {
+  requestTurn(text: string): Promise<boolean>;
+  isPathDenied(resolvedAbsPath: string): boolean;
+  contributeTool(registration: { extension: string; tool: unknown }): void;
 }
 import { redactKeys } from "./redact";
 import { assertNoExtensionScope, runInExtensionScope } from "./extension-scope";
@@ -125,7 +134,7 @@ import { assertNoExtensionScope, runInExtensionScope } from "./extension-scope";
  * `SectionName`s, typed loosely here so the runtime stays independent of
  * the composer's internals.
  */
-export interface BeforeModelCallDispatch {
+interface BeforeModelCallDispatch {
   readonly replacements: {
     by: string;
     /** The extension's version — the provenance line and the record name it. */
@@ -168,7 +177,7 @@ export interface BeforeTurnDispatch {
  * absent, or present with `by` naming the extension that withheld);
  * `errors` are the fail-open `extension_failed` records to append.
  */
-export interface ToolResultDispatch {
+interface ToolResultDispatch {
   readonly withheld?: string;
   readonly by?: string;
   readonly errors: AgentEvent[];
@@ -214,7 +223,7 @@ export interface ExtensionConsentRequest {
   dependencies?: readonly string[];
 }
 
-export interface ExtensionRuntimeOptions {
+interface ExtensionRuntimeOptions {
   /** User-level moh dir. Consent + dependency approvals persist in `<mohHome>/extensions.json`. Default `~/.moh`. */
   mohHome?: string;
   /**
@@ -222,12 +231,6 @@ export interface ExtensionRuntimeOptions {
    * against. Absent = `process.cwd()`. Set by session assembly.
    */
   projectRoot?: string;
-  /**
-   * ADR-0065: the user's per-call deny answer for a resolved absolute
-   * path (the session binds its permission resolver here). A deny beats
-   * every path grant per call; absent, no deny check runs.
-   */
-  isPathDenied?: (resolvedAbsPath: string) => boolean;
   /**
    * ADR-0066: the user's per-call deny answer for a request hostname.
    * A deny beats every `host:` grant per call; absent, no deny check
@@ -272,14 +275,6 @@ export interface ExtensionRuntimeOptions {
    */
   onWarning?: (message: string) => void;
   /**
-   * ADR-0037: the session-mediated synthetic-turn entry the
-   * `requestTurn` setup method delegates to. Present only when the host
-   * session can run turns; its `false` answers are the contract's
-   * refusals (depth cap, busy, disposed), which the runtime renders as a
-   * visible `extension_failed` event.
-   */
-  requestTurn?: (text: string) => Promise<boolean>;
-  /**
    * ADR-0056 (#1126): the wall-clock ceiling for every turn-path hook
    * invocation (`beforeTurn`, `beforeModelCall`, `onToolCall`,
    * `onToolResult`, `afterTurn`). Default 30 s. Expired or thrown, a
@@ -309,7 +304,7 @@ export interface ExtensionRuntimeOptions {
 
 /** `register` options: trust is a property of the code being registered,
  * not of the runtime that hosts it. */
-export interface RegisterOptions {
+interface RegisterOptions {
   /** The host shipped these bytes (bundled first-party code): consent and
    * dependency authorization are skipped. Never for a path-loaded module. */
   bundled?: boolean;
@@ -329,7 +324,7 @@ export interface RegisterOptions {
  * runtime. `write` is where the events an extension appends during those
  * dispatches go: the child's own log, never the parent's channel.
  */
-export interface SessionScope {
+interface SessionScope {
   /** The borrowing session's opaque identity (diagnostics, tests). */
   readonly id: string;
   /** Append one extension-produced event to the borrowing session's log. */
@@ -342,6 +337,11 @@ export interface SessionScope {
    */
   errors: AgentEvent[];
 }
+
+/** #1444: how one hook invocation settled (never a rejection). */
+type HookSettlement<T> = { outcome: "ok"; out: T } | { outcome: "threw"; error: unknown };
+/** #1444: a hook race — settled in time, or abandoned with its late settlement. */
+type HookRace<T> = HookSettlement<T> | { outcome: "timeout"; late: Promise<HookSettlement<T>> };
 
 interface HookSet {
   sessionStart: SessionStartHook[];
@@ -360,7 +360,7 @@ interface HookSet {
 }
 
 /** ADR-0037: the maximum consecutive synthetic turns one extension gets. */
-export const MAX_CONSECUTIVE_SYNTHETIC_TURNS = 2;
+const MAX_CONSECUTIVE_SYNTHETIC_TURNS = 2;
 
 /**
  * ADR-0056 (#1126): the default wall-clock ceiling for every turn-path
@@ -414,7 +414,7 @@ export interface ExtensionCommandRefusal {
 
 /** One refused panel/overlay registration (ADR-0062, #1132): reported in
  * `/extensions`, never silently dropped. */
-export interface ExtensionUIRefusal {
+interface ExtensionUIRefusal {
   readonly extension: string;
   readonly kind: "panel" | "overlay";
   readonly name: string;
@@ -457,7 +457,7 @@ function loadedEvent(instance: RuntimeExtension): AgentEvent {
 }
 
 /** The invocation outcome of one extension command (ADR-0062). */
-export type ExtensionCommandResult =
+type ExtensionCommandResult =
   | { ok: true; extension: string; output: string }
   | { ok: false; error: string };
 
@@ -1025,35 +1025,8 @@ export class ExtensionRuntime {
     run: () => Promise<T> | T,
     ceilingMs: number = this.#hookTimeoutMs,
   ): Promise<{ out: T | undefined; timedOut: boolean }> {
-    let timedOut = false;
-    let deadline: ReturnType<typeof setTimeout> | undefined;
-    // The throw is captured INSIDE the racing promise: a rejecting race
-    // member and the wall clock settle in either order, and the outcome
-    // (one visible record, no contribution) must not depend on which won.
-    let failed = false;
-    let failure: unknown;
-    const pending = (async () => {
-      try {
-        // ADR-0053: extension code runs marked, so the core's privileged
-        // seams can refuse a prohibition attempted from inside a hook.
-        return await runInExtensionScope(instance.def.name, run);
-      } catch (err) {
-        failed = true;
-        failure = err;
-        return undefined as T;
-      }
-    })();
-    const out = await Promise.race([
-      pending,
-      new Promise<undefined>((resolve) => {
-        deadline = setTimeout(() => {
-          timedOut = true;
-          resolve(undefined);
-        }, ceilingMs);
-      }),
-    ]);
-    if (deadline !== undefined) clearTimeout(deadline);
-    if (timedOut) {
+    const raced = await this.#race(instance, run, ceilingMs);
+    if (raced.outcome === "timeout") {
       this.#recordHookError({
         type: "extension_failed",
         name: instance.def.name,
@@ -1061,34 +1034,90 @@ export class ExtensionRuntime {
         message: `the ${hookLabel} hook did not answer within ${ceilingMs}ms; it contributed nothing`,
       });
       // #1143: a throw that lands after the timeout won the race would
-      // otherwise go unrecorded — `failed`/`failure` in the abandoned
-      // promise are never read. One bounded late-error record keeps "a
+      // otherwise go unrecorded. One bounded late-error record keeps "a
       // non-answer is absence, never authority" honest. The record rides
       // the same error bucket this dispatch drained into: captured here,
       // because the abandoned promise resumes outside the async scope.
       const bucket = this.#borrowedSessions.getStore()?.errors ?? this.#hookErrors;
-      void pending.catch(() => {}).then(() => {
-        if (failed) {
+      void raced.late.catch(() => undefined).then((late) => {
+        if (late?.outcome === "threw") {
           bucket.push({
             type: "extension_failed",
             name: instance.def.name,
             reason: "hook_late_error",
-            message: `the ${hookLabel} hook threw after its ${ceilingMs}ms timeout: ${errMessage(failure)}`,
+            message: `the ${hookLabel} hook threw after its ${ceilingMs}ms timeout: ${errMessage(late.error)}`,
           });
         }
       });
-      return { out: undefined, timedOut };
+      return { out: undefined, timedOut: true };
     }
-    if (failed) {
+    if (raced.outcome === "threw") {
       this.#recordHookError({
         type: "extension_failed",
         name: instance.def.name,
         reason: "hook",
-        message: errMessage(failure),
+        message: errMessage(raced.error),
       });
       return { out: undefined, timedOut: false };
     }
-    return { out: out as T, timedOut: false };
+    return { out: raced.out, timedOut: false };
+  }
+
+  /**
+   * #1444: the one hook-timeout race. Runs `run` marked as extension code
+   * (ADR-0053) — or, given the settlement of a hook already started,
+   * races that same promise again — against a `ms` wall clock. Never
+   * rejects: a throw is captured INSIDE the racing promise, so a rejecting
+   * hook and the clock settle in either order with one outcome. On expiry
+   * `abort` fires first, then the race resolves `timeout` with the late
+   * settlement; a settled race clears its timer. Not `async`: the caller
+   * resumes on the race itself, one microtask after it settles. `onLate`
+   * hears the settlement of a hook the clock beat: registered before the
+   * race, so a hook settling inside `abort` is heard before the caller
+   * resumes; a throw inside it is swallowed (observability only).
+   */
+  #race<T>(
+    instance: RuntimeExtension,
+    run: (() => Promise<T> | T) | Promise<HookSettlement<T>>,
+    ms: number,
+    opts: { abort?: AbortController; onLate?: (late: HookSettlement<T>) => void } = {},
+  ): Promise<HookRace<T>> {
+    const pending: Promise<HookSettlement<T>> =
+      typeof run === "function"
+        ? (async () => {
+            try {
+              // ADR-0053: extension code runs marked, so the core's privileged
+              // seams can refuse a prohibition attempted from inside a hook.
+              return { outcome: "ok" as const, out: await runInExtensionScope(instance.def.name, run) };
+            } catch (error) {
+              return { outcome: "threw" as const, error };
+            }
+          })()
+        : run;
+    let expired = false;
+    const { onLate } = opts;
+    if (onLate) {
+      void pending
+        .then((late) => {
+          if (expired) onLate(late);
+        })
+        .catch(() => {});
+    }
+    let deadline: ReturnType<typeof setTimeout> | undefined;
+    const raced = Promise.race<HookRace<T>>([
+      pending,
+      new Promise<HookRace<T>>((resolve) => {
+        deadline = setTimeout(() => {
+          expired = true;
+          opts.abort?.abort();
+          resolve({ outcome: "timeout", late: pending });
+        }, ms);
+      }),
+    ]);
+    void raced.then(() => {
+      if (deadline !== undefined) clearTimeout(deadline);
+    });
+    return raced;
   }
 
   /** Successfully loaded instances, in registration order. */
@@ -1348,8 +1377,8 @@ export class ExtensionRuntime {
       });
       return false;
     }
-    const entry = this.#options.requestTurn;
-    if (!entry) {
+    const session = this.#session;
+    if (!session) {
       this.#emit({ type: "extension_failed", name, reason: "request_turn", message: "no turn entry on this session" });
       return false;
     }
@@ -1357,7 +1386,7 @@ export class ExtensionRuntime {
     // the contract) requests again from its own synthetic turn finds the
     // budget already spent, and the chain is cut here in the core.
     this.#syntheticStreaks.set(name, streak + 1);
-    const ok = await entry(text);
+    const ok = await session.requestTurn(text);
     return ok;
   }
 
@@ -1367,58 +1396,12 @@ export class ExtensionRuntime {
   }
 
   /**
-   * ADR-0037: binds the session's synthetic-turn entry (called by the
-   * owning session once, after construction — the runtime is created
-   * before the session in the assembly path). Idempotent; the last
-   * binding wins.
+   * #1438: the owning session, bound once by `bindSession` (the runtime is
+   * created before the session in the assembly path). Extension setup may
+   * run before a session exists: a seam call made with none bound is
+   * refused loudly, never silently dropped.
    */
-  bindRequestTurn(entry: (text: string) => Promise<boolean>): void {
-    (this.#options as { requestTurn?: (text: string) => Promise<boolean> }).requestTurn = entry;
-  }
-
-  /**
- * ADR-0064 + ADR-0065: the session binds its live deny answer for the path
- * scope. A deny rule on a covered path beats every path grant per call —
- * the grant never widens what moh itself may do. Read at call time, so a
- * runtime rule added mid-session applies to the next host operation.
- */
-#pathDeny: ((resolvedAbsPath: string) => boolean) | null = null;
-
-bindPathDeny(isDenied: (resolvedAbsPath: string) => boolean): void {
-  this.#pathDeny = isDenied;
-}
-
-  /**
-   * ADR-0067: the session binds its tool-execution seam. The `runTool`
-   * host method exists only when a `tool:` scope was granted, but the
-   * session (which owns the runner and the gate) may not exist yet at
-   * load time — the seam binds later, like the deny answers.
-   */
-  #toolSeam: ToolSeam | null = null;
-
-  bindToolSeam(seam: ToolSeam): void {
-    this.#toolSeam = seam;
-  }
-
-  /**
-   * ADR-0068: the session binds its model-call seam. Extension setup may
-   * run before a session exists — the seam binds later, like the tool
-   * seam. A call made with no session bound is refused loudly, never
-   * silently dropped.
-   */
-  #modelSeam: ModelSeam | null = null;
-
-  bindModelSeam(seam: ModelSeam): void {
-    this.#modelSeam = seam;
-  }
-
-  /**
-   * ADR-0067: the session binds its contributed-tool sink. A registration
-   * made before a session exists (setup runs during load) is held and
-   * applied — and logged — at bind time, so the `tool_contributed` event
-   * lands inside the session's log deterministically.
-   */
-  #toolContributor: ((registration: { extension: string; tool: unknown }) => void) | null = null;
+  #session: SessionPort | null = null;
   #pendingContributed: { extension: string; tool: unknown }[] = [];
   /** ADR-0055 (#1222): names of accepted contributed tools — the set the
    * subagent host excludes from every child's toolset. */
@@ -1429,11 +1412,21 @@ bindPathDeny(isDenied: (resolvedAbsPath: string) => boolean): void {
     return [...this.#contributedToolNames];
   }
 
-  bindToolContributor(contributor: (registration: { extension: string; tool: unknown }) => void): void {
-    this.#toolContributor = contributor;
+  /**
+   * #1438: binds the owning session (called by its constructor). The
+   * synthetic-turn entry (ADR-0037) and the tool and model seams
+   * (ADR-0067, ADR-0068) are read at call time; the path deny answer
+   * (ADR-0064 + ADR-0065) is read when a file host is built. A
+   * contributed-tool registration made before a session exists (setup
+   * runs during load) is held and applied — and logged — here, so the
+   * `tool_contributed` event lands inside the session's log
+   * deterministically. Idempotent; the last binding wins.
+   */
+  bindSession(port: SessionPort): void {
+    this.#session = port;
     const pending = this.#pendingContributed.splice(0);
     for (const registration of pending) {
-      contributor(registration);
+      port.contributeTool(registration);
       // ADR-0067: the registration record lands with the session's log —
       // emitted at bind time, never during setup, so a replay sees it
       // where the tool became callable.
@@ -1441,17 +1434,12 @@ bindPathDeny(isDenied: (resolvedAbsPath: string) => boolean): void {
     }
   }
 
-  /** True when any loaded extension holds a `contribute-tool:<name>` grant. */
-  hasContributedToolScopes(): boolean {
-    return this.#instances.some((e) => contributeToolScopesOf(e.grantedCapabilities).length > 0);
-  }
-
   /**
    * ADR-0067 `registerTool`: the name must be one the consent named; a
    * mismatch is a loud `extension_failed` and the tool never reaches the
    * model. With a session bound, the tool registers immediately (and the
    * `tool_contributed` record rides the session's log); without one, the
-   * registration is held for `bindToolContributor`.
+   * registration is held for `bindSession`.
    */
   #registerContributedTool(instance: RuntimeExtension, tool: ExtensionContributedTool, grantedNames: readonly string[]): void {
     const extension = instance.def.name;
@@ -1466,16 +1454,11 @@ bindPathDeny(isDenied: (resolvedAbsPath: string) => boolean): void {
     }
     const registration = { extension, tool };
     this.#contributedToolNames.add(name);
-    if (this.#toolContributor) this.#toolContributor(registration);
+    if (this.#session) this.#session.contributeTool(registration);
     else this.#pendingContributed.push(registration);
-    // The `tool_contributed` record is emitted by `bindToolContributor`
+    // The `tool_contributed` record is emitted by `bindSession`
     // at bind time — the log of the session where the tool became
     // callable, never a setup-time orphan event.
-  }
-
-  /** True when any loaded extension holds a `tool:<name|*>` grant. */
-  hasToolScopes(): boolean {
-    return this.#instances.some((e) => toolScopesOf(e.grantedCapabilities).length > 0);
   }
 
   /**
@@ -1784,9 +1767,6 @@ bindPathDeny(isDenied: (resolvedAbsPath: string) => boolean): void {
     /** The instance this one replaces (a hot-reload): excluded from the
      * rail's capacity count, whose slot is being handed over (#1132). */
     replacing?: RuntimeExtension,
-    /** ADR-0066: the manifest authority the consent signed (its
-     * `reasoning` travels from the same bytes, never a re-read). */
-    manifestAuthority?: ManifestAuthority,
   ): Promise<
     | { ok: true; instance: RuntimeExtension }
     | ({ ok: false; name?: string; reason: string; message: string })
@@ -2166,7 +2146,7 @@ bindPathDeny(isDenied: (resolvedAbsPath: string) => boolean): void {
    * ADR-0067: the `runTool` half of the host seam. Scope + logging live
    * here (the runtime stamps the extension and writes `host_op` /
    * `host_refused`); lookup, gate and execution live in the session
-   * behind `#toolSeam` — the model's exact gate path, with this
+   * behind `#session` — the model's exact gate path, with this
    * extension named as the ask's requester.
    */
   #hostRefused(event: Omit<Extract<AgentEvent, { type: "host_refused" }>, "type">): void {
@@ -2186,7 +2166,7 @@ bindPathDeny(isDenied: (resolvedAbsPath: string) => boolean): void {
           this.#hostRefused({ callId, extension: name, op: "run_tool", tool, reason: "outside_scope" });
           return { ok: false, reason: "outside_scope" };
         }
-        const seam = this.#toolSeam;
+        const seam = this.#session;
         if (!seam) {
           // No session bound (a bare runtime, a test): the tool cannot
           // run — refused loudly, never silently dropped.
@@ -2215,7 +2195,7 @@ bindPathDeny(isDenied: (resolvedAbsPath: string) => boolean): void {
    * live here (the runtime stamps the extension and writes `host_op` /
    * `host_refused`); endpoint resolution, the single-shot Route call, the
    * thinking-capability check and usage accounting live in the session
-   * behind `#modelSeam`. One ref per grant, exact match, per call; the
+   * behind `#session`. One ref per grant, exact match, per call; the
    * model id is never scoped. A refusal is a typed result plus one
    * `host_refused` event — never an exception, never `extension_failed`.
    */
@@ -2245,7 +2225,7 @@ bindPathDeny(isDenied: (resolvedAbsPath: string) => boolean): void {
           refused(callId, "model_call", "outside_scope", modelRef);
           return { ok: false, reason: "outside_scope" };
         }
-        const seam = this.#modelSeam;
+        const seam = this.#session;
         if (!seam) {
           refused(callId, "model_call", "failed", modelRef);
           return { ok: false, reason: "failed", message: "no session is bound to this extension runtime" };
@@ -2273,7 +2253,7 @@ bindPathDeny(isDenied: (resolvedAbsPath: string) => boolean): void {
           refused(callId, "list_models", "outside_scope", endpoint);
           return { ok: false, reason: "outside_scope" };
         }
-        const seam = this.#modelSeam;
+        const seam = this.#session;
         if (!seam) {
           refused(callId, "list_models", "failed", endpoint);
           return { ok: false, reason: "failed", message: "no session is bound to this extension runtime" };
@@ -2296,7 +2276,8 @@ bindPathDeny(isDenied: (resolvedAbsPath: string) => boolean): void {
   #fileHostFor(instance: RuntimeExtension, scopes: readonly string[]): Omit<ExtensionHost, "fetch" | "runTool" | "modelCall" | "listModels"> {
     const name = instance.def.name;
     const root = this.#options.projectRoot ?? process.cwd();
-    const isDenied = this.#pathDeny ?? this.#options.isPathDenied ?? (() => false);
+    const session = this.#session;
+    const isDenied = session ? (resolvedAbsPath: string) => session.isPathDenied(resolvedAbsPath) : () => false;
     const opEvent = (
       op: HostOpName,
       resolved: string,
@@ -2634,7 +2615,7 @@ bindPathDeny(isDenied: (resolvedAbsPath: string) => boolean): void {
       if (result.ok) return { ok: true };
       return { ok: false, message: `dependency install failed for ${name}: ${result.reason}` };
     } catch (err) {
-      return { ok: false, message: `dependency install failed for ${name}: ${err instanceof Error ? err.message : String(err)}` };
+      return { ok: false, message: `dependency install failed for ${name}: ${errMessage(err)}` };
     }
   }
 
@@ -2809,64 +2790,46 @@ bindPathDeny(isDenied: (resolvedAbsPath: string) => boolean): void {
     const onApplied: ((applied: AppliedCut) => void)[] = [];
     for (const instance of this.#instances) {
       for (const hook of instance.hooks.onCompaction) {
-        let timedOut = false;
-        let out: CompactionHookResult | void;
         // #979: the hook's own budget — the window it is told about, and
         // the signal that fires when the runtime stops waiting.
         const abandoned = new AbortController();
-        let deadline: ReturnType<typeof setTimeout> | undefined;
-        const pending = (async () =>
-          // ADR-0053: extension code runs marked (see #runCapped).
-          runInExtensionScope(instance.def.name, () =>
+        // The one ADR-0035 fail-open leg the throw does not cover: a hook
+        // that never answers must not stall a background compaction.
+        // (The window is per hook; every section of this hook shares it.)
+        const raced = await this.#race(
+          instance,
+          () =>
             hook({
               ...ctx,
               hookTimeoutMs,
               signal: abandoned.signal,
             }),
-          ))();
-        // A late answer is not worthless: it still tells its own author the
-        // cut never landed. Registered before the race so no resolution can
-        // slip past it, and only acted on when the window actually won.
-        void pending
-          .then((late) => {
-            if (!timedOut || !late || typeof late.onApplied !== "function") return;
-            try {
-              late.onApplied({ keptByFloor: false, bytesAfter: offeredBytes, droppedIds: [], applied: false });
-            } catch {
-              /* observability only */
-            }
-          })
-          .catch(() => {
-            /* already recorded as a hook error by the race below */
-          });
-        try {
-          // The one ADR-0035 fail-open leg the throw does not cover: a hook
-          // that never answers must not stall a background compaction.
-          // (The window is per hook; every section of this hook shares it.)
-          out = await Promise.race([
-            pending,
-            new Promise<undefined>((resolve) => {
-              deadline = setTimeout(() => {
-                timedOut = true;
-                abandoned.abort();
-                resolve(undefined);
-              }, hookTimeoutMs);
-            }),
-          ]);
-        } catch (err) {
+          hookTimeoutMs,
+          {
+            abort: abandoned,
+            // A late answer is not worthless: it still tells its own author
+            // the cut never landed. A late throw was already counted by the
+            // window.
+            onLate: (late) => {
+              if (late.outcome !== "ok" || !late.out || typeof late.out.onApplied !== "function") return;
+              try {
+                late.out.onApplied({ keptByFloor: false, bytesAfter: offeredBytes, droppedIds: [], applied: false });
+              } catch {
+                /* observability only */
+              }
+            },
+          },
+        );
+        if (raced.outcome === "threw") {
           this.#recordHookError({
             type: "extension_failed",
             name: instance.def.name,
             reason: "hook",
-            message: errMessage(err),
+            message: errMessage(raced.error),
           });
           continue;
-        } finally {
-          // A settled hook leaves no timer behind — and the flag stays
-          // false, so the late-answer path above never fires for it.
-          if (deadline !== undefined) clearTimeout(deadline);
         }
-        if (timedOut) {
+        if (raced.outcome === "timeout") {
           this.#recordHookError({
             type: "extension_failed",
             name: instance.def.name,
@@ -2874,6 +2837,7 @@ bindPathDeny(isDenied: (resolvedAbsPath: string) => boolean): void {
             message: `the compaction hook did not answer within ${hookTimeoutMs}ms; no drops were applied`,
           });
         }
+        const out = raced.outcome === "ok" ? raced.out : undefined;
         if (!out || !Array.isArray(out.drop)) continue;
         for (const id of out.drop) {
           if (typeof id === "string" && !offered.has(id)) {
@@ -2912,10 +2876,8 @@ bindPathDeny(isDenied: (resolvedAbsPath: string) => boolean): void {
   async dispatchBeforeModelCall(ctx: Parameters<BeforeModelCallHook>[0]): Promise<BeforeModelCallDispatch> {
     const replacements: BeforeModelCallDispatch["replacements"] = [];
     const timeouts: BeforeModelCallDispatch["timeouts"] = [];
-    // The sentinel keeps a hook's own `void` return distinguishable from
-    // a lost race, and the ceiling from the hook's own answer.
-    const WINDOW_LOST = Symbol("replacement_window_lost");
-    const CEILING_HIT = Symbol("hook_ceiling_hit");
+    const recordHookFailure = (name: string, reason: string, message: string): void =>
+      this.#recordHookError({ type: "extension_failed", name, reason, message });
     for (const instance of this.#instances) {
       for (const hook of instance.hooks.beforeModelCall) {
         // The composed clocks (ADR-0054 + ADR-0056): the hook promise is
@@ -2924,75 +2886,41 @@ bindPathDeny(isDenied: (resolvedAbsPath: string) => boolean): void {
         // budget. A lost window forfeits only the sections; the hook's
         // other work still counts until the ceiling.
         const started = Date.now();
-        let windowTimer: ReturnType<typeof setTimeout> | undefined;
-        let ceilingTimer: ReturnType<typeof setTimeout> | undefined;
-        let failed = false;
-        let failure: unknown;
-        const pending = (async () => {
-          try {
-            // ADR-0053: extension code runs marked (see #runCapped).
-            return await runInExtensionScope(instance.def.name, () => hook(ctx));
-          } catch (err) {
-            failed = true;
-            failure = err;
-            return undefined;
-          }
-        })();
-        const window = new Promise<symbol>((resolve) => {
-          windowTimer = setTimeout(() => resolve(WINDOW_LOST), this.#replacementWindowMs);
-        });
-        let out = await Promise.race([pending, window]);
-        if (windowTimer !== undefined) clearTimeout(windowTimer);
-        if (out === WINDOW_LOST) {
+        const windowed = await this.#race(instance, () => hook(ctx), this.#replacementWindowMs);
+        if (windowed.outcome === "timeout") {
           // The replacement is forfeit; the core's own text serves this
           // call. One visible record says so. The hook keeps its
           // remaining budget to the ceiling.
           timeouts.push({ by: instance.def.name, window: "replacement" });
-          this.#recordHookError({
-            type: "extension_failed",
-            name: instance.def.name,
-            reason: "replacement_timeout",
-            message: `the beforeModelCall hook answered after the ${this.#replacementWindowMs}ms replacement window; the core's own sections serve this call`,
-          });
+          recordHookFailure(
+            instance.def.name,
+            "replacement_timeout",
+            `the beforeModelCall hook answered after the ${this.#replacementWindowMs}ms replacement window; the core's own sections serve this call`,
+          );
           const elapsed = Date.now() - started;
           const remaining = Math.max(0, this.#hookTimeoutMs - elapsed);
-          const ceiling = new Promise<symbol>((resolve) => {
-            ceilingTimer = setTimeout(() => resolve(CEILING_HIT), remaining);
-          });
-          out = await Promise.race([pending, ceiling]);
-          if (ceilingTimer !== undefined) clearTimeout(ceilingTimer);
-          if (out === CEILING_HIT) {
+          const capped = await this.#race(instance, windowed.late, remaining);
+          if (capped.outcome === "timeout") {
             timeouts.push({ by: instance.def.name, window: "hook" });
-            this.#recordHookError({
-              type: "extension_failed",
-              name: instance.def.name,
-              reason: "hook_timeout",
-              message: `the beforeModelCall hook did not answer within ${this.#hookTimeoutMs}ms; it contributed nothing`,
-            });
+            recordHookFailure(
+              instance.def.name,
+              "hook_timeout",
+              `the beforeModelCall hook did not answer within ${this.#hookTimeoutMs}ms; it contributed nothing`,
+            );
             continue;
           }
           // Answered late: its other contributions counted (they already
           // happened); the forfeited replacement is not revived.
-          if (failed) {
-            this.#recordHookError({
-              type: "extension_failed",
-              name: instance.def.name,
-              reason: "hook",
-              message: errMessage(failure),
-            });
+          if (capped.outcome === "threw") {
+            recordHookFailure(instance.def.name, "hook", errMessage(capped.error));
           }
           continue;
         }
-        if (failed) {
-          this.#recordHookError({
-            type: "extension_failed",
-            name: instance.def.name,
-            reason: "hook",
-            message: errMessage(failure),
-          });
+        if (windowed.outcome === "threw") {
+          recordHookFailure(instance.def.name, "hook", errMessage(windowed.error));
           continue;
         }
-        const answered = (out ?? {}) as BeforeModelCallResult;
+        const answered = (windowed.out ?? {}) as BeforeModelCallResult;
         if (answered.sections && typeof answered.sections === "object") {
           replacements.push({
             by: instance.def.name,

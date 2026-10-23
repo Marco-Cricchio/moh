@@ -25,7 +25,7 @@
 import type { ExtensionRuntime, RuntimeExtension } from "./extensions";
 import type { EndpointProfile } from "./config";
 import type { ModelPoolResult } from "./model-pool";
-import type { CredentialStore } from "./credential-scope";
+import type { CredentialStore } from "./credential-store";
 
 /** What `resolveBundledExtensions` hands an active descriptor. */
 export interface BundledActivationContext {
@@ -152,7 +152,7 @@ export interface BundledWiring {
 }
 
 /** What the core resolved from the registered sources. */
-export interface BundledResolution {
+interface BundledResolution {
   /** True when at least one descriptor said it was active — the runtime
    * exists to host it and must be created even with no file source. */
   anyActive: boolean;

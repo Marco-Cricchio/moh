@@ -19,8 +19,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ExtensionDefinition, ExtensionHost, ExtensionSetupContext } from "@moh/extension";
 import { ExtensionRuntime } from "../src/extensions";
-import { scopeEffectSentence } from "../src/scope-effect";
-import { foldGlobCase, matchesPathScopes } from "../src/host-scope";
+import { scopeEffectSentence } from "../src/scopes";
+import { foldGlobCase } from "../src/host-scope";
+import { matchesPathScopes } from "../src/scopes";
 import type { AgentEvent } from "../src/types";
 
 const roots: string[] = [];
@@ -262,9 +263,15 @@ describe("the user's deny rules beat the grant per call", () => {
   test("a deny on a covered path is a typed refusal, not the grant", async () => {
     const root = project();
     const rt = runtime(root);
-    (rt as { bindPathDeny(f: (abs: string) => boolean): void }).bindPathDeny(
-      (abs) => abs.endsWith("/src/a.ts"),
-    );
+    // A stand-in for the owning session: only the path deny answer matters here.
+    rt.bindSession({
+      requestTurn: async () => false,
+      isPathDenied: (abs) => abs.endsWith("/src/a.ts"),
+      runTool: async () => ({ ok: false, reason: "failed" }),
+      modelCall: async () => ({ ok: false, reason: "failed" }),
+      listModels: async () => ({ ok: false, reason: "failed" }),
+      contributeTool: () => {},
+    });
     const events: AgentEvent[] = [];
     rt.onLoadEvent((event) => events.push(event));
     const box: { ctx: ExtensionSetupContext | null } = { ctx: null };

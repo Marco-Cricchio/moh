@@ -8,7 +8,6 @@ import { describe, expect, test } from "bun:test";
 import { mkdtemp, readFile, writeFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import React from "react";
 import { render } from "ink-testing-library";
 import { NotesModal } from "../src/NotesModal";
 import { newNote, readProjectNotes, sortNotes, writeProjectNotes } from "../src/notes";

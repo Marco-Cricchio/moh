@@ -3,18 +3,16 @@ import {
   ANTHROPIC_OAUTH_BETA,
   ANTHROPIC_OAUTH_DEFAULTS,
   ANTHROPIC_SUBSCRIPTION_SCOPES,
-  AnthropicLoginAborted,
   buildAnthropicAuthorizeUrl,
   exchangeAnthropicCode,
   loginAnthropic,
   refreshAnthropicToken,
   resolveAnthropicOAuthConfig,
-  type TokenEndpointFetch,
 } from "../src/auth/anthropic";
 import { anthropicAuthOverridesSchema, authSectionSchema } from "../src/auth/types";
 import { anthropicSubscriptionHeaders } from "../src/providers/ai-sdk";
 import { Endpoint } from "../src/route";
-import { raceForCode, startLoopbackCallback, generateState, type AuthorizationIo } from "../src/auth/oauth";
+import { raceForCode, startLoopbackCallback, generateState, type AuthorizationIo, LoginAborted, type OAuthPostFetch as TokenEndpointFetch } from "../src/auth/oauth";
 import type { AuthToken } from "../src/auth/types";
 
 const CONFIG = resolveAnthropicOAuthConfig();
@@ -240,7 +238,9 @@ describe("loginAnthropic", () => {
   test("ToS declined aborts before any network I/O", async () => {
     const io = loginIoDouble(["n"]);
     const fetchImpl = tokenResults();
-    await expect(loginAnthropic(io, { fetchImpl })).rejects.toBeInstanceOf(AnthropicLoginAborted);
+    const failure = await loginAnthropic(io, { fetchImpl }).catch((error: unknown) => error);
+    expect(failure).toBeInstanceOf(LoginAborted);
+    expect((failure as Error).name).toBe("AnthropicLoginAborted");
     expect(fetchImpl.calls).toHaveLength(0);
   });
 
@@ -339,7 +339,7 @@ describe("anthropic adapter beta header", () => {
 describe("oauth seam: code source tracking", () => {
   test("deliveredViaCallback flips on the automatic path, stays false on paste", async () => {
     // Paste path
-    const io = loginIoDouble(["pasted", ""]);
+    loginIoDouble(["pasted", ""]);
     const server = await startLoopbackCallback({ state: generateState(), timeoutMs: 1000 });
     await raceForCode(loginIoDouble([""]), { authorizeUrl: "https://m/a", manualUrl: "https://m/cb", callback: server });
     expect(server.deliveredViaCallback).toBe(false);

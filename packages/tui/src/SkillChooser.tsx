@@ -1,11 +1,11 @@
-import React, { useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { Text, useInput } from "ink";
 import { formatSkillCommand, skillRecommendations, type SkillRoutingConfig, type TrackerIssue } from "@moh/core";
 import { useTheme } from "./themes";
-import { sanitizeForDisplay } from "./render-sanitize";
+import { sanitizeForDisplay } from "@moh/core";
 import { Dialog, Dim } from "./ui";
 
-export interface SkillChooserProps {
+interface SkillChooserProps {
   issue: TrackerIssue;
   routing?: SkillRoutingConfig;
   /** Sets the composer draft; it deliberately does not submit a turn. */

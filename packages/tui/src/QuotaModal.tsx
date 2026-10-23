@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { Text, useInput } from "ink";
-import { getQuota, aggregateLocalUsage, PRICING_SNAPSHOT, type QuotaReport, type QuotaSource, type LocalUsageRow } from "@moh/core";
+import { getQuota, PRICING_SNAPSHOT, type QuotaReport, type LocalUsageRow } from "@moh/core";
 import type { EndpointProfile } from "@moh/core";
 import Table from "cli-table3";
 import { fgAnsi256 } from "./color";
@@ -39,7 +39,7 @@ type ReportState = Record<string, QuotaReport | null | "loading">;
 const CACHE_TTL_MS = 60_000;
 
 /** OpenCode exposes account usage in the Console, not a probeable quota API. */
-export const OPENCODE_CONSOLE_URL = "https://opencode.ai/console";
+const OPENCODE_CONSOLE_URL = "https://opencode.ai/console";
 
 function isOpenCodeEndpoint(endpoint: EndpointProfile): boolean {
   return endpoint.type === "opencode";

@@ -27,7 +27,7 @@ import type { OAuthBuiltinKind } from "../wire";
 import { isOAuthBuiltinKind } from "../wire";
 
 /** Default callback wait: 5 minutes, matching the official CLIs. */
-export const DEFAULT_CALLBACK_TIMEOUT_MS = 5 * 60 * 1000;
+const DEFAULT_CALLBACK_TIMEOUT_MS = 5 * 60 * 1000;
 
 /** Best-effort decode of an id_token payload's standard OIDC `email`
  * claim (display-only, unverified — mirrors openai.ts/google.ts). No-op
@@ -48,7 +48,7 @@ export function base64url(bytes: Buffer): string {
   return bytes.toString("base64url");
 }
 
-export interface PkcePair {
+interface PkcePair {
   /** `code_verifier`: base64url of 32 random bytes (43 chars, no padding). */
   verifier: string;
   /** `code_challenge`: base64url(sha256(verifier)) for method S256. */
@@ -73,7 +73,7 @@ export function buildAuthorizeUrl(endpoint: string, params: Record<string, strin
   return url.toString();
 }
 
-export interface CallbackServer {
+interface CallbackServer {
   /** The redirect URI to embed in the authorize URL. */
   redirectUri: string;
   /** Port actually bound (explicit allowlist port, or the OS-assigned one). */
@@ -88,7 +88,7 @@ export interface CallbackServer {
   cancel(): void;
 }
 
-export interface LoopbackOptions {
+interface LoopbackOptions {
   /** Random per-attempt state; callbacks carrying anything else get a 400. */
   state: string;
   /** Host to bind. Default `localhost` — loopback only, never 0.0.0.0. */
@@ -232,7 +232,7 @@ export function startLoopbackCallback(opts: LoopbackOptions): Promise<CallbackSe
 /** The I/O seam the race needs: what `OnboardingIo` grows for subscriptions. */
 export type AuthorizationIo = Pick<OnboardingIo, "ask" | "info" | "openUrl">;
 
-export interface RaceOptions {
+interface RaceOptions {
   /**
    * The **automatic-path authorize URL**: the provider's authorize endpoint
    * with `redirect_uri` = the loopback callback. This is what `openUrl`
@@ -265,7 +265,7 @@ async function readPastedCode(io: AuthorizationIo, prompt: string): Promise<stri
 }
 
 /** Cancel/timeout sentinel: no code was delivered. */
-export const NO_CODE = "";
+const NO_CODE = "";
 
 /** Narrated on every winning path before the token exchange starts. */
 export const CODE_RECEIVED_MSG = "✓ Authorization code received — exchanging tokens…";
@@ -403,7 +403,7 @@ export async function confirmToSWarning(io: AuthorizationIo): Promise<boolean> {
  * original grants; the new providers get their own copy. The grants
  * themselves (child tickets #160–#163) gate on this before their flows.
  */
-export const TOS_WARNING_BY_PROVIDER: Record<OAuthBuiltinKind, string> = {
+const TOS_WARNING_BY_PROVIDER: Record<OAuthBuiltinKind, string> = {
   "github-copilot":
     "GitHub Copilot subscription auth reuses the official VS Code Copilot " +
     "GitHub App client_id via the device flow. Your access follows your " +
@@ -438,4 +438,54 @@ export async function confirmToSWarningFor(io: AuthorizationIo, provider: string
 async function confirmWarning(io: AuthorizationIo): Promise<boolean> {
   const answer = (await io.ask("Acknowledge and continue? (y/n): ")).trim().toLowerCase();
   return answer === "y" || answer === "yes";
+}
+
+/** Thrown by the subscription logins when the user declines the ToS warning.
+ * `name` is the provider's historical error name (e.g. `"XaiLoginAborted"`). */
+export class LoginAborted extends Error {
+  constructor(name: string) {
+    super("subscription auth aborted: terms of service not acknowledged");
+    this.name = name;
+  }
+}
+
+/** HTTP seam for the OAuth token endpoints: POST a body, read a JSON reply. */
+export type OAuthPostFetch = (
+  url: string,
+  body: Record<string, unknown>,
+) => Promise<{ status: number; json: Record<string, unknown> }>;
+
+interface OAuthPostOptions {
+  /** The complete header set, in the order it is sent. Default: the content-type alone. */
+  headers?: Record<string, string>;
+  /** When set, the request is bounded by `AbortSignal.timeout(timeoutMs)`. */
+  timeoutMs?: number;
+}
+
+/** JSON-encoded POST; a non-JSON reply reads as `{}`. */
+export function postJson(opts: OAuthPostOptions = {}): OAuthPostFetch {
+  return async (url, body) => {
+    const res = await fetch(url, {
+      method: "POST",
+      headers: opts.headers ?? { "content-type": "application/json" },
+      body: JSON.stringify(body),
+      ...(opts.timeoutMs !== undefined ? { signal: AbortSignal.timeout(opts.timeoutMs) } : {}),
+    });
+    const json = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+    return { status: res.status, json };
+  };
+}
+
+/** Form-encoded POST; a non-JSON reply reads as `{}`. */
+export function postForm(opts: OAuthPostOptions = {}): OAuthPostFetch {
+  return async (url, body) => {
+    const res = await fetch(url, {
+      method: "POST",
+      headers: opts.headers ?? { "content-type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams(body as Record<string, string>).toString(),
+      ...(opts.timeoutMs !== undefined ? { signal: AbortSignal.timeout(opts.timeoutMs) } : {}),
+    });
+    const json = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+    return { status: res.status, json };
+  };
 }

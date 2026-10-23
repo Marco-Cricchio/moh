@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
-import { builtinTools, createSession, MockProvider, PromptComposer, SCHEMA_VERSION } from "../src/index";
+import { builtinTools, createSession, MockProvider, PromptComposer } from "../src/index";
 import { hashPrompt } from "../src/prompt-composer";
+import { SCHEMA_VERSION } from "../src/types";
 import type { Provider } from "../src/index";
 import type { Message } from "../src/types";
 

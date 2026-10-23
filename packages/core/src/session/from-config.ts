@@ -26,7 +26,7 @@ import { builtinTools } from "../builtin-tools";
 import { declaredMcpServers, loadMohConfig, type MohConfig } from "../config";
 import { mergeProviderConfigs, readUserProviderConfig } from "../provider-config";
 import { readAuthSection } from "../auth/store";
-import { declaredUserMcpServers, isProjectServerTrusted, type McpConsentAnswer } from "../mcp";
+import { declaredUserMcpServers, isProjectServerTrusted, type McpConsentAnswer } from "../mcp/types";
 import { declaredWindowsByEndpoint, liveModelCacheFile, loadLiveModelCacheSync } from "../live-model-catalog";
 import { defaultRegistry, resolveProvider, resolveProviderRef } from "../provider-registry";
 import { SessionStore } from "../session-store";
@@ -36,7 +36,7 @@ import type { AgentEvent, AskUserQuestionSet, AskUserSetResult, Provider, Tool }
 import { AgentSession } from "./session";
 import type { SessionConfig } from "./config";
 import { ExtensionRuntime } from "../extensions";
-import { defaultCredentialStore, type CredentialStore } from "../credential-scope";
+import { defaultCredentialStore, type CredentialStore } from "../credential-store";
 import type { ExtensionConsentRequest } from "../extensions";
 import { extensionSourceFiles } from "../extension-source";
 import { resolveBundledExtensions, type BundledWiring, type MountedBundledExtension } from "../bundled-extensions";
@@ -150,14 +150,6 @@ export interface SessionConsent {
    * refusal keeps the previously approved tree and refuses the load.
    */
   onExtensionDependencies?: (name: string, deps: readonly string[]) => Promise<boolean> | boolean;
-  /**
-   * ADR-0062 (#1130): the slash names the client's own surfaces own — its
-   * native commands plus every skill alias. Extension commands colliding
-   * with one of these are refused at registration (native > skills >
-   * extension); the names are a client fact, so the assembling client
-   * supplies them.
-   */
-  reservedCommandNames?: readonly string[];
 }
 
 /** Client-specific overrides the builder layers over the moh.json-derived defaults. */
@@ -344,7 +336,7 @@ export function sessionFromConfig(options: SessionFromConfigOptions): SessionFro
       // ADR-0065: the project root the `path:<glob>` scopes resolve
       // against. The user's deny rules ride the session: the resolver is
       // not built yet at assembly time, so the deny answer is read live
-      // through the session's overrides channel below (bindPathDeny).
+      // through the session's overrides channel below (bindSession).
       ...(options.cwd ? { projectRoot: options.cwd } : {}),
       // ADR-0056 (#1126): the turn-path hook ceiling, from moh.json.
       ...(config.hookTimeoutMs !== undefined ? { hookTimeoutMs: config.hookTimeoutMs } : {}),

@@ -7,7 +7,6 @@
  * session, no network: the two seams are injected.
  */
 import { describe, expect, test } from "bun:test";
-import React from "react";
 import { render } from "ink-testing-library";
 import type { JevUseCase, JevUseCaseAction, JevUseCaseSnapshot, JevUseCaseState } from "@moh/jev-guard";
 import { JEV_USE_CASES, JEV_USE_CASE_DESCRIPTIONS } from "@moh/jev-guard";

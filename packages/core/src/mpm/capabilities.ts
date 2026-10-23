@@ -12,7 +12,7 @@ import type { MpmRelation, MpmSymbol } from "./types";
 
 export type MpmRelationFamily = "imports" | "references" | "config-links" | "test-subjects";
 
-export interface MpmLanguageCapability {
+interface MpmLanguageCapability {
   /** Stable capability name, surfaced in provenance as `mpm/<name>`. */
   name: string;
   /** File extensions this capability claims (lowercase, with dot). */

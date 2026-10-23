@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { MpmService } from "../src/mpm/service";
 import { MpmStore } from "../src/mpm/store";
 import { MpmOrientation } from "../src/mpm/orientation";
-import { MPM_FORMAT_VERSION, type MpmFileRecord } from "../src/mpm/types";
+import { type MpmFileRecord } from "../src/mpm/types";
 
 /**
  * #616: MPM orientation plans — conservative local eligibility, fresh-only

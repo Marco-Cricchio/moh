@@ -1,18 +1,18 @@
 import { z } from "zod";
 import { homedir } from "node:os";
 import { randomUUID } from "node:crypto";
-import type { AgentEvent, Provider, Tool, ToolContext } from "./types";
+import type { AgentEvent, Provider, Tool } from "./types";
 import type { PermissionsConfig, SessionConfig } from "./session/config";
 import type { ExtensionRuntime } from "./extensions";
 import { AgentSession } from "./session/session";
 import { DevelopmentLaneStore } from "./development-lanes";
 import { SessionStore, lastAssistantText } from "./session-store";
 import { ExtensionSpawnRefusedError } from "./extension-scope";
-import { validatePathGlob } from "./host-scope";
+import { validatePathGlob } from "./scopes";
 import type { PermissionRule } from "./permissions";
 import { PromptComposer, BASE_PROMPT } from "./prompt-composer";
 import { tailChildLog } from "./child-tail";
-import { resolveProviderRef, defaultRegistry, type FrozenProviderRegistry, type ProviderRegistry } from "./provider-registry";
+import { resolveProviderRef, defaultRegistry, type ProviderRegistry } from "./provider-registry";
 import { DEFAULT_MAX_ITERATIONS } from "./session/agent-loop";
 // ADR-0050 (§4): the child's own route, built from the parent's live pair.
 import { childRouteOf } from "./route";
@@ -140,7 +140,7 @@ interface LiveChild {
 }
 
 /** ADR-0053: the extension-spawn envelope, defaulted to the fixed cap. */
-export const EXTENSION_MAX_SESSIONS = 10;
+const EXTENSION_MAX_SESSIONS = 10;
 
 /** Options for enabling the spawn tool on a session. */
 export interface SubagentOptions {
@@ -182,7 +182,7 @@ const spawnInputSchema = subagentSpecSchema.extend({
   task: z.string().min(1),
 });
 
-export interface SubagentHostOptions {
+interface SubagentHostOptions {
   cwd: string;
   /** Snapshot of the parent's tool registry at each spawn. */
   parentTools: () => Record<string, Tool>;
@@ -400,11 +400,6 @@ export class SubagentHost {
       this.#extensionChildren.delete(callId);
     }
     return stopped;
-  }
-
-  /** ADR-0053: children this extension spawned this session, by callId. */
-  spawnedByExtension(extension: string): string[] {
-    return [...this.#spawnedByExtension].filter(([, by]) => by === extension).map(([callId]) => callId);
   }
 
   /**
@@ -711,7 +706,7 @@ export class SubagentHost {
         },
         ...(this.#options.onPermissionRequest ? { onPermissionRequest: this.#options.onPermissionRequest } : {}),
         ...(this.#options.onConfirmTurn ? { onConfirmTurn: this.#options.onConfirmTurn } : {}),
-        ...(this.#options.extensions ? { toolHooks: this.#options.extensions } : {}),
+        ...(this.#options.extensions ? { borrowedRuntime: this.#options.extensions } : {}),
         sink: (event) => store.append(event),
         promptComposer: new PromptComposer({
           projectDir: this.#options.cwd,
@@ -826,7 +821,7 @@ function resultJson(result: SubagentResult): string {
 /** #320: the transcript preview of a subagent's output — its first lines,
  * bounded, so the chat block and replay hint at what the child produced
  * without re-reading the child log. `undefined` when there is no output. */
-export function subagentPreview(output: string, maxLines = 3): string | undefined {
-  const lines = output.split("\n").filter((l) => l.trim() !== "").slice(0, maxLines);
+export function subagentPreview(output: string): string | undefined {
+  const lines = output.split("\n").filter((l) => l.trim() !== "").slice(0, 3);
   return lines.length ? lines.join("\n") : undefined;
 }

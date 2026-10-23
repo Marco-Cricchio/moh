@@ -371,7 +371,7 @@ describe("reasoning lifecycle integration (#243)", () => {
       line({ id: "c", created: 1, model: "m", choices: [{ index: 0, delta: {}, finish_reason: "stop" }], usage: { prompt_tokens: 1, completion_tokens: 2, total_tokens: 3 } }),
       "data: [DONE]\n\n",
     ].join("");
-    globalThis.fetch = (async (_input: any, init?: RequestInit) =>
+    globalThis.fetch = (async (_input: any, _init?: RequestInit) =>
       new Response(
         new ReadableStream<Uint8Array>({ start(c) { c.enqueue(encoder.encode(sse)); c.close(); } }),
         { status: 200, headers: { "content-type": "text/event-stream" } },

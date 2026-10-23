@@ -26,7 +26,7 @@ import { Dialog, Dim, ScrollDialog, type ScrollRow } from "./ui";
  * The report scrolls inside a bounded dialog body. ScrollDialog measures
  * Ink's rendered content, including wrapped evidence and lineage rows.
  */
-export interface RetroModalProps {
+interface RetroModalProps {
   /** Project root — where a confirmed application is written. */
   cwd: string;
   /** The session's own report seam (`AgentSession.retroReport`). Null when

@@ -4,10 +4,10 @@ import { Text, useInput } from "ink";
 import { join } from "node:path";
 import { homedir } from "node:os";
 import { endpointModelCatalog, fallbackIneligibleReason, fetchLiveCatalogs, liveListings, loadMohConfig, loadMergedConfig, listOpenAiCompatModels, MAX_ITERATIONS_UNLIMITED, probeBrowserToolchain, readUserProviderConfig, removeUserEndpoint, renderTosCard, saveUserProviderRef, setUserEndpointFallbackEligible, setUserEndpointModel, summarizeLiveCatalogReport, tosCardFor, writeMohConfig, userConfigFile, DEFAULT_MAX_ITERATIONS, type BrowserToolchainStatus, type LiveModelListing, type MohConfig } from "@moh/core";
-import { validateJevKey, readTypesafeConfig, removeTypesafeKey, migrateTypesafeKey, resolveTypesafeConfig, saveTypesafeApiKey, saveTypesafeClassification, saveTypesafeGuardrail, saveTypesafeInjection, saveTypesafeLint, saveTypesafeRerank, saveTypesafeRouting, saveTypesafeSkills, maskApiKey, JEV_USE_CASE_DESCRIPTIONS, TYPESAFE_TIMEOUT_MS_DEFAULT, transportFromFetch, TYPESAFE_CREDENTIAL_REF, type JevKeyValidation, type JevTransport } from "@moh/jev-guard";
+import { validateJevKey, readTypesafeConfig, removeTypesafeKey, migrateTypesafeKey, resolveTypesafeConfig, saveTypesafeApiKey, saveTypesafeFlag, maskApiKey, JEV_USE_CASE_DESCRIPTIONS, TYPESAFE_TIMEOUT_MS_DEFAULT, transportFromFetch, TYPESAFE_CREDENTIAL_REF, type JevKeyValidation, type JevTransport } from "@moh/jev-guard";
 import { defaultCredentialStore, validateCredentialScope } from "@moh/core";
 import { setIcons } from "./icons";
-import { THEMES, THEME_ORDER } from "./themes";
+import { THEME_ORDER } from "./themes";
 import { deleteUserTheme, guessExtendsOf, listUserThemes, loadUserTheme, saveUserTheme, themeLabelFor } from "./user-themes";
 import type { AnswerLanguage, DefaultPermissionMode, FilePreview, ThemeRef, UserConfig, VibeMode } from "./user-config";
 import { useTheme } from "./themes";
@@ -23,7 +23,7 @@ import { browserRowValue, readBrowserSettingWithState } from "./browser-setup";
  * default permission mode — plus in-panel provider management (switch / add / remove endpoints in
  * moh.json). Changes persist to `~/.moh/config` immediately.
  */
-export interface SettingsPanelProps {
+interface SettingsPanelProps {
   cwd: string;
   /** User home override for merged provider config/tests. */
   home?: string;
@@ -103,8 +103,6 @@ function allThemeRefs(home?: string): ThemeRef[] {
   return [...THEME_ORDER, ...listUserThemes(home ?? homedir()).map((t) => `user:${t.id}` as ThemeRef)];
 }
 
-/** Lowercase slug normalization for editor ids. */
-const slugify = (v: string): string => v.trim().toLowerCase().replace(/[^a-z0-9-]+/g, "-").replace(/^-+|-+$/g, "");
 
 /** #784: the Jev entry's view of the user config (never a live probe). */
 interface JevState {
@@ -670,7 +668,7 @@ export function SettingsPanel({ cwd, home, config, onChange, modelLabel, onProvi
   const toggleJevGuardrail = () => {
     const next = !jev.guardrail;
     try {
-      saveTypesafeGuardrail(jevFile, next);
+      saveTypesafeFlag(jevFile, "guardrail", next);
     } catch (e) {
       return onToast(`guardrail: could not save (${e instanceof Error ? e.message : String(e)})`);
     }
@@ -687,7 +685,7 @@ export function SettingsPanel({ cwd, home, config, onChange, modelLabel, onProvi
   const toggleJevRouting = () => {
     const next = !jev.routing;
     try {
-      saveTypesafeRouting(jevFile, next);
+      saveTypesafeFlag(jevFile, "routing", next);
     } catch (e) {
       return onToast(`routing: could not save (${e instanceof Error ? e.message : String(e)})`);
     }
@@ -704,7 +702,7 @@ export function SettingsPanel({ cwd, home, config, onChange, modelLabel, onProvi
   const toggleJevInjection = () => {
     const next = !jev.injection;
     try {
-      saveTypesafeInjection(jevFile, next);
+      saveTypesafeFlag(jevFile, "injection", next);
     } catch (e) {
       return onToast(`anti-injection: could not save (${e instanceof Error ? e.message : String(e)})`);
     }
@@ -722,7 +720,7 @@ export function SettingsPanel({ cwd, home, config, onChange, modelLabel, onProvi
   const toggleJevClassification = () => {
     const next = !jev.classification;
     try {
-      saveTypesafeClassification(jevFile, next);
+      saveTypesafeFlag(jevFile, "classification", next);
     } catch (e) {
       return onToast(`classification: could not save (${e instanceof Error ? e.message : String(e)})`);
     }
@@ -739,7 +737,7 @@ export function SettingsPanel({ cwd, home, config, onChange, modelLabel, onProvi
   const toggleJevLint = () => {
     const next = !jev.lint;
     try {
-      saveTypesafeLint(jevFile, next);
+      saveTypesafeFlag(jevFile, "lint", next);
     } catch (e) {
       return onToast(`quality gate: could not save (${e instanceof Error ? e.message : String(e)})`);
     }
@@ -757,7 +755,7 @@ export function SettingsPanel({ cwd, home, config, onChange, modelLabel, onProvi
   const toggleJevRerank = () => {
     const next = !jev.rerank;
     try {
-      saveTypesafeRerank(jevFile, next);
+      saveTypesafeFlag(jevFile, "rerank", next);
     } catch (e) {
       return onToast(`seed rerank: could not save (${e instanceof Error ? e.message : String(e)})`);
     }
@@ -774,7 +772,7 @@ export function SettingsPanel({ cwd, home, config, onChange, modelLabel, onProvi
   const toggleJevSkills = () => {
     const next = !jev.skills;
     try {
-      saveTypesafeSkills(jevFile, next);
+      saveTypesafeFlag(jevFile, "skills", next);
     } catch (e) {
       return onToast(`skill suggestion: could not save (${e instanceof Error ? e.message : String(e)})`);
     }

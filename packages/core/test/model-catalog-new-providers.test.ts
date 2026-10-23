@@ -112,7 +112,7 @@ describe("OpenCode packaged overlays (#794)", () => {
     expect(wireOf(zen, "claude-opus-5")).toBe("anthropic-messages");
     expect(wireOf(zen, "minimax-m3")).toBe("openai-chat");
     expect(wireOf(zen, "gemini-3.5-flash")).toBe("google");
-    expect(wireOf(go, "grok-4.6")).toBe("openai-responses");
+    expect(wireOf(go, "gpt-5.6-luna")).toBe("openai-responses");
     expect(wireOf(go, "minimax-m3")).toBe("anthropic-messages");
     expect(wireOf(go, "glm-5.3")).toBe("openai-chat");
     // Since #959 the overlays are generated (models.dev, ADR-0046): their

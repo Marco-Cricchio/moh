@@ -5,6 +5,58 @@ All notable changes to moh are documented here. The format follows
 SemVer. Each release's GitHub Release description is extracted from the
 matching section here at tag time.
 
+## [Unreleased]
+
+## [0.65.3] - 2026-10-23
+
+### Changed
+
+- **Internal complexity reduction, no behavior change** (#1378, PRs
+  #1479–#1613): unused re-exports, internal barrels and file-local
+  `export`s removed; duplicated tables and helpers (provider kinds,
+  extension scopes, atomic writes, bounded diagnostic logs, the `git`
+  runner, OAuth boilerplate, quota probes, Jev flag writers, the CLI
+  dispatcher, hook-timeout races) folded into single definitions;
+  never-used injection seams and duck-typed casts replaced by concrete
+  types. Event logs, provider requests, CLI and `moh serve` output and
+  TUI frames were checked byte-for-byte against recorded baselines at
+  every phase. `@moh/core` now exports only what its clients use or what
+  `docs/extending/` documents, together with the types those exports
+  reference; unused TypeScript locals and parameters are now compile
+  errors, and package entry points carry a surface lock.
+
+### Security
+
+- **The TUI configuration save writes its temporary file with mode 0600**
+  (#1436, PR #1593): it was created with the process umask and only
+  restricted after the rename; the final file's mode is unchanged.
+
+### Fixed
+
+- **The `pulse` intro style settles on the full banner** (#1467, PR
+  #1468): its last frames, painted as settled, showed at most the middle
+  row and the animation ran backwards; every intro style now ends on the
+  complete banner.
+- **The model catalog follows provider retirements** (PR #1630): models their providers no longer offer leave the catalog —
+  six OpenRouter listings (`anthropic/claude-sonnet-4`,
+  `deepseek/deepseek-r1`, three `gemini-2.5-*:batch` variants,
+  `inclusionai/ling-3.0-flash-fin`), GitHub Copilot's MAI Code 1 Flash
+  picker, Xiaomi MiMo-V2-Flash, and OpenCode Go's `qwen3.6-plus` and
+  `grok-4.6`. Xiaomi MiMo now ships MiMo-V2.6-Flash and V2.6-Pro, and
+  onboarding proposes `mimo-v2.6-flash` as its default model.
+  `meta-llama/llama-4-maverick` on OpenRouter takes the 524,288-token
+  window the provider now declares.
+- **Installed user extensions load at runtime, not only in `moh extension
+  list`** (#1373, PR #1374): a package installed into `~/.moh/extensions/<name>/` is
+  now discovered at session start through its `moh.extension.json` and
+  loads through the same consent as a loose file; a package with a missing
+  or malformed manifest is a visible load failure instead of a silent
+  absence, and a project declaration with the same manifest name wins over
+  the user-dotdir copy (the precedence `moh extension list` already
+  showed). A broken symlink in `~/.moh/extensions/` is skipped instead of
+  hiding every other extension, and a package only ever loads entry files
+  inside its own folder.
+
 ## [0.65.2] - 2026-10-13
 
 ### Added
@@ -2663,7 +2715,9 @@ security audit, each fixed behind its own PR.
   passed; a regression test pins the resolved path under
   `<home>/.moh/projects`.
 
-[Unreleased]: https://github.com/Marco-Cricchio/moh/compare/v0.65.1...develop
+[Unreleased]: https://github.com/Marco-Cricchio/moh/compare/v0.65.3...develop
+[0.65.3]: https://github.com/Marco-Cricchio/moh/compare/v0.65.2...v0.65.3
+[0.65.2]: https://github.com/Marco-Cricchio/moh/compare/v0.65.1...v0.65.2
 [0.65.1]: https://github.com/Marco-Cricchio/moh/compare/v0.65.0...v0.65.1
 [0.65.0]: https://github.com/Marco-Cricchio/moh/compare/v0.64.7...v0.65.0
 [0.64.7]: https://github.com/Marco-Cricchio/moh/compare/v0.64.6...v0.64.7

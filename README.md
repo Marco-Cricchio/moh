@@ -116,7 +116,7 @@ headless core; every client is thin.** Build and test with Bun:
 bun install && bun test && bun run typecheck
 ```
 
-Read `docs/principles.md` first — seven principles govern every change;
+Read `docs/principles.md` first — eight principles govern every change;
 decisions are recorded in `docs/adr/`.
 
 ## Acknowledgements

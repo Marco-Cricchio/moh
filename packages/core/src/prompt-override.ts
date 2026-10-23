@@ -19,7 +19,7 @@ import type { AgentEvent } from "./types";
  * instruction files are moh's identity and the user's words, the two note
  * sections are the extension channel itself. A section added to
  * SECTION_ORDER later defaults to not replaceable (ADR-0054). */
-export const REPLACEABLE_SECTIONS: readonly SectionName[] = [
+const REPLACEABLE_SECTIONS: readonly SectionName[] = [
   "environment",
   "tools",
   "skills",
@@ -31,7 +31,7 @@ export const REPLACEABLE_SECTIONS: readonly SectionName[] = [
 /** The capability slot that covers one section (ADR-0053 scope): declared
  * in the consented code, signed in the manifest, named in the consent
  * question, and judged here at every application. */
-export function replaceSectionCapability(section: string): string {
+function replaceSectionCapability(section: string): string {
   return `replace-prompt-section:${section}`;
 }
 
@@ -51,7 +51,7 @@ export interface PromptContribution {
   readonly mode: "replaced" | "hidden";
 }
 
-export interface PromptOverrideApplication {
+interface PromptOverrideApplication {
   /** The effective sections: core text with replacements applied and
    * hidden sections omitted. */
   readonly sections: Partial<Record<SectionName, string>>;

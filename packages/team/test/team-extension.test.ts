@@ -240,7 +240,7 @@ describe("one-member team end to end (#1221, ADR-0055)", () => {
     expect(String(panel.render())).toContain("no members yet");
 
     const session = teamSession(rt, { mode: "yolo" });
-    const events = tap(session);
+    tap(session);
     await session.send("work on the flaky width test with the team");
     await session.dispose();
 

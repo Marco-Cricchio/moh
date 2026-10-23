@@ -6,7 +6,7 @@
  * restarts context visibly (d6). Legacy numeric `upTo` reads as `line:N`.
  */
 import { describe, expect, test } from "bun:test";
-import { activePath, pathTo, resolveHead } from "../src/session/event-log";
+import { activePath, pathTo } from "../src/session/event-log";
 import { compactionProjection, replayMessages, replayWarnings } from "../src/session-store";
 import { newUlid } from "../src/session/ulid";
 import type { AgentEvent, Message } from "../src/types";

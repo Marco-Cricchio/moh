@@ -4,8 +4,13 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { discoverHandoff, type DiscoverHandoffOptions } from "../src/handoff-reception";
-import { handoffDebugEnabled, resetDebugCache, setDebugWriter } from "../src/handoff-debug";
+import {
+  discoverHandoff,
+  handoffDebugEnabled,
+  resetDebugCache,
+  setDebugWriter,
+  type DiscoverHandoffOptions,
+} from "../src/handoff-reception";
 import type { HandoffPayload, HandoffTransport } from "../src/handoff-transport";
 import type { SessionSummary } from "../src/session-store";
 

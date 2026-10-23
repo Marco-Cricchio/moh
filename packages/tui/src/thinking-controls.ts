@@ -11,7 +11,7 @@ import {
 /** Model-level control data shared by the slash command and bottom-bar
  * action (#242). Undefined means the active model declares no capability
  * (#256: config declaration or catalog map). */
-export interface ThinkingLevelControl {
+interface ThinkingLevelControl {
   ref: string;
   endpointName: string;
   states: Record<ThinkingLevel, ThinkingLevelState>;

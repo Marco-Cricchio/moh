@@ -4,7 +4,6 @@
  * close wiring.
  */
 import { describe, expect, test } from "bun:test";
-import React from "react";
 import { render } from "ink-testing-library";
 import type { QuotaReport, LocalUsageRow, EndpointProfile } from "@moh/core";
 import { QuotaModal, clearQuotaCache, type QuotaModalProps } from "../src/QuotaModal";

@@ -1,5 +1,4 @@
-import { describe, expect, test } from "bun:test";
-import React from "react";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { render } from "ink-testing-library";
 import { Home } from "../src/Home";
 import { Logo } from "../src/ui";
@@ -127,17 +126,57 @@ describe("Logo ramp rendering (#1304)", () => {
 });
 
 describe("LogoIntro splash (#1304)", () => {
-  // The intro animates and each style completes rows in its own order:
-  // poll until the frame contains every settled banner row (or time out).
+  // The intro animates on chained `setTimeout`s (2.8 s of real time) and each
+  // style completes rows in its own order. Bun 1.2 has no usable fake timers,
+  // so the test owns the clock instead: while a view is mounted, `setTimeout`
+  // is captured and the test fires the due callbacks itself, one animation
+  // step per turn of the event loop. The settled frame no longer depends on
+  // how fast the machine runs, only on how many steps the animation has.
+  const realSetTimeout = globalThis.setTimeout;
+  const realClearTimeout = globalThis.clearTimeout;
+  let pending: Map<number, () => void> | null = null;
+
+  function holdTimers(): void {
+    const timers = new Map<number, () => void>();
+    let nextId = 1;
+    pending = timers;
+    globalThis.setTimeout = ((fn: () => void) => {
+      const id = nextId++;
+      timers.set(id, fn);
+      return id;
+    }) as unknown as typeof setTimeout;
+    globalThis.clearTimeout = ((id: number) => {
+      timers.delete(id);
+    }) as unknown as typeof clearTimeout;
+  }
+
+  function releaseTimers(): void {
+    globalThis.setTimeout = realSetTimeout;
+    globalThis.clearTimeout = realClearTimeout;
+    pending = null;
+  }
+
+  /** Steps the animation until the frame holds every banner row. A style that
+   * never settles fails on a step budget (the longest style is ~25 frames),
+   * not on a wall clock, and the failure names the rows still missing. */
   async function settledFrame(view: { lastFrame: () => string | undefined }, rows: string[]): Promise<string> {
-    const deadline = Date.now() + 8000;
-    for (;;) {
+    const MAX_STEPS = 200;
+    for (let step = 0; step <= MAX_STEPS; step++) {
       const frame = view.lastFrame() ?? "";
       if (rows.every((r) => frame.includes(r))) return frame;
-      if (Date.now() > deadline) return frame;
-      await new Promise((r) => setTimeout(r, 50));
+      const due = [...pending!.entries()];
+      pending!.clear();
+      for (const [, fn] of due) fn();
+      // Let React commit the state update the callback scheduled.
+      await new Promise<void>((r) => realSetTimeout(r, 0));
     }
+    const frame = view.lastFrame() ?? "";
+    const missing = rows.filter((r) => !frame.includes(r));
+    throw new Error(`LogoIntro did not settle after ${MAX_STEPS} steps; missing rows: ${JSON.stringify(missing)}\nLast frame:\n${frame}`);
   }
+
+  beforeEach(holdTimers);
+  afterEach(releaseTimers);
 
   test(
     "each allow-listed font renders through the injected choice",

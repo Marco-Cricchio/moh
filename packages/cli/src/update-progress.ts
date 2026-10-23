@@ -38,7 +38,7 @@ export function interactiveStream(stream: NodeJS.WritableStream): boolean {
   return (stream as { isTTY?: boolean }).isTTY === true && !process.env.NO_COLOR;
 }
 
-export interface UpdateProgressOptions {
+interface UpdateProgressOptions {
   /** Destination for all progress output. */
   stream: NodeJS.WritableStream;
   /** TTY mode: in-place repaint, spinner, colors. Plain mode commits lines only. */
@@ -152,17 +152,6 @@ export class UpdateProgress {
       this.open = null;
     }
     this.showCursor();
-  }
-
-  private startTimer(): void {
-    if (!this.ansi || !this.open) return;
-    const tick = this.opts.tickMs ?? DEFAULT_TICK_MS;
-    if (tick <= 0) return;
-    this.open.timer = setInterval(() => {
-      if (!this.open) return;
-      this.open.frame++;
-      this.paintFrame();
-    }, tick);
   }
 
   private stopTimer(): void {

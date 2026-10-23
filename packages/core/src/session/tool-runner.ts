@@ -31,7 +31,7 @@ function cancelledResult(callId: string, signal: AbortSignal): Promise<{ callId:
 }
 
 /** The gate surface ToolRunner needs — satisfied by PermissionGate (#90). */
-export interface GateCheck {
+interface GateCheck {
   check(
     tool: string,
     callId: string,
@@ -136,7 +136,7 @@ function isGitPushSegment(words: string[]): boolean {
 /** True for a shell command segment that invokes `git push`; quoted text
  * and `git status` are not triggers. Compound commands are intentional:
  * a successful bash call that did push must publish the fresh artifact. */
-export function isGitPush(call: ToolCall): boolean {
+function isGitPush(call: ToolCall): boolean {
   if (call.name !== "bash" || typeof (call.args as { command?: unknown })?.command !== "string") return false;
   return splitCommandSegments((call.args as { command: string }).command).some(isGitPushSegment);
 }
@@ -396,7 +396,7 @@ export class ToolRunner {
     signal: AbortSignal,
     requester?: { extension: string },
     /** ADR-0076: the ask context a client-initiated door supplies. */
-    askContext?: PermissionAskContext,
+    _askContext?: PermissionAskContext,
   ): Promise<ToolOutcome> {
     const tool = this.#tools()[name];
     if (!tool) {

@@ -1,5 +1,4 @@
 import { test } from "bun:test";
-import React from "react";
 import { render } from "ink-testing-library";
 import { Chat } from "./../src/Chat";
 import { createSession, type Provider } from "@moh/core";

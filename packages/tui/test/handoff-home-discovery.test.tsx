@@ -10,7 +10,6 @@ import { afterEach, describe, expect, mock, test } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import React from "react";
 import { render } from "ink-testing-library";
 import type { HandoffOffer } from "@moh/core";
 import { stripAnsi, waitForFrame } from "./helpers";

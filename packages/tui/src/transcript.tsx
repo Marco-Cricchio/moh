@@ -1,10 +1,10 @@
 import React, { useMemo } from "react";
 import { Box, Text } from "ink";
 import { formatModelPair, type AgentEvent } from "@moh/core";
-import type { PaintableTheme, Theme } from "./themes";
+import type { PaintableTheme } from "./themes";
 import { useTheme } from "./themes";
 import { sanitizeLine, truncate } from "./ui";
-import { sanitizeForDisplay } from "./render-sanitize";
+import { sanitizeForDisplay } from "@moh/core";
 import { createMarkdownRenderer, Markdown, MarkdownRows, wrapRenderedLines } from "./markdown";
 import { formatDuration, formatTimeout } from "./tool-timing";
 import { askUserQuestionSummary } from "./permission-gate";
@@ -14,7 +14,7 @@ import type { ToolTailMap } from "./tool-progress";
 import type { PreviewImage } from "./image-preview";
 import { BROWSER_SETUP_ACTION } from "./browser-setup";
 import { glyphColor, SemanticText } from "./glyph-color";
-export type BlockKind = "user" | "moh" | "code" | "diff" | "tool" | "error" | "chrome" | "thinking" | "subagent" | "info";
+type BlockKind = "user" | "moh" | "code" | "diff" | "tool" | "error" | "chrome" | "thinking" | "subagent" | "info";
 export interface TranscriptBlock {
   key: string;
   kind: BlockKind;
@@ -55,7 +55,7 @@ export interface TranscriptBlock {
 /** Vibe phrasing for a tool call (#193): plain language, no raw command. */
 /** One row of the resolved ask_user Static projection (#413): a question
  * line (kind "ask") or its answer line (kind "answer"). */
-export interface AskUserProjectionEntry {
+interface AskUserProjectionEntry {
   line: string;
   kind: "ask" | "answer";
 }
@@ -68,7 +68,7 @@ export interface AskUserProjectionEntry {
  * volatile via settledBoundary); once the result arrives, the same walker
  * attaches the answers. Legacy single-question args (pre-ADR-0019 replay)
  * fall back to the old two-row shape through `legacyDetail`. */
-export function askUserProjectionEntries(
+function askUserProjectionEntries(
   args: unknown,
   resultOutput: string | undefined,
   legacyDetail: () => string,
@@ -285,7 +285,7 @@ export function assistantRunOrigin(events: readonly AgentEvent[], start: number)
  * short line per kind. */
 /** #949: one human sentence for a `compaction_skipped` — the reason plus
  * the numbers that justify it, so the user never has to recompute. */
-export function skipExplanation(event: Extract<AgentEvent, { type: "compaction_skipped" }>): string {
+function skipExplanation(event: Extract<AgentEvent, { type: "compaction_skipped" }>): string {
   const window = event.window > 0 ? `window ~${(event.window / 1000).toFixed(0)}k` : "unknown window";
   if (event.reason === "too_few_turns") {
     return `${event.turns} turn${event.turns === 1 ? "" : "s"} in the log (~${(event.measuredTokens / 1000).toFixed(0)}k tokens, ${window}) — nothing foldable yet; a new turn makes older work compactable.`;
@@ -1297,7 +1297,7 @@ export function projectTranscript(events: ReadonlyArray<AgentEvent>, options: { 
  * reasoning group is never retro-inserted above preceding deltas: once those
  * deltas are in Ink Static, doing so violates append-only terminal history
  * and caused the v0.21.1 duplicated agentic replies regression. */
-export function orderReasoningAboveReply(events: ReadonlyArray<AgentEvent>): Array<{ event: AgentEvent; index: number }> {
+function orderReasoningAboveReply(events: ReadonlyArray<AgentEvent>): Array<{ event: AgentEvent; index: number }> {
   return events.map((event, index) => ({ event, index }));
 }
 
@@ -1403,7 +1403,7 @@ export function assistantSegments(text: string): Array<{ start: number; end: num
  * delimiters pair across everything already written, and these entities
  * change how the text around them is read. One definition, shared by the
  * plain-prose promotion and the open-tail stability rule (#972). */
-export const INLINE_SIGNIFICANT = /[`*_[\]<>|&\\]/;
+const INLINE_SIGNIFICANT = /[`*_[\]<>|&\\]/;
 
 /** A line start that turns what PRECEDES it into another block. A setext
  * underline (any run of `-`/`=`, one is enough) re-reads the line above it as
@@ -1488,7 +1488,6 @@ export function openBlockStableRows(
 export function closedPrefixLength(text: string): number {
   const lines = text.split("\n");
   let at = 0;
-  let segStart = 0;
   let closed = 0;
   let fenceChar: "`" | "~" | null = null;
   let fenceLen = 0;
@@ -1504,7 +1503,6 @@ export function closedPrefixLength(text: string): number {
       else if (fenceChar === char && marker.length >= fenceLen && /^\s*$/.test(line.slice(fence[0].length))) {
         fenceChar = null;
         closed = Math.min(text.length, at);
-        segStart = closed;
       }
       continue;
     }

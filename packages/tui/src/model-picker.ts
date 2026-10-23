@@ -7,11 +7,6 @@
  */
 import type { CatalogModel, LiveModelListing } from "@moh/core";
 
-/** One pickable row: a catalog entry or the free-text fallback. */
-export type PickerRow =
-  | { kind: "catalog"; model: CatalogModel }
-  | { kind: "free"; query: string };
-
 /**
  * Incremental filter over a catalog (#181): case-insensitive substring
  * on name or id first, subsequence ("fuzzy") on id as the fallback.
@@ -38,7 +33,7 @@ function isSubsequence(needle: string, haystack: string): boolean {
 }
 
 /** Human context-window label ("200k", "—"). */
-export function contextLabel(contextWindow: number): string {
+function contextLabel(contextWindow: number): string {
   return contextWindow > 0 ? `${Math.round(contextWindow / 1000)}k` : "—";
 }
 
@@ -86,7 +81,7 @@ export interface EndpointPick {
  * endpoint's own listing declared a different window (#1032), the
  * shipped value it replaced — both numbers, wherever a window is shown
  * (ADR-0049). */
-export interface PickerModel extends CatalogModel {
+interface PickerModel extends CatalogModel {
   /** The shipped catalog window this row's `contextWindow` replaced
    * (absent when the two agree or no listing declared one). */
   shippedContextWindow?: number;

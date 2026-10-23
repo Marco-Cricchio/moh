@@ -1,6 +1,7 @@
 import { existsSync, lstatSync, readFileSync, rmSync, statSync } from "node:fs";
 import { dirname, isAbsolute, join, resolve, sep } from "node:path";
 import { homedir } from "node:os";
+import { git, type GitResult } from "./git";
 import { projectSessionsDir } from "./session-store";
 import { readUserConfigFile, userConfigFile } from "./user-config";
 import { DevelopmentLaneStore, type DevelopmentLane, type LaneRelation, type LaneStatus } from "./development-lanes";
@@ -28,18 +29,14 @@ export interface LaneGitResult {
 export type LaneGitRunner = (args: string[], options: { cwd: string }) => Promise<LaneGitResult>;
 
 /** Default Git runner: `git -C <cwd> <args…>` with piped stdio. */
-export const defaultLaneGitRunner: LaneGitRunner = async (args, options) => {
-  let proc: ReturnType<typeof Bun.spawn<"ignore", "pipe", "pipe">>;
+const defaultLaneGitRunner: LaneGitRunner = async (args, options) => {
+  let run: Promise<GitResult>;
   try {
-    proc = Bun.spawn(["git", "-C", options.cwd, ...args], { stdout: "pipe", stderr: "pipe" });
+    run = git(options.cwd, args, { dir: "-C", stderr: "pipe" });
   } catch (error) {
     return { code: 127, stdout: "", stderr: error instanceof Error ? error.message : String(error) };
   }
-  const [stdout, stderr, code] = await Promise.all([
-    new Response(proc.stdout).text(),
-    new Response(proc.stderr).text(),
-    proc.exited,
-  ]);
+  const { exitCode: code, stdout, stderr } = await run;
   return { code, stdout, stderr };
 };
 
@@ -697,13 +694,13 @@ export interface LaneInstallRepair extends LaneInstallDrift {
  * with the same identity resolution the session store uses (declared
  * identity > git origin > legacy path hash), so a worktree path always
  * maps back to exactly one project. */
-export function laneWorktreeRootFor(cwd: string, home = homedir()): string {
+function laneWorktreeRootFor(cwd: string, home = homedir()): string {
   return join(projectSessionsDir(cwd, home), "lanes");
 }
 
 /** Worktree directory for a lane, relative to the project's lane root:
  * the sanitized branch names one directory per branch, per project. */
-export function laneWorktreeDirName(branchRef: string): string {
+function laneWorktreeDirName(branchRef: string): string {
   const safe = branchRef.replace(/[^a-zA-Z0-9._-]+/g, "-").replace(/^-+|-+$/g, "");
   return safe || "lane";
 }

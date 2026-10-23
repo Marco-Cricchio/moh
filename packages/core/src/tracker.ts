@@ -9,6 +9,7 @@
 import { existsSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { basename, join, resolve } from "node:path";
 import { z } from "zod";
+import { originUrlSync } from "./git";
 import type { Tool } from "./types";
 
 /** One issue, normalized across backends. */
@@ -41,7 +42,7 @@ export interface TrackerBackend {
 }
 
 /** Injectable process runner (tests); default: `Bun.spawn`. */
-export interface WayfinderSnapshot {
+interface WayfinderSnapshot {
   /** The map that owns all tickets in this snapshot. */
   mapId: string;
   issues: TrackerIssue[];
@@ -154,7 +155,7 @@ function gitlabIssueToTracker(raw: any): TrackerIssue {
 }
 
 /** GitLab backend over the `glab` CLI. */
-export function gitlabTracker(repo: string, run: ShellRunner = defaultRunner): TrackerBackend {
+function gitlabTracker(repo: string, run: ShellRunner = defaultRunner): TrackerBackend {
   return {
     kind: "gitlab",
     async list() {
@@ -196,7 +197,7 @@ function splitList(v?: string): string[] {
   return v ? v.split(",").map((s) => s.trim()).filter(Boolean) : [];
 }
 
-export function localMarkdownTracker(dir: string, user = "@me"): TrackerBackend {
+export function localMarkdownTracker(dir: string): TrackerBackend {
   const readIssues = (): TrackerIssue[] => {
     if (!existsSync(dir)) return [];
     const issues: TrackerIssue[] = [];
@@ -246,7 +247,7 @@ export function localMarkdownTracker(dir: string, user = "@me"): TrackerBackend 
         }
         if ((fields.get("id") ?? basename(entry.name, ".md")) !== id) continue;
         const claimed = splitList(fields.get("claimed-by"));
-        if (!claimed.includes(user)) claimed.push(user);
+        if (!claimed.includes("@me")) claimed.push("@me");
         fields.set("claimed-by", claimed.join(", "));
         const body = raw.replace(/^---\r?\n[\s\S]*?\r?\n---/, "");
         const fmText = [...fields.entries()].map(([k, v]) => `${k}: ${v}`).join("\n");
@@ -268,7 +269,7 @@ export function localMarkdownTracker(dir: string, user = "@me"): TrackerBackend 
           if (kv) fields.set(kv[1]!, kv[2]!.trim());
         }
         if ((fields.get("id") ?? basename(entry.name, ".md")) !== id) continue;
-        const claimed = splitList(fields.get("claimed-by")).filter((a) => a !== user);
+        const claimed = splitList(fields.get("claimed-by")).filter((a) => a !== "@me");
         fields.set("claimed-by", claimed.join(", "));
         const body = raw.replace(/^---\r?\n[\s\S]*?\r?\n---/, "");
         const fmText = [...fields.entries()].map(([k, v]) => `${k}: ${v}`).join("\n");
@@ -281,7 +282,7 @@ export function localMarkdownTracker(dir: string, user = "@me"): TrackerBackend 
 }
 
 
-export interface ResolveTrackerOptions {
+interface ResolveTrackerOptions {
   /** Working dir. Default process.cwd(). */
   cwd?: string;
   run?: ShellRunner;
@@ -345,15 +346,9 @@ export function resolveTrackerSync(options: ResolveTrackerOptions = {}): Tracker
   // probe is guarded — git absent is the same answer as "no origin
   // remote": no tracker, panel hidden. Unguarded, this threw inside the
   // App's lazy useState and killed the TUI before the first frame.
-  let proc: Bun.SyncSubprocess<"pipe", "pipe"> | null = null;
-  try {
-    proc = Bun.spawnSync(["git", "-C", cwd, "remote", "get-url", "origin"], { stdout: "pipe", stderr: "pipe" });
-  } catch {
-    proc = null;
-  }
+  const url = originUrlSync(cwd, "pipe");
   let backend: TrackerBackend | null = null;
-  if (proc && proc.exitCode === 0) {
-    const url = proc.stdout.toString().trim();
+  if (url !== null) {
     const m = /[:/]([^/:]+\/[^/.]+)(?:\.git)?$/.exec(url);
     if (m) {
       const repo = m[1]!;
@@ -416,7 +411,7 @@ export function trackerTools(backend: TrackerBackend): Record<string, Tool> {
  * (claimed), ready (unblocked), and blocked. Backends without dependency
  * data produce `deps: false`, and callers degrade to a flat list.
  */
-export interface Frontier {
+interface Frontier {
   /** Whether any issue carries dependency data. */
   deps: boolean;
   inProgress: TrackerIssue[];

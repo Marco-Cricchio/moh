@@ -17,12 +17,12 @@ import { join } from "node:path";
 import { defineExtension, type ExtensionSetupContext } from "@moh/extension";
 import {
   ExtensionRuntime,
-  resolveBundledExtensions,
   sessionFromConfig,
   userConfigFile,
   type BundledExtensionSource,
   type MountedBundledExtension,
 } from "../src/index";
+import { resolveBundledExtensions } from "../src/bundled-extensions";
 
 function tmpDir(prefix = "moh-bundled-"): string {
   return mkdtempSync(join(tmpdir(), prefix));

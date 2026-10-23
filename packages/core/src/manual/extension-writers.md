@@ -59,7 +59,7 @@ point, naming the file:
 | --- | --- | --- |
 | `name` | `string` | the extension's identity, shown in the consent question |
 | `version` | `string` | the extension's own version |
-| `entry` | `string` or `string[]` | the module file(s) this manifest speaks for |
+| `entry` | `string` or `string[]` | the module file(s) this manifest speaks for, relative to the manifest's folder (an installed package never loads an entry outside it) |
 | `capabilities` | `string[]` | the capability slots the user is asked to grant |
 | `dependencies` | `Record<string, string>` | optional npm packages moh installs for you — **exact versions only** (`"3.23.8"`, never `"^3.23.8"`) |
 
@@ -192,8 +192,9 @@ in the core, and no consent can authorize them.
 
 ## Shipping it
 
-- `~/.moh/extensions/` — drop the folder (manifest + entry file) in; every
-  extension there loads at session start.
+- `~/.moh/extensions/<name>/` — what `moh extension add` installs; a
+  package subdirectory (manifest + entry file) is discovered at session
+  start and loads through the same consent as a loose file.
 - `moh.json` `"extensions"` — declare the path for everyone working on the
   project.
 - Verify with `/extensions` (or `moh extension list`): it shows each

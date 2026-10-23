@@ -1,9 +1,10 @@
-import { execFileSync } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
+import { originUrl, originUrlSync } from "./git";
 import { anyOpenSessionInDir, isSessionFile, projectTrashDir } from "./session-store";
 import { copyFileSync, existsSync, linkSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, join, resolve as pathResolve, sep } from "node:path";
+import { writeFileAtomic, tempPidInfix } from "./fs-atomic";
 
 /** The pre-#398 path-derived location, retained only to find old data. */
 export function legacyProjectSlug(cwd: string): string {
@@ -83,12 +84,8 @@ export function canonicalRemoteSlug(cwd: string): string | null {
 }
 
 function canonicalRemoteSlugUncached(cwd: string): string | null {
-  let url: string;
-  try {
-    url = execFileSync("git", ["-C", cwd, "remote", "get-url", "origin"], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim();
-  } catch {
-    return null;
-  }
+  const url = originUrlSync(cwd, "ignore");
+  if (url === null) return null;
   return remoteSlugFromUrl(url);
 }
 
@@ -99,16 +96,9 @@ function canonicalRemoteSlugUncached(cwd: string): string | null {
  * normalization, same answer.
  */
 async function canonicalRemoteSlugAsync(cwd: string): Promise<string | null> {
-  let stdout: string;
-  try {
-    const proc = Bun.spawn(["git", "-C", cwd, "remote", "get-url", "origin"], { stdout: "pipe", stderr: "ignore" });
-    const [out, exitCode] = await Promise.all([new Response(proc.stdout).text(), proc.exited]);
-    if (exitCode !== 0) return null;
-    stdout = out;
-  } catch {
-    return null;
-  }
-  return remoteSlugFromUrl(stdout.trim());
+  const url = await originUrl(cwd);
+  if (url === null) return null;
+  return remoteSlugFromUrl(url);
 }
 
 function remoteSlugFromUrl(url: string): string | null {
@@ -179,19 +169,13 @@ export function isProjectIdentityPrepared(cwd: string, home: string): boolean {
  * answer — plus the migration work `resolveProjectIdentityUncached` owns —
  * lands in `preparedIdentities`, so a plain `render(<App/>)` can boot
  * without any synchronous spawn reachable from its render phase.
- *
- * `warm: true` answers with the synchronous probe instead. Callers that run
- * *outside* React (the TUI entry point, before the first frame) use it to
- * keep the first frame free of a boot state.
  */
-export async function prepareProjectIdentity(cwd: string, home: string, opts: { warm?: boolean } = {}): Promise<{ slug: string; legacySlug: string; declared: boolean }> {
+export async function prepareProjectIdentity(cwd: string, home: string): Promise<{ slug: string; legacySlug: string; declared: boolean }> {
   const key = identityKey(cwd, home);
   const known = preparedIdentities.get(key);
   if (known) return known;
   const legacySlug = legacyProjectSlug(cwd);
-  const result = opts.warm
-    ? resolveProjectIdentityUncached(cwd, home, legacySlug)
-    : resolveProjectIdentityUncached(cwd, home, legacySlug, await canonicalRemoteSlugAsync(cwd));
+  const result = resolveProjectIdentityUncached(cwd, home, legacySlug, await canonicalRemoteSlugAsync(cwd));
   preparedIdentities.set(key, result);
   pinnedSlugs.set(key, result);
   return result;
@@ -313,7 +297,7 @@ function resolveProjectIdentityUncached(cwd: string, home: string, legacySlug: s
 }
 
 /** The name of the durable stranded-data record inside a project directory (#1217). */
-export const STRANDED_DATA_FILE = "stranded-data.json";
+const STRANDED_DATA_FILE = "stranded-data.json";
 
 export interface StrandedDataRecord {
   /** The directory still holding the stranded data (absolute path). */
@@ -454,9 +438,7 @@ export function acknowledgeStrandedData(dir: string): void {
   if (typeof parsed !== "object" || parsed === null || typeof parsed.source !== "string") return;
   if (parsed.acknowledgedAt) return;
   parsed.acknowledgedAt = new Date().toISOString();
-  const tmp = `${file}.${process.pid}.tmp`;
-  writeFileSync(tmp, `${JSON.stringify(parsed, null, 2)}\n`, { mode: 0o600 });
-  renameSync(tmp, file);
+  writeFileAtomic(file, `${JSON.stringify(parsed, null, 2)}\n`, { mode: 0o600, temp: tempPidInfix });
 }
 
 /** Advisory classification of the stranded source directory (#1243): what

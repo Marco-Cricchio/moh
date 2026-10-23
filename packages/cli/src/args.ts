@@ -3,7 +3,7 @@
  * `--flag=value`, boolean flags, and positionals. Repeatable string
  * flags accumulate; last write wins for scalar strings and booleans.
  */
-export interface ParsedArgs {
+interface ParsedArgs {
   positionals: string[];
   strings: Record<string, string | undefined>;
   lists: Record<string, string[]>;

@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { selectionStyle } from "./color";
 import { Text, useInput } from "ink";
 import { join } from "node:path";
@@ -21,9 +21,7 @@ import {
   saveUserProviderRef,
   type AuthToken,
   type AuthorizationIo,
-  type BuiltinProviderType,
   type ConnectionTestResult,
-  type ProviderTestFailure,
   type ConnectionTester,
   type EndpointProfile,
   type StoredApiKeyOrigin,
@@ -61,7 +59,7 @@ type Phase =
   | { kind: "conflict"; profile: EndpointProfile; existing: EndpointProfile }
   | { kind: "duplicate"; profile: EndpointProfile; existing: EndpointProfile };
 
-export interface OnboardingProps {
+interface OnboardingProps {
   cwd: string;
   /** Home dir for the user-level config (#129); default os homedir. */
   home?: string;
@@ -430,7 +428,7 @@ export function Onboarding({ cwd, home, env, tester = defaultTester(home), force
       case "wizard-text": {
         if (key.escape) return applyPhase({ kind: "wizard-type", cursor: 0 });
         if (key.backspace || key.delete) return patchPhase((p) => (p.kind === "wizard-text" ? { ...p, value: p.value.slice(0, -1) } : p));
-        if (key.return || input === "\n") return submitField(phase, wizard, applyWizard, applyPhase, authKind, (name, apiKey, origin) => saveStoredApiKey(userFile, name, apiKey, {}, origin), (name, origin) => bindStoredApiKeyOrigin(userFile, name, origin));
+        if (key.return || input === "\n") return submitField(phase, wizard, applyWizard, applyPhase, authKind, (name, apiKey, origin) => saveStoredApiKey(userFile, name, apiKey, origin), (name, origin) => bindStoredApiKeyOrigin(userFile, name, origin));
         if (input && !key.ctrl && !key.meta)
           patchPhase((p) => (p.kind === "wizard-text" ? { ...p, value: p.value + input } : p));
         return;

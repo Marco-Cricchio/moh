@@ -19,7 +19,7 @@ export type { GitRead } from "./diff";
 
 /** Reads the compact git snapshot for a cwd; null outside a git repo or
  * when the host refuses (the seam logs the refusal — never a silent I/O). */
-export async function gitSnapshot(read: GitRead, cwd: string): Promise<string | null> {
+export async function gitSnapshot(read: GitRead, _cwd: string): Promise<string | null> {
   const branch = await read(["rev-parse", "--abbrev-ref", "HEAD"]);
   if (branch === null || branch.trim() === "") return null;
   const dirty = await read(["status", "--porcelain"]);

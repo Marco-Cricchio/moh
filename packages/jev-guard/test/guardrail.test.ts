@@ -14,12 +14,11 @@ import {
   gitSnapshot,
   guardrailStateKey,
 } from "../src/session-state";
-import { askBadge, createGuardrailJudge } from "../src/guardrail-judge";
+import { askBadge, createGuardrailJudge } from "../src/guardrail";
 import type { JevClient, JevOutcome } from "../src/client";
 
 // #1165: fake seam runner — a fixed "branch:clean" snapshot off-repo-free.
 const fakeGitRead = () => Promise.resolve("");
-const snapGitRead = (snap: string) => () => Promise.resolve(snap);
 
 const signals = (over: Partial<GuardrailSignals> = {}): GuardrailSignals => ({
   destructive: 0.01,
@@ -162,7 +161,7 @@ describe("guardrail judge", () => {
   });
 
   test("ask carries the ratified badge and is served from cache too", async () => {
-    const { client, calls } = Object.assign(fakeClient([okOutcome({ destructive: { type: "noul", noul: 0.65 }, in_scope: { type: "noul", noul: 0.9 }, exfiltration: { type: "noul", noul: 0.05 }, risk_level: { type: "score", score: 0.6, legend: {}, probabilities: {}, confidence: 0.9 } })]), {});
+    const { client } = Object.assign(fakeClient([okOutcome({ destructive: { type: "noul", noul: 0.65 }, in_scope: { type: "noul", noul: 0.9 }, exfiltration: { type: "noul", noul: 0.05 }, risk_level: { type: "score", score: 0.6, legend: {}, probabilities: {}, confidence: 0.9 } })]), {});
     const judge = createGuardrailJudge({ client, state: {}, gitRead: fakeGitRead }, { cwd: () => process.cwd() });
     const r1 = await judge.judge("c1", args);
     expect(r1.verdict.verdict).toBe("ask");

@@ -1,10 +1,10 @@
-import { McpError } from "./errors";
+import { McpError } from "./types";
 import { JsonRpcConnection, type ServerHandlers } from "./json-rpc";
 
 /** #1254: an unconsumed partial line (a server that never emits a newline)
  * is capped here — the connection ends crashed rather than growing the
  * buffer unboundedly. Same philosophy as the HTTP response cap. */
-export const MCP_MAX_LINE_BYTES = 10 * 1024 * 1024;
+const MCP_MAX_LINE_BYTES = 10 * 1024 * 1024;
 
 /**
  * Environment deliberately exposed to a stdio MCP server. Do not inherit the
@@ -21,7 +21,6 @@ function minimalEnvironment(overrides: Record<string, string> | undefined): Reco
 
 export class StdioConnection extends JsonRpcConnection {
   readonly #proc: Bun.Subprocess<"pipe", "pipe", "pipe">;
-  readonly #encoder = new TextEncoder();
 
   constructor(
     opts: {

@@ -52,7 +52,7 @@ commands:
 tokens live in ~/.moh/config (never in moh.json); \`logout\` and a
 successful \`login\` are the only token deleters.`;
 
-export interface ProviderCommandOptions {
+interface ProviderCommandOptions {
   argv: string[];
   cwd: string;
   home?: string;
@@ -103,7 +103,8 @@ async function terminalIo(opts: ProviderCommandOptions): Promise<{ io: Onboardin
   };
 }
 
-function formatExpiry(expiresAt: number | undefined, now = Date.now()): string {
+function formatExpiry(expiresAt: number | undefined): string {
+  const now = Date.now();
   if (expiresAt === undefined) return "no expiry recorded";
   const delta = expiresAt - now;
   if (delta <= 0) return `expired ${Math.round(-delta / 60000)} min ago`;

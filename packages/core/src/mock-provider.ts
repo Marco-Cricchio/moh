@@ -12,14 +12,14 @@ function aborted(signal: AbortSignal): Promise<void> {
   });
 }
 
-export interface MockToolCall {
+interface MockToolCall {
   callId?: string;
   name: string;
   args: unknown;
 }
 
 /** A typed error injected at a chosen point of the turn (issue #28). */
-export interface MockError {
+interface MockError {
   kind: ProviderErrorKind;
   message: string;
   /** ADR-0049 (#986): a window the message declares, when moh would read
@@ -32,7 +32,7 @@ export interface MockError {
   afterDeltas?: number;
 }
 
-export interface MockTurnScript {
+interface MockTurnScript {
   deltas: string[];
   finish: FinishReason;
   /** Delay before each delta, to simulate streaming and enable abort tests. */

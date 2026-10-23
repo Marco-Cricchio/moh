@@ -26,14 +26,14 @@ import { z } from "zod";
 // Declared config (repos.yaml schema — JSON projection)
 // ---------------------------------------------------------------------------
 
-export const labelSchema = z.object({
+const labelSchema = z.object({
   name: z.string().min(1),
   /** 6-digit hex, no `#`. */
   color: z.string().regex(/^[0-9a-fA-F]{6}$/),
   description: z.string().optional(),
 });
 
-export const branchProtectionSchema = z.object({
+const branchProtectionSchema = z.object({
   branch: z.string().default("main"),
   /** Required status check contexts that must pass before merging. */
   requiredChecks: z.array(z.string()).optional(),
@@ -43,7 +43,7 @@ export const branchProtectionSchema = z.object({
   allowForcePushes: z.boolean().optional(),
 });
 
-export const repoConfigSchema = z.object({
+const repoConfigSchema = z.object({
   /** `owner/name`. */
   name: z.string().regex(/^[^/\s]+\/[^/\s]+$/),
   description: z.string().optional(),
@@ -52,14 +52,14 @@ export const repoConfigSchema = z.object({
   branchProtection: branchProtectionSchema.optional(),
 });
 
-export const reposConfigSchema = z.object({
+const reposConfigSchema = z.object({
   repos: z.array(repoConfigSchema).min(1),
 });
 
-export type LabelConfig = z.infer<typeof labelSchema>;
-export type BranchProtectionConfig = z.infer<typeof branchProtectionSchema>;
-export type RepoConfig = z.infer<typeof repoConfigSchema>;
-export type ReposConfig = z.infer<typeof reposConfigSchema>;
+type LabelConfig = z.infer<typeof labelSchema>;
+type BranchProtectionConfig = z.infer<typeof branchProtectionSchema>;
+type RepoConfig = z.infer<typeof repoConfigSchema>;
+type ReposConfig = z.infer<typeof reposConfigSchema>;
 
 /** Parses and validates a `repos.yaml` JSON projection; throws on invalid. */
 export function parseReposConfig(json: unknown): ReposConfig {
@@ -70,13 +70,13 @@ export function parseReposConfig(json: unknown): ReposConfig {
 // Live-state types
 // ---------------------------------------------------------------------------
 
-export interface LiveLabel {
+interface LiveLabel {
   name: string;
   color: string;
   description: string;
 }
 
-export interface LiveBranchProtection {
+interface LiveBranchProtection {
   branch: string;
   requiredChecks: string[];
   requiredReviews: number;
@@ -96,9 +96,7 @@ export interface LiveRepo {
 // Plan / diff engine
 // ---------------------------------------------------------------------------
 
-export type ChangeAction = "update-repo" | "add-label" | "update-label" | "put-protection";
-
-export type PlanChange =
+type PlanChange =
   | {
       repo: string;
       action: "update-repo";
@@ -113,7 +111,7 @@ export type PlanChange =
       protection: BranchProtectionConfig & { branch: string };
     };
 
-export interface Plan {
+interface Plan {
   repo: string;
   /** Minimal ordered change set; empty = live state matches declaration. */
   changes: PlanChange[];
@@ -202,11 +200,11 @@ export function renderPlan(changes: PlanChange[]): string {
 // as tracker.ts. Mutating seam: one call per plan change.
 // ---------------------------------------------------------------------------
 
-export class GithubSettingsError extends Error {}
+class GithubSettingsError extends Error {}
 
 export type ShellRunner = (cmd: string[]) => Promise<{ code: number; stdout: string; stderr: string }>;
 
-export const defaultRunner: ShellRunner = async (cmd) => {
+const defaultRunner: ShellRunner = async (cmd) => {
   const proc = Bun.spawn(cmd, { stdout: "pipe", stderr: "pipe" });
   const [stdout, stderr, code] = await Promise.all([
     new Response(proc.stdout).text(),
@@ -222,7 +220,7 @@ export interface GhMutator {
 }
 
 /** Default mutator over `gh api` (body on stdin via `--input -`). */
-export const ghApiMutator: GhMutator = async (verb, path, body) => {
+const ghApiMutator: GhMutator = async (verb, path, body) => {
   const proc = Bun.spawn(["gh", "api", "--method", verb, "--input", "-", path], {
     stdin: "pipe",
     stdout: "pipe",

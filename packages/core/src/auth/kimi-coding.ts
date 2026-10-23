@@ -10,7 +10,14 @@
  * riding per-model via #164.
  */
 import type { AuthToken, KimiCodingAuthOverrides } from "./types";
-import { confirmToSWarningFor, oidcEmailFromIdToken, type AuthorizationIo } from "./oauth";
+import {
+  confirmToSWarningFor,
+  LoginAborted,
+  oidcEmailFromIdToken,
+  postForm,
+  type AuthorizationIo,
+  type OAuthPostFetch,
+} from "./oauth";
 import { pollDeviceCodeFlow, type DeviceFlowClock, type DevicePollOptions, type DevicePollResult } from "./device-code";
 
 export const KIMI_CODE_OAUTH_DEFAULTS = {
@@ -21,7 +28,7 @@ export const KIMI_CODE_OAUTH_DEFAULTS = {
 /** The Kimi coding backend (anthropic-messages wire, #159 defaults). */
 export const KIMI_CODE_API_BASE_URL = "https://api.kimi.com/coding";
 
-export interface KimiCodingOAuthConfig {
+interface KimiCodingOAuthConfig {
   oauthHost: string;
   clientId: string;
 }
@@ -45,21 +52,10 @@ export function resolveKimiCodingOAuthConfig(overrides?: KimiCodingAuthOverrides
  * HTTP seam: form-encoded POST, JSON response — the shared shape of
  * both Kimi endpoints (device authorization + token).
  */
-export type KimiCodingEndpointFetch = (
-  url: string,
-  body: Record<string, unknown>,
-) => Promise<{ status: number; json: Record<string, unknown> }>;
-
-export const defaultKimiCodingEndpointFetch: KimiCodingEndpointFetch = async (url, body) => {
-  const res = await fetch(url, {
-    method: "POST",
-    headers: { "content-type": "application/x-www-form-urlencoded", accept: "application/json" },
-    body: new URLSearchParams(body as Record<string, string>).toString(),
-    signal: AbortSignal.timeout(30_000),
-  });
-  const json = (await res.json().catch(() => ({}))) as Record<string, unknown>;
-  return { status: res.status, json };
-};
+const defaultKimiCodingEndpointFetch: OAuthPostFetch = postForm({
+  headers: { "content-type": "application/x-www-form-urlencoded", accept: "application/json" },
+  timeoutMs: 30_000,
+});
 
 interface DeviceCode {
   deviceCode: string;
@@ -84,7 +80,7 @@ function trustedHttpUrl(value: unknown): string | null {
   }
 }
 
-async function requestDeviceAuthorization(config: KimiCodingOAuthConfig, fetchImpl: KimiCodingEndpointFetch): Promise<DeviceCode> {
+async function requestDeviceAuthorization(config: KimiCodingOAuthConfig, fetchImpl: OAuthPostFetch): Promise<DeviceCode> {
   const result = await fetchImpl(`${config.oauthHost}/api/oauth/device_authorization`, {
     client_id: config.clientId,
   });
@@ -147,14 +143,6 @@ function tokenFromResponse(json: Record<string, unknown>, now: number): AuthToke
   };
 }
 
-/** Thrown by {@link loginKimiCoding} when the user declines the ToS warning. */
-export class KimiCodingLoginAborted extends Error {
-  constructor() {
-    super("subscription auth aborted: terms of service not acknowledged");
-    this.name = "KimiCodingLoginAborted";
-  }
-}
-
 /**
  * The full interactive Kimi Code login: ToS acknowledgement, device
  * authorization (JSON), then the standard poll loop against
@@ -163,9 +151,10 @@ export class KimiCodingLoginAborted extends Error {
  */
 export async function loginKimiCoding(
   io: AuthorizationIo,
-  opts: { overrides?: KimiCodingAuthOverrides; fetchImpl?: KimiCodingEndpointFetch; now?: number; clock?: DeviceFlowClock } = {},
+  opts: { overrides?: KimiCodingAuthOverrides; fetchImpl?: OAuthPostFetch; now?: number; clock?: DeviceFlowClock } = {},
 ): Promise<AuthToken> {
-  if (!(await confirmToSWarningFor(io, "kimi-coding"))) throw new KimiCodingLoginAborted();
+  /** Thrown by {@link loginKimiCoding} when the user declines the ToS warning. */
+  if (!(await confirmToSWarningFor(io, "kimi-coding"))) throw new LoginAborted("KimiCodingLoginAborted");
 
   const config = resolveKimiCodingOAuthConfig(opts.overrides);
   const fetchImpl = opts.fetchImpl ?? defaultKimiCodingEndpointFetch;
@@ -224,7 +213,7 @@ export async function loginKimiCoding(
  */
 export async function refreshKimiCodingToken(
   token: AuthToken,
-  opts: { overrides?: KimiCodingAuthOverrides; fetchImpl?: KimiCodingEndpointFetch; now?: number } = {},
+  opts: { overrides?: KimiCodingAuthOverrides; fetchImpl?: OAuthPostFetch; now?: number } = {},
 ): Promise<AuthToken> {
   if (!token.refreshToken) {
     throw new Error("Kimi Code token has no refresh token; run `moh provider login`");

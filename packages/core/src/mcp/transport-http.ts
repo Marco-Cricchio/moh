@@ -1,5 +1,4 @@
-import { McpError } from "./errors";
-import { isHttpMcpUrl } from "./types";
+import { McpError, isHttpMcpUrl } from "./types";
 import { JsonRpcConnection, type ServerHandlers } from "./json-rpc";
 
 /** audit-v3 MCP-1: a response — JSON body or the SSE stream read so far —
@@ -10,7 +9,7 @@ export const MCP_MAX_RESPONSE_BYTES = 10 * 1024 * 1024;
 
 /** #1254: per-request budget for every POST (the handshake timeout bounds
  * only initialize; a slow endpoint must not hold a send() open forever). */
-export const MCP_REQUEST_TIMEOUT_MS = 10_000;
+const MCP_REQUEST_TIMEOUT_MS = 10_000;
 
 /** Injectable DNS resolution (the fetch tool's FetchLookup seam, #697):
  * tests drive the rebinding scenario deterministically; production uses

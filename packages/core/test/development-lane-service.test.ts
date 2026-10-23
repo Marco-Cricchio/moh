@@ -2,7 +2,8 @@ import { describe, expect, test } from "bun:test";
 import { existsSync, lstatSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
-import { DevelopmentLaneService, mainCheckoutFor, readLaneSetup, resolveWorktreePath, type LaneGitRunner, type LaneGitResult } from "../src/index";
+import { DevelopmentLaneService, mainCheckoutFor, readLaneSetup, type LaneGitRunner, type LaneGitResult } from "../src/index";
+import { resolveWorktreePath } from "../src/development-lane-service";
 import { laneOwnsInstall } from "../src/lane-install";
 
 function project(): { cwd: string; home: string } {

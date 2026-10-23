@@ -3,7 +3,7 @@ import { createSession, MockProvider } from "../src/index";
 import { createRoute, Endpoint, type RouteTarget } from "../src/route";
 import { replayMessages } from "../src/session-store";
 import { ProviderError, type Message, type StreamEvent } from "../src/types";
-import type { AgentEvent, Provider } from "../src/index";
+import type { AgentEvent } from "../src/index";
 
 /**
  * #83 (option 3): every model call is recorded in the event log — a

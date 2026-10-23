@@ -17,14 +17,14 @@ import { SessionStore } from "./session-store";
 
 /** One prompt section an extension currently owns (ADR-0054): the
  * composition in force, replayed from `prompt_override` chrome events. */
-export interface ExtensionsScreenSection {
+interface ExtensionsScreenSection {
   section: string;
   version: string;
   mode: "replaced" | "hidden";
 }
 
 /** One enabled extension as the screen lists it. */
-export interface ExtensionsScreenExtension {
+interface ExtensionsScreenExtension {
   name: string;
   /** The latest `extension_loaded` version (a hot-reload re-records it). */
   version: string;
@@ -56,7 +56,7 @@ export interface ExtensionsScreenExtension {
 
 /** One refused registration visible on the screen (ADR-0062): the reason
  * text as the runtime recorded it. */
-export interface ExtensionsScreenRefusal {
+interface ExtensionsScreenRefusal {
   extension: string;
   message: string;
 }

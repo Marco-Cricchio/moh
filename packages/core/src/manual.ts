@@ -27,7 +27,7 @@ import commandsAndKeys from "./manual/commands-and-keys.md" with { type: "text" 
 
 /** One manual section. `id` is stable: it is the CLI page argument, the
  * TUI filter key, and the generated file name in docs/manual/. */
-export interface ManualPage {
+interface ManualPage {
   id: string;
   title: string;
   /** One-line summary shown in the index. */
@@ -68,40 +68,4 @@ export function manualPage(id: string): ManualPage | null {
  * carries. */
 export function manualIndex(): ReadonlyArray<Pick<ManualPage, "id" | "title" | "summary">> {
   return PAGES.map(({ id, title, summary }) => ({ id, title, summary }));
-}
-
-/** Out-of-subset construct detectors, applied line-wise outside fences:
- * raw HTML, images, reference link definitions, and setext-heading
- * underlines. Inline code/code links inside a paragraph line are
- * paragraphs — allowed. */
-const OUT_OF_SUBSET: ReadonlyArray<RegExp> = [
-  /<[/!]?[a-zA-Z][^>]*>/, // raw HTML — but not inline `<code>` spans
-  /!\[[^\]]*\]\(/, // images
-  /^\s*\[[^\]]+\]:\s*\S+/, // reference link definition
-  /^ {0,3}(=+|-{3,})\s*$/, // setext heading underline / thematic break
-];
-
-/** Returns the offending lines of a page body (empty = subset-clean).
- * Fence-aware: fenced code blocks are verbatim and never flagged. Pure,
- * exported for the anti-drift test and the generator. */
-export function manualSubsetViolations(body: string): string[] {
-  const violations: string[] = [];
-  let inFence = false;
-  for (const line of body.split("\n")) {
-    if (/^\s*```/.test(line)) {
-      inFence = !inFence;
-      continue;
-    }
-    if (inFence) continue;
-    const t = line.trim();
-    if (t === "") continue;
-    // Raw-HTML check tolerant of inline `<code>` spans inside backticks:
-    // strip `code` runs first, then test.
-    const prose = line.replace(/`[^`]*`/g, (m) => " ".repeat(m.length));
-    if (OUT_OF_SUBSET.some((re) => re.test(prose))) {
-      violations.push(line);
-      continue;
-    }
-  }
-  return violations;
 }

@@ -191,7 +191,7 @@ function scoreAssertions(want: CaseAssertions, run: RunOutput, root: string): st
 }
 
 /** One eval run: isolated home + temp project root, real headless path. */
-export async function runCase(suite: string, name: string, c: EvalCase): Promise<CaseResult> {
+async function runCase(suite: string, name: string, c: EvalCase): Promise<CaseResult> {
   const dir = mkdtempSync(join(tmpdir(), `moh-eval-`));
   const root = join(dir, "project");
   const home = join(dir, "home");
@@ -227,7 +227,7 @@ function sessionFilesUnder(projects: string): string[] {
  * Multi-run eval case: step 1 starts a session, later steps resume or fork
  * it via --session. Session assertions score the full event log across runs.
  */
-export async function runMultiStepCase(suite: string, name: string, c: MultiRunCase): Promise<CaseResult> {
+async function runMultiStepCase(suite: string, name: string, c: MultiRunCase): Promise<CaseResult> {
   const dir = mkdtempSync(join(tmpdir(), `moh-eval-`));
   const root = join(dir, "project");
   const home = join(dir, "home");

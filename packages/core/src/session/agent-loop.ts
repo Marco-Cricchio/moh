@@ -29,10 +29,99 @@ import { servingModelOf, selectedModelOf } from "../model-pair";
 import { normalizeProviderError } from "../provider-errors";
 import { PRICING_SNAPSHOT } from "../pricing";
 import { newUlid } from "./ulid";
-import { wireToolSchema } from "./wire-schema";
+import { z } from "zod";
+import type { ToolRunner } from "./tool-runner";
 import { endpointIdentity, ProviderError } from "../types";
 import type { AttemptTelemetry, EndpointIdentity, UsageProvenance } from "../types";
 import { quotaEventsFromProviderError, quotaRecoveryEvent, scopeKeyFor } from "../quota/telemetry";
+
+/*
+ * #1324: the provider-facing tool schema. `z.toJSONSchema` renders a
+ * discriminated union as a bare top-level `oneOf`, which openai-chat
+ * backends reject outright (strict: 400 "got 'type: null'") or answer
+ * with calls that carry no arguments (lenient: the model fails to
+ * populate a union). This module rewrites such a schema into a single
+ * flat object — the shape these models are trained on — while the
+ * zod schema stays the moh-side validation schema.
+ */
+type JsonObject = Record<string, unknown>;
+
+/** Schema of one union variant; the wire shape zod actually emits. */
+interface VariantSchema {
+  type?: string;
+  properties?: Record<string, JsonObject>;
+  required?: string[];
+  [key: string]: unknown;
+}
+
+function discriminatorName(variants: VariantSchema[]): string | null {
+  let name: string | null = null;
+  for (const v of variants) {
+    for (const [key, prop] of Object.entries(v.properties ?? {})) {
+      // Only `const` (a z.literal) can be a discriminator. `enum` cannot:
+      // a variant carrying its own enum property (browser `scroll.direction`,
+      // required in its own variant by zod's compilation) would otherwise
+      // read as a second candidate and the flatten is refused — #1324.
+      if ("const" in prop) {
+        if (name === null) name = key;
+        else if (name !== key) return null;
+      }
+    }
+  }
+  return name;
+}
+
+function valuesOf(v: VariantSchema, key: string): unknown[] | null {
+  const prop = v.properties?.[key];
+  if (!prop) return null;
+  if ("const" in prop) return [prop.const];
+  if ("enum" in prop && Array.isArray(prop.enum)) return prop.enum;
+  return null;
+}
+
+function wireSchema(raw: JsonObject): JsonObject {
+  const unionKey = "oneOf" in raw ? "oneOf" : "anyOf" in raw ? "anyOf" : null;
+  if (!unionKey) return raw;
+  const variants = raw[unionKey];
+  if (!Array.isArray(variants) || variants.length === 0) return raw;
+  if (!variants.every((v) => v && typeof v === "object" && (v as VariantSchema).type === "object")) return raw;
+
+  const disc = discriminatorName(variants as VariantSchema[]);
+  // A variant without the discriminator would silently vanish from the
+  // wire enum — refuse to flatten rather than widen the schema.
+  if (!disc || variants.some((v) => !valuesOf(v as VariantSchema, disc))) return raw;
+  const properties: Record<string, JsonObject> = {};
+  const values: unknown[] = [];
+  for (const v of variants as VariantSchema[]) {
+    for (const value of valuesOf(v, disc) ?? []) {
+      if (!values.includes(value)) values.push(value);
+    }
+  }
+  properties[disc] = {
+    ...(values.every((v) => typeof v === "string") ? { type: "string" } : {}),
+    enum: values,
+  };
+  for (const v of variants as VariantSchema[]) {
+    for (const [propKey, prop] of Object.entries(v.properties ?? {})) {
+      if (propKey === disc) continue;
+      properties[propKey] = { ...prop };
+    }
+  }
+  // Keep only the requirements shared by every variant; per-variant
+  // required keys are enforced by the zod schema at validation time.
+  const required = (variants as VariantSchema[])
+    .map((v) => new Set(v.required ?? []))
+    .reduce((common, set) => new Set([...common].filter((k) => set.has(k))));
+  return { type: "object", properties, required: [...required], additionalProperties: false };
+}
+
+/**
+ * The single seam agent-loop uses for tool specs: generate the JSON
+ * Schema from the zod input and flatten it for the wire.
+ */
+export function wireToolSchema(inputSchema: z.ZodType): JsonObject {
+  return wireSchema(z.toJSONSchema(inputSchema) as JsonObject);
+}
 
 /** #1100: the ProviderError kinds that are quota-class — the loop records
  * an observation plus an episode boundary for each failed attempt carrying
@@ -52,7 +141,7 @@ const ROUTE_HANDLED_ERROR_KINDS = new Set(["quota_exhausted", "rate_limited", "n
  * budget ends the turn exactly as a consultation without an answer.
  * Four: #1110's routing pool budget (up to 4 same-tier candidates) must
  * be spendable within one turn. */
-export const MAX_MODEL_ERROR_RETRIES = 4;
+const MAX_MODEL_ERROR_RETRIES = 4;
 
 /**
  * #1099: a detail field is counted only when it is a finite number —
@@ -69,11 +158,11 @@ function finiteNumber(value: unknown): number | undefined {
 function endpointIdentityOf(provider: Provider): EndpointIdentity {
   const slash = provider.name.indexOf("/");
   const kind = slash === -1 ? provider.name : provider.name.slice(0, slash);
-  return endpointIdentity(kind || "unknown", (provider as { baseUrl?: string }).baseUrl);
+  return endpointIdentity(kind || "unknown", provider.baseUrl);
 }
 
 /** The extension surface AgentLoop needs — satisfied by ExtensionRuntime. */
-export type LoopExtensions = Pick<ExtensionRuntime, "dispatchBeforeModelCall">;
+type LoopExtensions = Pick<ExtensionRuntime, "dispatchBeforeModelCall">;
 /**
  * ADR-0033: the turn-start seam. `dispatch` runs the extensions'
  * `beforeTurn` hooks (once per user send, before the provider is read);
@@ -82,7 +171,7 @@ export type LoopExtensions = Pick<ExtensionRuntime, "dispatchBeforeModelCall">;
  * chrome). The loop never invents a model: an unresolvable ref is a
  * visible `extension_failed`, and the turn proceeds on the active model.
  */
-export interface LoopBeforeTurn {
+interface LoopBeforeTurn {
   dispatch(text: string, turnIndex: number, model: string): Promise<BeforeTurnDispatch>;
   applyModel(ref: string): { ok: true; model: string } | { ok: false; error: string; reason?: "context_length" };
   /**
@@ -109,7 +198,7 @@ export interface LoopBeforeTurn {
  * the session owns (it appends the `model_switched` / `switch_refused`
  * chrome). Absent = no extension can keep a failing turn alive.
  */
-export interface LoopModelRetry {
+interface LoopModelRetry {
   dispatch(ctx: { model: string; errorKind: string; message: string }): Promise<{
     model?: string;
     by?: string;
@@ -136,22 +225,14 @@ export function resolveMaxIterations(configured?: number): number {
   return configured;
 }
 
-/** The tool-execution surface AgentLoop needs — satisfied by ToolRunner (#91). */
-export interface LoopToolRunner {
-  run(
-    calls: ToolCall[],
-    signal: AbortSignal,
-  ): Promise<{ outcome: "ok" | "aborted"; parts: Message["parts"] }>;
-}
-
-export interface AgentLoopOptions {
+interface AgentLoopOptions {
   provider: () => Provider;
   /** Iteration cap per turn. */
   maxIterations: number;
   /** All registered tools, including MCP ones (live accessor). */
   tools: () => Record<string, Tool>;
   /** Same-turn tool execution (ToolRunner). */
-  toolRunner: LoopToolRunner;
+  toolRunner: ToolRunner;
   /** Extension hooks; absent in headless sessions. */
   extensions?: LoopExtensions;
   /**
@@ -251,6 +332,22 @@ type PendingCall = {
   usageProvenance?: UsageProvenance;
 };
 
+/** #1442: what one provider stream produced, filled as it is consumed.
+ * `sawFinish` records that a `finish` event arrived, whatever its reason. */
+type ConsumedStream = {
+  text: string;
+  toolCalls: ToolCall[];
+  finishReason: FinishReason | null;
+  sawText: boolean;
+  sawToolCalls: boolean;
+  sawUsage: boolean;
+  sawFinish: boolean;
+};
+
+function emptyConsumedStream(): ConsumedStream {
+  return { text: "", toolCalls: [], finishReason: null, sawText: false, sawToolCalls: false, sawUsage: false, sawFinish: false };
+}
+
 /**
  * One agent turn (#92): model calls, streaming deltas, `model_call`
  * buffering and turn usage rollup (#83), the max-iterations cap, the
@@ -262,7 +359,7 @@ export class AgentLoop {
   readonly #provider: () => Provider;
   readonly #maxIterations: number;
   readonly #tools: () => Record<string, Tool>;
-  readonly #toolRunner: LoopToolRunner;
+  readonly #toolRunner: ToolRunner;
   readonly #extensions: LoopExtensions | undefined;
   readonly #beforeTurn: LoopBeforeTurn | undefined;
   readonly #modelRetry: LoopModelRetry | undefined;
@@ -490,6 +587,59 @@ export class AgentLoop {
     }
   }
 
+  /** #1442: the one stream-consumption routine, shared by the main
+   * iteration and the iteration-cap wrap-up. It fills `into` as events
+   * arrive — so a caller's catch still sees what the stream produced
+   * before it threw — and returns it; every policy around the stream
+   * (retry, error, empty completion, cancellation) stays with the caller.
+   * The abort check runs before each event. In `wrapUp` mode the stream's
+   * tool-call events are not processed at all, as the wrap-up never did. */
+  async #consumeStream(
+    provider: Provider,
+    signal: AbortSignal,
+    toolSpecs: ToolSpec[],
+    into: ConsumedStream,
+    wrapUp: boolean,
+  ): Promise<ConsumedStream> {
+    for await (const event of provider.stream(this.#messages, signal, toolSpecs, this.#streamOptions())) {
+      if (signal.aborted) break;
+      if (event.type === "text_delta") {
+        if (event.text) into.sawText = true;
+        this.#noteFirstContent();
+        into.text += event.text;
+        this.#append({ type: "assistant_delta", text: event.text });
+      } else if (event.type === "tool_calls") {
+        if (!wrapUp) {
+          if (event.calls.length > 0) into.sawToolCalls = true;
+          into.toolCalls.push(...event.calls);
+        }
+      } else if (event.type === "model_call_start") {
+        // A new call starts: record the previous one, then open a buffer
+        // for this one (#83). Mid-stream fallbacks announce a second
+        // call inside the same provider.stream — both get recorded.
+        this.#openCall(event);
+      } else if (event.type === "reasoning_start" || event.type === "reasoning_delta" || event.type === "reasoning_end") {
+        this.#consumeReasoningEvent(event);
+      } else if (event.type === "fallback") {
+        // Detailed durable fallback record; route_serving below is the
+        // user-visible transition once a fallback actually succeeds.
+        this.#append(event);
+        this.#flushFailedModelCall({ errorKind: event.reason });
+      } else if (event.type === "route_serving") {
+        this.#append(event);
+      } else if (event.type === "usage") {
+        // #853: zero tokens is the shape of an empty completion, never
+        // evidence of a real call.
+        if (event.inputTokens > 0 || event.outputTokens > 0) into.sawUsage = true;
+        this.#consumeUsage(event);
+      } else if (event.type === "finish") {
+        into.finishReason = event.reason;
+        into.sawFinish = true;
+      }
+    }
+    return into;
+  }
+
   /** Cumulative usage tokens reported by the provider, where exposed. */
   get usage(): { inputTokens: number; outputTokens: number } {
     return { ...this.#usage };
@@ -558,7 +708,7 @@ export class AgentLoop {
     this.#modelRetriesThisTurn = 0;
     // #363: a Route may probe its selected target once at a user-turn
     // boundary. Follow-up calls after tools keep the serving target.
-    if ("beginTurn" in provider && typeof provider.beginTurn === "function") provider.beginTurn();
+    if (typeof provider.beginTurn === "function") provider.beginTurn();
     // #488: assemble mention attachments before anything is logged so the
     // `user_message` event carries the snapshots the model will see.
     let attachments: MentionAttachment[] | undefined;
@@ -626,31 +776,13 @@ export class AgentLoop {
         // #1099: the wrap-up is its own logical call.
         this.#callId = "";
         this.#attemptIndex = 0;
-        let wrapText = "";
-        let wrapFinished = false;
         this.#iterationReasoning = [];
+        // #1442: the wrap-up reads only the text and whether a `finish`
+        // arrived (any reason) — its tool calls, usage flags and empty
+        // completions are ignored, as they always were.
+        let wrap: ConsumedStream;
         try {
-          for await (const event of provider.stream(this.#messages, controller.signal, [], this.#streamOptions())) {
-            if (controller.signal.aborted) break;
-            if (event.type === "text_delta") {
-              wrapText += event.text;
-              this.#noteFirstContent();
-              this.#append({ type: "assistant_delta", text: event.text });
-            } else if (event.type === "model_call_start") {
-              this.#openCall(event);
-            } else if (event.type === "reasoning_start" || event.type === "reasoning_delta" || event.type === "reasoning_end") {
-              this.#consumeReasoningEvent(event);
-            } else if (event.type === "fallback") {
-              this.#append(event);
-              this.#flushFailedModelCall({ errorKind: event.reason });
-            } else if (event.type === "route_serving") {
-              this.#append(event);
-            } else if (event.type === "usage") {
-              this.#consumeUsage(event);
-            } else if (event.type === "finish") {
-              wrapFinished = true;
-            }
-          }
+          wrap = await this.#consumeStream(provider, controller.signal, [], emptyConsumedStream(), true);
         } catch (err) {
           // The wrap-up is best-effort: a failing final call degrades to the
           // historical cap error rather than masking it. Its partial call is
@@ -669,7 +801,7 @@ export class AgentLoop {
           this.#append({ type: "error", reason: "max_iterations", message: `iteration cap of ${this.#maxIterations} reached` });
           return { status: "error", reason: "max_iterations", message: "iteration cap reached" };
         }
-        if (!wrapFinished) {
+        if (!wrap.sawFinish) {
           // #243: the wrap-up stream ended without a finalized provider
           // message (abort or premature end) — nothing is checkpointed.
           this.#discardPendingCall();
@@ -677,7 +809,7 @@ export class AgentLoop {
           return { status: "cancelled" };
         }
         this.#flushModelCall();
-        assistantText = wrapText;
+        assistantText = wrap.text;
         finishReason = "stop";
         continue;
       }
@@ -710,27 +842,21 @@ export class AgentLoop {
           this.#append(e);
         }
       }
-      const toolCalls: ToolCall[] = [];
       // #853: a bare (non-routed) provider's empty completion must end
       // the turn as a classified error, never a silent empty done — the
       // route layer cannot see it, so the loop classifies here. Routed
       // providers never reach this: the route itself throws
       // empty_completion (fallback-worthy) before ending the stream.
-      let sawText = false;
-      let sawToolCalls = false;
-      let sawUsage = false;
+      // #1442: the accumulator is the caller's, so an aborted stream that
+      // throws still leaves what it produced for the checks below.
+      let consumed = emptyConsumedStream();
       // ADR-0059: the consumption loop. A non-Route provider failure may
       // consult the `onModelError` seam and restart the call on the
       // proposed model within this same iteration (same logical call, new
       // attempt); without a proposal the catch ends the turn exactly as
       // it always has.
       for (;;) {
-        sawText = false;
-        sawToolCalls = false;
-        sawUsage = false;
-        assistantText = "";
-        finishReason = null;
-        toolCalls.length = 0;
+        consumed = emptyConsumedStream();
         try {
           const toolSpecs: ToolSpec[] = Object.values(this.#tools()).map((t) => ({
             name: t.name,
@@ -739,39 +865,7 @@ export class AgentLoop {
               ? { parameters: wireToolSchema(t.inputSchema) as Record<string, unknown> }
               : {}),
           }));
-          for await (const event of provider.stream(this.#messages, controller.signal, toolSpecs, this.#streamOptions())) {
-            if (controller.signal.aborted) break;
-            if (event.type === "text_delta") {
-              if (event.text) sawText = true;
-              this.#noteFirstContent();
-              assistantText += event.text;
-              this.#append({ type: "assistant_delta", text: event.text });
-            } else if (event.type === "tool_calls") {
-              if (event.calls.length > 0) sawToolCalls = true;
-              toolCalls.push(...event.calls);
-            } else if (event.type === "model_call_start") {
-              // A new call starts: record the previous one, then open a buffer
-              // for this one (#83). Mid-stream fallbacks announce a second
-              // call inside the same provider.stream — both get recorded.
-              this.#openCall(event);
-            } else if (event.type === "reasoning_start" || event.type === "reasoning_delta" || event.type === "reasoning_end") {
-              this.#consumeReasoningEvent(event);
-            } else if (event.type === "fallback") {
-              // Detailed durable fallback record; route_serving below is the
-              // user-visible transition once a fallback actually succeeds.
-              this.#append(event);
-              this.#flushFailedModelCall({ errorKind: event.reason });
-            } else if (event.type === "route_serving") {
-              this.#append(event);
-            } else if (event.type === "usage") {
-              // #853: zero tokens is the shape of an empty completion, never
-              // evidence of a real call.
-              if (event.inputTokens > 0 || event.outputTokens > 0) sawUsage = true;
-              this.#consumeUsage(event);
-            } else if (event.type === "finish") {
-              finishReason = event.reason;
-            }
-          }
+          await this.#consumeStream(provider, controller.signal, toolSpecs, consumed, false);
           break;
         } catch (err) {
           if (controller.signal.aborted) break;
@@ -807,6 +901,9 @@ export class AgentLoop {
           return { status: "error", reason, message };
         }
       }
+      const { toolCalls, sawText, sawToolCalls, sawUsage } = consumed;
+      assistantText = consumed.text;
+      finishReason = consumed.finishReason;
       // The provider stream ended: only a finalized model call is recorded.
       // An abort or an iterator ending after reasoning_end but before finish
       // still leaves partial provider-message state; neither may become a

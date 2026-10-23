@@ -202,6 +202,58 @@ describe("judgement session integration", () => {
     expect(store.closedSinceBatch()).toBe(1);
   });
 
+  // #1443 characterization: the judgement run under a dispose budget.
+  function dueJudgmentSession(judge: () => Promise<void>) {
+    const home = tempDir();
+    const cwd = tempDir();
+    const store = new RetroStore(join(home, "retro"));
+    const closed = SessionStore.create(cwd, home);
+    closed.append({ type: "session_start", schemaVersion: 2, promptVersion: "p" });
+    closed.append({ type: "user_message", text: "why is this module so hard to find" });
+    closed.dispose();
+    for (let i = 0; i < RETRO_JUDGMENT_BATCH; i++) store.noteClosedSession();
+    const session = new AgentSession({
+      provider: MockProvider.scripted([{ deltas: ["ok"], finish: "stop" as const }]),
+      cwd,
+      mohHome: join(home, ".moh"),
+      retro: { dir: store.dir },
+      retroJudgment: async (input) => {
+        await judge();
+        return [{
+          category: "navigation",
+          evidence: "the agent re-read the same module three times",
+          confidence: 0.7,
+          session: input.sessions[0]!.id,
+          signature: retroSignature("navigation", "the agent re-read the same module three times"),
+        }];
+      },
+    });
+    return { session, store };
+  }
+
+  test("dispose({timeoutMs}) stops waiting a slow judgement run at the budget", async () => {
+    let release!: () => void;
+    let started = false;
+    const { session, store } = dueJudgmentSession(() => {
+      started = true;
+      return new Promise<void>((resolve) => { release = resolve; });
+    });
+    const t0 = performance.now();
+    await session.dispose({ timeoutMs: 150 });
+    const elapsed = performance.now() - t0;
+    expect(started).toBe(true);
+    expect(elapsed).toBeLessThan(1500);
+    // Returned at the budget: the run had not appended anything yet.
+    expect(store.read()).toEqual([]);
+    release();
+  });
+
+  test("dispose({timeoutMs}) still awaits a judgement run that settles within the budget", async () => {
+    const { session, store } = dueJudgmentSession(() => new Promise<void>((resolve) => setTimeout(resolve, 30)));
+    await session.dispose({ timeoutMs: 5_000 });
+    expect(store.read().map((finding) => finding.category)).toEqual(["navigation"]);
+  });
+
   test("below the threshold nothing runs", async () => {
     const dir = tempDir();
     const store = new RetroStore(dir);

@@ -1059,3 +1059,23 @@ describe("suite-like classification (#304)", () => {
     });
   }
 });
+
+describe("run ledger pruning window (characterization, #1437)", () => {
+  test("only stale bash- directories are removed; fresh ones and other names stay", () => {
+    const root = mkdtempSync(join(tmpdir(), "moh-ledger-root-"));
+    const aged = (name: string, minutes: number) => {
+      const dir = join(root, name);
+      mkdirSync(dir, { mode: 0o700 });
+      const when = new Date(Date.now() - minutes * 60_000);
+      utimesSync(dir, when, when);
+      return dir;
+    };
+    const stale = aged("bash-stale", 11);
+    const fresh = aged("bash-fresh", 1);
+    const other = aged("other-stale", 11);
+    builtinTools({ ledgerRoot: root });
+    expect(existsSync(stale)).toBe(false);
+    expect(existsSync(fresh)).toBe(true);
+    expect(existsSync(other)).toBe(true);
+  });
+});

@@ -5,17 +5,7 @@ import { colorEnabled } from "./color";
 import { pickRampPreset, rampLogoRows, type RampPresetName } from "./logo-ramp";
 
 import { dialogWidth, useViewport } from "./viewport";
-import { sanitizeForDisplay } from "./render-sanitize";
-
-/** pi-style labelled message box: single round border, label row inside. */
-export function MsgBox({ label, color, children }: { label: string; /** #880: absent when the terminal takes no color. */ color?: string; children: React.ReactNode }) {
-  return (
-    <Box borderStyle="round" borderColor={color} flexDirection="column" width="100%" paddingX={1}>
-      <Text color={color}>{label}</Text>
-      {children}
-    </Box>
-  );
-}
+import { sanitizeForDisplay } from "@moh/core";
 
 /** dim text in the theme's dim token */
 export function Dim({ children }: { children: React.ReactNode }) {

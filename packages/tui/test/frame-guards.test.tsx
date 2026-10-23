@@ -25,7 +25,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import React, { useReducer, useSyncExternalStore } from "react";
 import { MockProvider, createSession, SessionStore, builtinTools, type AskUserQuestionSet, type Tool } from "@moh/core";
-import type { SessionSummary } from "../src/sessions";
+import type { SessionSummary } from "@moh/core";
 import { App } from "../src/App";
 import { Home } from "../src/Home";
 import { Chat, nextReasoningHead, transcriptTail } from "../src/Chat";

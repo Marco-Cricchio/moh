@@ -21,7 +21,7 @@
  * - at most one suggestion: any call failure, an empty roster or a verdict
  *   below the floor all degrade to NO line — never a guess.
  */
-import type { JevQuestion } from "./client";
+import { noulProbability, type JevAnswer, type JevClient, type JevJudgmentMeta, type JevQuestion } from "./client";
 import { questions } from "./questions-core";
 import { truncateToBytes } from "./routing";
 
@@ -46,7 +46,7 @@ export const SKILL_RELEVANCE_MIN = SKILL_THRESHOLDS.relevanceMin;
 export const SKILLS_RANK_MAX = SKILL_THRESHOLDS.rankMax;
 
 /** The judged state: the task plus the roster, capped like the other per-turn states. */
-export const SKILL_MESSAGE_MAX_BYTES = 4096;
+const SKILL_MESSAGE_MAX_BYTES = 4096;
 
 /** One skill in the roster, as the suggestion call sees it. */
 export interface SkillCandidate {
@@ -142,3 +142,153 @@ export function buildRelevance(ranked: readonly RankedSkill[], needsSkill?: numb
   if (!winner || winner.probability < SKILL_RELEVANCE_MIN) return undefined;
   return WINNER_LINE(winner.name);
 }
+
+/**
+ * The skill-suggestion judge (#793): the two-call cookbook per user turn.
+ *
+ * Call 1 ranks the whole roster plus the `needs_skill` gate; call 2 re-reads
+ * at most `SKILL_SUGGEST_KEEP` finalists with their full descriptions. At
+ * most ONE suggested skill leaves this judge; every failure, an empty
+ * roster, a gate below the floor or no finalist clearing the relevance
+ * floor degrade to no suggestion at all — never a guess, never a turn error.
+ *
+ * Both judgments are recorded (`jev_skill_suggest`), one record per call:
+ * the rank record carries the whole roster's probabilities, the relevance
+ * record the finalists' answers and the winner. No sampling (ratified).
+ */
+
+export interface SkillSuggestJudgeDeps {
+  client: Pick<JevClient, "judge">;
+  /**
+   * The one log seam: the extension turns this into `ctx.appendEvent`
+   * (`jev_skill_suggest`). Required — no sampling.
+   */
+  append: (payload: Record<string, unknown>) => void;
+}
+
+/** What one suggest() produced. `undefined` = no suggestion (any reason). */
+export interface SkillSuggestVerdict {
+  /** The suggested skill name. */
+  readonly skill: string;
+  /** The exact prompt line contributed through `setPromptNote`. */
+  readonly line: string;
+}
+
+/** Builds the per-turn skill-suggestion judge. Stateless across turns. */
+export function createSkillSuggestJudge(deps: SkillSuggestJudgeDeps) {
+  return {
+    /**
+     * Runs the two-call cookbook for one turn.
+     * `null` = no suggestion (call failure, empty roster, gate or relevance
+     * below the floors, or a call-2 washout). The roster must be non-empty;
+     * the task text is the same slice shape as classification's (capped).
+     */
+    async suggest(task: string, roster: readonly SkillCandidate[]): Promise<SkillSuggestVerdict | null> {
+      const candidates = candidatesForRank(roster);
+      if (candidates.length === 0) return null;
+      const droppedByCap = roster.length - candidates.length;
+
+      // ---- Call 1: rank the whole roster + the needs-skill gate --------
+      let needsSkill = 0;
+      let ranked: { name: string; probability: number }[] = [];
+      let rankAnswers: Record<string, JevAnswer> | undefined;
+      let rankMeta: JevJudgmentMeta | undefined;
+      const rankOutcome = await deps.client.judge({
+        state: rankStateFor({ task, roster: candidates }),
+        questions: rankQuestionsFor(candidates),
+        record: (answers, meta) => {
+          needsSkill = noulProbability(answers, "needs_skill");
+          ranked = candidates
+            .map((c) => ({ name: c.name, probability: noulProbability(answers, `skill:${c.name}`) }))
+            .sort((a, b) => b.probability - a.probability);
+          rankAnswers = answers;
+          rankMeta = meta;
+          // The rank record is complete on its own; nothing to append here.
+          return null;
+        },
+      });
+      if (!rankOutcome.ok) {
+        deps.append({ useCase: "skill_suggest", call: "rank", ok: false, kind: rankOutcome.kind, skills: candidates.length, droppedByCap });
+        return null;
+      }
+      deps.append({
+        useCase: "skill_suggest",
+        call: "rank",
+        ok: true,
+        needsSkill,
+        gated: needsSkill < NEEDS_SKILL_MIN,
+        skills: candidates.length,
+        droppedByCap,
+        top: ranked.slice(0, SKILL_SUGGEST_KEEP).map((r) => ({ name: r.name, probability: r.probability })),
+        answers: rankAnswers,
+        model: rankMeta?.model,
+        latencyMs: rankMeta?.latencyMs,
+        usage: rankMeta?.usage,
+      });
+      if (needsSkill < NEEDS_SKILL_MIN) return null;
+
+      // ---- Call 2: re-read the top finalists ----------------------------
+      const finalists = ranked.slice(0, SKILL_SUGGEST_KEEP).filter((r) => r.probability > 0);
+      if (finalists.length === 0) return null;
+      const byName = new Map(candidates.map((c) => [c.name, c]));
+      const finalistSkills = finalists.map((f) => byName.get(f.name)).filter((s) => s !== undefined);
+      let relevance: string | undefined;
+      let relevanceAnswers: Record<string, JevAnswer> | undefined;
+      let relevanceMeta: JevJudgmentMeta | undefined;
+      const relOutcome = await deps.client.judge({
+        state: relevanceStateFor({ task, roster: finalistSkills }),
+        questions: relevanceQuestionsFor(finalists.map((f) => f.name)),
+        record: (answers, meta) => {
+          relevanceAnswers = answers;
+          relevanceMeta = meta;
+          relevance = buildRelevance(
+            finalists.map((f) => ({ name: f.name, probability: noulProbability(answers, `relevance:${f.name}`) })),
+            needsSkill,
+          );
+          return null;
+        },
+      });
+      if (!relOutcome.ok) {
+        deps.append({
+          useCase: "skill_suggest",
+          call: "relevance",
+          ok: false,
+          kind: relOutcome.kind,
+          finalists: finalists.map((f) => f.name),
+        });
+        return null;
+      }
+      if (relevance === undefined) {
+        // A successful call with no winner (no finalist cleared the floor):
+        // a measurement, not a failure — recorded as such, honestly.
+        deps.append({
+          useCase: "skill_suggest",
+          call: "relevance",
+          ok: true,
+          suggested: null,
+          finalists: finalists.map((f) => f.name),
+          answers: relevanceAnswers,
+        });
+        return null;
+      }
+      const winner = [...finalists]
+        .map((f) => ({ name: f.name, probability: noulProbability(relevanceAnswers!, `relevance:${f.name}`) }))
+        .sort((a, b) => b.probability - a.probability)[0]!;
+      deps.append({
+        useCase: "skill_suggest",
+        call: "relevance",
+        ok: true,
+        suggested: winner.name,
+        line: relevance,
+        finalists: finalists.map((f) => f.name),
+        answers: relevanceAnswers,
+        model: relevanceMeta?.model,
+        latencyMs: relevanceMeta?.latencyMs,
+        usage: relevanceMeta?.usage,
+      });
+      return { skill: winner.name, line: relevance };
+    },
+  };
+}
+
+export type SkillSuggestJudge = ReturnType<typeof createSkillSuggestJudge>;

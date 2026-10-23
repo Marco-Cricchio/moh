@@ -34,7 +34,7 @@ interface ResultEntry {
   reason: string;
 }
 
-export interface MpmQueryToolOptions {
+interface MpmQueryToolOptions {
   service: MpmService;
   root: string;
   /** #663 diagnostics: the orientation records that a model query succeeded. */
@@ -180,12 +180,12 @@ function foldIdentity(s: string): string {
  * resolver would accept on re-query are suggested (full paths, base
  * names, exact symbol names). Empty means no usable hint.
  */
-export function suggestSeeds(seed: string, service: MpmService, limit = 3): string[] {
+function suggestSeeds(seed: string, service: MpmService): string[] {
   const stripped = normalizeSeed(seed);
   if (stripped.length < 4) return [];
   // Graded candidates first: they are valid re-seeds by construction.
   const ranked = rankCandidates(stripped, service).map((c) => c.path);
-  if (ranked.length > 0) return ranked.slice(0, limit);
+  if (ranked.length > 0) return ranked.slice(0, 3);
   const maxDist = stripped.length >= 8 ? 3 : 2;
   const scored = new Map<string, number>();
   const consider = (candidate: string) => {
@@ -202,7 +202,7 @@ export function suggestSeeds(seed: string, service: MpmService, limit = 3): stri
     for (const sym of record.symbols) consider(sym.name);
   }
   const best = [...scored.entries()].sort((a, b) => a[1] - b[1] || a[0].localeCompare(b[0]));
-  if (best.length > 0) return best.slice(0, limit).map(([candidate]) => candidate);
+  if (best.length > 0) return best.slice(0, 3).map(([candidate]) => candidate);
   // Typo pass found nothing: fall back to folded identity (case/kebab
   // gaps Levenshtein cannot bridge — #737).
   const folded = foldIdentity(stripped);
@@ -217,7 +217,7 @@ export function suggestSeeds(seed: string, service: MpmService, limit = 3): stri
     const base = path.slice(path.lastIndexOf("/") + 1);
     if (foldIdentity(base) === folded || foldIdentity(path) === folded) fallback.push(base);
   }
-  return [...new Set(fallback)].sort().slice(0, limit);
+  return [...new Set(fallback)].sort().slice(0, 3);
 }
 
 /** Bounded Levenshtein distance with an early exit above `max`. */

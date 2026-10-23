@@ -27,9 +27,10 @@
  * dotdir (`secret-redaction-misses.log`) — the ADR-0049 corpus precedent:
  * the evidence the next pattern is written from, never its content.
  */
-import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync } from "node:fs";
 import { randomBytes } from "node:crypto";
 import { dirname, join } from "node:path";
+import { writeFileAtomic } from "./fs-atomic";
 
 /** The fixed placeholder every masked value becomes (ADR-0058). */
 export const REDACTED = "[redacted]";
@@ -83,8 +84,8 @@ function isSecretKey(normalized: string): boolean {
 }
 
 /** Returns a structurally-redacted copy (ADR-0032 layer). Cycles safe. */
-export function redactKeys(value: unknown, depth = 0): unknown {
-  return walkValue(value, depth, (v) => v);
+export function redactKeys(value: unknown): unknown {
+  return walkValue(value, 0, (v) => v);
 }
 
 /**
@@ -299,13 +300,13 @@ export function detectSecretLookalikes(text: string): { category: string; length
   return hits.slice(0, 8);
 }
 
-export interface RedactionMiss {
+interface RedactionMiss {
   category: string;
   length: number;
 }
 
 /** Result of the combined pass over one value. */
-export interface RedactionResult {
+interface RedactionResult {
   value: unknown;
   /** Content-free lookalike reports (key names are not included). */
   misses: RedactionMiss[];
@@ -321,12 +322,12 @@ export interface RedactionResult {
  * masking in one structural walk, plus lookalike detection on the
  * strings that passed unmasked. Never mutates the input.
  */
-export function redactValue(value: unknown, depth = 0): RedactionResult {
+export function redactValue(value: unknown): RedactionResult {
   const misses: RedactionMiss[] = [];
   const cut = { depthCut: false };
   const value2 = walkValue(
     value,
-    depth,
+    0,
     (s) => {
       const redacted = redactString(s);
       if (redacted === s) {
@@ -349,11 +350,11 @@ export function redactValue(value: unknown, depth = 0): RedactionResult {
 // ---------------------------------------------------------------------------
 
 /** File name inside the user's moh home. */
-export const SECRET_REDACTION_MISSES_FILE = "secret-redaction-misses.log";
+const SECRET_REDACTION_MISSES_FILE = "secret-redaction-misses.log";
 /** Distinct shapes kept; beyond this the oldest goes. */
-export const SECRET_REDACTION_MAX_ENTRIES = 50;
+const SECRET_REDACTION_MAX_ENTRIES = 50;
 
-export interface SecretRedactionMissEntry {
+interface SecretRedactionMissEntry {
   at: string;
   last: string;
   /** Content-free shape descriptor (e.g. `opaque-assignment:24`). */
@@ -421,11 +422,11 @@ export function noteSecretRedactionMiss(input: {
     for (let attempt = 0; attempt < 3; attempt++) {
       const tmp = missReportTempPath(file);
       try {
-        writeFileSync(tmp, kept.map((e) => JSON.stringify(e)).join("\n") + "\n", {
-          flag: "wx",
+        writeFileAtomic(file, kept.map((e) => JSON.stringify(e)).join("\n") + "\n", {
           mode: 0o600,
+          temp: () => tmp,
+          exclusive: true,
         });
-        renameSync(tmp, file);
         break;
       } catch {
         if (attempt === 2) throw new Error("miss-report temp write failed");
@@ -456,7 +457,7 @@ export function noteSecretRedactionMisses(home: string, misses: RedactionMiss[])
 }
 
 /** The shape line a depth cut writes (once per pass, content-free). */
-export const DEPTH_CUT_MISS_SHAPE = "depth-cut";
+const DEPTH_CUT_MISS_SHAPE = "depth-cut";
 
 /**
  * Records the misses of one redaction pass as deduplicated, content-free

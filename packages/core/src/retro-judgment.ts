@@ -24,14 +24,14 @@ import { SessionStore, isSessionOpen, listSessionSummaries, lastAssistantText, t
 /** Closed sessions per judgement batch (owner decision, 2026-10-09). */
 export const RETRO_JUDGMENT_BATCH = 10;
 /** Chars of one session's transcript handed to the subagent. */
-export const RETRO_JUDGMENT_TRANSCRIPT_CHARS = 4000;
+const RETRO_JUDGMENT_TRANSCRIPT_CHARS = 4000;
 /** Chars of all transcripts together (the batch budget). */
-export const RETRO_JUDGMENT_BATCH_CHARS = 24000;
+const RETRO_JUDGMENT_BATCH_CHARS = 24000;
 /** Findings one judgement run may contribute. */
-export const RETRO_JUDGMENT_MAX_FINDINGS = 10;
+const RETRO_JUDGMENT_MAX_FINDINGS = 10;
 
 /** The subagent's role prompt: the judgement rules, not the plumbing. */
-export const RETRO_JUDGMENT_PROMPT = [
+const RETRO_JUDGMENT_PROMPT = [
   "You are moh's retro judgement subagent. You read a batch of closed coding sessions and report environment improvements a reviewer would notice.",
   "",
   "You judge two categories only:",
@@ -47,7 +47,7 @@ export const RETRO_JUDGMENT_PROMPT = [
 ].join("\n");
 
 /** One closed session handed to the judgement subagent. */
-export interface RetroJudgmentSession {
+interface RetroJudgmentSession {
   /** The session id, echoed back in each finding's `session`. */
   id: string;
   transcript: string;

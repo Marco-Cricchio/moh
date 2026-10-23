@@ -1,5 +1,4 @@
 import { describe, expect, test } from "bun:test";
-import React from "react";
 import { render } from "ink-testing-library";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -123,7 +122,7 @@ describe("home smoke", () => {
         cwd={cwd}
         home={home}
         mode="vibe"
-        onOpen={(resume, initialPrompt) => {
+        onOpen={(resume) => {
           expect(resume === null || resume.file === store.file).toBe(true);
         }}
        

@@ -51,7 +51,7 @@ export const PROTOCOL_VERSION = 1;
 
 type Json = Record<string, unknown>;
 
-export interface ServeOptions {
+interface ServeOptions {
   argv: string[];
   cwd?: string;
   /** Isolated home for tests; defaults to the real user home. */

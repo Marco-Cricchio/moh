@@ -3,7 +3,6 @@ import { describe, expect, test } from "bun:test";
 import { mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import React from "react";
 import { MockProvider, builtinTools } from "@moh/core";
 import { Chat } from "../src/Chat";
 import { makeSession } from "../src/factory";
@@ -25,14 +24,13 @@ function startParityServer(): { server: ReturnType<typeof Bun.serve>; url: strin
   let call = 0;
   const server = Bun.serve({
     port: 0,
-    async fetch(req) {
+    async fetch(_req) {
       call += 1;
       const chunks = paritySseChunks(call);
       const encoder = new TextEncoder();
       const body = new ReadableStream({
         async start(controller) {
           for (const delta of chunks) {
-            const finish_reason = call === 1 ? "tool_calls" : "stop";
             controller.enqueue(encoder.encode(`data: ${JSON.stringify({
               id: `parity-${call}`,
               object: "chat.completion.chunk",

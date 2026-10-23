@@ -5,7 +5,6 @@ import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { MockProvider, SessionStore, builtinTools, type AskUserQuestionSet } from "@moh/core";
-import { AskUserBlock } from "../src/AskUserBlock";
 import { AskUserGate } from "../src/ask-user-gate";
 import { Chat } from "../src/Chat";
 import { createSession } from "@moh/core";

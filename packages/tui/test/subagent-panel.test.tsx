@@ -2,7 +2,6 @@ import { describe, expect, test } from "bun:test";
 import { appendFile, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import React from "react";
 import { render } from "ink-testing-library";
 import { Text } from "ink";
 import { ThemeProvider, THEMES } from "../src/themes";
@@ -12,7 +11,6 @@ import { SubagentPanel } from "../src/SubagentPanel";
 import {
   trackSubagents,
   subagentGlyph,
-  subagentStateLabel,
   panelHeader,
   panelFreezeLine,
   isStalled,

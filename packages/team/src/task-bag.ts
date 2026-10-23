@@ -8,7 +8,7 @@
  */
 
 /** The three transitions the log records; a non-done completion releases the claim. */
-export type BagTaskStatus = "open" | "claimed" | "done";
+type BagTaskStatus = "open" | "claimed" | "done";
 
 export interface BagTask {
   readonly id: string;
@@ -25,7 +25,7 @@ export const TASK_CLAIMED = "team_task_claimed";
 export const TASK_COMPLETED = "team_task_completed";
 
 /** A board-shaped event: an `extension_event` entry from the session log. */
-export interface BagEvent {
+interface BagEvent {
   readonly type: string;
   readonly name?: string;
   readonly payload?: {
@@ -42,7 +42,6 @@ export interface BagEvent {
 
 export class TaskBag {
   readonly tasks = new Map<string, BagTask>();
-  #seq = 0;
 
   /** Validates refs against the whole plan up front — a bag is created whole or not at all. */
   static planIds(count: number): string[] {

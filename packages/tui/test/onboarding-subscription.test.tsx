@@ -12,12 +12,12 @@
  */
 import { describe, expect, test } from "bun:test";
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
-import React from "react";
 import { render } from "ink-testing-library";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { TOS_WARNING, getStoredToken, readUserConfigFile, subscriptionModelCatalog, type AuthToken, type AuthorizationIo } from "@moh/core";
+import { TOS_WARNING, readUserConfigFile, subscriptionModelCatalog, type AuthToken, type AuthorizationIo } from "@moh/core";
+import { getStoredToken } from "../../core/src/auth/store";
 import { Onboarding } from "../src/OnboardingOverlay";
 import { clipboardBackend } from "../src/clipboard";
 import { stripAnsi, waitForCondition, waitForFrame } from "./helpers";

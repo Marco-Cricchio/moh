@@ -16,11 +16,12 @@
  *   not exist here at all.
  */
 import { chmodSync, existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
-import { dirname, isAbsolute, join, relative, resolve } from "node:path";
+import { isAbsolute, join, relative, resolve } from "node:path";
+import { gitSync } from "./git";
 import { retroSignature, type RetroFinding } from "./retro";
 
 /** What kind of change an application is (ADR-0075's three shapes). */
-export type RetroApplicationKind = "coding-standards-rule" | "automated-check" | "navigation-pointer";
+type RetroApplicationKind = "coding-standards-rule" | "automated-check" | "navigation-pointer";
 
 /** The one generated-file target (#1356, ADR-0077): the local git hook,
  * outside the project tree but inside the clone. */
@@ -34,12 +35,8 @@ export const PRE_COMMIT_TARGET = ".git/hooks/pre-commit";
  * repository (tests write to bare temp dirs).
  */
 function gitDir(projectRoot: string): string {
-  const probe = Bun.spawnSync(["git", "rev-parse", "--path-format=absolute", "--git-common-dir"], {
-    cwd: projectRoot,
-    stdout: "pipe",
-    stderr: "ignore",
-  });
-  const out = probe.stdout?.toString().trim();
+  const probe = gitSync(projectRoot, ["rev-parse", "--path-format=absolute", "--git-common-dir"], { dir: "cwd", stderr: "ignore" });
+  const out = probe.stdout.trim();
   return probe.exitCode === 0 && out ? out : join(projectRoot, ".git");
 }
 
@@ -48,7 +45,7 @@ function gitDir(projectRoot: string): string {
  * dispatch key, not the free-text evidence. */
 const PRE_COMMIT_UNWIRED = retroSignature("missing-guardrail", "pre-commit:unwired");
 
-export interface RetroApplication {
+interface RetroApplication {
   kind: RetroApplicationKind;
   /** Project-relative file a human would edit. */
   target: string;
@@ -159,7 +156,7 @@ export function proposeRetroApplication(finding: RetroFinding): RetroApplication
   }
 }
 
-export type RetroApplyResult =
+type RetroApplyResult =
   | { ok: true; file: string; appended: boolean; created: boolean }
   | { ok: false; error: string };
 

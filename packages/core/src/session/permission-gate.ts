@@ -16,7 +16,7 @@ export interface ToolHookChecker {
   }): Promise<{ veto: boolean; ask: boolean; reason?: string; by?: string; errors: AgentEvent[] }>;
 }
 
-export interface PermissionGateOptions {
+interface PermissionGateOptions {
   permissions: PermissionResolver;
   extensions?: ToolHookChecker;
   onPermissionRequest?: SessionConfig["onPermissionRequest"];

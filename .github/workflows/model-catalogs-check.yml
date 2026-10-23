@@ -30,7 +30,7 @@ on:
     paths:
       - "packages/core/src/model-catalogs/**"
       - "packages/core/scripts/build-model-catalogs.ts"
-      - "packages/core/src/model-catalog-build.ts"
+      - "packages/core/scripts/model-catalog-build.ts"
       - ".github/workflows/model-catalogs-check.yml"
   schedule:
     # Daily: the catalog is release-pinned, so staleness must be visible

@@ -1,5 +1,4 @@
 import { describe, expect, test } from "bun:test";
-import React from "react";
 import { render } from "ink-testing-library";
 import { createSession, MockProvider, type AgentEvent, type Provider } from "@moh/core";
 import { projectTranscript } from "../src/transcript";

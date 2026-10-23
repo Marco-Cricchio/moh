@@ -9,7 +9,7 @@ import { describe, expect, test } from "bun:test";
 import { mkdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { isOnWindowsMount } from "../src/windows-mount";
+import { isOnWindowsMount } from "../src/session/session";
 import { sessionFromConfig } from "../src/session/from-config";
 
 /** A home + a distro-side project directory, both disposable. */

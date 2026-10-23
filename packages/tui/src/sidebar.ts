@@ -14,7 +14,7 @@ import type { AgentEvent } from "@moh/core";
 export const CONTEXT_WINDOW_DEFAULT = 200_000;
 
 /** One Activity row: a tool call (paired with its result) or a subagent. */
-export type ActivityItem =
+type ActivityItem =
   | { kind: "tool"; name: string; detail: string; ok: boolean | null }
   | { kind: "subagent"; name: string; status: "running" | "done" | "error" | "cancelled" };
 

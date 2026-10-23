@@ -1,4 +1,4 @@
-import React, { useMemo, useRef, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { selectionStyle } from "./color";
 import { Box, Text, useInput } from "ink";
 import type { TreeNode, TreeView } from "@moh/core";
@@ -23,7 +23,7 @@ import { sanitizeLine, truncate } from "./ui";
  * `session_resumed` — ADR-0021).
  */
 
-export type TreeFilter = "all" | "active+bookmarked" | "abandoned only";
+type TreeFilter = "all" | "active+bookmarked" | "abandoned only";
 
 const FILTERS: readonly TreeFilter[] = ["all", "active+bookmarked", "abandoned only"];
 
@@ -31,7 +31,7 @@ export function cycleTreeFilter(current: TreeFilter): TreeFilter {
   return FILTERS[(FILTERS.indexOf(current) + 1) % FILTERS.length]!;
 }
 
-export interface TreePanelProps {
+interface TreePanelProps {
   /** Session label for the title row (display name or derived title). */
   label: string;
   /** The core projection (refetched by the caller after each action). */
@@ -75,7 +75,7 @@ function isForeign(node: TreeNode, byId: Map<string, TreeNode>, foreignTip: stri
 }
 
 /** The header chips: the three filters, the active one highlighted. */
-export function filterChipsRow(active: TreeFilter): string {
+function filterChipsRow(active: TreeFilter): string {
   return FILTERS.map((f) => (f === active ? `[${f}]` : f)).join("  ");
 }
 

@@ -199,7 +199,7 @@ const CATALOGS = {
 } as const satisfies Record<string, CatalogModel[]>;
 
 /** Providers that have a shipped subscription catalog. */
-export type CatalogProviderType = keyof typeof CATALOGS;
+type CatalogProviderType = keyof typeof CATALOGS;
 
 /** Every api key present in the shipped files — a generation check: an
  * unmapped wire name must fail loudly here, not silently drop models from
@@ -244,7 +244,7 @@ export function subscriptionModelCatalog(type: string): CatalogModel[] {
 /** Metadata that moh can safely attach while onboarding a recognized
  * openai-compat host. It is deliberately data-only: no provider runtime is
  * added for that host. */
-export interface KnownCompatEndpointMetadata {
+interface KnownCompatEndpointMetadata {
   catalog: CatalogProviderType;
   thinking: { format: ThinkingFormat; levels: ThinkingLevel[] };
 }

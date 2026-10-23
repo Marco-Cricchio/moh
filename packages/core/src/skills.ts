@@ -48,7 +48,7 @@ export function parseSkillFrontmatter(raw: string): { name: string; description:
 export const FIRST_PARTY_MANIFEST = ".moh-first-party.json";
 
 /** Names of the moh-owned skills recorded in `~/.moh/skills`. */
-export function firstPartySkillNames(mohHome: string): Set<string> {
+function firstPartySkillNames(mohHome: string): Set<string> {
   try {
     const raw = JSON.parse(readFileSync(join(mohHome, "skills", FIRST_PARTY_MANIFEST), "utf8"));
     if (typeof raw === "object" && raw !== null && typeof (raw as any).skills === "object") {
@@ -60,7 +60,7 @@ export function firstPartySkillNames(mohHome: string): Set<string> {
   return new Set();
 }
 
-export interface DiscoverSkillsOptions {
+interface DiscoverSkillsOptions {
   /** User-level moh dir (`~/.moh`). Default: `<homedir>/.moh`. */
   mohHome?: string;
   /** Project root; skills are read from `<projectDir>/.moh/skills`. */

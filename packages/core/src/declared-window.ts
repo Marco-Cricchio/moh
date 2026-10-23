@@ -27,7 +27,7 @@ import type { AgentEvent } from "./types";
  * seen a real refusal for is not shipped (unrecognized refusals leave a
  * trace — `context-refusal-trace.ts` — which is how the next one gets
  * discovered). */
-export interface DeclaredWindowFormula {
+interface DeclaredWindowFormula {
   /** The formula. The window marker must be attributable to its number:
    * the `window` capture group sits immediately after the marker that
    * names it. */

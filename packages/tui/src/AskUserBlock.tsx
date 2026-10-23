@@ -1,10 +1,10 @@
-import React, { useEffect, useMemo, useState, useSyncExternalStore } from "react";
+import React, { useEffect, useState, useSyncExternalStore } from "react";
 import { Box, Text, useInput } from "ink";
 import { useTheme } from "./themes";
 import { Dim } from "./ui";
 import type { AskUserGate } from "./ask-user-gate";
 import type { AskUserAnswer, AskUserQuestion, AskUserSetResult } from "@moh/core";
-import { sanitizeForDisplay } from "./render-sanitize";
+import { sanitizeForDisplay } from "@moh/core";
 import { PreviewBox } from "./PreviewBox";
 
 /**
@@ -30,7 +30,7 @@ type Focused = { option: number } | { other: true };
 /** Below this width the panel regresses to the compact borderless layout
  * (#426): the border + chip row + side-by-side preview would leave too
  * little usable width. */
-export const ASK_COMPACT_WIDTH = 72;
+const ASK_COMPACT_WIDTH = 72;
 
 /** Indent of description lines under an option row (#426): one space per
  * border column, one padding space, the marker column, one space — the
@@ -41,7 +41,7 @@ const DESC_INDENT_C = "     ";  // "❯ 1 " under the ▌header layout
 /** Preview content rows a preview box may show before truncating (#414):
  * keeps an extreme preview from consuming the whole block; the row
  * reservation in askUserBlockRows uses the same ceiling. */
-export const PREVIEW_ROW_CAP = 20;
+const PREVIEW_ROW_CAP = 20;
 
 /** #874: max option rows (options + the Other row) a question screen shows
  * at once. A pathological question (dozens of options, huge wrapped
@@ -49,10 +49,10 @@ export const PREVIEW_ROW_CAP = 20;
  * puts Ink on its fullscreen path — a clear+full-reprint per frame. Past
  * the window the list scrolls internally around the focused option (with
  * ↑ N more / ↓ N more markers), like every other height-aware moh menu. */
-export const ASK_MAX_OPTION_ROWS = 12;
+const ASK_MAX_OPTION_ROWS = 12;
 /** Each visible option description is bounded too: a single model-provided
  * essay must not defeat the option-window height cap. */
-export const ASK_DESCRIPTION_ROW_CAP = 2;
+const ASK_DESCRIPTION_ROW_CAP = 2;
 
 /** Manual word-wrap to a width (grapheme-safe for our purposes: splits on
  * spaces only, never mid-word — the terminal's own wrap is what produced
@@ -101,7 +101,7 @@ export function optionWindow(
  * (`ask-user-block.test.tsx`, "row budget") pin them against real frames.
  * A reservation that understates the block would let the volatile region
  * cross the terminal height — the exact condition of this issue. */
-export interface AskScreenFit {
+interface AskScreenFit {
   /** Option rows the internal window renders (never above ASK_MAX_OPTION_ROWS). */
   window: number;
   /** Wrapped description rows kept per option (never above ASK_DESCRIPTION_ROW_CAP). */
@@ -168,7 +168,7 @@ function screenRows(q: AskScreen, width: number, plan: Omit<AskScreenFit, "rows"
  * overflows still: a viewport too small to show three options cannot be
  * honoured, and the caller's transcript budget already floors at one row.
  */
-export function fitAskScreen(q: AskScreen, width: number, maxRows?: number): AskScreenFit {
+function fitAskScreen(q: AskScreen, width: number, maxRows?: number): AskScreenFit {
   const natural: Omit<AskScreenFit, "rows"> = {
     window: Math.min(q.options.length, ASK_MAX_OPTION_ROWS),
     descriptionRows: ASK_DESCRIPTION_ROW_CAP,
@@ -191,7 +191,7 @@ export function fitAskScreen(q: AskScreen, width: number, maxRows?: number): Ask
 }
 
 /** Summary-screen rows for `count` questions inside a row budget. */
-export function fitAskSummary(count: number, width: number, maxRows?: number): { window: number; markers: number; rows: number } {
+function fitAskSummary(count: number, width: number, maxRows?: number): { window: number; markers: number; rows: number } {
   const compact = screenCompact(width);
   const chrome = compact ? SUMMARY_CHROME_C : SUMMARY_CHROME_A;
   const naturalWindow = Math.min(count, ASK_MAX_OPTION_ROWS);
@@ -455,7 +455,6 @@ export function AskUserBlock({ gate, width, maxRows }: { gate: AskUserGate; widt
   const window = optionWindow(question.options.length, "option" in focused ? focused.option : 0, fit.window);
   const summaryFit = fitAskSummary(questions.length, blockWidth, maxRows);
   const questionLines = wrapText(question.question, Math.max(1, innerWidth - 1)).slice(0, fit.questionRows);
-  const questionHidden = questionLines.length < wrapText(question.question, Math.max(1, innerWidth - 1)).length;
   /** The windowed option rows, rendered at the caller's layout width. */
   const renderOptionRows = (descWidth: number, sideBySide: boolean, descIndent: string) => {
     const visible = question.options.slice(window.start, window.start + window.count);
@@ -491,16 +490,6 @@ export function AskUserBlock({ gate, width, maxRows }: { gate: AskUserGate; widt
     if (window.below > 0) rows.push(<Text key="more-below" color={theme.dim}>{`  ↓ ${window.below} more`}</Text>);
     return rows;
   };
-  /** The question, clipped to its budget (#874): a model-provided wall of
-   * text must not push the block past the viewport. */
-  const questionText = (prefix = "") => (
-    <>
-      {questionLines.map((line, i) => (
-        <Text key={`q-${i}`} bold={i === 0}>{`${prefix}${line}`}</Text>
-      ))}
-      {questionHidden && <Text color={theme.dim}>{`${prefix}… question truncated`}</Text>}
-    </>
-  );
 
   // ——— Layout C (narrow terminals): borderless, compact ———
   if (compact) {

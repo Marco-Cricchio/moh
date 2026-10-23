@@ -14,7 +14,7 @@ import { join } from "node:path";
 import { performSelfUpdate, isDevRun } from "@moh/core";
 import type { SelfUpdateIo, SelfUpdateProgress, SelfUpdateResult, UpdatePlatform } from "@moh/core";
 import { CLI_VERSION } from "./version";
-import { UpdateProgress, interactiveStream } from "./update-progress";
+import { UpdateProgress, formatBytes, interactiveStream } from "./update-progress";
 
 export const UPDATE_USAGE = `usage: moh update [options]
 
@@ -53,18 +53,6 @@ function phaseLabel(phase: SelfUpdateProgress["phase"]): string {
     case "installing":
       return "Installing the new binary";
   }
-}
-
-/** `46.2 MB` style detail for the download commit line. */
-function formatDetail(bytes: number): string {
-  const units = ["B", "KB", "MB", "GB"];
-  let v = bytes;
-  let i = 0;
-  while (v >= 1024 && i < units.length - 1) {
-    v /= 1024;
-    i++;
-  }
-  return `${i === 0 ? v : v >= 100 ? Math.round(v) : v.toFixed(1)} ${units[i]}`;
 }
 
 export async function updateCommand(options: {
@@ -136,7 +124,7 @@ export async function updateCommand(options: {
         // The second `downloading` event (receivedBytes > 0) is the body
         // fully received: commit the line with the byte count.
         if (p.phase === "downloading" && p.receivedBytes > 0) {
-          progress.commit(true, formatDetail(p.receivedBytes));
+          progress.commit(true, formatBytes(p.receivedBytes));
         } else {
           progress.begin(phaseLabel(p.phase));
         }

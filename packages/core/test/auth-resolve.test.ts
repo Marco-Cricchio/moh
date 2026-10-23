@@ -11,7 +11,6 @@ import type { RouteTarget } from "../src/route";
 import type { Message } from "../src/types";
 
 const NOW = 1_700_000_000_000;
-const WINDOW = 5 * 60 * 1000;
 
 function tempConfig(initial?: Record<string, unknown>): string {
   const dir = mkdtempSync(join(tmpdir(), "moh-auth-resolve-"));
@@ -185,7 +184,7 @@ describe("route wiring (refresh-before-stream)", () => {
         resolved.push(t.endpoint.name);
         return "at-resolved";
       },
-      createStream: (t, credential) => {
+      createStream: (_t, credential) => {
         seen.push(credential);
         return (m, s) => provider.stream(m, s);
       },

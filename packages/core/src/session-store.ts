@@ -142,7 +142,7 @@ export interface SessionFileGrowth {
  * Oldest schemaVersion this build can load. Logs older than this fail with
  * a clear "start a new session" error instead of mis-replaying.
  */
-export const MIN_SUPPORTED_SCHEMA_VERSION = 1;
+const MIN_SUPPORTED_SCHEMA_VERSION = 1;
 
 const SESSION_ID_RE = /^\d{8}T\d{6}\d{3}Z-[0-9a-f]{8}$/;
 
@@ -157,7 +157,8 @@ const SESSION_ID_RE = /^\d{8}T\d{6}\d{3}Z-[0-9a-f]{8}$/;
  */
 let lastStampMs = 0;
 
-export function newSessionId(now = new Date()): string {
+export function newSessionId(): string {
+  const now = new Date();
   let ms = now.getTime();
   if (ms <= lastStampMs) ms = lastStampMs + 1;
   lastStampMs = ms;
@@ -621,7 +622,7 @@ function mohHomeFor(file: string): string {
 
 /** The on-path compaction projection replay builds its context from
  * (#578, core spec d4–d6). */
-export interface CompactionProjection {
+interface CompactionProjection {
   summary: string;
   /** Position on the given array (the projection — spec d1: replay is
    * always fed the active-path array) of the first uncovered event. */
@@ -1471,7 +1472,7 @@ export function lastAssistantText(events: ReadonlyArray<AgentEvent>): string {
 // ---------------------------------------------------------------------------
 
 /** Default retention window for trashed sessions, in days. */
-export const DEFAULT_TRASH_RETENTION_DAYS = 30;
+const DEFAULT_TRASH_RETENTION_DAYS = 30;
 
 /**
  * Directory holding the project's trashed session files:
@@ -1500,7 +1501,7 @@ export interface TrashedSessionSummary {
  * guardian-owned `~/.moh/config`). Tolerant: missing/corrupt values fall
  * back to the 30-day default; a value < 1 falls back too.
  */
-export function trashRetentionDays(home = homedir()): number {
+function trashRetentionDays(home = homedir()): number {
   try {
     const section = readUserConfigFile(userConfigFile(home)).sessionTrash as
       | { retentionDays?: unknown }

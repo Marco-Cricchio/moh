@@ -11,7 +11,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { JevAnswer, JevJudgeInput } from "../src/client";
 import { correctionText, containsCodeChanges, LINT_THRESHOLDS } from "../src/lint";
-import { createLintJudge, type LintState } from "../src/lint-judge";
+import { createLintJudge, type LintState } from "../src/lint";
 import { createLintGate, createLintTaskState, LINT_MAX_CYCLES, scopePaths } from "../src/lint-gate";
 import { discoverRubrics } from "../src/rubrics";
 
@@ -41,7 +41,6 @@ function fakeClient(script: (input: JevJudgeInput) => Record<string, JevAnswer>)
   };
 }
 
-const RUBRICS = [{ path: "AGENTS.md", text: "handle every error" }];
 const STATE: LintState = {
   rules: "# AGENTS.md\nhandle every error",
   rulesFiles: ["AGENTS.md"],

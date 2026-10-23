@@ -12,7 +12,7 @@ import type { RetroOptions } from "../retro";
 import type { RetroJudgmentExtractor } from "../retro-judgment";
 import type { CompactionOptions } from "../compaction";
 import type { HandoffOptions } from "../handoff";
-import type { McpRuntimeOptions } from "../mcp";
+import type { McpRuntimeOptions } from "../mcp/runtime";
 import type { PermissionOverrides, PermissionRule } from "../permissions";
 import type { PromptComposer, SkillIndexEntry } from "../prompt-composer";
 import type { MpmService, MpmQuota } from "../mpm/service";
@@ -172,13 +172,7 @@ export interface SessionConfig {
    * a child ending must never end the extension's session, and a child's
    * `appendEvent` still lands in the runtime's single event channel.
    */
-  toolHooks?: import("./permission-gate").ToolHookChecker &
-    Partial<
-      Pick<
-        import("../extensions").ExtensionRuntime,
-        "dispatchBeforeTurn" | "dispatchModelError" | "checkToolResultHooks" | "dispatchBeforeModelCall"
-      >
-    >;
+  borrowedRuntime?: ExtensionRuntime;
   /**
    * MCP tool sources (#15): merged project + user server declarations.
    * Servers start lazily on the first turn and shut down at dispose;

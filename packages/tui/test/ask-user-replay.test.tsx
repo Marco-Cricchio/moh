@@ -1,5 +1,4 @@
 import { describe, expect, test } from "bun:test";
-import React from "react";
 import { render } from "ink-testing-library";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -166,7 +165,7 @@ describe("legacy ask_user replay (#415)", () => {
   });
 
   test("core: resuming a legacy ask_user history replays the conversation to the provider intact", async () => {
-    const { cwd, home, file } = legacySession();
+    const { cwd, file } = legacySession();
 
     // The provider sees the legacy call/result pair unchanged (args pass
     // through replayMessages verbatim) and the session log stays intact.

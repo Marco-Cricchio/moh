@@ -7,7 +7,6 @@
  * sandbox. Yes enables it for good; no leaves it unloaded.
  */
 import { describe, expect, test } from "bun:test";
-import React from "react";
 import { render } from "ink-testing-library";
 import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";

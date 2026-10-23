@@ -16,24 +16,31 @@
  * network at all.
  */
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, statSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { MANIFEST_FILE, readExtensionManifest, type ExtensionManifest } from "./extension-manifest";
-import { PATH_SCOPE_PREFIX, HOST_SCOPE_PREFIX, validatePathScope, validateHostScope } from "./host-scope";
-import { CREDENTIAL_SCOPE_PREFIX, validateCredentialScope } from "./credential-scope";
-import { TOOL_SCOPE_PREFIX, CONTRIBUTE_TOOL_SCOPE_PREFIX, validateToolScope, validateContributeToolScope } from "./tool-scope";
-import { ENDPOINT_SCOPE_PREFIX, validateEndpointScope } from "./endpoint-scope";
+import {
+  PATH_SCOPE_PREFIX,
+  HOST_SCOPE_PREFIX,
+  validatePathScope,
+  validateHostScope,
+  CREDENTIAL_SCOPE_PREFIX,
+  validateCredentialScope,
+  TOOL_SCOPE_PREFIX,
+  CONTRIBUTE_TOOL_SCOPE_PREFIX,
+  validateToolScope,
+  validateContributeToolScope,
+  ENDPOINT_SCOPE_PREFIX,
+  validateEndpointScope,
+} from "./scopes";
 import { removeExtensionDeps } from "./extension-deps";
 
-/** npm integrity digests (`sha512-...`) we can verify. */
-export type IntegrityAlgorithm = "sha512" | "sha1";
-
-export const EXTENSION_REGISTRY_USAGE_LINES = {
+const EXTENSION_REGISTRY_USAGE_LINES = {
   npm: "@scope/name[@version] — an npm scoped package",
   github: "github:owner/repo[@tag] — a GitHub release (repo + tag)",
 } as const;
 
-export type ExtensionRef =
+type ExtensionRef =
   | { source: "npm"; package: string; version?: string }
   | { source: "github"; owner: string; repo: string; tag?: string };
 
@@ -131,7 +138,7 @@ export function realRegistryIo(): RegistryIo {
 }
 
 /** One installed extension as `list` reports it. */
-export interface InstalledExtension {
+interface InstalledExtension {
   name: string;
   version: string;
   /** Where the package directory lives. */
@@ -146,14 +153,14 @@ export interface InstalledExtension {
   ignoredDuplicates?: readonly string[];
 }
 
-export interface InstallOptions {
+interface InstallOptions {
   ref: ExtensionRef;
   /** Destination root: the user dotdir (`<home>/.moh`) or the project (`cwd`). */
   destRoot: string;
   io: RegistryIo;
 }
 
-export type InstallResult =
+type InstallResult =
   | { ok: true; name: string; version: string; dir: string; warnings: string[]; notes: string[] }
   | { ok: false; reason: string; expected?: string; actual?: string };
 
@@ -164,7 +171,7 @@ export interface NpmPackument {
 }
 
 /** A GitHub release (the REST shape subset we read). */
-export interface GithubRelease {
+interface GithubRelease {
   tag_name?: string;
   assets?: readonly { name?: string; browser_download_url?: string }[];
   tarball_url?: string;
@@ -209,7 +216,7 @@ function checkManifest(pkgDir: string): { manifest: ExtensionManifest; warnings:
 }
 
 /** The capability slots the shipped host knows (ADR-0053/0061/0062). Unknown ones warn. */
-export const KNOWN_CAPABILITY_SLOTS: readonly string[] = [
+const KNOWN_CAPABILITY_SLOTS: readonly string[] = [
   "observe",
   "veto",
   "ask",
@@ -380,18 +387,33 @@ async function extractAndCheck(input: {
 }
 
 /** Where installed packages live, per scope. */
-export function registryRoots(options: { mohHome: string; cwd: string }): { scope: "user" | "project"; root: string }[] {
+function registryRoots(options: { mohHome: string; cwd: string }): { scope: "user" | "project"; root: string }[] {
   return [
     { scope: "user", root: join(options.mohHome, "extensions") },
     { scope: "project", root: resolve(join(options.cwd, "extensions")) },
   ];
 }
 
+/** A symlink that resolves to a directory; a dangling link is `false`, never a throw. */
+function isDirectoryThroughLink(path: string): boolean {
+  try {
+    return statSync(path).isDirectory();
+  } catch {
+    return false;
+  }
+}
+
 /** The installed package directories under one root, sorted; hidden dirs (the staging dir) are never packages. */
 function installedPackageDirs(root: string): string[] {
   try {
     return readdirSync(root, { withFileTypes: true })
-      .filter((e) => e.isDirectory() && !e.name.startsWith("."))
+      .filter(
+        (e) =>
+          !e.name.startsWith(".") &&
+          // A symlinked package dir (dotfiles managers) is still installed;
+          // a dangling link is not, and never empties the whole listing.
+          (e.isDirectory() || (e.isSymbolicLink() && isDirectoryThroughLink(join(root, e.name)))),
+      )
       .map((e) => e.name)
       .sort();
   } catch {

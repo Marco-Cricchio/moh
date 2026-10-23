@@ -19,7 +19,7 @@
  */
 import { readFileSync } from "node:fs";
 import { z } from "zod";
-import { readUserConfigFile, updateUserConfigFile, type UserConfigIo } from "@moh/core";
+import { readUserConfigFile, updateUserConfigFile } from "@moh/core";
 
 /** Where the key is entered (the TUI Settings entry) — shown by the CLI hint. */
 export const TYPESAFE_SETTINGS_HINT = "set the key from the TUI Settings panel (Jev / TypeSafe)";
@@ -205,14 +205,12 @@ export function maskApiKey(key: string): string {
 export function migrateTypesafeKey(
   store: { get(ref: string): string | undefined; set(ref: string, value: string): void },
   file: string,
-  io: UserConfigIo = {},
-  read: (file: string) => string = (f) => readFileSync(f, "utf8"),
 ): void {
   // A malformed block is nothing to migrate (the CLI reports it loudly
   // elsewhere): migration must never be the thing that fails an assembly.
   let legacy: string | undefined;
   try {
-    legacy = resolveTypesafeConfig(readTypesafeConfig(file, read)).legacyApiKey;
+    legacy = resolveTypesafeConfig(readTypesafeConfig(file)).legacyApiKey;
   } catch {
     return;
   }
@@ -221,7 +219,7 @@ export function migrateTypesafeKey(
   if (stored === undefined) store.set(TYPESAFE_CREDENTIAL_REF, legacy);
   // Converged (same secret in two homes) or a true migration: the file
   // gives the value up. A diverging plaintext is not ours to delete.
-  if (stored === undefined || stored === legacy) removeTypesafeApiKey(file, io);
+  if (stored === undefined || stored === legacy) removeTypesafeApiKey(file);
 }
 
 /**
@@ -234,13 +232,11 @@ export function saveTypesafeApiKey(
   store: { set(ref: string, value: string): void },
   key: string,
   file?: string,
-  io: UserConfigIo = {},
-  read: (file: string) => string = (f) => readFileSync(f, "utf8"),
 ): void {
   const trimmed = key.trim();
   store.set(TYPESAFE_CREDENTIAL_REF, trimmed);
-  if (file !== undefined && resolveTypesafeConfig(readTypesafeConfig(file, read)).legacyApiKey !== undefined) {
-    removeTypesafeApiKey(file, io);
+  if (file !== undefined && resolveTypesafeConfig(readTypesafeConfig(file)).legacyApiKey !== undefined) {
+    removeTypesafeApiKey(file);
   }
 }
 
@@ -249,7 +245,13 @@ export function removeTypesafeKey(store: { delete(ref: string): boolean }): void
   store.delete(TYPESAFE_CREDENTIAL_REF);
 }
 
+/** The boolean use-case flags of the `typesafe` block: the seven opt-ins. */
+type TypesafeFlag = {
+  [K in keyof TypesafeConfig]-?: NonNullable<TypesafeConfig[K]> extends boolean ? K : never;
+}[keyof TypesafeConfig];
+
 /**
+ * guardrail
  * Persists the guardrail flag (#1041) — the Settings row's and
  * `moh jev guardrail on|off`'s writer.
  *
@@ -259,116 +261,49 @@ export function removeTypesafeKey(store: { delete(ref: string): boolean }): void
  * chose, not the absence of one. Read at session assembly like every
  * other use-case flag — the running session keeps the state it started
  * in, and only `/jev` moves it inside one.
- */
-export function saveTypesafeGuardrail(file: string, enabled: boolean, io: UserConfigIo = {}): void {
-  updateUserConfigFile(
-    file,
-    (data) => {
-      const current = (data.typesafe ?? {}) as Record<string, unknown>;
-      data.typesafe = { ...current, guardrail: enabled };
-    },
-    io,
-  );
-}
-
-/**
+ *
+ * routing
  * Persists the model-routing opt-in (#787) — the Settings toggle's writer.
  * Read at session assembly: a running session keeps the flag it started
  * with (the router is built once, with the session).
- */
-export function saveTypesafeRouting(file: string, enabled: boolean, io: UserConfigIo = {}): void {
-  updateUserConfigFile(
-    file,
-    (data) => {
-      const current = (data.typesafe ?? {}) as Record<string, unknown>;
-      data.typesafe = { ...current, routing: enabled };
-    },
-    io,
-  );
-}
-
-/**
+ *
+ * injection
  * Persists the anti-injection opt-in (#791) — the Settings toggle's
  * writer, same lifecycle as the routing flag: read at session assembly, so
  * a running session keeps what it started with.
- */
-export function saveTypesafeInjection(file: string, enabled: boolean, io: UserConfigIo = {}): void {
-  updateUserConfigFile(
-    file,
-    (data) => {
-      const current = (data.typesafe ?? {}) as Record<string, unknown>;
-      data.typesafe = { ...current, injection: enabled };
-    },
-    io,
-  );
-}
-
-/**
+ *
+ * lint
  * Persists the quality-gate opt-in (#789) — the Settings toggle's writer,
  * same lifecycle as the routing and injection flags: read at session
  * assembly, so a running session keeps what it started with.
- */
-export function saveTypesafeLint(file: string, enabled: boolean, io: UserConfigIo = {}): void {
-  updateUserConfigFile(
-    file,
-    (data) => {
-      const current = (data.typesafe ?? {}) as Record<string, unknown>;
-      data.typesafe = { ...current, lint: enabled };
-    },
-    io,
-  );
-}
-
-/**
+ *
+ * rerank
  * Persists the MPM seed-rerank opt-in (#790) — the Settings toggle's
  * writer, same lifecycle as the other flags: read at session assembly,
  * so a running session keeps what it started with.
- */
-export function saveTypesafeRerank(file: string, enabled: boolean, io: UserConfigIo = {}): void {
-  updateUserConfigFile(
-    file,
-    (data) => {
-      const current = (data.typesafe ?? {}) as Record<string, unknown>;
-      data.typesafe = { ...current, rerank: enabled };
-    },
-    io,
-  );
-}
-
-/**
+ *
+ * classification
  * Persists the prompt-classification opt-in (#788) — the Settings toggle's
  * writer. On by default, so `false` is the opt-out: the flag is read at
  * session assembly like its siblings. (#833: the row existed in the config
  * schema from #788 on, but had no writer and no Settings row.)
- */
-export function saveTypesafeClassification(file: string, enabled: boolean, io: UserConfigIo = {}): void {
-  updateUserConfigFile(
-    file,
-    (data) => {
-      const current = (data.typesafe ?? {}) as Record<string, unknown>;
-      data.typesafe = { ...current, classification: enabled };
-    },
-    io,
-  );
-}
-
-/**
+ *
+ * skills
  * Persists the skill-suggestion opt-in (#793) — the Settings toggle's
  * writer, same lifecycle as the other flags: read at session assembly.
  */
-export function saveTypesafeSkills(file: string, enabled: boolean, io: UserConfigIo = {}): void {
+export function saveTypesafeFlag(file: string, useCase: TypesafeFlag, enabled: boolean): void {
   updateUserConfigFile(
     file,
     (data) => {
       const current = (data.typesafe ?? {}) as Record<string, unknown>;
-      data.typesafe = { ...current, skills: enabled };
+      data.typesafe = { ...current, [useCase]: enabled };
     },
-    io,
   );
 }
 
 /** Removes the key: the extension stays unregistered from the next session on. */
-export function removeTypesafeApiKey(file: string, io: UserConfigIo = {}): void {
+export function removeTypesafeApiKey(file: string): void {
   updateUserConfigFile(
     file,
     (data) => {
@@ -376,6 +311,5 @@ export function removeTypesafeApiKey(file: string, io: UserConfigIo = {}): void 
       delete current.apiKey;
       data.typesafe = current;
     },
-    io,
   );
 }

@@ -6,7 +6,7 @@
  * no suggestion, and both calls leave one `jev_skill_suggest` record each.
  */
 import { describe, expect, test } from "bun:test";
-import { createSkillSuggestJudge } from "../src/skill-judge";
+import { createSkillSuggestJudge } from "../src/skills";
 import { NEEDS_SKILL_MIN, SKILL_RELEVANCE_MIN, SKILL_SUGGEST_KEEP } from "../src/skills";
 import type { JevAnswer, JevClient, JevJudgeInput, JevOutcome } from "../src/client";
 

@@ -12,7 +12,7 @@ import { z } from "zod";
 // imports nothing from config.ts — absent auth = api-key, backward compatible.
 import { endpointAuthSchema } from "./auth/types";
 
-import { mcpServerEntrySchema, type McpServerEntry } from "./mcp";
+import { mcpServerEntrySchema, type McpServerEntry } from "./mcp/types";
 import { subagentSpecSchema } from "./subagents";
 import { memoryConfigSchema } from "./memory";
 import { retroConfigSchema } from "./retro";

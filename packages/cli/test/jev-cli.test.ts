@@ -191,6 +191,25 @@ describe("moh jev <use-case> on|off (#833)", () => {
     }, SPAWN_TEST_TIMEOUT_MS);
   }
 
+  // #1430 characterization: the WHOLE file after each on/off, not only the
+  // flag. Pins what the writer preserves (other sections, the key, tiers,
+  // timeout, the other flags) so one shared writer is provably the same write.
+  const FLAG_SEED = {
+    provider: "mock",
+    theme: "nord",
+    telemetry: true,
+    typesafe: { apiKey: KEY, timeoutMs: 1200, tiers: { "a/one": "potente" }, routing: true },
+  };
+  for (const flag of ["guardrail", "routing", "injection", "classification", "lint", "rerank", "skills"] as const) {
+    test(`${flag} on and off rewrite only that flag in the whole config file (#1430)`, () => {
+      const { home, spawn } = harness(JSON.stringify(FLAG_SEED));
+      expect(spawn(["jev", flag, "on"]).code).toBe(0);
+      expect(readConfig(home)).toEqual({ ...FLAG_SEED, typesafe: { ...FLAG_SEED.typesafe, [flag]: true } });
+      expect(spawn(["jev", flag, "off"]).code).toBe(0);
+      expect(readConfig(home)).toEqual({ ...FLAG_SEED, typesafe: { ...FLAG_SEED.typesafe, [flag]: false } });
+    }, SPAWN_TEST_TIMEOUT_MS);
+  }
+
   test("off writes false; the status report follows on the next read", () => {
     const { home, spawn } = harness(ACTIVE_CONFIG);
     expect(spawn(["jev", "classification", "off"]).code).toBe(0);

@@ -2,7 +2,8 @@ import { describe, expect, test } from "bun:test";
 import { mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { minimalConnectionTest, PROVIDER_TEST_MAX_ENTRIES, subscriptionModelCatalog, type ConnectionTester, type EndpointProfile } from "../src/index";
+import { minimalConnectionTest, subscriptionModelCatalog, type ConnectionTester, type EndpointProfile } from "../src/index";
+import { PROVIDER_TEST_MAX_ENTRIES } from "../src/provider-test-trace";
 import { PROBE_MAX_OUTPUT_TOKENS } from "../src/provider-onboarding";
 import {
   addProviderToFile,
@@ -666,6 +667,17 @@ describe("OpenCode onboarding (#794)", () => {
     expect(JSON.parse(readFileSync(authFile, "utf8")).auth.apiKeys).toEqual({ "opencode-zen": "key-794", "opencode-go": "key-794" });
   });
 
+  test("binds each stored OpenCode key to its endpoint identity in the auth section (#1434)", async () => {
+    const authFile = join(mkdtempSync(join(tmpdir(), "moh-opencode-origin-")), "config");
+    const io = ioWith(["opencode", "both", "key-origin"]);
+    const file = join(mkdtempSync(join(tmpdir(), "moh-opencode-config-")), "moh.json");
+    await addProviderToFile(io, file, { authFile, tester: async (profile) => ({ ok: true, modelId: profile.defaultModel! }) });
+    expect(JSON.parse(readFileSync(authFile, "utf8")).auth.apiKeyOrigins).toEqual({
+      "opencode-zen": { type: "opencode", baseUrl: "https://opencode.ai/zen/v1" },
+      "opencode-go": { type: "opencode", baseUrl: "https://opencode.ai/zen/go/v1" },
+    });
+  });
+
   test("uses the wire-specific endpoint and body for an OpenCode minimal test", async () => {
     let url = "";
     let body = "";
@@ -682,14 +694,14 @@ describe("OpenCode onboarding (#794)", () => {
     let goUrl = "";
     await minimalConnectionTest(
       { name: "opencode-go", type: "opencode", baseUrl: "https://opencode.ai/zen/go/v1", defaultModel: "minimax-m3" },
-      (async (input: string | URL | Request, init?: RequestInit) => { goUrl = String(input); return new Response("{}", { status: 200 }); }) as never as typeof fetch,
+      (async (input: string | URL | Request, _init?: RequestInit) => { goUrl = String(input); return new Response("{}", { status: 200 }); }) as never as typeof fetch,
       AbortSignal.timeout(500), { MOH_ENDPOINT_OPENCODE_GO_API_KEY: "key" },
     );
     expect(goUrl).toBe("https://opencode.ai/zen/go/v1/messages");
     let goHeaders: Record<string, string> = {};
     await minimalConnectionTest(
       { name: "opencode-go", type: "opencode", baseUrl: "https://opencode.ai/zen/go/v1", defaultModel: "minimax-m3" },
-      (async (input: string | URL | Request, init?: RequestInit) => { goHeaders = init?.headers as Record<string, string>; return new Response("{}", { status: 200 }); }) as never as typeof fetch,
+      (async (_input: string | URL | Request, init?: RequestInit) => { goHeaders = init?.headers as Record<string, string>; return new Response("{}", { status: 200 }); }) as never as typeof fetch,
       AbortSignal.timeout(500), { MOH_ENDPOINT_OPENCODE_GO_API_KEY: "key" },
     );
     // The anthropic-wire endpoint ignores Bearer (verified live): the key

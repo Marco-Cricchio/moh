@@ -35,6 +35,9 @@ No API keys are required to develop or test: the mock and echo providers cover t
 ## Conventions
 
 - Read [docs/principles.md](docs/principles.md) before any change; violations need an ADR.
+- Principle 8, *lean by default*: a change adds only what a caller in the same change uses — no export, option or abstraction without one — and deletes what it leaves unused.
+  Mechanical checks enforce it; a change that fails one needs an allowlist entry with a reason.
+  Read it in [docs/principles.md](docs/principles.md) and [ADR-0078](docs/adr/0078-lean-by-default.md).
 - Domain vocabulary lives in a project-local `CONTEXT.md` (glossary-only, kept current) — scaffolded by `moh init`; this repo keeps its own copy out of version control.
 - Hard-to-reverse decisions get an ADR in `docs/adr/`.
 - Code comments and docs in English; keep them explaining *why*, not *what*.

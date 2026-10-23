@@ -58,7 +58,7 @@ function panelKeyEvent(input: string, key: { name?: string; return?: boolean; es
   };
 }
 
-export interface ExtensionsRailProps {
+interface ExtensionsRailProps {
   panels: {
     extension: string;
     name: string;
@@ -154,7 +154,7 @@ function RailColumn({
   const [offsets, setOffsets] = useState<ReadonlyMap<string, number>>(new Map());
   // apiVersion 1.17 (#1225): a consumed key must reach the panel's next
   // render — the panel's own state changed, nothing else did.
-  const [keyEpoch, bumpForKey] = useReducer((n: number) => n + 1, 0);
+  const [, bumpForKey] = useReducer((n: number) => n + 1, 0);
   const selectedName = panels[Math.min(selected, panels.length - 1)]?.name ?? "";
 
   // Computed before the key handler so scrolling clips at the real

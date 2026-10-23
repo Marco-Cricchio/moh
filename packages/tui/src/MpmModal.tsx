@@ -13,7 +13,7 @@ import { Dim, ScrollDialog, type ScrollRow } from "./ui";
  * never writes anything to the transcript. The body scrolls inside the
  * viewport, so a busy projection never overflows a short terminal.
  */
-export interface MpmModalProps {
+interface MpmModalProps {
   /** The live diagnostics snapshot (fetched fresh on each open). */
   diagnostics: MpmDiagnostics;
   onClose: () => void;

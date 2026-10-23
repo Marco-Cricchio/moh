@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { selectionStyle } from "./color";
 import { Text, useInput } from "ink";
 import { listOpenAiCompatModels, type CatalogModel } from "@moh/core";
@@ -99,18 +99,24 @@ export function ModelPickerModal({
 
   // Vendored catalogs are sync; openai-compat ones fetch on open. Failure
   // keeps the endpoint listed with free-text entry only — never blocks.
+  // The guard is unmount, not the effect: `endpoints` changes identity when
+  // the live refresh lands, and a response discarded then would leave the
+  // endpoint "loading" for good (the re-run skips it).
+  const mounted = useRef(true);
   useEffect(() => {
-    let live = true;
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
+  useEffect(() => {
     for (const e of endpoints) {
       if (e.catalog.length > 0 || !e.baseUrl || remote[e.name]) continue;
       setRemote((r) => ({ ...r, [e.name]: "loading" }));
       listOpenAiCompatModels(e.baseUrl, e.apiKey)
-        .then((ids) => live && setRemote((r) => ({ ...r, [e.name]: fetchedToCatalog(ids) })))
-        .catch(() => live && setRemote((r) => ({ ...r, [e.name]: "error" })));
+        .then((ids) => mounted.current && setRemote((r) => ({ ...r, [e.name]: fetchedToCatalog(ids) })))
+        .catch(() => mounted.current && setRemote((r) => ({ ...r, [e.name]: "error" })));
     }
-    return () => {
-      live = false;
-    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [endpoints]);
 

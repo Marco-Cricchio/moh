@@ -15,9 +15,10 @@
  * chrome in the TUI); the guardian is agnostic about sections it does not
  * know and tolerant of unknown ones.
  */
-import { chmodSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { chmodSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { dirname, join } from "node:path";
+import { join } from "node:path";
+import { writeFileAtomic, tempPidSuffix } from "./fs-atomic";
 
 /** The whole file, as JSON: known sections plus unknown ones, verbatim. */
 export type UserConfigData = Record<string, unknown>;
@@ -50,12 +51,6 @@ export function readUserConfigFile(
   }
 }
 
-/** Injectable IO for tests. `write` receives the temp file, then rename. */
-export interface UserConfigIo {
-  read?: (file: string) => string;
-  write?: (file: string, data: string) => void;
-}
-
 /**
  * Read-modify-write of the whole file through the guardian. `mutate`
  * receives the current content (unknown sections included) and may change
@@ -65,15 +60,14 @@ export interface UserConfigIo {
 export function updateUserConfigFile(
   file: string,
   mutate: (data: UserConfigData) => void,
-  io: UserConfigIo = {},
 ): void {
-  const data = readUserConfigFile(file, io.read);
+  const data = readUserConfigFile(file);
   mutate(data);
-  mkdirSync(dirname(file), { recursive: true, mode: 0o700 });
-  const tmp = `${file}.tmp-${process.pid}`;
-  const write = io.write ?? ((f: string, d: string) => writeFileSync(f, d, { mode: 0o600 }));
-  write(tmp, `${JSON.stringify(data, null, 2)}\n`);
-  renameSync(tmp, file);
+  writeFileAtomic(file, `${JSON.stringify(data, null, 2)}\n`, {
+    mode: 0o600,
+    mkdir: { mode: 0o700 },
+    temp: tempPidSuffix,
+  });
   // Key-bearing file hygiene (issue #129): 0600 whenever the path is real.
   try {
     chmodSync(file, 0o600);

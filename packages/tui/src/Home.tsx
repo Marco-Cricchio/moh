@@ -1,8 +1,8 @@
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Box, Text, useInput } from "ink";
 import { useTheme } from "./themes";
 import { ic } from "./icons";
-import { Accent, Dim, Footer, Logo, pickSplashFont, truncate, formatCount } from "./ui";
+import { Dim, Footer, Logo, pickSplashFont, truncate } from "./ui";
 import { LogoIntro } from "./LogoIntro";
 import { pickRampPreset } from "./logo-ramp";
 import {
@@ -14,7 +14,7 @@ import {
   widthClass,
   useViewport,
 } from "./viewport";
-import { deleteSession, listSessionSummaries, renameSession, setSessionPinned, type SessionSummary } from "./sessions";
+import { deleteSession, listSessionSummaries, renameSession, setSessionPinned, type SessionSummary } from "@moh/core";
 import { MOH_VERSION, projectSessionsDir, readStrandedDataRecord, type HandoffOffer, type StrandedDataRecord } from "@moh/core";
 import type { Mode } from "./Chat";
 import type { UpdateNotice } from "@moh/core";
@@ -89,7 +89,8 @@ function HomeRow({
 }
 
 /** Relative time for the pertinent-session banner (T3 #470). */
-export function relativeTime(mtimeMs: number, now = Date.now()): string {
+function relativeTime(mtimeMs: number): string {
+  const now = Date.now();
   const diff = now - mtimeMs;
   if (diff < 60_000) return "adesso";
   const minutes = Math.floor(diff / 60_000);
@@ -101,7 +102,7 @@ export function relativeTime(mtimeMs: number, now = Date.now()): string {
   return new Date(mtimeMs).toISOString().slice(0, 10);
 }
 
-export interface HomeProps {
+interface HomeProps {
   cwd: string;
   home?: string;
   mode: Mode;
@@ -144,7 +145,7 @@ export interface HomeProps {
  * always the first row; the session list is capped at `listMax` visible
  * rows (floor 3 on small screens) and scrolls to follow the cursor.
  */
-export function Home({ cwd, home, mode, onOpen, onOpenSettings, onOpenCommands, blocked = false, listMax = HOME_LIST_DEFAULT, updateNotice = null, skillUpdateCount = 0, version = MOH_VERSION, handoff = null, onOpenHandoff, onOpenColdWizard, onOpenStranded, strandedRefresh = 0, intro: introEnabled = true, onIntroEnd }: HomeProps) {
+export function Home({ cwd, home, onOpen, onOpenSettings, onOpenCommands, blocked = false, listMax = HOME_LIST_DEFAULT, updateNotice = null, skillUpdateCount = 0, version = MOH_VERSION, handoff = null, onOpenHandoff, onOpenColdWizard, onOpenStranded, strandedRefresh = 0, intro: introEnabled = true, onIntroEnd }: HomeProps) {
   const theme = useTheme();
   const viewport = useViewport();
   const compact = widthClass(viewport) === "compact";

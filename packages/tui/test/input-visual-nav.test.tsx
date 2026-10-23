@@ -1,5 +1,4 @@
 import { describe, expect, test } from "bun:test";
-import React from "react";
 import { render } from "ink-testing-library";
 import { MultilineInput } from "../src/Input";
 import { stripAnsi } from "./helpers";
@@ -40,7 +39,7 @@ describe("multiline input visual-line arrow navigation (#430)", () => {
     i.stdin.write(LONG_LINE);
     await untilFrame(() => i.frame(), (f) => f.includes("teen"));
     // cursor sits at the end of the wrapped text (last visual line)
-    const before = editorRows(i.frame()).length;
+    editorRows(i.frame());
     i.stdin.write("\x1b[A"); // up: one visual line, must stay inside the same logical line
     await sleep(60);
     i.stdin.write("\x1b[B"); // down: back to the end

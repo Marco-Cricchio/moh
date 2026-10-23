@@ -20,7 +20,7 @@ export const SCHEMA_VERSION = 2;
  * ADR-0038: the opaque, JSON-serializable command payload a client sends to
  * one extension. The core never interprets it.
  */
-export type ExtensionControlPayload = Record<string, unknown>;
+type ExtensionControlPayload = Record<string, unknown>;
 
 export interface EventIdentity {
   id?: string;
@@ -40,18 +40,19 @@ import { z } from "zod";
 import type { FilesystemScope, PermissionRule } from "./permissions";
 import type { SkillArgs } from "./skill-args";
 import type { MentionAttachment, MentionWarning } from "./mentions";
+import type { RouteCooldown } from "./route";
 
-export type TextPart = { kind: "text"; text: string };
+type TextPart = { kind: "text"; text: string };
 /** Vision note 4: an image riding a user message as a multimodal content
  * block — bytes are the base64 of the `user_message` attachment (they must
  * stay identical for replay to rebuild the exact provider context). */
-export type ImagePart = { kind: "image"; mime: string; base64: string };
+type ImagePart = { kind: "image"; mime: string; base64: string };
 /** #240: provider-exposed reasoning attached to an assistant message —
  * completed text plus the provider's opaque continuation artifacts
  * (e.g. a signature) required to resume the exact provider context. */
 export type ReasoningPart = { kind: "reasoning"; text: string; continuation?: Record<string, unknown> };
-export type ToolCallPart = ToolCall & { kind: "tool_call" };
-export type ToolResultPart = { kind: "tool_result"; callId: string; ok: boolean; output: string; /** #731: structured failure reason — failures only. */ errorKind?: ToolErrorKind; /** #778: screenshot pixels when image-capable (rides the #490 pipeline). */ image?: { mime: string; base64: string } };
+type ToolCallPart = ToolCall & { kind: "tool_call" };
+type ToolResultPart = { kind: "tool_result"; callId: string; ok: boolean; output: string; /** #731: structured failure reason — failures only. */ errorKind?: ToolErrorKind; /** #778: screenshot pixels when image-capable (rides the #490 pipeline). */ image?: { mime: string; base64: string } };
 export type MessagePart = TextPart | ImagePart | ReasoningPart | ToolCallPart | ToolResultPart;
 
 /**
@@ -134,19 +135,6 @@ export class ProviderError extends Error {
  * absence). Absent on events that predate #1099 or carry no usage at all.
  */
 export type UsageProvenance = "provider" | "client-estimated" | "unavailable";
-
-/**
- * #1099: provider-reported usage detail beyond the aggregate input/output
- * pair. Cache tokens are a subset of what providers count inside input —
- * they are recorded beside `inputTokens`, never added to it, so aggregate
- * usage cannot double-count. Every field is optional: absent means the
- * provider did not report it — never zero.
- */
-export interface UsageDetail {
-  cacheReadTokens?: number;
-  cacheWriteTokens?: number;
-  reasoningTokens?: number;
-}
 
 /**
  * #1099: sanitized identity of the endpoint that served (or refused) one
@@ -332,6 +320,19 @@ export interface Provider {
   readonly name: string;
   /** Feature flags of the underlying endpoint; drive capability downgrades. */
   readonly capabilities?: EndpointCapabilities;
+  /** Route only (ADR-0050): the user's standing choice; stable while a
+   * fallback serves. Custom providers may put other values here — readers
+   * check the type. */
+  readonly selected?: string;
+  /** Route only: the reference currently serving calls (moved by a fallback). */
+  readonly serving?: string;
+  /** The endpoint base URL, when the provider has one; feeds the sanitized
+   * endpoint identity. */
+  readonly baseUrl?: string;
+  /** Route only: starts a user turn (allows one expired-selected recovery probe). */
+  beginTurn?(): void;
+  /** Route only (#852): chain stops in a failure cooldown at decision time. */
+  health?(): ReadonlyArray<RouteCooldown>;
   stream(
     messages: Message[],
     signal: AbortSignal,
@@ -936,15 +937,15 @@ export interface ExtensionStatus {
 }
 
 /** Why an "ask" decision was auto-granted (session mode), never a user round-trip. */
-export type PermissionGrantReason = "yolo" | "auto_accept" | "user";
+type PermissionGrantReason = "yolo" | "auto_accept" | "user";
 
-export type TurnStatus = "done" | "error" | "cancelled";
+type TurnStatus = "done" | "error" | "cancelled";
 
 /** One selectable answer of an ask_user question: short label, a
  * description shown to the user, and optional preview content (markdown
  * or text) rendered beside the question when the option is focused and
  * echoed to the model on selection (ADR-0019). */
-export interface AskUserOption {
+interface AskUserOption {
   label: string;
   description: string;
   /** Optional side-by-side preview content; echoed on selection. */

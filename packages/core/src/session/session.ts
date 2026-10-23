@@ -1,5 +1,6 @@
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { realpathSync } from "node:fs";
 import { randomUUID } from "node:crypto";
 import type { AgentEvent, ExtensionStatus, Message, Provider, ReasoningStreamEvent, SendOptions, SkillPrompt, ThinkingLevel, Tool, TurnResult } from "../types";
 import { SCHEMA_VERSION } from "../types";
@@ -22,10 +23,10 @@ import { formatModelPair, selectedModelOf, servingModelOf } from "../model-pair"
 import { CompactionRunner, createCompactionSummarizer, createDeterministicSummarizer, contextWindowFor } from "../compaction";
 import { DEFAULT_TOOL_PERMISSIONS, PermissionResolver, formatRule, runtimeRulesFromEvents, type PermissionRule, type FilesystemScope, type SessionMode } from "../permissions";
 import { persistProjectMcpTrust } from "../mcp/types";
-import { McpRuntime } from "../mcp";
+import { McpRuntime } from "../mcp/runtime";
 import { PromptComposer, type AssembledPrompt, type SkillIndexEntry } from "../prompt-composer";
 import { discoverSkills } from "../skills";
-import { ExtensionRuntime, type ExtensionUIRefusal, type ActiveExtensionOverlay } from "../extensions";
+import { ExtensionRuntime, type ActiveExtensionOverlay } from "../extensions";
 import { sanitizeForDisplay } from "../display-sanitize";
 import type { PanelKeyEvent } from "@moh/extension";
 import { EventLog } from "./event-log";
@@ -62,13 +63,64 @@ import { MpmOrientation, type MpmOrientationOptions } from "../mpm/orientation";
 import { mpmQueryTool } from "../mpm/query-tool";
 import { mpmDiagnostics, type MpmDiagnostics } from "../mpm/diagnostics";
 import { readMpmUserConfig, resolveMpmConfig, type MpmEffectiveConfig } from "../mpm/config";
-import { isOnWindowsMount } from "../windows-mount";
 import { userConfigFile } from "../user-config";
-import { getStoredApiKey } from "../auth/store";
 import { listProviderModels } from "../live-model-catalog";
 import { listOpenAiCompatModels } from "../endpoint-models";
 import { DeclaredWindows, declaredWindowOf } from "../declared-window";
 import { noteUnrecognizedContextRefusal } from "../context-refusal-trace";
+
+/*
+ * `/mnt` I/O awareness (#918, ADR-0044).
+ *
+ * A project root that resolves under `/mnt/` lives on a Windows drive
+ * mounted into WSL: every file operation crosses the 9P boundary into the
+ * Windows filesystem, and grep/glob over a large tree is dramatically
+ * slower there. moh says so instead of hiding it — the TUI keeps a hint in
+ * its footer, `moh run` prints one line on stderr — and nothing here can
+ * fail a session or block a turn: this is environment information, never an
+ * error.
+ *
+ * Two deliberate narrowings, both decided in #913:
+ *
+ * - **Any mount under `/mnt/`**, not just `/mnt/c`: `/mnt/d` and friends are
+ *   the same 9P story.
+ * - **Realpath-anchored, no filesystem sniffing**: the root is resolved the
+ *   way the permission spine anchors paths, so a symlink into `/mnt` is
+ *   caught and one out of it is not. Sniffing the filesystem type (9p,
+ *   DrvFs) is more precise but risks false negatives and buys nothing a
+ *   resolved prefix does not already say.
+ */
+/** WSL's automount root in its default configuration: `/etc/wsl.conf`
+ * `automount.root` is customizable, and a distro that moved it is not
+ * detected — #913 fixed the prefix at `/mnt/`, the case that covers every
+ * Windows drive a user reaches by default. */
+const WINDOWS_MOUNT_ROOT = "/mnt/";
+
+/**
+ * Does `root` resolve under a Windows drive mounted into WSL? The realpath
+ * resolver is injectable so the anchoring is unit-testable where `/mnt`
+ * cannot exist (macOS dev machines, CI runners).
+ *
+ * The predicate is the resolved prefix, so it also accepts WSL's own
+ * internal mounts under `/mnt` (`/mnt/wsl`, `/mnt/wslg`): over-inclusive by
+ * a path no project lives at, and the accepted cost of not sniffing the
+ * filesystem type.
+ */
+export function isOnWindowsMount(
+  root: string,
+  realpath: (path: string) => string = realpathSync,
+): boolean {
+  let resolved: string;
+  try {
+    resolved = realpath(root);
+  } catch {
+    // A root that does not resolve (a path judged before it exists, or a
+    // permission error) is taken as given — the same fallback the
+    // permission spine's `realpathOf` uses.
+    resolved = root;
+  }
+  return resolved.startsWith(WINDOWS_MOUNT_ROOT);
+}
 
 /**
  * One conversation instance. The append-only event log *is* the session:
@@ -236,8 +288,6 @@ export class AgentSession {
    * diagnostics seams. Null when MPM is off or activation failed. */
   #mpmService: MpmService | null = null;
   #mpmRoot: string | null = null;
-  #mpmQuota: import("../mpm/service").MpmQuota | undefined;
-  #mpmExclude: string[] | undefined;
 
   constructor(config: SessionConfig) {
     this.#registry = config.registry?.freeze();
@@ -310,9 +360,9 @@ export class AgentSession {
     if (this.#resumeProjection) this.#eventLog.seed(this.#resumeProjection);
     this.#sessionFile = config.sessionFile;
     this.#externalGrowth = config.externalGrowth;
-    const toolHookSource = config.extensions ?? config.toolHooks;
+    const toolHookSource = config.extensions ?? config.borrowedRuntime;
     const toolHookChecker: ToolHookChecker | undefined =
-      typeof toolHookSource?.checkToolHooks === "function"
+      toolHookSource
         ? {
             checkToolHooks: (call) => this.#scopedDispatch(() => toolHookSource.checkToolHooks(call)),
           }
@@ -332,13 +382,9 @@ export class AgentSession {
     // parent's, so a fetched page is judged in the child exactly as in the
     // parent (#944: scoped, so the chrome it produces is the child's).
     // Absent runtime = no seam: every result proceeds untouched.
-    const toolResultSource: Pick<ExtensionRuntime, "checkToolResultHooks"> | undefined =
-      typeof toolHookSource?.checkToolResultHooks === "function"
-        ? (toolHookSource as Pick<ExtensionRuntime, "checkToolResultHooks">)
-        : undefined;
-    const toolResultHooks: ToolResultHookChecker | undefined = toolResultSource
+    const toolResultHooks: ToolResultHookChecker | undefined = toolHookSource
       ? {
-          checkToolResultHooks: (call) => this.#scopedDispatch(() => toolResultSource.checkToolResultHooks(call)),
+          checkToolResultHooks: (call) => this.#scopedDispatch(() => toolHookSource.checkToolResultHooks(call)),
         }
       : undefined;
     this.#toolRunner = new ToolRunner({
@@ -429,182 +475,26 @@ export class AgentSession {
       this.#tools = { ...this.#tools, spawn: host.spawnTool() };
     }
     this.#extensions = config.extensions;
-    // #944: a session that owns no runtime but borrows one (`toolHooks`) is
-    // a subagent child. Its dispatches run scoped: extension chrome belongs
+    // #944: a session that owns no runtime but borrows one (`borrowedRuntime`)
+    // is a subagent child. Its dispatches run scoped: extension chrome belongs
     // to the child's log, and an extension's per-session state must not be
     // the parent's.
-    const borrowedRuntime = config.extensions ? undefined : (config.toolHooks as ExtensionRuntime | undefined);
-    this.#borrowedHooks = typeof borrowedRuntime?.withSession === "function" ? borrowedRuntime : undefined;
+    this.#borrowedHooks = config.extensions ? undefined : config.borrowedRuntime;
     // ADR-0037: the session is the runtime's turn entry — an extension's
     // `ctx.requestTurn` lands here, through the queue.
-    // ADR-0065: the session owns the live deny answer — its resolver is
-    // the user's rule set; a deny rule on a covered path beats every path
-    // grant per call.
-    if (this.#extensions && typeof (this.#extensions as { bindPathDeny?: unknown }).bindPathDeny === "function") {
-      (this.#extensions as { bindPathDeny(f: (abs: string) => boolean): void }).bindPathDeny((absPath: string) => {
-        const rel = this.#permissions.relativeInRoot(absPath);
-        if (rel === null) return false;
-        return this.#permissions.rules.some(
-          (rule) =>
-            rule.effect === "deny" &&
-            typeof rule.path === "string" &&
-            (rule.path === rel || new Bun.Glob(rule.path).match(rel)),
-        );
-      });
-    }
-    if (this.#extensions) this.#extensions.bindRequestTurn((text) => this.runSyntheticTurn(text).then((r) => r.ok));
-    // ADR-0067: the tool-execution seam behind `ctx.host.runTool`. The
-    // runtime owns scope + logging; here is lookup, gate and execution —
-    // the normal ToolRunner path, the extension named as the ask's
-    // requester, no tool_call/tool_result events (the seam logs host_op).
-    if (this.#extensions && typeof (this.#extensions as { bindToolSeam?: unknown }).bindToolSeam === "function") {
-      (this.#extensions as { bindToolSeam(s: unknown): void }).bindToolSeam({        runTool: async (request: { extension: string; tool: string; args: unknown }) => {
-          const tool = this.#allTools()[request.tool];
-          if (!tool) return { ok: false as const, reason: "unknown_tool" as const, message: `no session tool named "${request.tool}"` };
-          const outcome = await this.#toolRunner.runSeamCall(
-            request.tool,
-            request.args,
-            newUlid(),
-            new AbortController().signal,
-            { extension: request.extension },
-          );
-          if (outcome.ok) return { ok: true as const, output: outcome.output };
-          if (outcome.errorKind === "permission") return { ok: false as const, reason: "denied" as const, message: outcome.output };
-          if (outcome.output.startsWith(`unknown tool:`)) return { ok: false as const, reason: "unknown_tool" as const, message: outcome.output };
-          return { ok: false as const, reason: "failed" as const, message: outcome.output };
-        },
-      });
-    }
-    // ADR-0068: the model-call seam behind `ctx.host.modelCall` /
-    // `ctx.host.listModels`. The runtime owns scope + logging; here is
-    // endpoint resolution, the single-shot Route call (one stop, no
-    // fallbacks — a fallback would serve from an endpoint the grant did
-    // not name), the thinking-capability check and usage accounting.
-    // Credentials stay inside the Route; provider reasoning of these
-    // calls is never persisted. A completed call is recorded as an
-    // ordinary `model_call` event, requester-marked — no parallel type.
-    if (this.#extensions && typeof (this.#extensions as { bindModelSeam?: unknown }).bindModelSeam === "function") {
-      (this.#extensions as { bindModelSeam(s: unknown): void }).bindModelSeam({
-        modelCall: async (request: {
-          extension: string;
-          endpoint: string;
-          model: string;
-          messages: ReadonlyArray<{ role: "system" | "user" | "assistant"; content: string }>;
-          thinkingLevel?: ThinkingLevel;
-          signal?: AbortSignal;
-        }) => {
-          const profile = this.#endpoints.find((e) => e.name === request.endpoint);
-          if (!profile) {
-            return { ok: false as const, reason: "unknown_endpoint" as const, message: `no endpoint named "${request.endpoint}" in moh.json` };
-          }
-          const modelId = request.model || profile.defaultModel;
-          if (!modelId) {
-            return { ok: false as const, reason: "failed" as const, message: `endpoint "${request.endpoint}" has no defaultModel; name a model` };
-          }
-          const ref = `${profile.name}/${modelId}`;
-          // ADR-0068: the per-call thinking override is bounded by the
-          // model's declared capability — supported (or the explicit
-          // disable) passes; anything else is the typed refusal, never a
-          // remapping. No declared capability, no override: moh never
-          // invents capabilities. Without an override, the endpoint's own
-          // resolution (its stored preference) applies.
-          let thinking: { level: ThinkingLevel } | undefined;
-          if (request.thinkingLevel !== undefined) {
-            const states = thinkingStatesForRef(ref, this.#endpoints);
-            if (!states || states[request.thinkingLevel] === "provider-default") {
-              return { ok: false as const, reason: "unsupported_level" as const, message: `thinking level "${request.thinkingLevel}" is not supported by ${ref}` };
-            }
-            thinking = { level: request.thinkingLevel };
-          } else {
-            thinking = resolveEndpointThinking(ref, this.#endpoints, join(this.#mohHome, "config"));
-          }
-          const registry = this.#registry ?? defaultRegistry.freeze();
-          let provider: Provider;
-          try {
-            // Single stop: the granted endpoint only — no fallbacks (a
-            // fallback would serve from an endpoint the grant did not
-            // name) and no route-level thinking seam (the per-call
-            // override above is the authority).
-            const { thinkingForTarget: _ignored, ...resolution } = this.#routeResolutionOptions;
-            provider = resolveProviderRef(ref, registry, [profile], resolution);
-          } catch (err) {
-            return { ok: false as const, reason: "failed" as const, message: err instanceof Error ? err.message : String(err) };
-          }
-          const messages: Message[] = request.messages
-            .filter((m) => m && typeof m.content === "string")
-            .map((m) => ({ role: m.role, parts: [{ kind: "text" as const, text: m.content }] }));
-          const usage = { inputTokens: 0, outputTokens: 0 };
-          let text = "";
-          let served = ref;
-          let effectiveLevel: ThinkingLevel | undefined;
-          try {
-            for await (const event of provider.stream(messages, request.signal ?? new AbortController().signal, undefined, thinking ? { thinking } : undefined)) {
-              if (event.type === "text_delta") text += event.text;
-              else if (event.type === "usage") {
-                usage.inputTokens += event.inputTokens;
-                usage.outputTokens += event.outputTokens;
-              } else if (event.type === "model_call_start") {
-                served = event.model;
-                effectiveLevel = event.thinkingLevel;
-              }
-            }
-          } catch (err) {
-            // ADR-0068: tokens count even when the call fails mid-stream —
-            // the partial usage is recorded (failed `model_call`,
-            // requester-marked) and accounted, never dropped.
-            if (usage.inputTokens !== 0 || usage.outputTokens !== 0) {
-              this.#append({ type: "model_call", model: served, usage: { ...usage }, ...(effectiveLevel !== undefined ? { thinkingLevel: effectiveLevel } : {}), failed: true, requester: { kind: "extension", extension: request.extension } });
-              this.#loop.recordExtensionUsage(request.extension, usage);
-            }
-            return { ok: false as const, reason: "failed" as const, message: err instanceof Error ? err.message : String(err) };
-          }
-          if (request.signal?.aborted) {
-            if (usage.inputTokens !== 0 || usage.outputTokens !== 0) {
-              this.#append({ type: "model_call", model: served, usage: { ...usage }, ...(effectiveLevel !== undefined ? { thinkingLevel: effectiveLevel } : {}), failed: true, requester: { kind: "extension", extension: request.extension } });
-              this.#loop.recordExtensionUsage(request.extension, usage);
-            }
-            return { ok: false as const, reason: "failed" as const, message: "model call aborted" };
-          }
-          // The record: the same `model_call` event, marked with the
-          // requester (ADR-0068). Provider reasoning is deliberately not
-          // collected — a host-seam call is not part of the conversation.
-          this.#append({
-            type: "model_call",
-            model: served,
-            usage: { ...usage },
-            ...(effectiveLevel !== undefined ? { thinkingLevel: effectiveLevel } : {}),
-            requester: { kind: "extension", extension: request.extension },
-          });
-          this.#loop.recordExtensionUsage(request.extension, usage);
-          return { ok: true as const, text, usage: { ...usage }, model: served, ...(effectiveLevel !== undefined ? { thinkingLevel: effectiveLevel } : {}) };
-        },
-        listModels: async (request: { endpoint: string }) => {
-          const profile = this.#endpoints.find((e) => e.name === request.endpoint);
-          if (!profile) {
-            return { ok: false as const, reason: "unknown_endpoint" as const, message: `no endpoint named "${request.endpoint}" in moh.json` };
-          }
-          try {
-            // openai-compat has its own plain listing (endpoint-models.ts);
-            // every other kind goes through the verified live-models
-            // contracts. Either way the credential is resolved host-side
-            // and the ids are all the extension sees.
-            const models = profile.type === "openai-compat"
-              ? await listOpenAiCompatModels(profile.baseUrl!, profile.apiKey)
-              : await listProviderModels(profile.type, profile.name, { ...(profile.baseUrl ? { baseUrl: profile.baseUrl } : {}), ...(profile.apiKey ? { apiKey: profile.apiKey } : {}) });
-            return { ok: true as const, models };
-          } catch (err) {
-            return { ok: false as const, reason: "failed" as const, message: err instanceof Error ? err.message : String(err) };
-          }
-        },
-      });
-    }
-    // ADR-0067: the contributed-tool sink behind `ctx.registerTool`. A    // contributed tool rides the same runner and gate as every session
+    // ADR-0067: the contributed-tool sink behind `ctx.registerTool`. A
+    // contributed tool rides the same runner and gate as every session
     // tool — registration is just an entry in the model-visible registry;
     // its `tool_contributed` record is emitted by the runtime at
     // registration time. The wrapper adapts the extension's validator
     // (the `safeParse` slice of zod) to the core Tool contract.
-    if (this.#extensions && typeof (this.#extensions as { bindToolContributor?: unknown }).bindToolContributor === "function") {
-      (this.#extensions as { bindToolContributor(c: (r: { extension: string; tool: unknown }) => void): void }).bindToolContributor(({ tool }) => {
+    this.#extensions?.bindSession({
+      requestTurn: (text) => this.runSyntheticTurn(text).then((r) => r.ok),
+      isPathDenied: (absPath) => this.#seamPathDenied(absPath),
+      runTool: (request) => this.#seamRunTool(request),
+      modelCall: (request) => this.#seamModelCall(request),
+      listModels: (request) => this.#seamListModels(request),
+      contributeTool: ({ tool }) => {
         const contributed = tool as ContributedToolShape;
         this.addTools({
           [contributed.name]: {
@@ -614,8 +504,8 @@ export class AgentSession {
             execute: (args, ctx) => contributed.execute(args, ctx),
           },
         });
-      });
-    }
+      },
+    });
     this.#onDispose = config.onDispose;
     // Extension load results (including hot-reload outcomes) land in the log
     // — held until the session's own start chrome is in (#834). A load can
@@ -654,8 +544,6 @@ export class AgentSession {
         if (service.fileCount > 0) service.revalidate(config.mpm.root ?? this.#cwd);
         this.#mpmService = service;
         this.#mpmRoot = config.mpm.root ?? this.#cwd;
-        this.#mpmQuota = config.mpm.quota;
-        this.#mpmExclude = config.mpm.exclude;
         this.#mpmOrientation = new MpmOrientation({
           service,
           root: config.mpm.root ?? this.#cwd,
@@ -817,9 +705,8 @@ export class AgentSession {
     // parent's for the turn-start decision point (its switch then lands in
     // the child's own log, because the seam below is *this* session's
     // switchModel).
-    const borrowedBeforeTurn: Pick<ExtensionRuntime, "dispatchBeforeTurn" | "dispatchModelError"> | undefined =
-      typeof config.toolHooks?.dispatchBeforeTurn === "function" ? config.toolHooks as Pick<ExtensionRuntime, "dispatchBeforeTurn" | "dispatchModelError"> : undefined;
-    const beforeTurnSeam = this.#extensions ?? borrowedBeforeTurn;
+    const borrowedRuntime = this.#borrowedHooks;
+    const beforeTurnSeam = this.#extensions ?? borrowedRuntime;
     const dispatchBeforeTurn = beforeTurnSeam
       ? (ctx: Parameters<ExtensionRuntime["dispatchBeforeTurn"]>[0]) =>
           this.#scopedDispatch(() =>
@@ -842,13 +729,11 @@ export class AgentSession {
           // beforeModelCall dispatch from its parent (scoped, so the
           // chrome — refusals and `prompt_override` — lands in the
           // child's log, #944). The borrowed surface widens per ADR-0054.
-          typeof config.toolHooks?.dispatchBeforeModelCall === "function"
+          borrowedRuntime
           ? {
               extensions: {
                 dispatchBeforeModelCall: (ctx: Parameters<ExtensionRuntime["dispatchBeforeModelCall"]>[0]) =>
-                  this.#scopedDispatch(() =>
-                    (config.toolHooks as Pick<ExtensionRuntime, "dispatchBeforeModelCall">).dispatchBeforeModelCall(ctx),
-                  ),
+                  this.#scopedDispatch(() => borrowedRuntime.dispatchBeforeModelCall(ctx)),
               },
             }
           : {}),
@@ -966,7 +851,7 @@ export class AgentSession {
         ? {
             dispatchAfterTurn: (result: TurnResult, synthetic: boolean) =>
               this.#extensions!.dispatchAfterTurn(result, synthetic),
-            append: (event: unknown) => this.#append(event as AgentEvent),
+            append: (event) => this.#append(event),
           }
         : {}),
       onTurnSettled: () => {
@@ -993,9 +878,8 @@ export class AgentSession {
         // Applied at turn start, not enqueue time: a steering send that
         // waited out a cancelled turn keeps its prompt (the settling
         // turn's cleanup runs before this).
-        const prompt = attachment as SkillPrompt;
-        this.#skillPrompt = prompt;
-        this.#append({ type: "skill_invoked", name: prompt.name });
+        this.#skillPrompt = attachment;
+        this.#append({ type: "skill_invoked", name: attachment.name });
         this.#assemblePrompt();
       },
     });
@@ -1145,6 +1029,167 @@ export class AgentSession {
     this.#skills = discovered.map((s) => ({ name: s.name, description: s.description, path: s.file }));
     this.#skillDirs = [...new Set(discovered.map((s) => s.dir))];
     this.#assemblePrompt();
+  }
+
+  // ADR-0065: the session owns the live deny answer — its resolver is
+  // the user's rule set; a deny rule on a covered path beats every path
+  // grant per call.
+  #seamPathDenied(absPath: string): boolean {
+    const rel = this.#permissions.relativeInRoot(absPath);
+    if (rel === null) return false;
+    return this.#permissions.rules.some(
+      (rule) =>
+        rule.effect === "deny" &&
+        typeof rule.path === "string" &&
+        (rule.path === rel || new Bun.Glob(rule.path).match(rel)),
+    );
+  }
+
+  // ADR-0067: the tool-execution seam behind `ctx.host.runTool`. The
+  // runtime owns scope + logging; here is lookup, gate and execution —
+  // the normal ToolRunner path, the extension named as the ask's
+  // requester, no tool_call/tool_result events (the seam logs host_op).
+  async #seamRunTool(request: { extension: string; tool: string; args: unknown }) {
+    const tool = this.#allTools()[request.tool];
+    if (!tool) return { ok: false as const, reason: "unknown_tool" as const, message: `no session tool named "${request.tool}"` };
+    const outcome = await this.#toolRunner.runSeamCall(
+      request.tool,
+      request.args,
+      newUlid(),
+      new AbortController().signal,
+      { extension: request.extension },
+    );
+    if (outcome.ok) return { ok: true as const, output: outcome.output };
+    if (outcome.errorKind === "permission") return { ok: false as const, reason: "denied" as const, message: outcome.output };
+    if (outcome.output.startsWith(`unknown tool:`)) return { ok: false as const, reason: "unknown_tool" as const, message: outcome.output };
+    return { ok: false as const, reason: "failed" as const, message: outcome.output };
+  }
+
+  // ADR-0068: the model-call seam behind `ctx.host.modelCall` /
+  // `ctx.host.listModels`. The runtime owns scope + logging; here is
+  // endpoint resolution, the single-shot Route call (one stop, no
+  // fallbacks — a fallback would serve from an endpoint the grant did
+  // not name), the thinking-capability check and usage accounting.
+  // Credentials stay inside the Route; provider reasoning of these
+  // calls is never persisted. A completed call is recorded as an
+  // ordinary `model_call` event, requester-marked — no parallel type.
+  async #seamModelCall(request: {
+    extension: string;
+    endpoint: string;
+    model: string;
+    messages: ReadonlyArray<{ role: "system" | "user" | "assistant"; content: string }>;
+    thinkingLevel?: ThinkingLevel;
+    signal?: AbortSignal;
+  }) {
+    const profile = this.#endpoints.find((e) => e.name === request.endpoint);
+    if (!profile) {
+      return { ok: false as const, reason: "unknown_endpoint" as const, message: `no endpoint named "${request.endpoint}" in moh.json` };
+    }
+    const modelId = request.model || profile.defaultModel;
+    if (!modelId) {
+      return { ok: false as const, reason: "failed" as const, message: `endpoint "${request.endpoint}" has no defaultModel; name a model` };
+    }
+    const ref = `${profile.name}/${modelId}`;
+    // ADR-0068: the per-call thinking override is bounded by the
+    // model's declared capability — supported (or the explicit
+    // disable) passes; anything else is the typed refusal, never a
+    // remapping. No declared capability, no override: moh never
+    // invents capabilities. Without an override, the endpoint's own
+    // resolution (its stored preference) applies.
+    let thinking: { level: ThinkingLevel } | undefined;
+    if (request.thinkingLevel !== undefined) {
+      const states = thinkingStatesForRef(ref, this.#endpoints);
+      if (!states || states[request.thinkingLevel] === "provider-default") {
+        return { ok: false as const, reason: "unsupported_level" as const, message: `thinking level "${request.thinkingLevel}" is not supported by ${ref}` };
+      }
+      thinking = { level: request.thinkingLevel };
+    } else {
+      thinking = resolveEndpointThinking(ref, this.#endpoints, join(this.#mohHome, "config"));
+    }
+    const registry = this.#registry ?? defaultRegistry.freeze();
+    let provider: Provider;
+    try {
+      // Single stop: the granted endpoint only — no fallbacks (a
+      // fallback would serve from an endpoint the grant did not
+      // name) and no route-level thinking seam (the per-call
+      // override above is the authority).
+      const { thinkingForTarget: _ignored, ...resolution } = this.#routeResolutionOptions;
+      provider = resolveProviderRef(ref, registry, [profile], resolution);
+    } catch (err) {
+      return { ok: false as const, reason: "failed" as const, message: err instanceof Error ? err.message : String(err) };
+    }
+    const messages: Message[] = request.messages
+      .filter((m) => m && typeof m.content === "string")
+      .map((m) => ({ role: m.role, parts: [{ kind: "text" as const, text: m.content }] }));
+    const usage = { inputTokens: 0, outputTokens: 0 };
+    let text = "";
+    let served = ref;
+    let effectiveLevel: ThinkingLevel | undefined;
+    try {
+      for await (const event of provider.stream(messages, request.signal ?? new AbortController().signal, undefined, thinking ? { thinking } : undefined)) {
+        if (event.type === "text_delta") text += event.text;
+        else if (event.type === "usage") {
+          usage.inputTokens += event.inputTokens;
+          usage.outputTokens += event.outputTokens;
+        } else if (event.type === "model_call_start") {
+          served = event.model;
+          effectiveLevel = event.thinkingLevel;
+        }
+      }
+    } catch (err) {
+      // ADR-0068: tokens count even when the call fails mid-stream —
+      // the partial usage is recorded (failed `model_call`,
+      // requester-marked) and accounted, never dropped.
+      if (usage.inputTokens !== 0 || usage.outputTokens !== 0) {
+        this.#recordSeamCall(served, usage, effectiveLevel, request.extension, true);
+      }
+      return { ok: false as const, reason: "failed" as const, message: err instanceof Error ? err.message : String(err) };
+    }
+    if (request.signal?.aborted) {
+      if (usage.inputTokens !== 0 || usage.outputTokens !== 0) {
+        this.#recordSeamCall(served, usage, effectiveLevel, request.extension, true);
+      }
+      return { ok: false as const, reason: "failed" as const, message: "model call aborted" };
+    }
+    // The record: the same `model_call` event, marked with the
+    // requester (ADR-0068). Provider reasoning is deliberately not
+    // collected — a host-seam call is not part of the conversation.
+    this.#recordSeamCall(served, usage, effectiveLevel, request.extension, false);
+    return { ok: true as const, text, usage: { ...usage }, model: served, ...(effectiveLevel !== undefined ? { thinkingLevel: effectiveLevel } : {}) };
+  }
+
+  /** The seam call's `model_call` record (failed or not) and its usage
+   * accounting — `failed` is written only when true. */
+  #recordSeamCall(served: string, usage: { inputTokens: number; outputTokens: number }, level: ThinkingLevel | undefined, extension: string, failed: boolean): void {
+    this.#append({
+      type: "model_call",
+      model: served,
+      usage: { ...usage },
+      ...(level !== undefined ? { thinkingLevel: level } : {}),
+      ...(failed ? { failed: true } : {}),
+      requester: { kind: "extension", extension },
+    });
+    this.#loop.recordExtensionUsage(extension, usage);
+  }
+
+  async #seamListModels(request: { endpoint: string }) {
+    const profile = this.#endpoints.find((e) => e.name === request.endpoint);
+    if (!profile) {
+      return { ok: false as const, reason: "unknown_endpoint" as const, message: `no endpoint named "${request.endpoint}" in moh.json` };
+    }
+    try {
+      // openai-compat has its own plain listing (endpoint-models.ts);
+      // every other kind goes through the verified live-models
+      // contracts. Either way the credential is resolved host-side
+      // and the ids are all the extension sees.
+      const models = profile.type === "openai-compat"
+        ? await listOpenAiCompatModels(profile.baseUrl!, profile.apiKey)
+        : await listProviderModels(profile.type, profile.name, { ...(profile.baseUrl ? { baseUrl: profile.baseUrl } : {}), ...(profile.apiKey ? { apiKey: profile.apiKey } : {}) });
+      // #1438: non-openai-compat kinds return LiveModelListing[], not the promised ids; kept as is on purpose (ablation step, see the issue draft).
+      return { ok: true as const, models: models as string[] };
+    } catch (err) {
+      return { ok: false as const, reason: "failed" as const, message: err instanceof Error ? err.message : String(err) };
+    }
   }
 
   /**
@@ -1324,9 +1369,9 @@ export class AgentSession {
    * a non-route provider (a pre-built instance, a bare registered id).
    */
   get endpointCooldowns(): readonly { ref: string; kind: string }[] {
-    const route = this.#provider as Partial<import("../route").Route>;
-    return typeof route.health === "function"
-      ? route.health().map(({ ref, kind }) => ({ ref, kind }))
+    const provider = this.#provider;
+    return typeof provider.health === "function"
+      ? provider.health().map(({ ref, kind }) => ({ ref, kind }))
       : [];
   }
 
@@ -1759,11 +1804,6 @@ export class AgentSession {
     return this.#extensions?.overlays() ?? [];
   }
 
-  /** ADR-0062 (#1132): refused panel/overlay registrations, with their reasons. */
-  extensionUIRefusals(): readonly ExtensionUIRefusal[] {
-    return this.#extensions?.uiRefusals() ?? [];
-  }
-
   /** ADR-0062 (#1132): the overlay the client currently shows, null = none. */
   extensionActiveOverlay(): ActiveExtensionOverlay | null {
     return this.#extensions?.activeOverlay() ?? null;
@@ -1905,35 +1945,25 @@ export class AgentSession {
     // starts the turn synchronously, exactly as before.
     const start = (): Promise<TurnResult> => this.#queue.send(text, options?.prompt);
     // #790: the rerank rescue runs inside the turn-start chain (it must
-    // land before the first prompt assembly), but the no-rerank path
-    // keeps today's synchronous start — `send` begins the turn in the
-    // same tick, exactly as before.
-    if (!(this.#mpmOrientation && this.#orientationHasRerank)) {
-      const run = this.#extensions?.hasPendingRegistrations() === true ? this.#extensions.ready().then(start) : start();
-      return run.finally(() => {
-        this.#turnHead = undefined;
-      });
+    // land before the first prompt assembly). Nothing to wait for keeps
+    // today's synchronous start — `send` begins the turn in the same tick,
+    // exactly as before.
+    const waits: Promise<unknown>[] = [];
+    if (this.#mpmOrientation && this.#orientationHasRerank) {
+      waits.push(
+        this.#orientationPlanWithRerank().then((plan) => {
+          if (plan !== null) this.#mpmPlan = plan;
+        }),
+      );
     }
-    const run = Promise.all([
-      this.#orientationPlanWithRerank().then((plan) => {
-        if (plan !== null) this.#mpmPlan = plan;
-      }),
-      this.#extensions?.hasPendingRegistrations() === true ? this.#extensions.ready() : Promise.resolve(),
-    ]).then(start);
+    if (this.#extensions?.hasPendingRegistrations() === true) waits.push(this.#extensions.ready());
+    const run =
+      waits.length === 0 ? start() : waits.length === 1 ? waits[0]!.then(start) : Promise.all(waits).then(start);
     return run.finally(() => {
       this.#turnHead = undefined;
     });
   }
 
-  /**
-   * ADR-0037: the session-mediated entry behind an extension's
-   * `ctx.requestTurn` — one turn with a synthetic user-side message,
-   * through the normal queue so preemption, usage accounting and
-   * settlement stay the session's. Resolves `{ ok: false }` when the
-   * session is disposed or a turn is already in flight (the runtime
-   * renders every refusal as a visible `extension_failed`); the depth
-   * limit itself is enforced by the runtime, not here.
-   */
   /**
    * ADR-0037: the session-mediated entry behind an extension's
    * `ctx.requestTurn` — one turn with a synthetic user-side message,
@@ -2024,17 +2054,8 @@ export class AgentSession {
    * orientation's internal cache returns it without a second call.
    */
   #orientationPlan(): string | null {
-    const orientation = this.#mpmOrientation;
-    if (!orientation || this.#mpmTaskText === null) return null;
-    // #788: the per-turn eligibility gate (an active classifier's
-    // codebase-oriented opinion). `false` suppresses this turn's plan —
-    // the projection, `mpm_query` and the manual commands are untouched;
-    // `undefined`/`true` change nothing.
-    if (this.#mpmTurnGate?.() === false) {
-      orientation.noteGated();
-      return null;
-    }
-    return orientation.planFor(this.#mpmTaskText, this.#mpmReasoningText ?? undefined);
+    const gated = this.#gatedOrientation();
+    return gated ? gated.orientation.planFor(gated.task, this.#mpmReasoningText ?? undefined) : null;
   }
 
   /**
@@ -2046,13 +2067,25 @@ export class AgentSession {
    * no-plan, never a broken send.
    */
   async #orientationPlanWithRerank(): Promise<string | null> {
+    const gated = this.#gatedOrientation();
+    if (!gated) return null;
+    return gated.orientation.planForWithRerank(gated.task, this.#mpmReasoningText ?? undefined);
+  }
+
+  /** The orientation and task text of this turn, or null when there is no
+   * orientation, no task, or the turn gate suppresses the plan. */
+  #gatedOrientation(): { orientation: MpmOrientation; task: string } | null {
     const orientation = this.#mpmOrientation;
     if (!orientation || this.#mpmTaskText === null) return null;
+    // #788: the per-turn eligibility gate (an active classifier's
+    // codebase-oriented opinion). `false` suppresses this turn's plan —
+    // the projection, `mpm_query` and the manual commands are untouched;
+    // `undefined`/`true` change nothing.
     if (this.#mpmTurnGate?.() === false) {
       orientation.noteGated();
       return null;
     }
-    return orientation.planForWithRerank(this.#mpmTaskText, this.#mpmReasoningText ?? undefined);
+    return { orientation, task: this.#mpmTaskText };
   }
 
   /** #790: whether the rerank hook is wired (config + extension state). */
@@ -2435,20 +2468,7 @@ export class AgentSession {
     this.#disposed = true;
     if (this.#compaction?.pending) await this.#compaction.pending.catch(() => {});
     if (this.#memory?.pending) {
-      const flush = this.#memory.pending.catch(() => {});
-      if (options.timeoutMs === undefined) {
-        await flush;
-      } else {
-        await Promise.race([
-          flush,
-          new Promise<void>((resolve) => {
-            setTimeout(() => {
-              this.#memory?.cancel();
-              resolve();
-            }, options.timeoutMs).unref?.();
-          }),
-        ]);
-      }
+      await this.#raceBudget(this.#memory.pending.catch(() => {}), options.timeoutMs, () => this.#memory?.cancel());
     }
     await this.#mcp?.shutdown();
     this.#mpmLifecycle?.dispose();
@@ -2470,17 +2490,7 @@ export class AgentSession {
     // awaited here under the same budget as the memory flush — a slow
     // subagent never holds the process open past the UI's exit.
     if (this.#retroJudgmentRun) {
-      const run = this.#retroJudgmentRun.catch(() => {});
-      if (options.timeoutMs === undefined) {
-        await run;
-      } else {
-        await Promise.race([
-          run,
-          new Promise<void>((resolve) => {
-            setTimeout(resolve, options.timeoutMs).unref?.();
-          }),
-        ]);
-      }
+      await this.#raceBudget(this.#retroJudgmentRun.catch(() => {}), options.timeoutMs);
     }
     // ADR-0055 (#1222): the extension-spawned children kept alive for
     // steering die with the session that spawned them — no orphans at exit.
@@ -2501,5 +2511,21 @@ export class AgentSession {
     // The end-of-session events were just queued: let the dispatch drain
     // settle before the session is considered disposed.
     await this.#eventLog.idle();
+  }
+
+  /** `promise` itself without a budget; otherwise raced against a timer
+   * that runs `onTimeout` when it fires. The timer is unref'd and never
+   * cleared. */
+  #raceBudget(promise: Promise<void>, timeoutMs: number | undefined, onTimeout?: () => void): Promise<void> {
+    if (timeoutMs === undefined) return promise;
+    return Promise.race([
+      promise,
+      new Promise<void>((resolve) => {
+        setTimeout(() => {
+          onTimeout?.();
+          resolve();
+        }, timeoutMs).unref?.();
+      }),
+    ]);
   }
 }

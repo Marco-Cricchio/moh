@@ -36,12 +36,12 @@ const LEVELS = [
   { role: "track", glyph: "·", ascii: ".", token: "dim", bold: false, dim: false },
 ] as const;
 
-export type ScannerLevel = 0 | 1 | 2 | 3;
+type ScannerLevel = 0 | 1 | 2 | 3;
 export type ScannerRole = (typeof LEVELS)[number]["role"];
 
 /** How one cell is painted: which theme token, and whether the light is
  * emphasised or the trail recedes. Tokens only — never a raw colour. */
-export interface ScannerPaint {
+interface ScannerPaint {
   token: "err" | "dim";
   bold: boolean;
   dim: boolean;

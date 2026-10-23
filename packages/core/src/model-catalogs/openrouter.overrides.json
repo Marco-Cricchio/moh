@@ -170,9 +170,10 @@
     },
     "anthropic/claude-sonnet-4": {
       "author": "moh migration (#959)",
-      "date": "2026-09-24",
-      "reason": "labels and row identity are moh-owned (ADR-0046): never aggregator-supplied",
-      "name": "Anthropic: Claude Sonnet 4"
+      "date": "2026-10-23",
+      "reason": "labels and row identity are moh-owned (ADR-0046): never aggregator-supplied; 2026-10-23 (moh release (v0.65.3)): OpenRouter no longer lists `anthropic/claude-sonnet-4` in its model listing (checked 2026-10-23 against https://openrouter.ai/api/v1/models); the provider retired it, so the row is dropped rather than frozen by hand (ADR-0046 #1005 clause)",
+      "name": "Anthropic: Claude Sonnet 4",
+      "retired": true
     },
     "anthropic/claude-sonnet-4.5": {
       "author": "moh migration (#959)",
@@ -759,8 +760,8 @@
     },
     "deepseek/deepseek-r1": {
       "author": "moh migration (#959)",
-      "date": "2026-09-24",
-      "reason": "labels and row identity are moh-owned (ADR-0046): never aggregator-supplied",
+      "date": "2026-10-23",
+      "reason": "labels and row identity are moh-owned (ADR-0046): never aggregator-supplied; 2026-10-23 (moh release (v0.65.3)): OpenRouter no longer lists `deepseek/deepseek-r1` in its model listing (checked 2026-10-23 against https://openrouter.ai/api/v1/models); the provider retired it, so the row is dropped rather than frozen by hand (ADR-0046 #1005 clause)",
       "api": "openai-completions",
       "baseUrl": "https://openrouter.ai/api/v1",
       "name": "DeepSeek: R1",
@@ -770,7 +771,8 @@
       "compat": {
         "supportsDeveloperRole": false,
         "thinkingFormat": "openrouter"
-      }
+      },
+      "retired": true
     },
     "deepseek/deepseek-r1-0528": {
       "author": "moh migration (#959)",
@@ -1040,8 +1042,8 @@
     },
     "google/gemini-2.5-flash-lite:batch": {
       "author": "moh migration (#959)",
-      "date": "2026-09-24",
-      "reason": "labels and row identity are moh-owned (ADR-0046): never aggregator-supplied; field the aggregators cannot supply: carried from the previous catalog: maxTokens",
+      "date": "2026-10-23",
+      "reason": "labels and row identity are moh-owned (ADR-0046): never aggregator-supplied; field the aggregators cannot supply: carried from the previous catalog: maxTokens; 2026-10-23 (moh release (v0.65.3)): OpenRouter no longer lists `google/gemini-2.5-flash-lite:batch` in its model listing (checked 2026-10-23 against https://openrouter.ai/api/v1/models); the provider retired it, so the row is dropped rather than frozen by hand (ADR-0046 #1005 clause)",
       "api": "openai-completions",
       "baseUrl": "https://openrouter.ai/api/v1",
       "name": "Google: Gemini 2.5 Flash Lite (batch)",
@@ -1049,12 +1051,13 @@
         "supportsDeveloperRole": false,
         "thinkingFormat": "openrouter"
       },
-      "maxTokens": 65535
+      "maxTokens": 65535,
+      "retired": true
     },
     "google/gemini-2.5-flash:batch": {
       "author": "moh migration (#959)",
-      "date": "2026-09-24",
-      "reason": "labels and row identity are moh-owned (ADR-0046): never aggregator-supplied; field the aggregators cannot supply: carried from the previous catalog: maxTokens",
+      "date": "2026-10-23",
+      "reason": "labels and row identity are moh-owned (ADR-0046): never aggregator-supplied; field the aggregators cannot supply: carried from the previous catalog: maxTokens; 2026-10-23 (moh release (v0.65.3)): OpenRouter no longer lists `google/gemini-2.5-flash:batch` in its model listing (checked 2026-10-23 against https://openrouter.ai/api/v1/models); the provider retired it, so the row is dropped rather than frozen by hand (ADR-0046 #1005 clause)",
       "api": "openai-completions",
       "baseUrl": "https://openrouter.ai/api/v1",
       "name": "Google: Gemini 2.5 Flash (batch)",
@@ -1062,7 +1065,8 @@
         "supportsDeveloperRole": false,
         "thinkingFormat": "openrouter"
       },
-      "maxTokens": 65535
+      "maxTokens": 65535,
+      "retired": true
     },
     "google/gemini-2.5-pro": {
       "author": "moh migration (#959)",
@@ -1124,8 +1128,8 @@
     },
     "google/gemini-2.5-pro:batch": {
       "author": "moh migration (#959)",
-      "date": "2026-09-24",
-      "reason": "labels and row identity are moh-owned (ADR-0046): never aggregator-supplied; field the aggregators cannot supply: carried from the previous catalog: maxTokens",
+      "date": "2026-10-23",
+      "reason": "labels and row identity are moh-owned (ADR-0046): never aggregator-supplied; field the aggregators cannot supply: carried from the previous catalog: maxTokens; 2026-10-23 (moh release (v0.65.3)): OpenRouter no longer lists `google/gemini-2.5-pro:batch` in its model listing (checked 2026-10-23 against https://openrouter.ai/api/v1/models); the provider retired it, so the row is dropped rather than frozen by hand (ADR-0046 #1005 clause)",
       "api": "openai-completions",
       "baseUrl": "https://openrouter.ai/api/v1",
       "name": "Google: Gemini 2.5 Pro (batch)",
@@ -1136,7 +1140,8 @@
         "supportsDeveloperRole": false,
         "thinkingFormat": "openrouter"
       },
-      "maxTokens": 65536
+      "maxTokens": 65536,
+      "retired": true
     },
     "google/gemini-3-flash-preview": {
       "author": "moh migration (#959)",
@@ -1749,15 +1754,16 @@
     },
     "inclusionai/ling-3.0-flash-fin": {
       "author": "moh migration (#959)",
-      "date": "2026-09-24",
-      "reason": "labels and row identity are moh-owned (ADR-0046): never aggregator-supplied",
+      "date": "2026-10-23",
+      "reason": "labels and row identity are moh-owned (ADR-0046): never aggregator-supplied; 2026-10-23 (moh release (v0.65.3)): OpenRouter no longer lists `inclusionai/ling-3.0-flash-fin` in its model listing (checked 2026-10-23 against https://openrouter.ai/api/v1/models); the provider retired it, so the row is dropped rather than frozen by hand (ADR-0046 #1005 clause)",
       "api": "openai-completions",
       "baseUrl": "https://openrouter.ai/api/v1",
       "name": "Ling 3.0 Flash Fin",
       "compat": {
         "supportsDeveloperRole": false,
         "thinkingFormat": "openrouter"
-      }
+      },
+      "retired": true
     },
     "inclusionai/ling-3.0-flash-fin:free": {
       "author": "moh (v0.52.1)",
@@ -1874,15 +1880,16 @@
     },
     "meta-llama/llama-4-maverick": {
       "author": "moh migration (#959)",
-      "date": "2026-09-24",
-      "reason": "labels and row identity are moh-owned (ADR-0046): never aggregator-supplied",
+      "date": "2026-10-23",
+      "reason": "labels and row identity are moh-owned (ADR-0046): never aggregator-supplied; 2026-10-23 (moh release (v0.65.3)): OpenRouter's listing now declares a 524288-token window (was 1048576; checked 2026-10-23 against https://openrouter.ai/api/v1/models): accept the provider's own declaration",
       "api": "openai-completions",
       "baseUrl": "https://openrouter.ai/api/v1",
       "name": "Meta: Llama 4 Maverick",
       "compat": {
         "supportsDeveloperRole": false,
         "thinkingFormat": "openrouter"
-      }
+      },
+      "acceptContextShrink": true
     },
     "meta-llama/llama-4-scout": {
       "author": "moh migration (#959)",

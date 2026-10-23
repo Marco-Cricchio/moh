@@ -16,7 +16,7 @@ import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import manifest from "../src/model-catalogs/manifest.json";
-import { releaseVersionProblem } from "../src/model-catalog-build";
+import { releaseVersionProblem } from "../scripts/model-catalog-build";
 
 const SCRIPT = join(import.meta.dir, "../scripts/build-model-catalogs.ts");
 const REFERENCE = "2026-09-25T18:06:00.000Z";

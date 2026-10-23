@@ -12,11 +12,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ExtensionDefinition, ExtensionHost, ExtensionSetupContext } from "@moh/extension";
 import { ExtensionRuntime } from "../src/extensions";
-import { scopeEffectSentence } from "../src/scope-effect";
-import { isEndpointScope, checkEndpointScope, endpointEffectSentence } from "../src/endpoint-scope";
+import { scopeEffectSentence } from "../src/scopes";
+import { isEndpointScope, checkEndpointScope, endpointEffectSentence } from "../src/scopes";
 import type { AgentEvent } from "../src/types";
 import { sessionFromConfig, MockProvider } from "../src";
-import type { AgentSession } from "../src/session/session";
+import { AgentSession as AgentSessionClass, type AgentSession } from "../src/session/session";
+import { ProviderRegistry } from "../src/provider-registry";
 
 const roots: string[] = [];
 const homes: string[] = [];
@@ -357,5 +358,92 @@ describe("endpoint scope: a granted endpoint end to end", () => {
     } finally {
       server.stop();
     }
+  });
+});
+
+// #1443 characterization: the exact `model_call` record of the seam in its
+// three append paths (success, mid-stream failure, abort) — keys, key order
+// and values, as the JSONL writes them — plus the zero-usage failure that
+// records nothing. A registered provider type scripts each stream shape.
+describe("endpoint scope: the seam's model_call record, exactly", () => {
+  type Mode = "ok" | "ok-level" | "throw" | "abort" | "throw-zero";
+  const scripted = (mode: Mode, controller: AbortController): import("../src/types").Provider => ({
+    name: "scripted-seam",
+    async *stream() {
+      yield { type: "model_call_start" as const, model: "fake/m1", ...(mode === "ok" || mode === "abort" ? {} : { thinkingLevel: mode === "throw" ? ("low" as const) : ("high" as const) }) };
+      if (mode === "throw-zero") throw new Error("boom before usage");
+      yield { type: "text_delta" as const, text: "partial" };
+      yield { type: "usage" as const, inputTokens: 5, outputTokens: 3 };
+      if (mode === "throw") throw new Error("boom after usage");
+      if (mode === "abort") controller.abort();
+      yield { type: "finish" as const, reason: "stop" as const };
+    },
+  });
+
+  async function seamRecord(mode: Mode) {
+    const controller = new AbortController();
+    const registry = new ProviderRegistry().registerProvider("scripted-seam", () => scripted(mode, controller));
+    const { rt, host } = await probe(project(), ["endpoint:fake"]);
+    const events: AgentEvent[] = [];
+    const session = new AgentSessionClass({
+      provider: MockProvider.scripted([{ deltas: ["ok"], finish: "stop" }]),
+      cwd: project(),
+      registry,
+      endpoints: [{ name: "fake", type: "scripted-seam", defaultModel: "m1" } as import("../src/config").EndpointProfile],
+      extensions: rt,
+      sink: (e) => events.push(e),
+    });
+    try {
+      const result = await (host as Required<ExtensionHost>).modelCall!({
+        endpoint: "fake",
+        model: "m1",
+        messages: [{ role: "user", content: "hi" }],
+        signal: controller.signal,
+      });
+      const calls = events.filter((e) => e.type === "model_call").map((e) => {
+        const { id: _id, parentId: _parentId, ts: _ts, ...rest } = e as AgentEvent & { id?: string; parentId?: string; ts?: string };
+        return rest;
+      });
+      return { result, calls };
+    } finally {
+      await session.dispose();
+    }
+  }
+
+  test("success without a level: no thinkingLevel, no failed key", async () => {
+    const { result, calls } = await seamRecord("ok");
+    expect(result).toMatchObject({ ok: true, text: "partial" });
+    expect(calls).toHaveLength(1);
+    expect(Object.keys(calls[0]!)).toEqual(["type", "model", "usage", "requester"]);
+    expect(calls[0]).toEqual({ type: "model_call", model: "fake/m1", usage: { inputTokens: 5, outputTokens: 3 }, requester: { kind: "extension", extension: "probe" } });
+  });
+
+  test("success with a served level: thinkingLevel after usage, no failed key", async () => {
+    const { calls } = await seamRecord("ok-level");
+    expect(calls).toHaveLength(1);
+    expect(Object.keys(calls[0]!)).toEqual(["type", "model", "usage", "thinkingLevel", "requester"]);
+    expect(calls[0]).toEqual({ type: "model_call", model: "fake/m1", usage: { inputTokens: 5, outputTokens: 3 }, thinkingLevel: "high", requester: { kind: "extension", extension: "probe" } });
+  });
+
+  test("a mid-stream failure with partial usage: failed: true between thinkingLevel and requester", async () => {
+    const { result, calls } = await seamRecord("throw");
+    expect(result).toEqual({ ok: false, reason: "failed", message: "boom after usage" });
+    expect(calls).toHaveLength(1);
+    expect(Object.keys(calls[0]!)).toEqual(["type", "model", "usage", "thinkingLevel", "failed", "requester"]);
+    expect(calls[0]).toEqual({ type: "model_call", model: "fake/m1", usage: { inputTokens: 5, outputTokens: 3 }, thinkingLevel: "low", failed: true, requester: { kind: "extension", extension: "probe" } });
+  });
+
+  test("an aborted call with partial usage: failed: true before requester", async () => {
+    const { result, calls } = await seamRecord("abort");
+    expect(result).toEqual({ ok: false, reason: "failed", message: "model call aborted" });
+    expect(calls).toHaveLength(1);
+    expect(Object.keys(calls[0]!)).toEqual(["type", "model", "usage", "failed", "requester"]);
+    expect(calls[0]).toEqual({ type: "model_call", model: "fake/m1", usage: { inputTokens: 5, outputTokens: 3 }, failed: true, requester: { kind: "extension", extension: "probe" } });
+  });
+
+  test("a failure before any usage records no model_call", async () => {
+    const { result, calls } = await seamRecord("throw-zero");
+    expect(result).toEqual({ ok: false, reason: "failed", message: "boom before usage" });
+    expect(calls).toHaveLength(0);
   });
 });

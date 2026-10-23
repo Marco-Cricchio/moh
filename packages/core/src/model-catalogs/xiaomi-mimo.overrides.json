@@ -14,9 +14,28 @@
   "rows": {
     "mimo-v2-flash": {
       "author": "moh migration (#959)",
-      "date": "2026-09-24",
-      "reason": "labels and row identity are moh-owned (ADR-0046): never aggregator-supplied",
+      "date": "2026-10-23",
+      "reason": "labels and row identity are moh-owned (ADR-0046): never aggregator-supplied; 2026-10-23 (moh release (v0.65.3)): Xiaomi retired MiMo-V2-Flash in favor of the V2.5/V2.6 series; it is absent from the provider's pay-as-you-go listing mirrored by models.dev (checked 2026-10-23), so the row is dropped",
       "name": "MiMo v2 Flash",
+      "compat": {
+        "thinkingFormat": "openai"
+      },
+      "retired": true
+    },
+    "mimo-v2.6-flash": {
+      "author": "moh (catalog provider retirements)",
+      "date": "2026-10-23",
+      "reason": "Xiaomi's current pay-as-you-go lineup after retiring MiMo-V2-Flash and the V2.5 series (checked 2026-10-23); labels and row identity are moh-owned (ADR-0046), values come from the provider listing mirrored by models.dev",
+      "name": "MiMo V2.6 Flash",
+      "compat": {
+        "thinkingFormat": "openai"
+      }
+    },
+    "mimo-v2.6-pro": {
+      "author": "moh (catalog provider retirements)",
+      "date": "2026-10-23",
+      "reason": "Xiaomi's current pay-as-you-go lineup after retiring MiMo-V2-Flash and the V2.5 series (checked 2026-10-23); labels and row identity are moh-owned (ADR-0046), values come from the provider listing mirrored by models.dev",
+      "name": "MiMo V2.6 Pro",
       "compat": {
         "thinkingFormat": "openai"
       }

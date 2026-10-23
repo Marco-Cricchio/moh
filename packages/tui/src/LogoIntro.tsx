@@ -2,7 +2,6 @@ import React, { useEffect, useMemo, useState } from "react";
 import { Box, Text, useInput } from "ink";
 import { LOGO_BANNER, SPLASH_BANNERS, pickSplashFont, type SplashFontName } from "./ui";
 import { useTheme } from "./themes";
-import { colorEnabled } from "./color";
 import { pickRampPreset, rampLogoRows, type RampPresetName } from "./logo-ramp";
 /** The startup intro duration: snappy on purpose — long enough to read as
  * an animation, short enough never to feel like a gate (~3s, skippable). */
@@ -124,7 +123,7 @@ function rainFrames(banner: string[]): Frame[] {
     for (let x = 0; x < cols; x++) chars.push(row[x] === " " ? null : row[x]!);
   }
   // Each column gets a random landing step.
-  const land = Array.from({ length: cols }, (_, x) => 3 + Math.floor(Math.random() * 14));
+  const land = Array.from({ length: cols }, () => 3 + Math.floor(Math.random() * 14));
   const steps = 18;
   const frames: Frame[] = [];
   for (let s = 0; s <= steps; s++) {
@@ -185,8 +184,11 @@ function pulseFrames(banner: string[]): Frame[] {
     const mid = (rows - 1) / 2;
     frames.push(
       banner.map((_, y) => {
+        // `proximity` is 1 only on an exact middle row and stays above 0 at
+        // the edges, so a row shows once `level` reaches `1 - proximity`:
+        // low levels light the center, level 1 lights every row (#1467).
         const proximity = 1 - Math.abs(y - mid) / ((rows + 1) / 2);
-        return proximity >= level ? banner[y]! : "";
+        return proximity >= 1 - level ? banner[y]! : "";
       }),
     );
   }
@@ -218,7 +220,8 @@ function waveFrames(banner: string[]): Frame[] {
   return frames;
 }
 
-const STYLES = [
+/** Exported for the settle invariant test: every style ends on the banner. */
+export const STYLES = [
   { name: "scatter", make: scatterFrames },
   { name: "typewriter", make: typewriterFrames },
   { name: "glitch", make: glitchFrames },

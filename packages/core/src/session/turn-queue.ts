@@ -1,6 +1,6 @@
-import type { TurnResult } from "../types";
+import type { AgentEvent, SkillPrompt, TurnResult } from "../types";
 
-export interface TurnQueueOptions {
+interface TurnQueueOptions {
   /**
    * Runs one turn for the given text under the given controller. The
    * queue owns preemption; the executor owns the turn itself.
@@ -11,7 +11,7 @@ export interface TurnQueueOptions {
    * synthetic-marked `user_message`). Distinct from `execute` so the
    * session routes each queue item through the right entry.
    */
-  executeSynthetic?: (text: string, controller: AbortController) => Promise<TurnResult>;
+  executeSynthetic: (text: string, controller: AbortController) => Promise<TurnResult>;
   /**
    * Called when a turn settles (done/error/cancelled — including a turn
    * steered away), after the executor resolves. ADR-0011: the session
@@ -24,7 +24,7 @@ export interface TurnQueueOptions {
    * cancelled turn applies its prompt here, not at enqueue time, so the
    * settling turn's cleanup cannot clear it first.
    */
-  onTurnStart?: (attachment?: unknown) => void;
+  onTurnStart?: (attachment: SkillPrompt) => void;
   /**
    * ADR-0037: the extension `afterTurn` dispatch, run by the queue after
    * the slot is freed and before the caller's promise resolves — so an
@@ -33,9 +33,9 @@ export interface TurnQueueOptions {
    * second argument tells the dispatch the turn was synthetic.
    * Returned `extension_failed` events ride `append`.
    */
-  dispatchAfterTurn?: (result: TurnResult, synthetic: boolean) => Promise<unknown[]>;
+  dispatchAfterTurn?: (result: TurnResult, synthetic: boolean) => Promise<AgentEvent[]>;
   /** Receives the dispatch's extension-failure events (the session log). */
-  append?: (event: unknown) => void;
+  append?: (event: AgentEvent) => void;
 }
 
 /**
@@ -56,11 +56,11 @@ export class TurnQueue {
   #turn: Promise<TurnResult> | null = null;
   #controller: AbortController | null = null;
   /** Pending sends: front runs as soon as the session is idle. */
-  readonly #queue: { text: string; resolve: (result: TurnResult) => void; attachment?: unknown; synthetic?: boolean }[] = [];
+  readonly #queue: { text: string; resolve: (result: TurnResult) => void; attachment?: SkillPrompt; synthetic?: boolean }[] = [];
 
   constructor(options: TurnQueueOptions) {
     this.#execute = options.execute;
-    this.#executeSynthetic = options.executeSynthetic ?? options.execute;
+    this.#executeSynthetic = options.executeSynthetic;
     this.#onTurnSettled = options.onTurnSettled;
     this.#onTurnStart = options.onTurnStart;
     this.#dispatchAfterTurn = options.dispatchAfterTurn;
@@ -80,7 +80,7 @@ export class TurnQueue {
   /** Enqueues a user message; preempts the active turn if sends are waiting.
    * An optional opaque attachment (ADR-0011 skill prompt) is applied at
    * turn start via `onTurnStart`, surviving preemption and queueing. */
-  send(text: string, attachment?: unknown): Promise<TurnResult> {
+  send(text: string, attachment?: SkillPrompt): Promise<TurnResult> {
     return new Promise<TurnResult>((resolve) => {
       this.#queue.push({ text, resolve, attachment });
       this.#pump();
@@ -117,7 +117,7 @@ export class TurnQueue {
     if (item.attachment !== undefined) this.#onTurnStart?.(item.attachment);
     const controller = new AbortController();
     this.#controller = controller;
-    const turn = ((item.synthetic ? this.#executeSynthetic : this.#execute) ?? this.#execute)(item.text, controller);
+    const turn = (item.synthetic ? this.#executeSynthetic : this.#execute)(item.text, controller);
     // Defensive: an unexpected rejection must still settle the caller's
     // promise instead of becoming an unhandled rejection.
     const guarded = turn.then(

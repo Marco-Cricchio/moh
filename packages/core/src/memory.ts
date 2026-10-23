@@ -14,8 +14,6 @@ import {
   existsSync,
   mkdirSync,
   readFileSync,
-  renameSync,
-  statSync,
   unlinkSync,
   writeFileSync,
 } from "node:fs";
@@ -28,12 +26,12 @@ import { PromptComposer } from "./prompt-composer";
 import { lastAssistantText } from "./session-store";
 import {
   createLockFile,
-  machineId,
   ownerIsGone,
   parseLockOwner,
   readLockFile,
   releaseLockFile,
 } from "./memory-lock";
+import { writeFileAtomic, tempPidInfix } from "./fs-atomic";
 
 /** One durable fact, filed under a short topic label. */
 export interface MemoryEntry {
@@ -59,7 +57,7 @@ export interface MemoryExtractorInput {
 }
 
 /** Extracts durable facts from a transcript. Runs fail-silent in the core. */
-export type MemoryExtractor = (input: MemoryExtractorInput) => Promise<MemoryEntry[]>;
+type MemoryExtractor = (input: MemoryExtractorInput) => Promise<MemoryEntry[]>;
 
 /** moh.json `memory` block; `memory.enabled: false` disables everything. */
 export const memoryConfigSchema = z.object({
@@ -82,18 +80,18 @@ export interface MemoryOptions {
   extractor?: MemoryExtractor;
 }
 
-export const DEFAULT_MEMORY_INTERVAL_TURNS = 5;
-export const DEFAULT_MEMORY_BUDGET_TOKENS = 2000;
+const DEFAULT_MEMORY_INTERVAL_TURNS = 5;
+const DEFAULT_MEMORY_BUDGET_TOKENS = 2000;
 /** ~4 characters per token, the usual rough conversion. */
-export const CHARS_PER_TOKEN = 4;
+const CHARS_PER_TOKEN = 4;
 /** Consolidation caps: entries per topic kept after newest-wins dedup. */
-export const MAX_ENTRIES_PER_TOPIC = 40;
+const MAX_ENTRIES_PER_TOPIC = 40;
 
 const LOCK_TIMEOUT_MS = 5_000;
 const LOCK_POLL_MS = 10;
 
 /** Max entries accepted from one extraction (protects the store). */
-export const MAX_ENTRIES_PER_EXTRACTION = 25;
+const MAX_ENTRIES_PER_EXTRACTION = 25;
 
 interface MemoryIndexEntry {
   file: string;
@@ -107,7 +105,7 @@ interface MemoryIndex {
 }
 
 /** Topic label → safe file name (append-only `<topic>.md` files). */
-export function topicFileName(topic: string): string {
+function topicFileName(topic: string): string {
   const slug = topic
     .toLowerCase()
     .trim()
@@ -218,7 +216,7 @@ export class MemoryStore {
     const blocks: string[] = [];
     let used = 0;
     let truncated = false;
-    for (const [topic, meta] of topics) {
+    for (const [topic] of topics) {
       let raw: string;
       try {
         raw = readFileSync(this.topicFile(topic), "utf8");
@@ -301,13 +299,9 @@ export class MemoryStore {
   }
 
   #writeIndex(index: MemoryIndex): void {
-    const tmp = join(this.dir, `index.json.${process.pid}.tmp`);
     // Replacing an existing index must retain its user-owned mode; a fresh
     // index is owner-only from birth.
-    let mode = 0o600;
-    try { mode = statSync(this.indexFile).mode & 0o777; } catch { /* new file */ }
-    writeFileSync(tmp, `${JSON.stringify(index, null, 2)}\n`, { mode });
-    renameSync(tmp, this.indexFile);
+    writeFileAtomic(this.indexFile, `${JSON.stringify(index, null, 2)}\n`, { mode: "preserve", temp: tempPidInfix });
   }
 
   async #withLock<T>(fn: () => T | Promise<T>): Promise<T> {
@@ -357,7 +351,8 @@ export class MemoryStore {
  * Builds the extraction transcript from the event log since `from`:
  * user and assistant text only, newest kept when the cap applies.
  */
-export function memoryTranscript(events: ReadonlyArray<AgentEvent>, from: number, capChars = 24_000): string {
+export function memoryTranscript(events: ReadonlyArray<AgentEvent>, from: number): string {
+  const capChars = 24_000;
   const parts: string[] = [];
   let assistant = "";
   const flush = () => {
@@ -383,7 +378,7 @@ export function memoryTranscript(events: ReadonlyArray<AgentEvent>, from: number
 }
 
 /** The maintenance subagent's role prompt (also the compaction domain rule). */
-export const MAINTENANCE_PROMPT = [
+const MAINTENANCE_PROMPT = [
   "You are moh's memory maintenance subagent. You extract durable, cross-session facts from a conversation transcript and file them into project memory.",
   "",
   "Rules:",
@@ -469,7 +464,7 @@ export function createMaintenanceExtractor(provider: Provider, cwd: string): Mem
 }
 
 /** What the runner needs from its host session (internal collaborator). */
-export interface MemoryRunnerOptions {
+interface MemoryRunnerOptions {
   store: MemoryStore;
   sessionId: string;
   /** Extraction every N completed turns. Default 5. */

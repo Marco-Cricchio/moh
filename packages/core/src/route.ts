@@ -7,24 +7,12 @@ import { aiSdkStreamFor, type AiSdkTransport } from "./providers/ai-sdk";
 import { resolveEndpointCredential } from "./auth/resolve";
 import type { EndpointCapabilities, ThinkingFormat } from "./types";
 import type { WireApi } from "./wire";
-import { providerProfile } from "./provider-profiles";
+import { PROVIDER_KINDS } from "./provider-kinds";
 
 /** What a provider implementation an Endpoint instantiates. */
-export type ProviderKind =
-  | "anthropic"
-  | "openai"
-  | "google"
-  | "github-copilot"
-  | "openrouter"
-  | "kimi-coding"
-  | "xai"
-  | "deepseek" | "groq" | "cerebras" | "nvidia-nim" | "together" | "fireworks" | "huggingface" | "mistral"
-  | "moonshot" | "minimax" | "zai" | "qwen" | "xiaomi-mimo" | "vercel-ai-gateway" | "cloudflare-ai-gateway" | "baseten"
-  | "opencode"
-  | "mock"
-  | "custom";
+export type ProviderKind = (typeof PROVIDER_KINDS)[number]["kind"] | "mock" | "custom";
 
-export interface EndpointConfig {
+interface EndpointConfig {
   /** Endpoint name, e.g. "anthropic-work". Drives MOH_ENDPOINT_<NAME>_API_KEY. */
   name: string;
   kind: ProviderKind;
@@ -77,9 +65,9 @@ export function envApiKey(endpointName: string, env: Record<string, string | und
 }
 
 /** Documented provider credential fallback. Endpoint-specific MOH_ENDPOINT_* wins. */
-export function providerApiKey(kind: string, env: Record<string, string | undefined> = process.env): string | undefined {
-  if (kind === "opencode") return env.OPENCODE_API_KEY;
-  const key = providerProfile(kind)?.apiKeyEnv;
+function providerApiKey(kind: string, env: Record<string, string | undefined> = process.env): string | undefined {
+  const row = PROVIDER_KINDS.find((candidate) => candidate.kind === kind);
+  const key = row && "apiKeyEnv" in row ? row.apiKeyEnv : undefined;
   return key ? env[key] : undefined;
 }
 
@@ -130,7 +118,7 @@ export interface RouteTarget {
   thinkingFormat?: ThinkingFormat;
 }
 
-export interface RouteConfig {
+interface RouteConfig {
   /** Primary target: `endpoint/model-id`. */
   target: RouteTarget;
   /** Declared fallback chain, tried in order. No model equivalence assumed. */

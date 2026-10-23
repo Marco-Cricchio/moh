@@ -1,4 +1,3 @@
-import React from "react";
 import { Text, useInput } from "ink";
 import { useTheme } from "./themes";
 import { Dialog, Dim } from "./ui";

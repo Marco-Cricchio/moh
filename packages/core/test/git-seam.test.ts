@@ -10,7 +10,6 @@ import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { z } from "zod";
 import type { ExtensionDefinition, ExtensionHost, ExtensionSetupContext } from "@moh/extension";
 import { ExtensionRuntime } from "../src/extensions";
 import { sessionFromConfig } from "../src";

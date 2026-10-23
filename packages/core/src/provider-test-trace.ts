@@ -13,17 +13,17 @@
  *     {"at":"...","endpoint":"openai","model":"gpt-6-astra",
  *      "status":400,"param":"max_tokens","message":"..."}
  */
-import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { join } from "node:path";
 import type { EndpointProfile } from "./config";
 import type { ConnectionTestResult, ProviderTestFailure } from "./provider-onboarding";
+import { boundedLog } from "./bounded-log";
 
 /** File name inside the user's moh home. */
-export const PROVIDER_TEST_FAILURES_FILE = "provider-test-failures.log";
+const PROVIDER_TEST_FAILURES_FILE = "provider-test-failures.log";
 /** Failed attempts kept; beyond this the oldest (`at`) goes. */
 export const PROVIDER_TEST_MAX_ENTRIES = 50;
 
-export interface ProviderTestFailureEntry {
+interface ProviderTestFailureEntry {
   /** ISO date of the attempt. */
   at: string;
   /** Endpoint name from the profile under test. */
@@ -45,7 +45,7 @@ export interface ProviderTestFailureEntry {
 }
 
 /** Absolute path of the trace file. */
-export function providerTestFailuresFile(home: string): string {
+function providerTestFailuresFile(home: string): string {
   return join(home, PROVIDER_TEST_FAILURES_FILE);
 }
 
@@ -76,39 +76,20 @@ export function noteProviderTestFailure(input: {
   };
   try {
     const file = providerTestFailuresFile(input.home);
-    const entries = [...readEntries(file), entry].slice(-PROVIDER_TEST_MAX_ENTRIES);
-    writeEntries(file, entries);
+    boundedLog<ProviderTestFailureEntry>(file, {
+      max: PROVIDER_TEST_MAX_ENTRIES,
+      validate: validateEntry,
+      update: (entries) => [...entries, entry],
+    });
   } catch {
     // Diagnostics never block onboarding.
   }
 }
 
-function readEntries(file: string): ProviderTestFailureEntry[] {
-  if (!existsSync(file)) return [];
-  try {
-    const entries: ProviderTestFailureEntry[] = [];
-    for (const line of readFileSync(file, "utf8").split("\n")) {
-      const trimmed = line.trim();
-      if (!trimmed) continue;
-      try {
-        const parsed = JSON.parse(trimmed) as Partial<ProviderTestFailureEntry>;
-        if (typeof parsed?.at === "string" && typeof parsed?.message === "string" && typeof parsed?.endpoint === "string") {
-          entries.push({ ...parsed, at: parsed.at, endpoint: parsed.endpoint, message: parsed.message } as ProviderTestFailureEntry);
-        }
-      } catch {
-        // A torn or hand-edited line is skipped, never fatal.
-      }
-    }
-    return entries.slice(-PROVIDER_TEST_MAX_ENTRIES);
-  } catch {
-    return [];
+function validateEntry(raw: unknown): ProviderTestFailureEntry | undefined {
+  const parsed = raw as Partial<ProviderTestFailureEntry>;
+  if (typeof parsed?.at === "string" && typeof parsed?.message === "string" && typeof parsed?.endpoint === "string") {
+    return { ...parsed, at: parsed.at, endpoint: parsed.endpoint, message: parsed.message } as ProviderTestFailureEntry;
   }
-}
-
-function writeEntries(file: string, entries: readonly ProviderTestFailureEntry[]): void {
-  const dir = dirname(file);
-  mkdirSync(dir, { recursive: true, mode: 0o700 });
-  const tmp = `${file}.tmp-${process.pid}`;
-  writeFileSync(tmp, entries.length ? `${entries.map((entry) => JSON.stringify(entry)).join("\n")}\n` : "", { mode: 0o600 });
-  renameSync(tmp, file);
+  return undefined;
 }

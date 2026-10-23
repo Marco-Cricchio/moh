@@ -12,7 +12,6 @@
  * window whose shape the provider never declared stays `kind: "unknown"`.
  */
 import type { AgentEvent, EndpointIdentity } from "../types";
-import { endpointIdentity } from "../types";
 import type { QuotaReport } from "./types";
 
 // ---------------------------------------------------------------------------
@@ -21,9 +20,9 @@ import type { QuotaReport } from "./types";
 
 /** #1100: the fully-shaped quota observation event payload (no event
  * identity — the log stamps `id`/`parentId`). */
-export type QuotaObservationEvent = Extract<AgentEvent, { type: "quota_observation" }>;
-export type QuotaEpisodeEvent = Extract<AgentEvent, { type: "quota_episode" }>;
-export type CommercialDeclarationEvent = Extract<AgentEvent, { type: "commercial_declaration" }>;
+type QuotaObservationEvent = Extract<AgentEvent, { type: "quota_observation" }>;
+type QuotaEpisodeEvent = Extract<AgentEvent, { type: "quota_episode" }>;
+type CommercialDeclarationEvent = Extract<AgentEvent, { type: "commercial_declaration" }>;
 
 /** The deterministic identity of the capacity an observation describes:
  * the endpoint key for endpoint/model scope, or the pool's name for a
@@ -167,7 +166,7 @@ export function quotaRecoveryEvent(options: {
 
 /** The user-owned commercial declaration as it arrives from configuration
  * or a client call — before normalization. */
-export interface CommercialDeclarationInput {
+interface CommercialDeclarationInput {
   plan?: string;
   price?: number;
   currency?: string;
