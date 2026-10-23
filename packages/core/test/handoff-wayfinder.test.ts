@@ -1,6 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { enrichHandoffWithWayfinder, notifyClaimedWayfinderTickets } from "../src/handoff-wayfinder";
-import type { RawHandoff } from "../src/handoff";
+import { enrichHandoffWithWayfinder, notifyClaimedWayfinderTickets, type RawHandoff } from "../src/handoff";
 import type { TrackerBackend } from "../src/tracker";
 
 function handoff(): RawHandoff {

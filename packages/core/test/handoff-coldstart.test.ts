@@ -2,10 +2,10 @@ import { describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { cloneHandoffRepo, isColdDirectory, pullHandoffTo, type GitCall, type GitRunner } from "../src/handoff-coldstart";
+import { cloneHandoffRepo, isColdDirectory, pullHandoffTo, type GitCall, type GitRunner } from "../src/handoff-reception";
 import { legacyProjectSlug } from "../src/project-identity";
 import { resolve as pathResolve } from "node:path";
-import type { GhCall, GhRunner } from "../src/handoff-gist";
+import type { GhCall, GhRunner } from "../src/handoff-transport";
 
 function payload(overrides: Record<string, unknown> = {}) {
   return {

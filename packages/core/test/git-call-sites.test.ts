@@ -16,7 +16,7 @@ import { join } from "node:path";
 import { builtinTools } from "../src/builtin-tools";
 import { DevelopmentLaneService } from "../src/development-lane-service";
 import { gitAnchor } from "../src/handoff";
-import { cloneHandoffRepo } from "../src/handoff-coldstart";
+import { cloneHandoffRepo } from "../src/handoff-reception";
 import { canonicalRemoteSlug, prepareProjectIdentity, prepareProjectIdentityNow } from "../src/project-identity";
 import { retroSignature, type RetroFinding } from "../src/retro";
 import { applyRetroApplication } from "../src/retro-apply";

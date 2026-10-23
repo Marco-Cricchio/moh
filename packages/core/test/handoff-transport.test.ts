@@ -17,10 +17,13 @@ import {
   readRawHandoff,
   handoffAlreadyPublished,
   handoffPublishedMarkerFile,
+  createGistHandoffTransport,
+  handoffGistTag,
+  type GhCall,
+  type GhRunner,
   type HandoffPayload,
   type HandoffTransport,
 } from "../src/handoff-transport";
-import { createGistHandoffTransport, handoffGistTag, type GhCall, type GhRunner } from "../src/handoff-gist";
 import { canonicalRemoteSlug } from "../src/project-identity";
 
 /** canonicalRemoteUrl against a real git repo with the given origin (tests). */

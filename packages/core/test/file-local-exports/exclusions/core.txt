@@ -19,7 +19,7 @@ packages/core/src/development-lane-service.ts LaneServiceOptions entry exported 
 packages/core/src/development-lanes.ts CreateFeatureGroupInput entry exported by the package entry @moh/core
 packages/core/src/development-lanes.ts CreateLaneInput entry exported by the package entry @moh/core
 packages/core/src/extensions.ts ExtensionCommandRefusal signature named by the inferred return type of AgentSession.extensionCommandRefusals and the declared return type of ExtensionRuntime.commandRefusals, public methods of documented classes; without export --declaration fails with TS4053
-packages/core/src/handoff-gist.ts DiscoverGistHandoffsOptions entry exported by the package entry @moh/core
+packages/core/src/handoff-transport.ts DiscoverGistHandoffsOptions entry exported by the package entry @moh/core
 packages/core/src/handoff-transport.ts PublishHandoffOptions entry exported by the package entry @moh/core
 packages/core/src/handoff-transport.ts PublishHandoffResult entry exported by the package entry @moh/core
 packages/core/src/mentions.ts AssembleMentionsOptions entry exported by the package entry @moh/core

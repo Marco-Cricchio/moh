@@ -541,13 +541,13 @@ export {
   type GhRunner,
   type GistHandoffOffer,
   type DiscoverGistHandoffsOptions,
-} from "./handoff-gist";
+} from "./handoff-transport";
 export {
   cloneHandoffRepo,
   // Cold-directory wizard (#595): the gate, clone and pull steps.
   isColdDirectory,
   pullHandoffTo,
-} from "./handoff-coldstart";
+} from "./handoff-reception";
 export {
   // Reception (T3 #436) and Wayfinder read/cite (T6 #439) client surfaces.
   discoverHandoff,
@@ -557,14 +557,14 @@ export {
   type HandoffOffer,
   type DiscoverHandoffOptions,
 } from "./handoff-reception";
-export { handoffDebug } from "./handoff-debug";
+export { handoffDebug } from "./handoff-reception";
 export { HandoffRunner, transportActive, type RawHandoff, type HandoffGitAnchor } from "./handoff";
-export { enrichHandoffWithWayfinder, notifyClaimedWayfinderTickets } from "./handoff-wayfinder";
+export { enrichHandoffWithWayfinder, notifyClaimedWayfinderTickets } from "./handoff";
 export {
   // Manual file fallback (T7 #440): export/import via file.
   exportHandoffFile,
   importHandoffFile,
-} from "./handoff-file";
+} from "./handoff-transport";
 export {
   loadMergedConfig,
   readUserProviderConfig,

@@ -22,8 +22,14 @@ import { RetroStore } from "../src/retro";
 import { updateUserConfigFile } from "../src/user-config";
 import { updateCacheFile, writeUpdateCache } from "../src/update-check";
 import { HandoffRunner } from "../src/handoff";
-import { exportHandoffFile, importHandoffFile, importedHandoffFile } from "../src/handoff-file";
-import { handoffPublishedMarkerFile, publishHandoffAtExit, type HandoffTransport } from "../src/handoff-transport";
+import {
+  exportHandoffFile,
+  handoffPublishedMarkerFile,
+  importHandoffFile,
+  importedHandoffFile,
+  publishHandoffAtExit,
+  type HandoffTransport,
+} from "../src/handoff-transport";
 import { MemoryStore } from "../src/memory";
 import { acknowledgeStrandedData } from "../src/project-identity";
 import { MpmStore } from "../src/mpm/store";

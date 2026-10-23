@@ -9,7 +9,7 @@ import {
   type RawHandoff,
 } from "@moh/core";
 import { buildRawHandoff } from "../src/handoff";
-import { importedHandoffFile, readImportedHandoff } from "../src/handoff-file";
+import { importedHandoffFile, readImportedHandoff } from "../src/handoff-transport";
 
 function tmpRoot(): { root: string; cwd: string; home: string } {
   const root = mkdtempSync(join(tmpdir(), "moh-handoff-file-"));
