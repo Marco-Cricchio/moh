@@ -13,12 +13,11 @@
  *   are refused cleanly (JSON-RPC -32601) and the refusal is recorded in
  *   the session log as an `mcp_refused` event.
  *
- * Internal layout: types.ts, errors.ts,
- * json-rpc.ts, transport-stdio.ts, transport-http.ts, runtime.ts.
+ * Internal layout: types.ts, json-rpc.ts,
+ * transport-stdio.ts, transport-http.ts, runtime.ts.
  */
 import type { AgentEvent, Tool, ToolContext } from "../types";
-import { MCP_HANDSHAKE_TIMEOUT_MS, PROTOCOL_VERSION, mcpToolName, type DeclaredMcpServer, type McpConsentAnswer, type McpServerState } from "./types";
-import { McpError } from "./errors";
+import { MCP_HANDSHAKE_TIMEOUT_MS, PROTOCOL_VERSION, mcpToolName, McpError, type DeclaredMcpServer, type McpConsentAnswer, type McpServerState } from "./types";
 import type { Connection, ServerHandlers } from "./json-rpc";
 import { StdioConnection } from "./transport-stdio";
 import { HttpConnection } from "./transport-http";
