@@ -16,7 +16,7 @@ error: Should not already be working.
       at execFileSync
       at canonicalRemoteSlug   (core/project-identity.ts)
       at listSessionSummaries  (core/session-store.ts)
-      at isColdDirectory       (core/handoff-coldstart.ts)
+      at isColdDirectory       (core/handoff-reception.ts)
       at <anonymous>           (tui/App.tsx — mount-time passive effect)
 ```
 
@@ -118,7 +118,8 @@ call site:
   synchronous test, and `prepareProjectIdentityNow` is the twin for entry
   points that run outside React (`renderTui`, before the first frame).
 - `App` mounts its tree **only once the identity is prepared** (the
-  `IdentityGate` wrapper in `packages/tui/src/App.tsx`). A plain
+  readiness gate in `packages/tui/src/App.tsx`, built on
+  `isProjectIdentityPrepared` and `prepareProjectIdentity`). A plain
   `render(<App/>)` — a test, an embed, a future entry point — can no longer
   make Ink die; a cold mount shows a boot frame for the duration of one
   async `git` probe, a warmed one (the installed TUI) paints its real first
@@ -144,7 +145,7 @@ workaround obliged by it):
   #595 crash and the missing-executable throw (kept as plain economy).
 - `packages/core/src/project-identity.ts` — the "deliberately NOT memoized"
   note that named the TUI warm-up as the safety argument.
-- `packages/core/src/handoff-coldstart.ts` — `isColdDirectory` is
+- `packages/core/src/handoff-reception.ts` — `isColdDirectory` is
   filesystem-only *because* a spawn in a mount-time effect crashed Ink; the
   rule stands, the reason is now the boot rather than the gate's fork.
 - `packages/tui/src/file-index.ts` and `packages/tui/src/Home.tsx` — the
@@ -175,3 +176,7 @@ The decision above is unchanged. This amendment records the spawn path that the 
 ### References
 
 - #1427 and PR #1582 (merge commit `e16bc62d`).
+
+## Amendment — ablation (2026-10-23)
+
+The decision above is unchanged. This amendment updates the module references after the handoff family was split (#1451, PR #1612): the cold-directory check that the stack excerpt and the file list name now lives in `packages/core/src/handoff-reception.ts` (it was in the former cold-start module). The mount-time gate that the #939 amendment describes is the readiness check in the App itself, not a wrapper component: `packages/tui/src/App.tsx` holds its first render on `isProjectIdentityPrepared(cwd, home)` and resolves the identity through `prepareProjectIdentity(cwd, home)`. It adds no decision.
