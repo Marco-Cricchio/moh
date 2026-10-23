@@ -244,7 +244,8 @@ type PendingCall = {
   usageProvenance?: UsageProvenance;
 };
 
-/** #1442: what one provider stream produced, filled as it is consumed. */
+/** #1442: what one provider stream produced, filled as it is consumed.
+ * `sawFinish` records that a `finish` event arrived, whatever its reason. */
 type ConsumedStream = {
   text: string;
   toolCalls: ToolCall[];
@@ -252,10 +253,11 @@ type ConsumedStream = {
   sawText: boolean;
   sawToolCalls: boolean;
   sawUsage: boolean;
+  sawFinish: boolean;
 };
 
 function emptyConsumedStream(): ConsumedStream {
-  return { text: "", toolCalls: [], finishReason: null, sawText: false, sawToolCalls: false, sawUsage: false };
+  return { text: "", toolCalls: [], finishReason: null, sawText: false, sawToolCalls: false, sawUsage: false, sawFinish: false };
 }
 
 /**
@@ -502,8 +504,15 @@ export class AgentLoop {
    * arrive — so a caller's catch still sees what the stream produced
    * before it threw — and returns it; every policy around the stream
    * (retry, error, empty completion, cancellation) stays with the caller.
-   * The abort check runs before each event. */
-  async #consumeStream(provider: Provider, signal: AbortSignal, toolSpecs: ToolSpec[], into: ConsumedStream): Promise<ConsumedStream> {
+   * The abort check runs before each event. In `wrapUp` mode the stream's
+   * tool-call events are not processed at all, as the wrap-up never did. */
+  async #consumeStream(
+    provider: Provider,
+    signal: AbortSignal,
+    toolSpecs: ToolSpec[],
+    into: ConsumedStream,
+    wrapUp: boolean,
+  ): Promise<ConsumedStream> {
     for await (const event of provider.stream(this.#messages, signal, toolSpecs, this.#streamOptions())) {
       if (signal.aborted) break;
       if (event.type === "text_delta") {
@@ -512,8 +521,10 @@ export class AgentLoop {
         into.text += event.text;
         this.#append({ type: "assistant_delta", text: event.text });
       } else if (event.type === "tool_calls") {
-        if (event.calls.length > 0) into.sawToolCalls = true;
-        into.toolCalls.push(...event.calls);
+        if (!wrapUp) {
+          if (event.calls.length > 0) into.sawToolCalls = true;
+          into.toolCalls.push(...event.calls);
+        }
       } else if (event.type === "model_call_start") {
         // A new call starts: record the previous one, then open a buffer
         // for this one (#83). Mid-stream fallbacks announce a second
@@ -535,6 +546,7 @@ export class AgentLoop {
         this.#consumeUsage(event);
       } else if (event.type === "finish") {
         into.finishReason = event.reason;
+        into.sawFinish = true;
       }
     }
     return into;
@@ -677,12 +689,12 @@ export class AgentLoop {
         this.#callId = "";
         this.#attemptIndex = 0;
         this.#iterationReasoning = [];
-        // #1442: the wrap-up reads only the text and whether the stream
-        // finished — its tool calls, usage flags and empty completions are
-        // ignored, as they always were.
+        // #1442: the wrap-up reads only the text and whether a `finish`
+        // arrived (any reason) — its tool calls, usage flags and empty
+        // completions are ignored, as they always were.
         let wrap: ConsumedStream;
         try {
-          wrap = await this.#consumeStream(provider, controller.signal, [], emptyConsumedStream());
+          wrap = await this.#consumeStream(provider, controller.signal, [], emptyConsumedStream(), true);
         } catch (err) {
           // The wrap-up is best-effort: a failing final call degrades to the
           // historical cap error rather than masking it. Its partial call is
@@ -701,7 +713,7 @@ export class AgentLoop {
           this.#append({ type: "error", reason: "max_iterations", message: `iteration cap of ${this.#maxIterations} reached` });
           return { status: "error", reason: "max_iterations", message: "iteration cap reached" };
         }
-        if (wrap.finishReason === null) {
+        if (!wrap.sawFinish) {
           // #243: the wrap-up stream ended without a finalized provider
           // message (abort or premature end) — nothing is checkpointed.
           this.#discardPendingCall();
@@ -765,7 +777,7 @@ export class AgentLoop {
               ? { parameters: wireToolSchema(t.inputSchema) as Record<string, unknown> }
               : {}),
           }));
-          await this.#consumeStream(provider, controller.signal, toolSpecs, consumed);
+          await this.#consumeStream(provider, controller.signal, toolSpecs, consumed, false);
           break;
         } catch (err) {
           if (controller.signal.aborted) break;
