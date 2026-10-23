@@ -7,7 +7,7 @@
  */
 import { describe, expect, test } from "bun:test";
 import type { JevAnswer, JevJudgeInput, JevOutcome } from "../src/client";
-import { createRoutingJudge } from "../src/routing-judge";
+import { createRoutingJudge } from "../src/routing";
 
 /** Real messages, in the order they are sent. */
 const GOLDEN: { message: string; tier: "economico" | "bilanciato" | "potente" }[] = [

@@ -25,9 +25,9 @@
 import { defineExtension, MOH_EXTENSION_API_VERSION, type ExtensionDefinition, type ExtensionSetupContext } from "@moh/extension";
 import { createJevClient, hostTransport, type JevClientOptions, type JevTransport } from "./client";
 import { TYPESAFE_CREDENTIAL_REF } from "./typesafe";
-import { createGuardrailJudge, GUARDRAIL_TOOL } from "./guardrail-judge";
-import { createCompactionJudge } from "./compaction-judge";
-import { createRoutingJudge, OWNER_SESSION, type RoutingPool, type RoutingSession } from "./routing-judge";
+import { createGuardrailJudge, GUARDRAIL_TOOL } from "./guardrail";
+import { createCompactionJudge } from "./compaction";
+import { createRoutingJudge, OWNER_SESSION, type RoutingJudge, type RoutingPool, type RoutingSession } from "./routing";
 import {
   MAX_MODEL_RETRY_ATTEMPTS,
   canRetry,
@@ -38,21 +38,18 @@ import {
   startTurn,
   type ModelRetryState,
 } from "./model-retry";
-import { createInjectionJudge } from "./injection-judge";
-import { INJECTION_TOOLS } from "./injection";
+import { createInjectionJudge, INJECTION_TOOLS } from "./injection";
 import { createLintGate } from "./lint-gate";
-import { createLintJudge } from "./lint-judge";
-import { createClassificationJudge, classificationQuestions } from "./classification-judge";
-import { createRerankJudge } from "./rerank-judge";
-import { createSkillSuggestJudge } from "./skill-judge";
-import type { SkillCandidate } from "./skills";
+import { createLintJudge } from "./lint";
+import { createClassificationJudge, classificationQuestions } from "./classification";
+import { createRerankJudge } from "./rerank";
+import { createSkillSuggestJudge, type SkillCandidate } from "./skills";
 import {
   createUseCaseControl,
   type JevUseCaseOutcome,
   type JevUseCaseState,
   type UseCaseControl,
 } from "./use-cases";
-import type { RoutingJudge } from "./routing-judge";
 
 /** The extension's name, as stamped in the log and shown in the footer. */
 export const JEV_GUARD_NAME = "jev-guard";
@@ -1040,7 +1037,7 @@ export {
   type CompactionJudge,
   type CompactionUnjudgedReason,
   type JudgedSection,
-} from "./compaction-judge";
+} from "./compaction";
 export {
   INJECTION_INPUT_MAX_BYTES,
   INJECTION_QUESTIONS,
@@ -1063,7 +1060,7 @@ export {
   type InjectionJudge,
   type InjectionToolCall,
   type InjectionToolVerdict,
-} from "./injection-judge";
+} from "./injection";
 export {
   CLASSIFICATION_MESSAGE_MAX_BYTES,
   CLASSIFICATION_QUESTIONS,
@@ -1082,7 +1079,7 @@ export {
   createClassificationJudge,
   type ClassificationJudge,
   type ClassificationVerdict,
-} from "./classification-judge";
+} from "./classification";
 export {
   decideGuardrail,
   GUARDRAIL_QUESTIONS,
@@ -1118,13 +1115,13 @@ export {
   type RoutingPool,
   type RoutingResolution,
   type RoutingVerdict,
-} from "./routing-judge";
+} from "./routing";
 export {
   askBadge,
   createGuardrailJudge,
   GUARDRAIL_TOOL,
   type GuardrailJudgeResult,
-} from "./guardrail-judge";
+} from "./guardrail";
 export {
   createGuardrailCache,
   gitSnapshot,
@@ -1153,7 +1150,7 @@ export {
   type LintGate,
   type LintTaskState,
 } from "./lint-gate";
-export { createLintJudge, lintFindings, type LintJudge, type LintState, type LintVerdict } from "./lint-judge";
+export { createLintJudge, lintFindings, type LintJudge, type LintState, type LintVerdict } from "./lint";
 export {
   discoverRubrics,
   RUBRIC_MAX_BYTES,
@@ -1181,7 +1178,7 @@ export {
   type RerankCandidate,
   type RerankRequest,
 } from "./rerank";
-export { createRerankJudge, type RerankJudge, type RerankJudgeDeps, type RerankVerdict } from "./rerank-judge";
+export { createRerankJudge, type RerankJudge, type RerankJudgeDeps, type RerankVerdict } from "./rerank";
 // #793: per-turn skill suggestion — the two-call cookbook. Call 1 ranks the
 // whole roster (bundled first-party + user skills, the session's own index)
 // plus the "does this turn need a skill at all?" gate; call 2 re-reads the
@@ -1204,7 +1201,7 @@ export {
   type RankedSkill,
   type SkillCandidate,
 } from "./skills";
-export { createSkillSuggestJudge, type SkillSuggestJudge, type SkillSuggestJudgeDeps, type SkillSuggestVerdict } from "./skill-judge";
+export { createSkillSuggestJudge, type SkillSuggestJudge, type SkillSuggestJudgeDeps, type SkillSuggestVerdict } from "./skills";
 
 // #826: the integration descriptor and the config surface this package owns
 // (moved out of `@moh/core`). A client mounts `jevBundledSource` into
