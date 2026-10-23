@@ -23,6 +23,11 @@ afterEach(() => {
 });
 
 const CEILING = 80;
+/** Microtask turns measured on the pre-#1444 implementation (cb2b0510). */
+const PINNED = {
+  compactionAbortToNextHook: 2,
+  inTime: { onToolCall: 5, afterTurn: 6, beforeModelCall: 4 },
+};
 const WINDOW = 40;
 
 async function runtimeWith(name: string, setup: (ctx: ExtensionSetupContext) => void): Promise<ExtensionRuntime> {
@@ -394,5 +399,132 @@ describe("the extension scope is active inside every capped hook", () => {
     await rt.dispatchBeforeModelCall(bmcCtx);
     expect(seen).toEqual({ onToolCall: "marked", beforeModelCall: "marked" });
     expect(currentExtensionScope()).toBeNull();
+  });
+});
+
+/** Counts microtask turns from `start()` on (bounded), to pin at which
+ * turn a dispatch resumes relative to an event inside a hook. */
+function microtaskCounter(limit = 64): { start: () => void; read: () => number } {
+  let n = 0;
+  const step = () => {
+    n += 1;
+    if (n < limit) queueMicrotask(step);
+  };
+  return { start: () => queueMicrotask(step), read: () => n };
+}
+
+describe("#1444 review: the timeout tie and the caller's resumption keep their microtask order", () => {
+  async function twoCompactionHooks(
+    a: (ctx: ExtensionSetupContext) => void,
+    b: (ctx: ExtensionSetupContext) => void,
+  ): Promise<ExtensionRuntime> {
+    const rt = await runtimeWith("a", a);
+    await rt.register(defineExtension({ name: "b", version: "1.0.0", apiVersion: MOH_EXTENSION_API_VERSION, setup: b }));
+    return rt;
+  }
+
+  test("a hook resolving inside abort() reaches onApplied(false) before the next hook starts", async () => {
+    const order: string[] = [];
+    const rt = await twoCompactionHooks(
+      (ctx) =>
+        ctx.onCompaction(
+          (c) =>
+            new Promise((resolve) => {
+              c.signal?.addEventListener("abort", () => {
+                order.push("a:abort");
+                resolve({ drop: ["s0"], onApplied: (x) => order.push(`a:onApplied(${String(x.applied)})`) });
+              });
+            }),
+        ),
+      (ctx) =>
+        ctx.onCompaction(() => {
+          order.push("b:start");
+          return { drop: [] };
+        }),
+    );
+    const out = await rt.dispatchCompaction(compactionCtx, 30);
+    order.push("dispatch-end");
+    expect(order).toEqual(["a:abort", "a:onApplied(false)", "b:start", "dispatch-end"]);
+    expect(out.drop).toEqual([]);
+    expect(out.errors).toEqual([
+      {
+        type: "extension_failed",
+        name: "a",
+        reason: "hook",
+        message: "the compaction hook did not answer within 30ms; no drops were applied",
+      },
+    ]);
+  });
+
+  test("the window's abort fires before the race resolves: the next hook starts on the same microtask turn", async () => {
+    const counter = microtaskCounter();
+    let atNext = -1;
+    const rt = await twoCompactionHooks(
+      (ctx) =>
+        ctx.onCompaction(
+          (c) =>
+            new Promise(() => {
+              c.signal?.addEventListener("abort", () => counter.start());
+            }),
+        ),
+      (ctx) =>
+        ctx.onCompaction(() => {
+          atNext = counter.read();
+          return { drop: [] };
+        }),
+    );
+    await rt.dispatchCompaction(compactionCtx, 30);
+    expect(atNext).toBe(PINNED.compactionAbortToNextHook);
+  });
+
+  test("a late answer whose onApplied getter throws stays harmless", async () => {
+    let ended = false;
+    const rt = await runtimeWith("getter", (ctx) =>
+      ctx.onCompaction(async () => {
+        await Bun.sleep(90);
+        ended = true;
+        return {
+          drop: [],
+          get onApplied(): never {
+            throw new Error("getter boom");
+          },
+        };
+      }),
+    );
+    const out = await rt.dispatchCompaction(compactionCtx, 30);
+    expect(out.errors).toEqual([
+      {
+        type: "extension_failed",
+        name: "getter",
+        reason: "hook",
+        message: "the compaction hook did not answer within 30ms; no drops were applied",
+      },
+    ]);
+    await waitFor(() => ended, "hook end");
+    await Bun.sleep(20);
+    expect(await drain(rt)).toEqual([]);
+  });
+
+  test("in time, onToolCall, afterTurn and beforeModelCall resume their caller on the same microtask turn", async () => {
+    const seen: Record<string, number> = {};
+    const counters = { onToolCall: microtaskCounter(), afterTurn: microtaskCounter(), beforeModelCall: microtaskCounter() };
+    const rt = await runtimeWith("counted", (ctx) => {
+      ctx.onToolCall(() => {
+        counters.onToolCall.start();
+      });
+      ctx.afterTurn(() => {
+        counters.afterTurn.start();
+      });
+      ctx.beforeModelCall(() => {
+        counters.beforeModelCall.start();
+      });
+    });
+    await rt.checkToolHooks({ callId: "c1", name: "echo", args: {} });
+    seen.onToolCall = counters.onToolCall.read();
+    await rt.dispatchAfterTurn({ status: "done" });
+    seen.afterTurn = counters.afterTurn.read();
+    await rt.dispatchBeforeModelCall(bmcCtx);
+    seen.beforeModelCall = counters.beforeModelCall.read();
+    expect(seen).toEqual(PINNED.inTime);
   });
 });
