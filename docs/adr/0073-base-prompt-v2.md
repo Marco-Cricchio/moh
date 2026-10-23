@@ -1,6 +1,6 @@
 # ADR-0073: Base prompt v2 — harness behavior distilled from the Claude Code and Codex prompt corpora
 
-Status: accepted · Date: 2026-10-04 · Related: ADR-0072 (moh_docs, whose prompt sentence v2 carries), #27 (PromptComposer)
+Status: superseded by ADR-0079 (base prompt v3) · Date: 2026-10-04 · Related: ADR-0072 (moh_docs, whose prompt sentence v2 carries), #27 (PromptComposer)
 
 ## Context
 

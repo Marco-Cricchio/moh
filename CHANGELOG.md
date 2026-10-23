@@ -7,6 +7,18 @@ matching section here at tag time.
 
 ## [Unreleased]
 
+### Changed
+
+- **Base prompt v3: lean by default** (ADR-0079, #1633): the shipped
+  prompt's Code section now asks for a caller for every abstraction, one
+  place per fact, extending the existing helper before writing one, and
+  deleting what a change leaves unused. New Tool use and Review sections;
+  rewriting git history (including `reset --hard`) only when explicitly
+  asked; insecure code is flagged and fixed when in scope.
+- **`moh init` scaffolds `docs/agents/code-quality.md`** (#1633): the lean
+  posture in repo terms, referenced from the AGENTS.md moh section, so any
+  harness reading the repository picks it up.
+
 ## [0.65.3] - 2026-10-23
 
 ### Changed
