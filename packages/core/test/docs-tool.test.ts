@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { docsTool } from "../src/docs-tool";
+import { docsTool } from "../src/builtin-tools";
 import { allManualPages, manualPage } from "../src/manual";
 
 const run = (args: unknown) => docsTool.execute(docsTool.inputSchema!.parse(args), {
