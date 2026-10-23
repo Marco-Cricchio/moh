@@ -1,17 +1,17 @@
 {
   "schemaVersion": 1,
-  "version": "0.65.2",
-  "generatedAt": "2026-10-13T09:09:41.010Z",
+  "version": "0.65.3",
+  "generatedAt": "2026-10-23T19:55:46.329Z",
   "sources": [
     {
       "name": "models.dev",
       "url": "https://models.dev/api.json",
-      "fetchedAt": "2026-10-13T09:09:40.451Z"
+      "fetchedAt": "2026-10-23T19:55:45.657Z"
     },
     {
       "name": "openrouter",
       "url": "https://openrouter.ai/api/v1/models",
-      "fetchedAt": "2026-10-13T09:09:40.819Z"
+      "fetchedAt": "2026-10-23T19:55:46.055Z"
     }
   ],
   "files": {
@@ -56,7 +56,7 @@
       }
     },
     "deepseek": {
-      "sha256": "c7d9cb033a6b62f224eca71ff7e594863ae05ed7bd68f12e41a16975c85b7fe4",
+      "sha256": "6583320f64f62cd38034657b4b2aa8644d45371d7df044cb6dfde5260f41bf34",
       "rows": 1,
       "verdicts": {
         "exact": 0,
@@ -76,10 +76,10 @@
       }
     },
     "github-copilot": {
-      "sha256": "efccc1dba97e29b7f7efa9e9852eda6ab97b772b9a674fa79d28c366b530a233",
-      "rows": 27,
+      "sha256": "0520657f1bf880cd5f6aa0f357c0ac68f86996ee9150f1d5dd05c73930c9013d",
+      "rows": 26,
       "verdicts": {
-        "exact": 27,
+        "exact": 26,
         "base-model": 0,
         "ambiguous": 0,
         "absent": 0
@@ -156,13 +156,13 @@
       }
     },
     "nvidia-nim": {
-      "sha256": "c9516614402843ac2e4ce3b5e45347cdf8dd265b5dc47cb68c3119667ba90918",
+      "sha256": "549a963bad2075d9be5640f2c6e9a494a810427d2e377e750234fc327f6a7f72",
       "rows": 1,
       "verdicts": {
-        "exact": 1,
+        "exact": 0,
         "base-model": 0,
         "ambiguous": 0,
-        "absent": 0
+        "absent": 1
       }
     },
     "openai-codex": {
@@ -176,17 +176,17 @@
       }
     },
     "opencode-go": {
-      "sha256": "4a370896cf1a084390a798c3edf8efec936522c7ba251aceedc5eb69fe4f8c53",
-      "rows": 28,
+      "sha256": "d4e8d181050f6ba0024e4978b4ab4036e1ffb952f8f5e36a6c54330b9804837d",
+      "rows": 26,
       "verdicts": {
-        "exact": 26,
-        "base-model": 2,
+        "exact": 20,
+        "base-model": 6,
         "ambiguous": 0,
         "absent": 0
       }
     },
     "opencode-zen": {
-      "sha256": "acd494a8d7cd99bf35c123e822edba79977b677798f57e88163e737b61fde95e",
+      "sha256": "ed0b4345c36e36508e81b370f64885863ea0ee3e37f34d33ffc00e5aff8030e8",
       "rows": 69,
       "verdicts": {
         "exact": 67,
@@ -196,10 +196,10 @@
       }
     },
     "openrouter": {
-      "sha256": "9e9f5cfa930ff6c3c82c85b1c74e0e62e982525a0b0e2d983bd1caaa0dd2899a",
-      "rows": 348,
+      "sha256": "d856ae3604d66d0610d25ed3bff9d621cc31837fd4a53e03d4c10f3d03b4ba78",
+      "rows": 342,
       "verdicts": {
-        "exact": 323,
+        "exact": 317,
         "base-model": 1,
         "ambiguous": 0,
         "absent": 24
@@ -246,10 +246,10 @@
       }
     },
     "xiaomi-mimo": {
-      "sha256": "c60eea847c113c8b8ab586556aa233d6bba1f111d4c0efcf28e616f391619aaf",
-      "rows": 1,
+      "sha256": "850066d98608aa1674da8d01de9e1ca5aad9cb826f0cfdbe452d8f637506c7bd",
+      "rows": 2,
       "verdicts": {
-        "exact": 1,
+        "exact": 2,
         "base-model": 0,
         "ambiguous": 0,
         "absent": 0
@@ -932,21 +932,6 @@
       ],
       "overrides": []
     },
-    "github-copilot/mai-code-1-flash-picker": {
-      "provider": "github-copilot",
-      "id": "mai-code-1-flash-picker",
-      "verdict": "exact",
-      "source": "models.dev",
-      "namespace": "github-copilot",
-      "supplied": [
-        "cost",
-        "contextWindow",
-        "maxTokens",
-        "reasoning",
-        "input"
-      ],
-      "overrides": []
-    },
     "github-copilot/mai-code-1.1-flash": {
       "provider": "github-copilot",
       "id": "mai-code-1.1-flash",
@@ -1448,16 +1433,8 @@
     "nvidia-nim/meta/llama-3.3-70b-instruct": {
       "provider": "nvidia-nim",
       "id": "meta/llama-3.3-70b-instruct",
-      "verdict": "exact",
-      "source": "models.dev",
-      "namespace": "nvidia",
-      "supplied": [
-        "cost",
-        "contextWindow",
-        "maxTokens",
-        "reasoning",
-        "input"
-      ],
+      "verdict": "absent",
+      "supplied": [],
       "overrides": [
         "contextWindow"
       ]
@@ -1624,31 +1601,15 @@
       ],
       "overrides": []
     },
-    "opencode-go/qwen3.6-plus": {
-      "provider": "opencode-go",
-      "id": "qwen3.6-plus",
-      "verdict": "exact",
-      "source": "models.dev",
-      "namespace": "opencode-go",
-      "supplied": [
-        "cost",
-        "contextWindow",
-        "maxTokens",
-        "reasoning",
-        "input"
-      ],
-      "overrides": []
-    },
     "opencode-go/qwen3.7-max": {
       "provider": "opencode-go",
       "id": "qwen3.7-max",
-      "verdict": "exact",
-      "source": "models.dev",
-      "namespace": "opencode-go",
+      "verdict": "base-model",
+      "source": "openrouter",
+      "namespace": "qwen/qwen3.7-max",
       "supplied": [
         "cost",
         "contextWindow",
-        "maxTokens",
         "reasoning",
         "input"
       ],
@@ -1702,13 +1663,12 @@
     "opencode-go/deepseek-v4-flash": {
       "provider": "opencode-go",
       "id": "deepseek-v4-flash",
-      "verdict": "exact",
-      "source": "models.dev",
-      "namespace": "opencode-go",
+      "verdict": "base-model",
+      "source": "openrouter",
+      "namespace": "deepseek/deepseek-v4-flash",
       "supplied": [
         "cost",
         "contextWindow",
-        "maxTokens",
         "reasoning",
         "input"
       ],
@@ -1717,13 +1677,12 @@
     "opencode-go/deepseek-v4-flash-vision-exp": {
       "provider": "opencode-go",
       "id": "deepseek-v4-flash-vision-exp",
-      "verdict": "exact",
-      "source": "models.dev",
-      "namespace": "opencode-go",
+      "verdict": "base-model",
+      "source": "openrouter",
+      "namespace": "deepseek/deepseek-v4-flash-vision-exp",
       "supplied": [
         "cost",
         "contextWindow",
-        "maxTokens",
         "reasoning",
         "input"
       ],
@@ -1851,13 +1810,12 @@
     "opencode-go/kimi-k2.6": {
       "provider": "opencode-go",
       "id": "kimi-k2.6",
-      "verdict": "exact",
-      "source": "models.dev",
-      "namespace": "opencode-go",
+      "verdict": "base-model",
+      "source": "openrouter",
+      "namespace": "moonshotai/kimi-k2.6",
       "supplied": [
         "cost",
         "contextWindow",
-        "maxTokens",
         "reasoning",
         "input"
       ],
@@ -1941,21 +1899,6 @@
     "opencode-go/gpt-5.6-luna": {
       "provider": "opencode-go",
       "id": "gpt-5.6-luna",
-      "verdict": "exact",
-      "source": "models.dev",
-      "namespace": "opencode-go",
-      "supplied": [
-        "cost",
-        "contextWindow",
-        "maxTokens",
-        "reasoning",
-        "input"
-      ],
-      "overrides": []
-    },
-    "opencode-go/grok-4.6": {
-      "provider": "opencode-go",
-      "id": "grok-4.6",
       "verdict": "exact",
       "source": "models.dev",
       "namespace": "opencode-go",
@@ -3179,21 +3122,6 @@
       ],
       "overrides": []
     },
-    "openrouter/anthropic/claude-sonnet-4": {
-      "provider": "openrouter",
-      "id": "anthropic/claude-sonnet-4",
-      "verdict": "exact",
-      "source": "models.dev",
-      "namespace": "openrouter",
-      "supplied": [
-        "cost",
-        "contextWindow",
-        "maxTokens",
-        "reasoning",
-        "input"
-      ],
-      "overrides": []
-    },
     "openrouter/anthropic/claude-sonnet-4.5": {
       "provider": "openrouter",
       "id": "anthropic/claude-sonnet-4.5",
@@ -3772,21 +3700,6 @@
       ],
       "overrides": []
     },
-    "openrouter/deepseek/deepseek-r1": {
-      "provider": "openrouter",
-      "id": "deepseek/deepseek-r1",
-      "verdict": "exact",
-      "source": "models.dev",
-      "namespace": "openrouter",
-      "supplied": [
-        "cost",
-        "contextWindow",
-        "maxTokens",
-        "reasoning",
-        "input"
-      ],
-      "overrides": []
-    },
     "openrouter/deepseek/deepseek-r1-0528": {
       "provider": "openrouter",
       "id": "deepseek/deepseek-r1-0528",
@@ -3995,38 +3908,6 @@
       ],
       "overrides": []
     },
-    "openrouter/google/gemini-2.5-flash-lite:batch": {
-      "provider": "openrouter",
-      "id": "google/gemini-2.5-flash-lite:batch",
-      "verdict": "exact",
-      "source": "openrouter",
-      "namespace": "google/gemini-2.5-flash-lite:batch",
-      "supplied": [
-        "cost",
-        "contextWindow",
-        "reasoning",
-        "input"
-      ],
-      "overrides": [
-        "maxTokens"
-      ]
-    },
-    "openrouter/google/gemini-2.5-flash:batch": {
-      "provider": "openrouter",
-      "id": "google/gemini-2.5-flash:batch",
-      "verdict": "exact",
-      "source": "openrouter",
-      "namespace": "google/gemini-2.5-flash:batch",
-      "supplied": [
-        "cost",
-        "contextWindow",
-        "reasoning",
-        "input"
-      ],
-      "overrides": [
-        "maxTokens"
-      ]
-    },
     "openrouter/google/gemini-2.5-pro": {
       "provider": "openrouter",
       "id": "google/gemini-2.5-pro",
@@ -4068,22 +3949,6 @@
         "maxTokens",
         "reasoning",
         "input"
-      ]
-    },
-    "openrouter/google/gemini-2.5-pro:batch": {
-      "provider": "openrouter",
-      "id": "google/gemini-2.5-pro:batch",
-      "verdict": "exact",
-      "source": "openrouter",
-      "namespace": "google/gemini-2.5-pro:batch",
-      "supplied": [
-        "cost",
-        "contextWindow",
-        "reasoning",
-        "input"
-      ],
-      "overrides": [
-        "maxTokens"
       ]
     },
     "openrouter/google/gemini-3-flash-preview": {
@@ -4541,21 +4406,6 @@
     "openrouter/inclusionai/ling-3.0-flash": {
       "provider": "openrouter",
       "id": "inclusionai/ling-3.0-flash",
-      "verdict": "exact",
-      "source": "models.dev",
-      "namespace": "openrouter",
-      "supplied": [
-        "cost",
-        "contextWindow",
-        "maxTokens",
-        "reasoning",
-        "input"
-      ],
-      "overrides": []
-    },
-    "openrouter/inclusionai/ling-3.0-flash-fin": {
-      "provider": "openrouter",
-      "id": "inclusionai/ling-3.0-flash-fin",
       "verdict": "exact",
       "source": "models.dev",
       "namespace": "openrouter",
@@ -8372,9 +8222,24 @@
       ],
       "overrides": []
     },
-    "xiaomi-mimo/mimo-v2-flash": {
+    "xiaomi-mimo/mimo-v2.6-flash": {
       "provider": "xiaomi-mimo",
-      "id": "mimo-v2-flash",
+      "id": "mimo-v2.6-flash",
+      "verdict": "exact",
+      "source": "models.dev",
+      "namespace": "xiaomi",
+      "supplied": [
+        "cost",
+        "contextWindow",
+        "maxTokens",
+        "reasoning",
+        "input"
+      ],
+      "overrides": []
+    },
+    "xiaomi-mimo/mimo-v2.6-pro": {
+      "provider": "xiaomi-mimo",
+      "id": "mimo-v2.6-pro",
       "verdict": "exact",
       "source": "models.dev",
       "namespace": "xiaomi",

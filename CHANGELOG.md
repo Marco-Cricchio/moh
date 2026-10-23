@@ -9,6 +9,16 @@ matching section here at tag time.
 
 ### Fixed
 
+- **The model catalog follows provider retirements** (catalog refresh for
+  0.65.3): models their providers no longer offer leave the catalog —
+  six OpenRouter listings (`anthropic/claude-sonnet-4`,
+  `deepseek/deepseek-r1`, three `gemini-2.5-*:batch` variants,
+  `inclusionai/ling-3.0-flash-fin`), GitHub Copilot's MAI Code 1 Flash
+  picker, Xiaomi MiMo-V2-Flash, and OpenCode Go's `qwen3.6-plus` and
+  `grok-4.6`. Xiaomi MiMo now ships MiMo-V2.6-Flash and V2.6-Pro, and
+  onboarding proposes `mimo-v2.6-flash` as its default model.
+  `meta-llama/llama-4-maverick` on OpenRouter takes the 524,288-token
+  window the provider now declares.
 - **Installed user extensions load at runtime, not only in `moh extension
   list`** (#1373): a package installed into `~/.moh/extensions/<name>/` is
   now discovered at session start through its `moh.extension.json` and
