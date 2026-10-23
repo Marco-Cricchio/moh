@@ -14,7 +14,7 @@ import {
   gitSnapshot,
   guardrailStateKey,
 } from "../src/session-state";
-import { askBadge, createGuardrailJudge } from "../src/guardrail-judge";
+import { askBadge, createGuardrailJudge } from "../src/guardrail";
 import type { JevClient, JevOutcome } from "../src/client";
 
 // #1165: fake seam runner — a fixed "branch:clean" snapshot off-repo-free.

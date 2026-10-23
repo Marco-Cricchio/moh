@@ -5,7 +5,7 @@
  * phrase it. Every test drives a fake client: no network anywhere.
  */
 import { describe, expect, test } from "bun:test";
-import { createGuardrailJudge } from "../src/guardrail-judge";
+import { createGuardrailJudge } from "../src/guardrail";
 import type { JevClient, JevOutcome } from "../src/client";
 
 const okOutcome = (answers: Record<string, unknown>): JevOutcome => ({

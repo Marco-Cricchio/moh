@@ -9,7 +9,7 @@
 import { describe, expect, test } from "bun:test";
 import { createJevGuardExtension } from "../src/index";
 import type { RoutingModel } from "../src/routing";
-import type { RoutingPool } from "../src/routing-judge";
+import type { RoutingPool } from "../src/routing";
 import { emitEvent, fakeCtx, runModelError, runTurn, type FakeCtx } from "./extension.test-utils";
 import { transportFromFetch } from "../src/client";
 const transportOf = (impl: unknown) => transportFromFetch(impl as Parameters<typeof transportFromFetch>[0]);
