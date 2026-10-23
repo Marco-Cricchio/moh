@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test";
 import { z } from "zod";
-import { wireToolSchema } from "../src/session/wire-schema";
+import { wireToolSchema } from "../src/session/agent-loop";
 
 describe("wireToolSchema (#1324)", () => {
   const gen = (schema: z.ZodType) => wireToolSchema(schema as never);

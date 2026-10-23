@@ -2,8 +2,7 @@ import { z } from "zod";
 import type { AskUserAnswer, AskUserQuestion, AskUserSetResult, Tool } from "./types";
 import type { FilesystemScope } from "./permissions";
 import { resolve, isAbsolute, relative, join, dirname } from "node:path";
-import { chmodSync, mkdirSync, mkdtempSync, readdirSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
-import { boundedTest, compileSearchRegex, statIdentity, writeGuarded } from "./tool-guards.js";
+import { chmodSync, closeSync, constants as fsConstants, fstatSync, mkdirSync, mkdtempSync, openSync, readdirSync, realpathSync, rmSync, statSync, writeFileSync, writeSync } from "node:fs";
 import { redactString } from "./redact.js";
 import { tmpdir } from "node:os";
 import { request as httpRequest } from "node:http";
@@ -17,9 +16,161 @@ import { pipeline } from "node:stream/promises";
 // necessary, and why the laziness bought nothing.
 import { browserAvailability, BrowserSession } from "./browser";
 import { browserTool } from "./browser-tool";
-import { docsTool } from "./docs-tool";
+import { allManualPages, manualIndex, manualPage } from "./manual";
 import { gitSync } from "./git";
 import { isPrivateHost } from "./net-guard";
+
+/** #1262 (ReDoS): the grep tool compiles a model-supplied pattern. JS has
+ * no regex timeout, so the bound comes from input caps instead: the
+ * pattern's own length, and the subject each test runs against. */
+const MAX_PATTERN_LENGTH = 1_000;
+const MAX_SUBJECT_LENGTH = 8_192;
+
+export function compileSearchRegex(pattern: string): RegExp {
+  if (pattern.length > MAX_PATTERN_LENGTH) {
+    throw new Error(`regex pattern too long (${pattern.length} chars; max ${MAX_PATTERN_LENGTH})`);
+  }
+  try {
+    return new RegExp(pattern);
+  } catch (e) {
+    throw new Error(`invalid regex pattern: ${e instanceof Error ? e.message : String(e)}`);
+  }
+}
+
+export function boundedTest(re: RegExp, line: string): boolean {
+  const subject = line.length > MAX_SUBJECT_LENGTH ? line.slice(0, MAX_SUBJECT_LENGTH) : line;
+  return re.test(subject);
+}
+
+/** #1262 (TOCTOU): `resolvedInRoot` realpaths the target, but the write
+ * happened later, through a fresh open that follows symlinks — a path
+ * swapped to an outside symlink between check and use escaped the root.
+ * The close: open the fd with `O_NOFOLLOW` and pin it to the identity
+ * observed at check time. */
+type FileIdentity = { dev: number; ino: number };
+
+export function statIdentity(path: string): FileIdentity | null {
+  try {
+    const st = statSync(path);
+    return { dev: st.dev, ino: st.ino };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Opens `abs` for writing under the containment check's observation.
+ * `prior` is the identity captured when the path was resolved: non-null
+ * for a file that existed (the fd must land on that exact file — a
+ * symlink swap fails with ELOOP, a rename swap fails the identity
+ * match), null for a planned new file (opened exclusively — a path that
+ * appeared meanwhile is refused, never truncated).
+ */
+export function openGuardedWriteFd(abs: string, prior: FileIdentity | null): number {
+  const flags = fsConstants.O_WRONLY | fsConstants.O_NOFOLLOW | (prior === null ? fsConstants.O_CREAT | fsConstants.O_EXCL : fsConstants.O_TRUNC);
+  const fd = openSync(abs, flags, 0o666);
+  try {
+    if (prior !== null) {
+      const st = fstatSync(fd);
+      if (st.dev !== prior.dev || st.ino !== prior.ino) {
+        throw new Error(`target changed between the containment check and the write: ${abs}`);
+      }
+    }
+  } catch (e) {
+    closeSync(fd);
+    throw e;
+  }
+  return fd;
+}
+
+/** Writes through a guarded fd and always closes it. Returns bytes written. */
+export function writeGuarded(abs: string, prior: FileIdentity | null, data: string): number {
+  if (prior === null) mkdirSync(dirname(abs), { recursive: true });
+  const fd = openGuardedWriteFd(abs, prior);
+  try {
+    return writeSync(fd, data);
+  } finally {
+    closeSync(fd);
+  }
+}
+
+/*
+ * The `moh_docs` built-in tool (#1194, ADR-0072): the model's door to the
+ * bundled user manual (ADR-0013). Read-only over content compiled into the
+ * binary — no filesystem, no network — so a binary-only install answers
+ * questions about moh itself from the shipped documentation instead of
+ * trained memory.
+ */
+/** Excerpt context: characters of a match line kept either side. */
+const EXCERPT_CONTEXT = 120;
+/** Maximum excerpts returned by one search. */
+const MAX_EXCERPTS = 40;
+
+const docsSchema = z.object({
+  op: z.enum(["index", "read", "search"]).describe("index = page list, read = one page by id, search = keyword query"),
+  id: z.string().optional().describe("page id (read): see index"),
+  query: z.string().optional().describe("plain keywords (search)"),
+});
+type DocsArgs = z.infer<typeof docsSchema>;
+
+/** One case-insensitive line match, rendered as a bounded excerpt. */
+function excerpt(line: string, query: string): string | null {
+  const at = line.toLowerCase().indexOf(query.toLowerCase());
+  if (at === -1) return null;
+  const start = Math.max(0, at - EXCERPT_CONTEXT);
+  const end = Math.min(line.length, at + query.length + EXCERPT_CONTEXT);
+  return `${start > 0 ? "…" : ""}${line.slice(start, end).trim()}${end < line.length ? "…" : ""}`;
+}
+
+export const docsTool: Tool<DocsArgs> = {
+  name: "moh_docs",
+  description:
+    "Search moh's own user manual (bundled, version-matched to this binary). " +
+    "Use for ANY question about moh itself — capabilities, commands, panels, " +
+    "overlays, config keys, permissions, providers, extensions — before " +
+    "answering from memory. op=index lists pages, op=read gives one full page, " +
+    "op=search finds excerpts by keyword. Cite answers as `Manual → <Title>`; " +
+    "if no page covers the question, say the manual doesn't cover it.",
+  inputSchema: docsSchema,
+  execute(args) {
+    if (args.op === "index") {
+      const lines = manualIndex().map((p) => `- ${p.id}: ${p.title} — ${p.summary}`);
+      return [`moh manual pages:`, ...lines, ``, `Use op="read" with a page id for the full page.`].join("\n");
+    }
+    if (args.op === "read") {
+      if (!args.id) throw new Error(`op="read" needs a page id (see the index)`);
+      const page = manualPage(args.id);
+      if (!page) {
+        const ids = manualIndex().map((p) => p.id).join(", ");
+        throw new Error(`unknown page id: ${args.id} (known: ${ids})`);
+      }
+      return `Manual → ${page.title}\n\n${page.body}`;
+    }
+    // search
+    const query = (args.query ?? "").trim();
+    if (!query) throw new Error(`op="search" needs a query`);
+    const out: string[] = [];
+    for (const page of allManualPages()) {
+      let shown = 0;
+      for (const line of page.body.split("\n")) {
+        const ex = excerpt(line, query);
+        if (ex === null) continue;
+        out.push(`[${page.id}] ${page.title}: ${ex}`);
+        if (++shown >= 3) break; // per page, keeps one page from flooding
+        if (out.length >= MAX_EXCERPTS) break;
+      }
+      if (out.length >= MAX_EXCERPTS) break;
+    }
+    if (out.length === 0) {
+      return `No manual page matches "${query}". The manual may not cover this — say so rather than guessing, or try other keywords (op="search") or op="index".`;
+    }
+    return [
+      `Matches for "${query}" (op="read" with a page id for the full page):`,
+      "",
+      ...out,
+    ].join("\n");
+  },
+};
 
 /**
  * All built-in tools, keyed by name. Pure contract: name, description,
