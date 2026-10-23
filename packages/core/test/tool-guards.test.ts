@@ -2,7 +2,7 @@ import { afterAll, describe, expect, test } from "bun:test";
 import { mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { boundedTest, compileSearchRegex, openGuardedWriteFd, statIdentity, writeGuarded } from "../src/tool-guards.js";
+import { boundedTest, compileSearchRegex, openGuardedWriteFd, statIdentity, writeGuarded } from "../src/builtin-tools.js";
 
 describe("compileSearchRegex (#1262 ReDoS)", () => {
   test("compiles a normal pattern", () => {
