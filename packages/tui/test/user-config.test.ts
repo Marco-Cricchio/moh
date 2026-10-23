@@ -43,10 +43,8 @@ describe("updateCheck (#273)", () => {
   });
 });
 
-// #1431 (expand phase of S4.1): twins of the injected `read` / `write` tests
-// above, on a real temporary file. Migration ticket #1432 deletes the injected
-// ones. The mode checks look at the final file only, never at the temp file
-// (which `saveUserConfig`'s default writer creates without an explicit mode).
+// Real temporary file twins of the `read` / `write` tests above (#1431).
+// The mode checks look at the final file only, never at the temp file.
 describe("user config — real file twins (#1431)", () => {
   const tmp = () => join(mkdtempSync(join(tmpdir(), "moh-uc-")), "config");
 
@@ -116,7 +114,7 @@ describe("user config — real file twins (#1431)", () => {
     expect(data.mode).toBe("dev");
   });
 
-  test("final mode is 0600 with the default writer, even over a pre-existing 0644 file (real file)", () => {
+  test("final mode is 0600, even over a pre-existing 0644 file (real file)", () => {
     const file = tmp();
     writeFileSync(file, "{}");
     chmodSync(file, 0o644);

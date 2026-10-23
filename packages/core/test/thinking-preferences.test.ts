@@ -175,8 +175,7 @@ describe("endpoint preferences in ~/.moh/config (#241)", () => {
   });
 });
 
-// #1431 (expand phase of S4.1): twins of the injected-`read` tests above, on a
-// real temporary file. Migration ticket #1433 deletes the injected ones.
+// Real temporary file twins of the `read` tests above (#1431).
 describe("endpoint preferences — real file twins (#1431)", () => {
   const raw = (file: string) => JSON.parse(readFileSync(file, "utf8")) as Record<string, unknown>;
 
