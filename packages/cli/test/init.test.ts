@@ -4,7 +4,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { initCommand } from "../src/init";
 
-const AGENT_FILES = ["docs/agents/issue-tracker.md", "docs/agents/triage-labels.md", "docs/agents/domain.md"];
+const AGENT_FILES = [
+  "docs/agents/issue-tracker.md",
+  "docs/agents/triage-labels.md",
+  "docs/agents/domain.md",
+  "docs/agents/code-quality.md",
+];
 
 describe("moh init", () => {
   test("scaffolds docs/agents/* and AGENTS.md in a bare project", () => {
@@ -13,6 +18,8 @@ describe("moh init", () => {
     for (const rel of AGENT_FILES) expect(existsSync(join(cwd, rel))).toBe(true);
     expect(existsSync(join(cwd, "AGENTS.md"))).toBe(true);
     expect(readFileSync(join(cwd, "AGENTS.md"), "utf8")).toContain("## moh");
+    expect(readFileSync(join(cwd, "AGENTS.md"), "utf8")).toContain("docs/agents/code-quality.md");
+    expect(readFileSync(join(cwd, "docs/agents/code-quality.md"), "utf8")).toContain("deletes it in the same change");
     expect(report.created).toContain("AGENTS.md");
   });
 

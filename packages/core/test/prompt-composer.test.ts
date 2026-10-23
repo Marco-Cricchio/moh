@@ -94,6 +94,13 @@ describe("PromptComposer", () => {
     expect(composer.sections.base(baseCtx())).toContain("put narration in assistant text before the tool call");
   });
 
+  test("shipped base prompt carries the lean posture and no rg preference (ADR-0079)", () => {
+    const base = new PromptComposer({ projectDir: tmp(), mohHome: tmp() }).sections.base(baseCtx());
+    expect(base).toContain("every abstraction needs a caller");
+    expect(base).toContain("Delete what your change leaves unused");
+    expect(base).not.toMatch(/`rg`/); // #731: rg is often absent; the grep tool is the path
+  });
+
   test("CLAUDE.md is a silent fallback when AGENTS.md is absent", () => {
     const project = tmp();
     writeFileSync(join(project, "CLAUDE.md"), "Claude-only rules.");

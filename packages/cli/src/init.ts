@@ -1,6 +1,6 @@
 /**
  * `moh init` (#11/#36): scaffold the agent-docs layout in a project —
- * `docs/agents/{issue-tracker,triage-labels,domain}.md` plus a moh
+ * `docs/agents/{issue-tracker,triage-labels,domain,code-quality}.md` plus a moh
  * section in AGENTS.md. Non-destructive: existing files are never
  * overwritten, only reported as "kept". Pi migration: when CLAUDE.md
  * exists and AGENTS.md does not, the AGENTS.md file is created from it
@@ -34,12 +34,28 @@ const DOMAIN_MD = `# Domain docs
   dated, with context and consequences.
 `;
 
+// ADR-0079: principle 8's posture only — moh's own rules (a)–(f) stay in moh.
+const CODE_QUALITY_MD = `# Code quality
+
+Lean by default. These hold for any agent or person changing this repository;
+where this repository's own conventions say otherwise, they win.
+
+- Every abstraction, option and export has a caller in the same change.
+- One fact, one place: before adding a list, map, constant or helper, find the
+  existing one and extend it.
+- Extend an existing file before creating a new one.
+- A change that leaves code unused deletes it in the same change.
+- Thresholds for dead code, duplication or complexity, if any, are this
+  repository's to set.
+`;
+
 const AGENTS_SECTION = `## moh
 
 - Workflow mode (optional): \`/workflow on\` in the TUI; first-party skills
   (plan, implement, review, diagnose, dream) and the frontier panel.
 - The tracker (\`tracker_list\` / \`tracker_claim\` tools) follows the same
   permission engine as any tool.
+- Code quality: follow \`docs/agents/code-quality.md\`.
 `;
 
 interface InitOptions {
@@ -76,6 +92,7 @@ export function initCommand(options: InitOptions): InitReport {
   write("docs/agents/issue-tracker.md", ISSUE_TRACKER_MD);
   write("docs/agents/triage-labels.md", TRIAGE_LABELS_MD);
   write("docs/agents/domain.md", DOMAIN_MD);
+  write("docs/agents/code-quality.md", CODE_QUALITY_MD);
 
   const agentsFile = join(options.cwd, "AGENTS.md");
   const claudeFile = join(options.cwd, "CLAUDE.md");
