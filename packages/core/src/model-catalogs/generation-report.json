@@ -1,27 +1,27 @@
 {
   "schemaVersion": 1,
-  "version": "0.65.2",
-  "generatedAt": "2026-10-13T09:09:41.010Z",
+  "version": "0.65.3",
+  "generatedAt": "2026-10-23T19:55:46.329Z",
   "sources": [
     {
       "name": "models.dev",
       "url": "https://models.dev/api.json",
-      "fetchedAt": "2026-10-13T09:09:40.451Z"
+      "fetchedAt": "2026-10-23T19:55:45.657Z"
     },
     {
       "name": "openrouter",
       "url": "https://openrouter.ai/api/v1/models",
-      "fetchedAt": "2026-10-13T09:09:40.819Z"
+      "fetchedAt": "2026-10-23T19:55:46.055Z"
     }
   ],
   "totals": {
     "files": 25,
-    "rows": 544,
-    "exact": 492,
-    "baseModel": 13,
+    "rows": 536,
+    "exact": 479,
+    "baseModel": 17,
     "ambiguous": 5,
-    "absent": 34,
-    "rowsWithOverrides": 127
+    "absent": 35,
+    "rowsWithOverrides": 124
   },
   "files": [
     {
@@ -182,28 +182,28 @@
     },
     {
       "provider": "github-copilot",
-      "rows": 27,
+      "rows": 26,
       "verdicts": {
-        "exact": 27,
+        "exact": 26,
         "base-model": 0,
         "ambiguous": 0,
         "absent": 0
       },
       "coverage": {
-        "rows": 27,
-        "pricing": 27,
-        "contextWindow": 27,
-        "maxTokens": 27,
-        "reasoning": 27,
-        "input": 27
+        "rows": 26,
+        "pricing": 26,
+        "contextWindow": 26,
+        "maxTokens": 26,
+        "reasoning": 26,
+        "input": 26
       },
       "previous": {
-        "rows": 27,
-        "pricing": 27,
-        "contextWindow": 27,
-        "maxTokens": 27,
-        "reasoning": 27,
-        "input": 27
+        "rows": 26,
+        "pricing": 26,
+        "contextWindow": 26,
+        "maxTokens": 26,
+        "reasoning": 26,
+        "input": 26
       }
     },
     {
@@ -392,26 +392,26 @@
       "provider": "nvidia-nim",
       "rows": 1,
       "verdicts": {
-        "exact": 1,
+        "exact": 0,
         "base-model": 0,
         "ambiguous": 0,
-        "absent": 0
+        "absent": 1
       },
       "coverage": {
         "rows": 1,
         "pricing": 0,
         "contextWindow": 1,
-        "maxTokens": 1,
+        "maxTokens": 0,
         "reasoning": 0,
-        "input": 1
+        "input": 0
       },
       "previous": {
         "rows": 1,
         "pricing": 0,
         "contextWindow": 1,
-        "maxTokens": 1,
+        "maxTokens": 0,
         "reasoning": 0,
-        "input": 1
+        "input": 0
       }
     },
     {
@@ -442,28 +442,28 @@
     },
     {
       "provider": "opencode-go",
-      "rows": 28,
+      "rows": 26,
       "verdicts": {
-        "exact": 26,
-        "base-model": 2,
+        "exact": 20,
+        "base-model": 6,
         "ambiguous": 0,
         "absent": 0
       },
       "coverage": {
-        "rows": 28,
-        "pricing": 28,
-        "contextWindow": 28,
-        "maxTokens": 26,
-        "reasoning": 28,
-        "input": 28
+        "rows": 26,
+        "pricing": 26,
+        "contextWindow": 26,
+        "maxTokens": 20,
+        "reasoning": 26,
+        "input": 26
       },
       "previous": {
-        "rows": 28,
-        "pricing": 28,
-        "contextWindow": 28,
-        "maxTokens": 26,
-        "reasoning": 28,
-        "input": 28
+        "rows": 26,
+        "pricing": 26,
+        "contextWindow": 26,
+        "maxTokens": 20,
+        "reasoning": 26,
+        "input": 26
       }
     },
     {
@@ -494,28 +494,28 @@
     },
     {
       "provider": "openrouter",
-      "rows": 348,
+      "rows": 342,
       "verdicts": {
-        "exact": 323,
+        "exact": 317,
         "base-model": 1,
         "ambiguous": 0,
         "absent": 24
       },
       "coverage": {
-        "rows": 348,
-        "pricing": 325,
-        "contextWindow": 348,
-        "maxTokens": 345,
-        "reasoning": 267,
-        "input": 345
+        "rows": 342,
+        "pricing": 319,
+        "contextWindow": 342,
+        "maxTokens": 339,
+        "reasoning": 261,
+        "input": 339
       },
       "previous": {
-        "rows": 348,
-        "pricing": 325,
-        "contextWindow": 348,
-        "maxTokens": 345,
-        "reasoning": 267,
-        "input": 345
+        "rows": 342,
+        "pricing": 319,
+        "contextWindow": 342,
+        "maxTokens": 339,
+        "reasoning": 261,
+        "input": 339
       }
     },
     {
@@ -624,28 +624,28 @@
     },
     {
       "provider": "xiaomi-mimo",
-      "rows": 1,
+      "rows": 2,
       "verdicts": {
-        "exact": 1,
+        "exact": 2,
         "base-model": 0,
         "ambiguous": 0,
         "absent": 0
       },
       "coverage": {
-        "rows": 1,
-        "pricing": 1,
-        "contextWindow": 1,
-        "maxTokens": 1,
-        "reasoning": 1,
-        "input": 1
+        "rows": 2,
+        "pricing": 2,
+        "contextWindow": 2,
+        "maxTokens": 2,
+        "reasoning": 2,
+        "input": 2
       },
       "previous": {
-        "rows": 1,
-        "pricing": 1,
-        "contextWindow": 1,
-        "maxTokens": 1,
-        "reasoning": 1,
-        "input": 1
+        "rows": 0,
+        "pricing": 0,
+        "contextWindow": 0,
+        "maxTokens": 0,
+        "reasoning": 0,
+        "input": 0
       }
     },
     {
@@ -682,6 +682,7 @@
     "fireworks/accounts/fireworks/models/llama-v3p3-70b-instruct",
     "minimax/MiniMax-Text-01",
     "moonshot/moonshot-v1-128k",
+    "nvidia-nim/meta/llama-3.3-70b-instruct",
     "openai-codex/gpt-5.3-codex-spark",
     "openrouter/anthropic/claude-opus-4",
     "openrouter/anthropic/claude-sonnet-4-5-20250929",
@@ -769,18 +770,6 @@
     {
       "provider": "opencode-go",
       "id": "minimax-m3",
-      "modelsDev": 1000000,
-      "openRouter": 1048576
-    },
-    {
-      "provider": "opencode-go",
-      "id": "deepseek-v4-flash",
-      "modelsDev": 1000000,
-      "openRouter": 1048576
-    },
-    {
-      "provider": "opencode-go",
-      "id": "deepseek-v4-flash-vision-exp",
       "modelsDev": 1000000,
       "openRouter": 1048576
     },
@@ -893,6 +882,18 @@
       "openRouter": 1048576
     },
     {
+      "provider": "xiaomi-mimo",
+      "id": "mimo-v2.6-flash",
+      "modelsDev": 1048576,
+      "openRouter": 1050000
+    },
+    {
+      "provider": "xiaomi-mimo",
+      "id": "mimo-v2.6-pro",
+      "modelsDev": 1048576,
+      "openRouter": 1050000
+    },
+    {
       "provider": "zai",
       "id": "glm-5-turbo",
       "modelsDev": 200000,
@@ -919,189 +920,7 @@
   ],
   "contextWindowShrinks": [],
   "changes": {
-    "pricing": [
-      {
-        "provider": "openrouter",
-        "id": "deepseek/deepseek-v4-flash",
-        "from": {
-          "input": 0.03,
-          "output": 1.28,
-          "cacheRead": 0.03
-        },
-        "to": {
-          "input": 0.0311,
-          "output": 1.28,
-          "cacheRead": 0.0311
-        }
-      },
-      {
-        "provider": "openrouter",
-        "id": "deepseek/deepseek-v4-pro",
-        "from": {
-          "input": 0.41238,
-          "output": 0.82476,
-          "cacheRead": 0.034365
-        },
-        "to": {
-          "input": 0.95526,
-          "output": 1.91052,
-          "cacheRead": 0.079605
-        }
-      },
-      {
-        "provider": "openrouter",
-        "id": "deepseek/deepseek-v4-pro-0813",
-        "from": {
-          "input": 0.66,
-          "output": 1.98,
-          "cacheRead": 0.022
-        },
-        "to": {
-          "input": 1.32,
-          "output": 3.96,
-          "cacheRead": 0.044
-        }
-      },
-      {
-        "provider": "openrouter",
-        "id": "meta-llama/llama-3.3-70b-instruct",
-        "from": {
-          "input": 0.22,
-          "output": 0.5,
-          "cacheRead": 0.11
-        },
-        "to": {
-          "input": 0.59,
-          "output": 0.79,
-          "cacheRead": 0.295
-        }
-      },
-      {
-        "provider": "openrouter",
-        "id": "minimax/minimax-m2.7",
-        "from": {
-          "input": 0.21,
-          "output": 0.84,
-          "cacheRead": 0.042
-        },
-        "to": {
-          "input": 0.3,
-          "output": 1.2,
-          "cacheRead": 0.06
-        }
-      },
-      {
-        "provider": "openrouter",
-        "id": "moonshotai/kimi-k3",
-        "from": {
-          "input": 0.73,
-          "output": 10,
-          "cacheRead": 0.55
-        },
-        "to": {
-          "input": 0.73,
-          "output": 13.5,
-          "cacheRead": 0.55
-        }
-      },
-      {
-        "provider": "openrouter",
-        "id": "openai/gpt-oss-120b",
-        "from": {
-          "input": 0.037,
-          "output": 0.17
-        },
-        "to": {
-          "input": 0.15,
-          "output": 0.6,
-          "cacheRead": 0.075
-        }
-      },
-      {
-        "provider": "openrouter",
-        "id": "tencent/hy3",
-        "from": {
-          "input": 0.0825,
-          "output": 0.33,
-          "cacheRead": 0.020625
-        },
-        "to": {
-          "input": 0.132,
-          "output": 0.528,
-          "cacheRead": 0.033
-        }
-      },
-      {
-        "provider": "openrouter",
-        "id": "tencent/hy4-preview",
-        "from": {
-          "input": 0.7506,
-          "output": 2.2509,
-          "cacheRead": 0.0378
-        },
-        "to": {
-          "input": 0.834,
-          "output": 2.501,
-          "cacheRead": 0.042
-        }
-      },
-      {
-        "provider": "openrouter",
-        "id": "z-ai/glm-5.3-flash",
-        "from": {
-          "input": 0.0232,
-          "output": 1.2,
-          "cacheRead": 0.0232
-        },
-        "to": {
-          "input": 0.0261,
-          "output": 0.9,
-          "cacheRead": 0.0108
-        }
-      },
-      {
-        "provider": "openrouter",
-        "id": "~deepseek/deepseek-v4-flash-latest",
-        "from": {
-          "input": 0.0128,
-          "output": 0.768,
-          "cacheRead": 0.0128
-        },
-        "to": {
-          "input": 0.0144,
-          "output": 0.576,
-          "cacheRead": 0.0108
-        }
-      },
-      {
-        "provider": "openrouter",
-        "id": "~moonshotai/kimi-latest",
-        "from": {
-          "input": 0.72,
-          "output": 24,
-          "cacheRead": 0.3
-        },
-        "to": {
-          "input": 0.73,
-          "output": 13.5,
-          "cacheRead": 0.55
-        }
-      },
-      {
-        "provider": "openrouter",
-        "id": "~z-ai/glm-flash-latest",
-        "from": {
-          "input": 0.0232,
-          "output": 1.2,
-          "cacheRead": 0.0232
-        },
-        "to": {
-          "input": 0.0261,
-          "output": 0.9,
-          "cacheRead": 0.0108
-        }
-      }
-    ],
+    "pricing": [],
     "contextWindow": [],
     "reasoning": []
   },

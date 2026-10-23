@@ -559,8 +559,8 @@
     },
     "mai-code-1-flash-picker": {
       "author": "moh migration (#959)",
-      "date": "2026-09-24",
-      "reason": "labels and row identity are moh-owned (ADR-0046): never aggregator-supplied",
+      "date": "2026-10-23",
+      "reason": "labels and row identity are moh-owned (ADR-0046): never aggregator-supplied; 2026-10-23 (moh release (v0.65.3)): GitHub's supported-models reference no longer lists MAI Code 1 Flash (checked 2026-10-23, https://docs.github.com/en/copilot/reference/ai-models/supported-models; MAI-Code-1.1-Flash supersedes it), so the row is dropped",
       "api": "openai-responses",
       "name": "MAI-Code-1-Flash",
       "thinkingLevelMap": {
@@ -577,7 +577,8 @@
         "Editor-Version": "vscode/1.107.0",
         "Editor-Plugin-Version": "copilot-chat/0.35.0",
         "Copilot-Integration-Id": "vscode-chat"
-      }
+      },
+      "retired": true
     },
     "mai-code-1.1-flash": {
       "author": "moh migration (#959)",
