@@ -1943,7 +1943,7 @@ export class AgentSession {
     // waits for the setup to settle — a hook is never missing from a turn's
     // first tool call. No pending registration (the common case): `send`
     // starts the turn synchronously, exactly as before.
-    const start = (): Promise<TurnResult> => this.#queue.send(text, options?.prompt);
+    const start = (): Promise<TurnResult> => this.#queue.send(text, options?.prompt, options?.signal);
     // #790: the rerank rescue runs inside the turn-start chain (it must
     // land before the first prompt assembly). Nothing to wait for keeps
     // today's synchronous start — `send` begins the turn in the same tick,

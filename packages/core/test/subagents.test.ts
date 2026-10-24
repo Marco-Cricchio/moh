@@ -495,7 +495,7 @@ describe("subagents (#13)", () => {
 
   test("aborting the parent turn propagates to the child; the parent continues afterwards", async () => {
     const home = tmpHome();
-    const parent = createSession({
+    const parent: ReturnType<typeof createSession> = createSession({
       provider: MockProvider.scripted([
         {
           deltas: [],
@@ -511,13 +511,16 @@ describe("subagents (#13)", () => {
           { deltas: ["never", "finishes"], finish: "stop", deltaDelayMs: 60 },
         ]),
       },
+      // #1493: the abort lands on state, not on a clock — the moment the
+      // child exists and its turn has not started, the window a fixed
+      // sleep hit only by chance (and lost: the child ran to `done`).
+      // The other phases are pinned by the tests below.
+      sink: (event) => {
+        if (event.type === "subagent_spawn") parent.abort();
+      },
     });
     const tapped = tap(parent);
-    const sendPromise = parent.send("go");
-    // Abort while the child streams (its first delta is ~60ms out).
-    await Bun.sleep(20);
-    parent.abort();
-    const result = await sendPromise;
+    const result = await parent.send("go");
     expect(result.status).toBe("cancelled");
 
     const res = tapped.find((e) => e.type === "subagent_result") as any;
@@ -636,6 +639,153 @@ describe("subagents (#13)", () => {
     expect(asked).toEqual(["write"]);
     const res = tapped.find((e) => e.type === "subagent_result") as any;
     expect(res.status).toBe("done");
+  });
+});
+
+describe("aborting the parent turn propagates to the child at every phase (#1493)", () => {
+  /**
+   * A parent whose first turn spawns `toolCalls`, with the child provider
+   * wrapped to record each stream start and every delta relative to the
+   * parent's abort. `abortOn` picks the parent event the abort lands on —
+   * synchronously, from the sink, so the phase is a state, never a clock.
+   */
+  function abortRig(options: {
+    toolCalls: { name: string; args: Record<string, unknown> }[];
+    child: MockProvider;
+    abortOn?: (event: AgentEvent) => boolean;
+    maxConcurrency?: number;
+  }) {
+    const rig = {
+      events: [] as AgentEvent[],
+      aborted: false,
+      streamsStarted: 0,
+      streamsStartedAfterAbort: 0,
+      deltasAfterAbort: 0,
+      firstDelta: Promise.withResolvers<void>(),
+      abort: () => {
+        rig.aborted = true;
+        parent.abort();
+      },
+      /** The parsed spawn tool result for each spawn call, in call order. */
+      spawnResults: (): SubagentResult[] =>
+        rig.events
+          .filter((e): e is Extract<AgentEvent, { type: "tool_call" }> => e.type === "tool_call" && e.name === "spawn")
+          .map((call) => {
+            const res = rig.events.find((e) => e.type === "tool_result" && e.callId === call.callId) as any;
+            return JSON.parse(res.output) as SubagentResult;
+          }),
+    };
+    const child: Provider = {
+      name: "abort-probe",
+      async *stream(messages, signal, tools, streamOptions) {
+        rig.streamsStarted += 1;
+        if (rig.aborted) rig.streamsStartedAfterAbort += 1;
+        for await (const event of options.child.stream(messages, signal, tools, streamOptions)) {
+          if (event.type === "text_delta") {
+            if (rig.aborted) rig.deltasAfterAbort += 1;
+            rig.firstDelta.resolve();
+          }
+          yield event;
+        }
+      },
+    };
+    const parent: ReturnType<typeof createSession> = createSession({
+      provider: MockProvider.scripted([
+        { deltas: [], finish: "tool_calls", toolCalls: options.toolCalls },
+        { deltas: ["after"], finish: "stop" },
+      ]),
+      tools: builtinTools(),
+      permissions: { overrides: { tools: { spawn: "allow" } } },
+      subagents: {
+        home: tmpHome(),
+        provider: child,
+        ...(options.maxConcurrency !== undefined ? { maxConcurrency: options.maxConcurrency } : {}),
+      },
+      sink: (event) => {
+        rig.events.push(event);
+        if (!rig.aborted && options.abortOn?.(event)) rig.abort();
+      },
+    });
+    return { rig, parent };
+  }
+
+  /** A child stream that holds open after its first delta until aborted. */
+  const heldChild = () =>
+    MockProvider.scripted([{ deltas: ["working", "more"], finish: "stop", hold: { afterDeltas: 1, release: new Promise<void>(() => {}) } }]);
+
+  test("before the spawn runs: the tool starts on an aborted signal, no child is created", async () => {
+    const { rig, parent } = abortRig({
+      toolCalls: [{ name: "spawn", args: { name: "early", task: "t" } }],
+      child: heldChild(),
+      abortOn: (e) => e.type === "tool_call" && e.name === "spawn",
+    });
+    expect((await parent.send("go")).status).toBe("cancelled");
+
+    expect(rig.spawnResults().map((r) => r.status)).toEqual(["cancelled"]);
+    expect(rig.events.some((e) => e.type === "subagent_spawn")).toBe(false);
+    expect(rig.streamsStarted).toBe(0);
+  });
+
+  test("queued for a slot: the waiting spawn is cancelled and never starts a child", async () => {
+    // Cap 1: one spawn holds the only slot mid-stream, the other waits for
+    // it (which one wins the slot is not part of the contract). The abort
+    // lands once the running child has streamed its first delta.
+    const { rig, parent } = abortRig({
+      toolCalls: [
+        { name: "spawn", args: { name: "a", task: "1" } },
+        { name: "spawn", args: { name: "b", task: "2" } },
+      ],
+      child: heldChild(),
+      maxConcurrency: 1,
+    });
+    const send = parent.send("go");
+    await rig.firstDelta.promise;
+    rig.abort();
+    expect((await send).status).toBe("cancelled");
+
+    const results = rig.spawnResults();
+    expect(results.map((r) => r.status)).toEqual(["cancelled", "cancelled"]);
+    expect(results.map((r) => r.error).sort()).toEqual(["spawn aborted while waiting for a slot", "subagent was cancelled"]);
+    const spawned = rig.events.filter((e) => e.type === "subagent_spawn").map((e) => (e as any).name);
+    expect(spawned).toHaveLength(1);
+    const finished = rig.events.filter((e) => e.type === "subagent_result").map((e) => `${(e as any).name}:${(e as any).status}`);
+    expect(finished).toEqual([`${spawned[0]}:cancelled`]);
+    expect(rig.streamsStarted).toBe(1);
+    expect(rig.deltasAfterAbort).toBe(0);
+  });
+
+  test("during the child's setup: the child's turn never runs, its stream never starts", async () => {
+    // `subagent_spawn` is emitted after the child session exists and before
+    // its turn starts — where the abort used to be lost (#1493).
+    const { rig, parent } = abortRig({
+      toolCalls: [{ name: "spawn", args: { name: "setup", task: "t" } }],
+      child: heldChild(),
+      abortOn: (e) => e.type === "subagent_spawn",
+    });
+    expect((await parent.send("go")).status).toBe("cancelled");
+
+    expect(rig.spawnResults().map((r) => r.status)).toEqual(["cancelled"]);
+    const result = rig.events.find((e) => e.type === "subagent_result") as any;
+    expect(result?.status).toBe("cancelled");
+    expect(rig.streamsStarted).toBe(0);
+  });
+
+  test("mid-stream: the child's stream is aborted and yields nothing more", async () => {
+    const { rig, parent } = abortRig({
+      toolCalls: [{ name: "spawn", args: { name: "streaming", task: "t" } }],
+      child: heldChild(),
+    });
+    const send = parent.send("go");
+    await rig.firstDelta.promise;
+    rig.abort();
+    expect((await send).status).toBe("cancelled");
+
+    expect(rig.spawnResults().map((r) => r.status)).toEqual(["cancelled"]);
+    const result = rig.events.find((e) => e.type === "subagent_result") as any;
+    expect(result?.status).toBe("cancelled");
+    expect(rig.streamsStarted).toBe(1);
+    expect(rig.streamsStartedAfterAbort).toBe(0);
+    expect(rig.deltasAfterAbort).toBe(0);
   });
 });
 
