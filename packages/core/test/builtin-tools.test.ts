@@ -1,5 +1,5 @@
-import { describe, expect, test } from "bun:test";
-import { existsSync, mkdtempSync, writeFileSync, mkdirSync, readFileSync, statSync, symlinkSync, utimesSync } from "node:fs";
+import { beforeEach, afterEach, describe, expect, test } from "bun:test";
+import { existsSync, mkdtempSync, writeFileSync, mkdirSync, readFileSync, rmSync, statSync, symlinkSync, utimesSync } from "node:fs";
 import { gzipSync } from "node:zlib";
 import { createServer as createNetServer } from "node:net";
 import { tmpdir } from "node:os";
@@ -917,26 +917,48 @@ describe("bash effective timeout (#300)", () => {
 });
 
 describe("bash re-run guard (#304)", () => {
+  // Every test gets its own git repo, Makefile and tool instance (#1566):
+  // under load a slow synchronous `git` snapshot inside one test used to
+  // outlive its timeout and poison the next tests through the shared
+  // fixture. The fixture is built in beforeEach, outside the timed test
+  // body; the gitSnapshot inside `execute` is synchronous product code, so
+  // the per-test limit is sized for a loaded machine, not a quiet one.
+  const TEST_MS = 60_000;
+  let repo: string;
+  let ledgerRoot: string;
+  let repoCtx: ToolContext;
+  // The rerunMinMs seam drops the #304 expense threshold to 100ms: the
+  // fake suites run in ~200ms instead of the real 10s sleep.
+  let guardTools: ReturnType<typeof builtinTools>;
+
   // A git repo cwd: the guard requires a stable git snapshot. A fake
   // Makefile makes `make test` (allowlisted suite head) slow-and-green
   // without running a real test framework.
-  const repo = mkdtempSync(join(tmpdir(), "moh-304-"));
-  const repoCtx: ToolContext = { ...ctx, cwd: repo };
-  Bun.spawnSync(["git", "init", "-q"], { cwd: repo });
-  Bun.spawnSync(["git", "config", "user.email", "t@t"], { cwd: repo });
-  Bun.spawnSync(["git", "config", "user.name", "t"], { cwd: repo });
-  writeFileSync(join(repo, "a.txt"), "v1");
   const fakeSuite = (target: string, body: string) =>
     writeFileSync(join(repo, "Makefile"), `\n${target}:\n\t${body}\n`);
   const commit = (msg: string) => {
     Bun.spawnSync(["git", "add", "-A"], { cwd: repo });
     Bun.spawnSync(["git", "commit", "-qm", msg], { cwd: repo });
   };
-  commit("init");
 
-  // The rerunMinMs seam drops the #304 expense threshold to 100ms: the
-  // fake suites run in ~200ms instead of the real 10s sleep.
-  const guardTools = builtinTools({ rerunMinMs: 100 });
+  beforeEach(() => {
+    repo = mkdtempSync(join(tmpdir(), "moh-304-"));
+    repoCtx = { ...ctx, cwd: repo };
+    Bun.spawnSync(["git", "init", "-q"], { cwd: repo });
+    Bun.spawnSync(["git", "config", "user.email", "t@t"], { cwd: repo });
+    Bun.spawnSync(["git", "config", "user.name", "t"], { cwd: repo });
+    writeFileSync(join(repo, "a.txt"), "v1");
+    commit("init");
+    // Own ledger root: the default (tmpdir) is pruned on every
+    // builtinTools() call, a scan that dominates a per-test instance.
+    ledgerRoot = mkdtempSync(join(tmpdir(), "moh-304-ledger-"));
+    guardTools = builtinTools({ rerunMinMs: 100, ledgerRoot });
+  }, TEST_MS);
+
+  afterEach(() => {
+    rmSync(repo, { recursive: true, force: true });
+    rmSync(ledgerRoot, { recursive: true, force: true });
+  });
 
   test("an expensive successful suite-like run saves full output and intercepts the identical re-run", async () => {
     fakeSuite("test", "sleep 0.2 && echo '(pass) one'");
@@ -949,7 +971,7 @@ describe("bash re-run guard (#304)", () => {
     const again = await guardTools.bash.execute({ command: "make   test" }, repoCtx); // whitespace-normalized identity
     expect(again).toContain("not re-executed");
     expect(again).toMatch(/Full output saved at: .+/);
-  }, 10_000);
+  }, TEST_MS);
 
   test("# fresh forces a real run and refreshes the saved output", async () => {
     fakeSuite("fresh", "sleep 0.2 && echo fresh-green");
@@ -957,7 +979,7 @@ describe("bash re-run guard (#304)", () => {
     const fresh = await guardTools.bash.execute({ command: "make fresh # fresh" }, repoCtx);
     expect(fresh).toContain("fresh-green");
     expect(fresh).not.toContain("not re-executed");
-  }, 10_000);
+  }, TEST_MS);
 
   test("a different command runs for real even in the interception class", async () => {
     fakeSuite("other", "sleep 0.2 && echo other-green");
@@ -967,18 +989,22 @@ describe("bash re-run guard (#304)", () => {
     const out = await guardTools.bash.execute({ command: "make other" }, repoCtx);
     expect(out).toContain("other-green-2");
     expect(out).not.toContain("not re-executed");
-  }, 10_000);
+  }, TEST_MS);
 
   test("no git repo: capture still helps, but nothing is ever intercepted", async () => {
     const plain = mkdtempSync(join(tmpdir(), "moh-304-nogit-"));
     const plainCtx: ToolContext = { ...ctx, cwd: plain };
     writeFileSync(join(plain, "Makefile"), "\ntest:\n\tsleep 0.2 && echo nogit\n");
-    const out = await guardTools.bash.execute({ command: "make test" }, plainCtx);
-    expect(out).toContain("nogit");
-    const again = await guardTools.bash.execute({ command: "make test" }, plainCtx);
-    expect(again).toContain("nogit");
-    expect(again).not.toContain("not re-executed");
-  }, 10_000);
+    try {
+      const out = await guardTools.bash.execute({ command: "make test" }, plainCtx);
+      expect(out).toContain("nogit");
+      const again = await guardTools.bash.execute({ command: "make test" }, plainCtx);
+      expect(again).toContain("nogit");
+      expect(again).not.toContain("not re-executed");
+    } finally {
+      rmSync(plain, { recursive: true, force: true });
+    }
+  }, TEST_MS);
 
   test("new sessions prune stale capture directories without affecting live pointers", () => {
     const root = mkdtempSync(join(tmpdir(), "moh-ledger-root-"));
@@ -1005,7 +1031,7 @@ describe("bash re-run guard (#304)", () => {
     const out = await guardTools.bash.execute({ command: "make red" }, repoCtx);
     expect(out).toContain("now-green");
     expect(out).not.toContain("not re-executed");
-  }, 10_000);
+  }, TEST_MS);
 
   test("a tree change defeats interception — the re-run is legitimate", async () => {
     fakeSuite("tree", "sleep 0.2 && echo tree-green");
@@ -1014,7 +1040,7 @@ describe("bash re-run guard (#304)", () => {
     const out = await guardTools.bash.execute({ command: "make tree" }, repoCtx);
     expect(out).toContain("tree-green");
     expect(out).not.toContain("not re-executed");
-  }, 10_000);
+  }, TEST_MS);
 
   // #1262 (stale ledger hit): `status --porcelain` hides ignored files, so
   // a build artifact the suite reads could change while the fingerprint
@@ -1030,7 +1056,7 @@ describe("bash re-run guard (#304)", () => {
     const out = await guardTools.bash.execute({ command: "make ignored" }, repoCtx);
     expect(out).toContain("fresh-content");
     expect(out).not.toContain("not re-executed");
-  }, 10_000);
+  }, TEST_MS);
 });
 
 describe("suite-like classification (#304)", () => {
