@@ -4,13 +4,32 @@
  * fallback backs the store in tests (no keychain calls); values arrive
  * on stdin and are never echoed back.
  */
-import { describe, expect, test } from "bun:test";
+import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { existsSync, mkdtempSync, readFileSync, rmSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { main } from "../src/cli";
 
 const homes: string[] = [];
+const originalHome = process.env.HOME;
+const originalStore = process.env.MOH_SECRET_STORE;
+
+// #1504: pin the file store here, never by leaning on another file's leak —
+// on darwin the default store is the real login keychain.
+beforeAll(() => {
+  process.env.MOH_SECRET_STORE = "file";
+});
+
+afterAll(() => {
+  restoreEnv("HOME", originalHome);
+  restoreEnv("MOH_SECRET_STORE", originalStore);
+  for (const home of homes.splice(0)) rmSync(home, { recursive: true, force: true });
+});
+
+function restoreEnv(name: string, value: string | undefined): void {
+  if (value === undefined) delete process.env[name];
+  else process.env[name] = value;
+}
 
 function pinnedHome(): string {
   const home = mkdtempSync(join(tmpdir(), "moh-secret-cli-"));
@@ -132,5 +151,3 @@ describe("moh secret: main() routing", () => {
     expect(existsSync(join(home, ".moh", ".moh"))).toBe(false);
   });
 });
-
-for (const home of homes.splice(0)) rmSync(home, { recursive: true, force: true });

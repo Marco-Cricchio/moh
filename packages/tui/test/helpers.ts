@@ -1,4 +1,6 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { afterAll, beforeAll } from "bun:test";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { act } from "react";
 import { teamManifestAuthority } from "@moh/team";
@@ -20,6 +22,33 @@ export function grantTeamExtension(home: string): void {
   store.manifests[authority.path] = { hash: authority.hash, capabilities: [...authority.capabilities] };
   writeFileSync(file, JSON.stringify(store));
 }
+
+/**
+ * #1504: pins the 0600-file credential store for the calling file and
+ * restores `MOH_SECRET_STORE` after it. On darwin the default store is the
+ * login keychain: every App mount would read it through a synchronous
+ * `security` spawn (the bundled-extension activation check), which stalls
+ * frame waits and writes into the developer's keychain. Call at module top
+ * level, once per file.
+ */
+export function useFileCredentialStore(): void {
+  const original = process.env.MOH_SECRET_STORE;
+  beforeAll(() => {
+    process.env.MOH_SECRET_STORE = "file";
+  });
+  afterAll(() => {
+    if (original === undefined) delete process.env.MOH_SECRET_STORE;
+    else process.env.MOH_SECRET_STORE = original;
+  });
+}
+
+/**
+ * #1504: an empty project directory. A test that mounts App on
+ * `process.cwd()` reads the checkout's own (gitignored) `moh.json`, so a
+ * developer's local settings — a provider, `browser.enabled` — leak into
+ * the frame.
+ */
+export const tempProjectDir = (prefix = "moh-test-cwd-"): string => mkdtempSync(join(tmpdir(), prefix));
 
 export async function waitForCondition(
 
