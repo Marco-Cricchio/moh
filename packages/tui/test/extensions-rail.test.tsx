@@ -29,7 +29,12 @@ import { ExtensionOverlayView, ExtensionsRail } from "../src/ExtensionsRail";
 import type { PanelKeyEvent } from "@moh/extension";
 import { GROW_VERTICAL_FRAMES } from "../src/icons";
 import { ThemeProvider, THEMES, DEFAULT_THEME } from "../src/themes";
-import { grantTeamExtension, stripAnsi, waitForCondition } from "./helpers";
+import { actUntilFrame, grantTeamExtension, pressCommitted, stripAnsi, waitForCondition, waitText } from "./helpers";
+
+// Deadline for waits on a frame to paint: a poll that returns as soon as the
+// condition holds, so a generous bound costs nothing when quiet and survives a
+// loaded machine (#1681).
+const LOADED_WAIT_MS = 8000;
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
@@ -467,9 +472,13 @@ describe("rail auto-open on the first panels (owner directive, pre-main)", () =>
       await waitForCondition(
         () => frame().includes("team: 1 member"),
         () => "the team panel to be visible with no user toggle",
-        { timeoutMs: 8000 },
+        { timeoutMs: LOADED_WAIT_MS },
       );
-      await waitForCondition(() => frame().includes("team team") && frame().includes("team: 1 member"), () => frame());
+      await waitForCondition(
+        () => frame().includes("team team") && frame().includes("team: 1 member"),
+        () => frame(),
+        { timeoutMs: LOADED_WAIT_MS },
+      );
       const lines = frame().split("\n");
       const header = lines.findIndex((line) => line.includes("team team"));
       const roster = lines.findIndex((line) => line.includes("team: 1 member"));
@@ -478,19 +487,29 @@ describe("rail auto-open on the first panels (owner directive, pre-main)", () =>
       expect(lines[header]!.indexOf("team team")).toBeGreaterThan(60);
       expect(roster).toBeLessThan(composer);
       expect(lines.slice(header - 1, composer).some((line) => line.slice(0, 60).trim().length > 0)).toBe(true);
-      i.stdin.write("\x10");
-      await sleep(40);
-      i.stdin.write("\x1b");
-      await sleep(40);
+      // Focus moves paint nothing under the tests' colorless output: wait on
+      // the commit that carries each key, not a fixed sleep (AGENTS.md rule 9).
+      await pressCommitted(i, "\x10", "ctrl+p focuses the rail");
+      // Esc leaves no text under colorless output, and Ink flushes a lone esc
+      // on a timer (a key written right behind it fuses into an alt-chord):
+      // repeat esc, then a probe key, until the composer shows the probe.
+      await actUntilFrame(
+        () => {
+          i.stdin.write("\x1b");
+          setTimeout(() => i.stdin.write("¤"), 50);
+        },
+        frame,
+        "¤",
+        { timeoutMs: LOADED_WAIT_MS, intervalMs: 100 },
+      );
       i.stdin.write("esc-returned-draft");
-      await waitForCondition(() => frame().includes("esc-returned-draft"), frame);
-      i.stdin.write("\x10");
-      await sleep(40);
+      await waitForCondition(() => frame().includes("esc-returned-draft"), frame, { timeoutMs: LOADED_WAIT_MS });
+      await pressCommitted(i, "\x10", "ctrl+p focuses the rail again");
       Object.defineProperty(i.stdout, "rows", { value: 18, configurable: true });
       i.stdout.emit("resize");
-      await sleep(80);
+      await waitText(i, "team team", "the short terminal drops the rail", { absent: true, timeoutMs: LOADED_WAIT_MS });
       i.stdin.write("short-height-draft");
-      await waitForCondition(() => frame().includes("short-height-draft"), frame);
+      await waitForCondition(() => frame().includes("short-height-draft"), frame, { timeoutMs: LOADED_WAIT_MS });
       expect(frame()).not.toContain("team team");
       i.unmount();
       await session.dispose();
