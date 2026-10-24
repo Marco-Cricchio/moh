@@ -212,9 +212,9 @@ describe("contributed tools across the binding", () => {
     }
   });
 
-  test("a registration made after the session is bound: the tool is applied, no tool_contributed is logged", async () => {
-    // Current behavior, pinned (not endorsed): only held registrations are
-    // logged at bind time. Draft issue in the #1438 PR.
+  test("a registration made after the session is bound: the tool is applied and logs exactly one tool_contributed", async () => {
+    // #1598: the record no longer depends on load timing — a file extension
+    // loaded in a fresh process registers after the bind, like this probe.
     const root = project();
     const rt = runtime(root);
     const session = sessionOn(rt, root);
@@ -222,7 +222,35 @@ describe("contributed tools across the binding", () => {
       await probe(rt, ["contribute-tool:search"], registerSearch);
       expect(session.tools.search).toBeDefined();
       await session.send("hi");
-      expect(types(session.history())).not.toContain("tool_contributed");
+      const contributed = session.history().filter((e) => e.type === "tool_contributed");
+      expect(contributed).toMatchObject([{ type: "tool_contributed", extension: "probe", tool: "search" }]);
+    } finally {
+      await session.dispose();
+    }
+  });
+
+  test("a held registration is logged once at bind, never again by a later registration", async () => {
+    const root = project();
+    const rt = runtime(root);
+    await probe(rt, ["contribute-tool:search"], registerSearch);
+    const session = sessionOn(rt, root);
+    try {
+      await rt.register({
+        name: "late",
+        version: "1",
+        apiVersion: "1.15",
+        capabilities: ["contribute-tool:other"],
+        setup: (ctx: ExtensionSetupContext) => {
+          ctx.registerTool?.({ name: "other", description: "other", execute: () => "x" });
+        },
+      } as ExtensionDefinition);
+      await rt.ready();
+      await session.send("hi");
+      const contributed = session.history().filter((e) => e.type === "tool_contributed");
+      expect(contributed).toMatchObject([
+        { extension: "probe", tool: "search" },
+        { extension: "late", tool: "other" },
+      ]);
     } finally {
       await session.dispose();
     }
