@@ -4,7 +4,7 @@
  * (an invalid key must not stay persisted, an unreachable service must), and
  * the validator is always injected so no test touches the network.
  */
-import { describe, expect, test } from "bun:test";
+import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { render } from "ink-testing-library";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -18,8 +18,16 @@ import { pressSettled, stripAnsi, waitForCondition, waitStep, waitText } from ".
 import { fileCredentialStore } from "../../core/src/credential-store";
 
 // #1162: these tests drive the credential store — the 0600-file fallback
-// under each test's isolated home, never the developer's keychain.
-process.env.MOH_SECRET_STORE = "file";
+// under each test's isolated home, never the developer's keychain. #1504:
+// set for this file only and restored after, so no other file leans on it.
+const originalSecretStore = process.env.MOH_SECRET_STORE;
+beforeAll(() => {
+  process.env.MOH_SECRET_STORE = "file";
+});
+afterAll(() => {
+  if (originalSecretStore === undefined) delete process.env.MOH_SECRET_STORE;
+  else process.env.MOH_SECRET_STORE = originalSecretStore;
+});
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
