@@ -326,13 +326,17 @@ describe("settings panel (issue #33)", () => {
     await settle(i, "› openai", "cursor on the openai endpoint");
     i.stdin.write("\r");
     await settle(i, "type to filter", "model level opened");
+    // The catalog must be listed before typing, or the "gpt-5.5 left" wait
+    // below could pass on a list that has not loaded yet (#1625).
+    await settle(i, "gpt-5.5", "catalog listed before the filter");
     i.stdin.write("mini");
     // #1042: the model list windows to the terminal height now, so a slow
     // keystroke commit can show one filtered row next to unfiltered ones —
     // wait for the full filter to settle, not just for one matching row.
-    await waitForCondition(
-      () => !stripAnsi(i.lastFrame() ?? "").includes("gpt-5.5"),
-      () => "for gpt-5.5 to leave the filtered list",
+    await until(
+      i,
+      () => frameOf(i).includes("gpt-5.4-mini") && !frameOf(i).includes("gpt-5.5"),
+      "the filtered list (gpt-5.4-mini kept, gpt-5.5 gone)",
     );
     expect(frame()).toContain("gpt-5.4-mini");
     expect(frame()).not.toContain("gpt-5.5");

@@ -121,7 +121,13 @@ function mountChat(
 async function sendPrompt(term: ReturnType<typeof renderOnFakeTty>, text: string): Promise<void> {
   await waitForScreen(term, COMPOSER_READY);
   term.write(text);
-  await sleep(20);
+  // Enter only once the prompt has echoed (the placeholder is gone): a fixed
+  // pause can send it before the composer has taken the text (#1625).
+  const head = text.split(" ")[0]!;
+  const echoDeadline = Date.now() + 5_000;
+  while ((!screenText(term).includes(head) || screenText(term).includes(COMPOSER_READY)) && Date.now() < echoDeadline) await sleep(20);
+  expect(screenText(term)).toContain(head);
+  expect(screenText(term)).not.toContain(COMPOSER_READY);
   term.write("\r");
 }
 
@@ -474,7 +480,7 @@ describe("oversized ask gate idle guard (#622, part-c §4.3)", () => {
     console.log(`[frame-guards] #622 idle-window bytes: ${after.length - before}, churn clears: ${countOccurrences(churnWindow, CLEAR)}`);
     expect(countOccurrences(churnWindow, CLEAR)).toBe(0);
     gate.resolve({ answers: [], cancelled: true });
-    await sleep(50);
+    await term.settle();
     await term.unmount();
   }, 60_000);
 });
