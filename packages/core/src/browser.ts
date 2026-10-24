@@ -14,7 +14,7 @@
  */
 import { chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, statSync } from "node:fs";
 import { homedir } from "node:os";
-import { isAbsolute, dirname, join, relative, resolve } from "node:path";
+import { isAbsolute, join, relative, resolve } from "node:path";
 import { projectSlug } from "./session-store";
 import { isPrivateHost } from "./net-guard";
 import {
@@ -262,10 +262,32 @@ interface UploadOptions {
   root: string;
 }
 
+/** Rejects with `onTimeout()`'s error if `work` has not settled in `ms`. */
+function withTimeout<T>(work: Promise<T>, ms: number, onTimeout: () => Error): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => reject(onTimeout()), ms);
+    work.then(
+      (v) => {
+        clearTimeout(timer);
+        resolve(v);
+      },
+      (e) => {
+        clearTimeout(timer);
+        reject(e);
+      },
+    );
+  });
+}
+
 /** Downloads staging options (#777). */
 interface DownloadStagingOptions {
   /** Staging root (default `<home>/.moh/browser-downloads/<slug>/`). */
   dir?: string;
+  /** Max wait for a download event that has not been captured yet
+   * (#1508), clamped to the overall `timeoutMs`. Default: all of
+   * `timeoutMs`. `0` → consume only already-captured downloads (no
+   * waiting), which is what an action with no download in sight wants. */
+  eventWaitMs?: number;
   /** Ask seam for a required download (name + size, known post-save).
    * Return "allow" to stage, "deny" (or omit) to cancel and delete.
    * Absent → downloads stay blocked (never a silent write). */
@@ -695,27 +717,57 @@ export class BrowserSession {
    * know the size — and deleted on refusal). Returns the staged path, or
    * null when no download materialized (nothing staged, no silent
    * writes). Never auto-opens the file.
+   *
+   * #1508: `timeoutMs` bounds the wait for a not-yet-captured download
+   * event (via the page's `waitForEvent`) plus the save of its bytes.
+   * A stalled save is cancelled, its partial temp file removed, and a
+   * timeout error thrown (the browser tool reports it to the model).
+   * The ask itself is not bounded: it waits on the user, not the page.
    */
-  async stageDownload(options: DownloadStagingOptions = {}, _timeoutMs = 5000): Promise<string | null> {
-    const pending = this.#pendingDownloads.shift();
+  async stageDownload(options: DownloadStagingOptions = {}, timeoutMs = 5000): Promise<string | null> {
+    const deadline = Date.now() + timeoutMs;
+    const pending = await this.#nextDownload(Math.min(options.eventWaitMs ?? timeoutMs, timeoutMs));
     if (!pending) return null;
     const filename = pending.suggestedFilename().replace(/[/\\]/g, "_") || "download";
     const staging = options.dir ?? this.#downloadDir;
     // Save first (size is only known after the transfer), then ask.
     mkdirSync(staging, { recursive: true, mode: 0o700 });
-    const tmp = join(mkdtempSync(join(staging, ".dl-")), filename);
-    await pending.saveAs(tmp);
-    const size = statSync(tmp).size;
-    let decision: "allow" | "deny" = "deny";
-    if (options.ask) decision = await options.ask({ filename, size });
-    if (decision !== "allow") {
-      rmSync(dirname(tmp), { recursive: true, force: true });
-      return null;
+    const tmpDir = mkdtempSync(join(staging, ".dl-"));
+    const tmp = join(tmpDir, filename);
+    try {
+      await withTimeout(pending.saveAs(tmp), Math.max(0, deadline - Date.now()), () => {
+        void pending.cancel?.().catch(() => {});
+        return new Error(`download "${filename}" timed out after ${timeoutMs}ms`);
+      });
+      const size = statSync(tmp).size;
+      let decision: "allow" | "deny" = "deny";
+      if (options.ask) decision = await options.ask({ filename, size });
+      if (decision !== "allow") return null;
+      const target = join(staging, filename);
+      copyFileSync(tmp, target);
+      return target;
+    } finally {
+      rmSync(tmpDir, { recursive: true, force: true });
     }
-    const target = join(staging, filename);
-    copyFileSync(tmp, target);
-    rmSync(dirname(tmp), { recursive: true, force: true });
-    return target;
+  }
+
+  /** #1508: the next captured download, else (if the page can) wait up to
+   * `waitMs` for one to arrive. A listener-captured copy of an event the
+   * wait also returned is dropped so it is never staged twice. */
+  async #nextDownload(waitMs: number): Promise<BrowserDownloadLike | null> {
+    const captured = this.#pendingDownloads.shift();
+    if (captured) return captured;
+    const page = this.#page;
+    if (!page?.waitForEvent || waitMs <= 0) return null;
+    let download: BrowserDownloadLike;
+    try {
+      download = await page.waitForEvent("download", { timeout: waitMs });
+    } catch {
+      return null; // no download within the budget
+    }
+    const dup = this.#pendingDownloads.indexOf(download);
+    if (dup >= 0) this.#pendingDownloads.splice(dup, 1);
+    return download;
   }
 
   /** Shared act-failure path: re-probe the ref against the live DOM. A
