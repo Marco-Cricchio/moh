@@ -140,6 +140,13 @@ describe("private provider-kind lists, pinned through behavior (#1423)", () => {
     expect(() => wireForKind("")).toThrow(new Error('provider kind "" has no wire mapping; it cannot use the default AI SDK factory'));
   });
 
+  test("names inherited from Object.prototype are not provider kinds (#1570)", () => {
+    for (const name of ["toString", "constructor", "hasOwnProperty", "__proto__"]) {
+      expect(() => wireForKind(name)).toThrow(`provider kind "${name}" has no wire mapping`);
+      expect(hasLiveListingContract(name)).toBe(false);
+    }
+  });
+
   test("hasLiveListingContract (OPENAI_LISTING_PROFILES and the bespoke contracts)", () => {
     const listed = KINDS.filter((kind) => hasLiveListingContract(kind));
     expect(listed).toEqual([

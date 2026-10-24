@@ -258,6 +258,11 @@ const CONTRACTS: Record<string, ListingContract> = {
 };
 for (const id of OPENAI_LISTING_PROFILES) CONTRACTS[id] = { parser: parseOpenAiData };
 
+/** Own entries only: "toString"/"__proto__" are not provider kinds (#1570). */
+function contractFor(kind: string): ListingContract | undefined {
+  return Object.hasOwn(CONTRACTS, kind) ? CONTRACTS[kind] : undefined;
+}
+
 /** True when the kind has a shipped catalog worth augmenting. */
 export function hasVendoredCatalog(type: string): boolean {
   return subscriptionModelCatalog(type).length > 0;
@@ -286,7 +291,7 @@ export function declaredWindowsByEndpoint(cache: Record<string, LiveModelCacheEn
  * guard in the tests — a provider must not go silently static.
  */
 export function hasLiveListingContract(type: string): boolean {
-  return CONTRACTS[type] !== undefined;
+  return contractFor(type) !== undefined;
 }
 
 /**
@@ -297,7 +302,7 @@ export function hasLiveListingContract(type: string): boolean {
  * documented default (#726).
  */
 function listingBase(kind: string, endpointName: string, endpointBaseUrl: string | undefined): string | undefined {
-  const contract = CONTRACTS[kind];
+  const contract = contractFor(kind);
   if (!contract) return undefined;
   return endpointBaseUrl ?? contract.base?.(endpointName) ?? providerProfile(kind)?.baseUrl;
 }
@@ -331,7 +336,7 @@ export async function listProviderModels(
   endpointName: string,
   opts: { baseUrl?: string; apiKey?: string; configFile?: string; fetchImpl?: ListingFetch; signal?: AbortSignal; clientVersion?: string } = {},
 ): Promise<LiveModelListing[]> {
-  const contract = CONTRACTS[kind];
+  const contract = contractFor(kind);
   const base = listingBase(kind, endpointName, opts.baseUrl);
   if (!base || !contract) throw new Error(`no verified model listing contract for provider kind "${kind}"`);
   const clientVersion = opts.clientVersion ?? CODEX_LISTING_CLIENT_VERSION;
@@ -699,7 +704,7 @@ export async function fetchLiveCatalogs(
   // Static by design: reported, never fetched, never a failure (ADR-0045).
   for (const e of endpoints) {
     if (!hasVendoredCatalog(e.type)) continue;
-    if (CONTRACTS[e.type] === undefined) {
+    if (contractFor(e.type) === undefined) {
       report[e.name] = { models: [], status: { kind: "unsupported" }, type: e.type };
       continue;
     }
