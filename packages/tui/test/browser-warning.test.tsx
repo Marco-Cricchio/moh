@@ -30,10 +30,10 @@ import {
 } from "../src/browser-setup";
 import { projectTranscript } from "../src/transcript";
 import { ThemeProvider, THEMES, DEFAULT_THEME } from "../src/themes";
-import { stripAnsi, waitForFrame } from "./helpers";
+import { pressCommitted, stripAnsi, waitForFrame, waitStep, waitText } from "./helpers";
 
 const tempHome = () => mkdtempSync(join(tmpdir(), "moh-browser-"));
-const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms)); // negative assertions only
 
 const REASON =
   "playwright-core is not installed — the browser tool needs playwright-core plus a Chromium build; run `moh browser install` (or Settings → Browser → Install)";
@@ -88,20 +88,20 @@ function mountModal(over: Partial<React.ComponentProps<typeof BrowserSetupModal>
    * `parseAllowedHosts` tests, where a dropped byte cannot flake anything.
    */
   const editHosts = async (): Promise<void> => {
-    for (let k = 0; k < 4; k++) {
-      i.stdin.write("\x1b[A");
-      await sleep(25);
-    }
-    for (let k = 0; k < 2; k++) {
-      i.stdin.write("\x1b[B");
-      await sleep(25);
-    }
+    // The cursor starts on row 0 and clamps at the edges: two downs reach the hosts row.
+    await pressRow("\x1b[B", "headless —");
+    await pressRow("\x1b[B", "allowed hosts");
     i.stdin.write("\r"); // open the editor
-    await waitForFrame(frame, "[enter] save");
+    await waitText(i, "[enter] save", "the hosts editor opened");
     i.stdin.write("\r"); // save what is in it
-    await sleep(80);
+    await waitText(i, "[enter] save", "the hosts editor closed", { absent: true });
   };
-  return { i, frame, outcomes, last, note, editHosts };
+  /** Moves the cursor with `key` and waits until the row labelled `label` carries the marker. */
+  const pressRow = async (key: string, label: string): Promise<void> => {
+    i.stdin.write(key);
+    await waitStep(i, () => frame().split("\n").some((l) => l.includes("▸") && l.includes(label)), `the cursor on "${label}"`);
+  };
+  return { i, frame, outcomes, last, note, editHosts, pressRow };
 }
 
 describe("currentBrowserDiagnostic (#936)", () => {
@@ -168,7 +168,7 @@ describe("browser setup modal (#936, #934)", () => {
 
   test("the install action installs the headless shell only — never a silent full download", async () => {
     const calls: { withChromium?: boolean; withDeps?: boolean; home?: string; cwd?: string }[] = [];
-    const { i, last, note, frame } = mountModal({
+    const { i, last, note } = mountModal({
       install: async (options) => {
         calls.push({ withChromium: options.withChromium, withDeps: options.withDeps, home: options.home, cwd: options.cwd });
         options.onProgress?.({ phase: "package", message: "installing playwright-core" });
@@ -176,8 +176,7 @@ describe("browser setup modal (#936, #934)", () => {
       },
     });
     i.stdin.write("i");
-    await waitForFrame(() => frame(), "playwright-core");
-    await sleep(30);
+    await waitStep(i, () => calls.length > 0 && last() !== undefined, "the install ran and the modal reported");
     expect(calls[0]!.withChromium).toBe(false);
     expect(calls[0]!.withDeps).toBe(false);
     expect(calls[0]!.home).toBe("/home/u");
@@ -188,7 +187,7 @@ describe("browser setup modal (#936, #934)", () => {
 
   test("the optional pieces are toggled explicitly and passed through", async () => {
     const calls: { withChromium?: boolean; withDeps?: boolean }[] = [];
-    const { i, frame } = mountModal({
+    const { i, pressRow } = mountModal({
       install: async (options) => {
         calls.push({ withChromium: options.withChromium, withDeps: options.withDeps });
         return { ok: true, version: "1.55.0", builds: ["chromium-headless-shell", "chromium"], status: READY };
@@ -196,21 +195,16 @@ describe("browser setup modal (#936, #934)", () => {
     });
     // Row 3 is the full build, row 4 the system dependencies: walk down,
     // toggling as we go, then install.
-    i.stdin.write("\x1b[B");
-    await sleep(20);
-    i.stdin.write("\x1b[B");
-    await sleep(20);
-    i.stdin.write("\x1b[B");
-    await sleep(20);
+    await pressRow("\x1b[B", "headless —");
+    await pressRow("\x1b[B", "allowed hosts");
+    await pressRow("\x1b[B", "full Chromium build");
     i.stdin.write(" "); // full build
-    await sleep(20);
-    i.stdin.write("\x1b[B");
-    await sleep(20);
+    await waitText(i, "[x] full Chromium build", "the full build toggled");
+    await pressRow("\x1b[B", "system dependencies");
     i.stdin.write(" "); // system dependencies
-    await sleep(20);
-    expect(frame()).toContain("[x] full Chromium build");
+    await waitText(i, "[x] system dependencies", "the dependencies toggled");
     i.stdin.write("i");
-    await sleep(50);
+    await waitStep(i, () => calls.length > 0, "the install ran");
     expect(calls).toEqual([{ withChromium: true, withDeps: true }]);
   });
 
@@ -239,10 +233,10 @@ describe("browser setup modal (#936, #934)", () => {
     i.stdin.write("i");
     await waitForFrame(() => frame(), "the download runs on moh's own runtime");
     i.stdin.write("\x1b"); // esc while busy: the install is never abandoned silently
-    await sleep(30);
+    await sleep(30); // negative assertion: the key must have no effect
     expect(outcomes).toEqual([]);
     resolveInstall!({ ok: true, version: "1.55.0", builds: ["chromium-headless-shell"], status: READY });
-    await sleep(30);
+    await waitStep(i, () => outcomes.length > 0, "the install outcome reported");
     expect(outcomes.map((o) => o.kind)).toEqual(["installed"]);
     expect(frame()).not.toContain("the download runs");
   });
@@ -250,7 +244,7 @@ describe("browser setup modal (#936, #934)", () => {
   test("esc with nothing changed reports none — the client applies nothing", async () => {
     const { i, outcomes } = mountModal();
     i.stdin.write("\x1b");
-    await sleep(30);
+    await waitStep(i, () => outcomes.length > 0, "esc reported an outcome");
     expect(outcomes).toEqual([{ kind: "none" }]);
   });
 });
@@ -260,13 +254,15 @@ describe("the project setting in the modal (#934)", () => {
     const project = mkdtempSync(join(tmpdir(), "moh-browser-proj-"));
     writeFileSync(join(project, "moh.json"), JSON.stringify({ provider: "mock", mcpServers: { keep: { type: "stdio", command: "x" } } }));
     const { i, last, note, outcomes } = mountModal({ cwd: project, hasSession: true });
+    const browserKey = () => (JSON.parse(readFileSync(join(project, "moh.json"), "utf8")) as { browser?: unknown }).browser;
     i.stdin.write("\r"); // row 1: enable
-    await sleep(30);
+    await waitStep(i, () => browserKey() !== undefined, "the setting written to moh.json");
+    await sleep(30); // negative assertion below: nothing is applied while open
     // Nothing is applied while the modal is open: the session is re-assembled
     // by the client when it leaves, once.
     expect(outcomes).toEqual([]);
     i.stdin.write("\x1b");
-    await sleep(30);
+    await waitStep(i, () => last() !== undefined, "esc reported the config outcome");
     expect(last()).toMatchObject({ kind: "config" });
     expect(note()).toContain("browser on for this project");
     expect(note()).toContain("registered");
@@ -279,15 +275,14 @@ describe("the project setting in the modal (#934)", () => {
 
   test("headless is written as an explicit false only when turned off", async () => {
     const project = mkdtempSync(join(tmpdir(), "moh-browser-proj-"));
-    const { i } = mountModal({ cwd: project });
+    const { i, outcomes, pressRow } = mountModal({ cwd: project });
     // Row 2: headless off — headful needs the full build, said on screen.
-    i.stdin.write("\x1b[B");
-    await sleep(20);
+    await pressRow("\x1b[B", "headless —");
     i.stdin.write("\r");
-    await sleep(30);
+    await waitText(i, "[ ] headless", "headless toggled off");
     expect(JSON.parse(readFileSync(join(project, "moh.json"), "utf8")).browser).toEqual({ enabled: false, headless: false });
     i.stdin.write("\x1b");
-    await sleep(30);
+    await waitStep(i, () => outcomes.length > 0, "esc reported an outcome");
   });
 
   test("the hosts editor saves through the modal, and an empty list drops the key", async () => {
@@ -295,7 +290,7 @@ describe("the project setting in the modal (#934)", () => {
     // A pre-filled list: the editor opens with it and saving it back is the
     // modal's own round-trip (typing is covered by the pure tests below).
     writeBrowserSetting(project, { allowedHosts: ["192.168.1.10", "10.0.0.5"] });
-    const { i, note, editHosts } = mountModal({ cwd: project });
+    const { i, note, editHosts, outcomes } = mountModal({ cwd: project });
     await editHosts();
     const hosts = () => JSON.parse(readFileSync(join(project, "moh.json"), "utf8")).browser.allowedHosts;
     // Saved as a list of exact hosts, not a blob — and the note says so.
@@ -307,7 +302,7 @@ describe("the project setting in the modal (#934)", () => {
     expect(cleared.allowedHosts).toEqual([]);
     expect("allowedHosts" in (JSON.parse(readFileSync(join(project, "moh.json"), "utf8")).browser as object)).toBe(false);
     i.stdin.write("\x1b");
-    await sleep(30);
+    await waitStep(i, () => outcomes.length > 0, "esc reported an outcome");
   });
 
   test("a project file that is not valid JSON is reported, never rewritten", async () => {
@@ -322,11 +317,10 @@ describe("the project setting in the modal (#934)", () => {
 
   test("headful without the full build warns, and the install can bring it", async () => {
     const project = mkdtempSync(join(tmpdir(), "moh-browser-proj-"));
-    const { i, frame } = mountModal({ cwd: project });
-    i.stdin.write("\x1b[B");
-    await sleep(20);
+    const { i, frame, pressRow } = mountModal({ cwd: project });
+    await pressRow("\x1b[B", "headless —");
     i.stdin.write("\r"); // headful
-    await sleep(30);
+    await waitText(i, "headful needs the full Chromium build", "the headful warning");
     expect(frame()).toContain("headful needs the full Chromium build");
   });
 });
@@ -356,13 +350,12 @@ describe("browser diagnostic in the App (#936)", () => {
   test("the install chip's enter and ctrl+b both open the guided setup", async () => {
     const { i, frame } = appWithEnabledBrowser();
     await waitForFrame(frame, "browser");
-    i.stdin.write("\t"); // tab focuses the first chip: install
-    await sleep(60);
+    await pressCommitted(i, "\t", "tab focused the install chip"); // the first chip: install
     i.stdin.write("\r");
     await waitForFrame(frame, "browser setup");
     expect(frame()).toContain("chromium headless shell");
     i.stdin.write("\x1b"); // esc closes
-    await sleep(60);
+    await waitText(i, "browser setup", "the setup closed", { absent: true });
     i.stdin.write("\x02"); // ctrl+b, the same door
     await waitForFrame(frame, "browser setup");
     i.unmount();
@@ -374,9 +367,8 @@ describe("browser diagnostic in the App (#936)", () => {
     // A space dismisses the completion popup (its enter-acceptance would
     // otherwise run first), then Return runs the command.
     i.stdin.write("/browser");
-    await sleep(60);
-    i.stdin.write(" ");
-    await sleep(60);
+    await waitText(i, "/browser", "the command echoed");
+    await pressCommitted(i, " ", "the completion popup dismissed");
     i.stdin.write("\r");
     await waitForFrame(frame, "browser setup");
     i.unmount();
@@ -387,10 +379,10 @@ describe("browser diagnostic in the App (#936)", () => {
     writeFileSync(join(cwd, "moh.json"), JSON.stringify({ provider: "mock" }));
     const i = render(<App intro={false} cwd={cwd} home={tempHome()} provider={MockProvider.demo()} skipOnboarding startInChat />);
     const frame = () => stripAnsi(i.lastFrame() ?? "");
-    await sleep(200);
+    await sleep(200); // negative assertion over an interval
     expect(frame()).not.toContain("tool unavailable");
     i.stdin.write("\x02");
-    await sleep(100);
+    await sleep(100); // negative assertion over an interval
     expect(frame()).not.toContain("browser setup");
     i.unmount();
   }, 20000);
