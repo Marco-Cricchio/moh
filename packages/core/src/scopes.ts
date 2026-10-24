@@ -542,7 +542,7 @@ const SCOPES = {
   credential: {
     prefix: CREDENTIAL_SCOPE_PREFIX,
     validate: validateCredentialScope,
-    check: (request: ExactRequest, scopes: readonly string[]): ExactCheck => scopes.some((scope) => isCredentialScope(scope) && credentialScopeRef(scope) === request.ref)
+    check: (request: ExactRequest, scopes: readonly string[]): ExactCheck => scopes.some((scope) => isCredentialScope(scope) && validateCredentialScope(scope).ok && credentialScopeRef(scope) === request.ref)
       ? { ok: true } : { ok: false, reason: "outside_scope" },
     effectSentence: (capability: string): string | null => credentialEffectSentence(credentialScopeRef(capability)),
   },

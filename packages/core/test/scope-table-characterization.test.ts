@@ -231,11 +231,10 @@ describe("checkScope", () => {
       ["endpoint", "main", ["endpoint:main/x", "endpoint:main"], { ok: true }],
       ["credential", "token", ["credential:token"], { ok: true }],
       ["credential", "other", ["credential:token"], { ok: false, reason: "outside_scope" }],
-      // The credential check matches the ref without validating the scope:
-      // an empty or whitespace ref passes against its own malformed scope.
-      ["credential", "", ["credential:"], { ok: true }],
-      ["credential", "a b", ["credential:a b"], { ok: true }],
-      ["credential", "  ", ["credential:  "], { ok: true }],
+      // A malformed credential scope never matches, even its own ref (#1572).
+      ["credential", "", ["credential:"], { ok: false, reason: "outside_scope" }],
+      ["credential", "a b", ["credential:a b"], { ok: false, reason: "outside_scope" }],
+      ["credential", "  ", ["credential:  "], { ok: false, reason: "outside_scope" }],
       ["credential", "token", ["path:token", "tool:token"], { ok: false, reason: "outside_scope" }],
       // Kinds the dispatcher does not route return undefined, not a refusal.
       ["contribute-tool", "team", ["contribute-tool:team"], undefined],
