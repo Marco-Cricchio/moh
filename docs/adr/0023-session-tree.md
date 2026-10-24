@@ -131,3 +131,14 @@ the specs, which remain the normative source of record.
   index-logic rewrite is needed.
 - Fork stops being the primary "go back" mechanism but is not removed; tree and
   fork coexist by design.
+
+## Amendment — 2026-10-24, #1487: re-entrant appends stay on the turn's path
+
+Head decision 5 ("a turn is never split across branches") holds for events an
+`onEvent` hook appends while the session is appending. With the dispatch queue
+idle, `EventLog.append` starts the hook inside the session's append; the turn
+pin (and the #400 local tip) now advance as soon as the event is stored,
+before that dispatch can start, and nothing overwrites them afterwards. The
+failures a dispatch returns (a throwing `onEvent` hook) are appended through
+the session's own append, so they take the pin too. The recorded tree no
+longer depends on whether the hook ran re-entrantly or deferred.

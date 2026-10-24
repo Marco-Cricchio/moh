@@ -175,11 +175,11 @@ interface LoopBeforeTurn {
   dispatch(text: string, turnIndex: number, model: string): Promise<BeforeTurnDispatch>;
   applyModel(ref: string): { ok: true; model: string } | { ok: false; error: string; reason?: "context_length" };
   /**
-   * #1143: resets the per-turn `extension_event` budget (owner + borrowed)
-   * at dispatch entry, before any hook runs — `beforeTurn` fires before
-   * the `user_message` append that otherwise resets it, so a hook
-   * recording at turn start would otherwise spend the previous turn's
-   * budget (after a cap-out the new turn's events are dropped).
+   * #1143/#1487: resets the per-turn `extension_event` budget (owner +
+   * borrowed) — the turn's only reset, at turn entry before any hook runs
+   * (synthetic turns too). A hook recording at turn start would otherwise
+   * spend the previous turn's budget (after a cap-out the new turn's events
+   * are dropped).
    */
   beginBudgetTurn?: () => void;
   /**
@@ -683,6 +683,12 @@ export class AgentLoop {
   }
 
   async #runInner(text: string, controller: AbortController, synthetic: boolean): Promise<TurnResult> {
+    // #1143/#1487: the per-turn `extension_event` budget resets here, once
+    // per turn and before anything of the turn runs — synthetic turns
+    // included, which skip the `beforeTurn` dispatch below. The
+    // `user_message` append no longer resets it: a second reset there gave
+    // a turn whose `beforeTurn` recorded two budgets (up to 2 × 50 events).
+    this.#beforeTurn?.beginBudgetTurn?.();
     // ADR-0033: the turn-start decision point — once per user send, before
     // the provider is read and before anything is logged. A model named
     // here serves *this* turn; the hook is the only seam that can do so
@@ -988,10 +994,6 @@ export class AgentLoop {
   async #dispatchBeforeTurn(text: string): Promise<boolean> {
     const seam = this.#beforeTurn;
     if (!seam) return true;
-    // #1143: the budget reset moves here — this dispatch runs before the
-    // `user_message` append, so a hook recording at turn start would spend
-    // the previous turn's budget (documented semantics: per turn).
-    seam.beginBudgetTurn?.();
     const outcome = await seam.dispatch(text, this.#turnIndex?.() ?? 1, this.#provider().name);
     for (const event of outcome.errors) this.#append(event);
     if (outcome.confirm) {
