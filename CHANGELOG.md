@@ -16,8 +16,9 @@ matching section here at tag time.
   extension runs them after a turn that changed files, one at a time
   through the bash tool and your permission rules, and reports in the
   footer; its enable consent lists the exact commands, per project, and
-  asks again when they change. Report only for now: the model never sees
-  the results.
+  asks again when they change. A failing `block: true` check becomes a
+  correction turn for the model (at most two in a row, then the footer
+  reads `✗ (unresolved)`); report-only results never reach it.
 
 ### Changed
 
