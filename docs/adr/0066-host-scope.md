@@ -45,3 +45,11 @@ The decision above is unchanged. This amendment records where the `host:` scope 
 ### Tracked separately
 
 Two behaviors of `host:` scopes are tracked separately in #1573 and #1574, not changed by #1571. This amendment takes no position on them.
+
+## Amendment — explicit default ports (#1574)
+
+The decision is unchanged; this note records how a scope that spells a scheme's default port behaves. The WHATWG `URL` drops default ports, so before #1574 `host:a.com:443` and `host:a.com:80` validated but never matched a request.
+
+- A scope spelling the scheme's default port is the default-port form. `host:a.com:443` normalizes at load to the bare `host:a.com` (https, port 443): it admits `https://a.com/` and `https://a.com:443/`, and its consent sentence reads "may contact `a.com` over https". The same holds for `host:*.a.com:443`. Like the bare form, it no longer admits `http://a.com:443/`, which it matched by accident before.
+- `host:a.com:80` keeps its port as an explicit development port and is matched against the http default: it admits `http://a.com/` and `http://a.com:80/`, and its consent sentence reads "may contact `a.com:80` over http".
+- Other explicit ports behave as before. The bare-grant port rule (a bare scope admits any https port) is not touched here; it is #1573.
