@@ -1053,7 +1053,8 @@ export function Chat({
   // so only the ask block is subtracted here — counting the panel twice
   // would shrink the open turn for rows nothing renders.
   // The ask block is told how many rows it may occupy; below its own floor
-  // (chrome + one question row + Other) it cannot shrink further, and then
+  // (chrome + the question floor + the option floor + Other — #1512: the
+  // question scrolls rather than being cut) it cannot shrink further, and then
   // the block wins — a question must stay answerable. The transcript budget
   // below uses the same number the block renders with, so the reservation
   // and the frame can never disagree.
