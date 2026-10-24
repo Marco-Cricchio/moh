@@ -851,6 +851,9 @@ type AgentEventBase =
    * ADR-0055 "one stop" (#1127): everything one orchestration started was
    * stopped — the listed live children were aborted. Chrome only; the
    * aborted children still land their own `subagent_result` (cancelled).
+   * #1509: a spawn stopped while still waiting for a slot is listed too;
+   * it never gets a child, so it has no `subagent_spawn` or
+   * `subagent_result` — its spawn resolves `cancelled` to the caller.
    */
   | { type: "orchestration_stopped"; callIds: string[]; stoppedAt: string; extension?: string }
   /**

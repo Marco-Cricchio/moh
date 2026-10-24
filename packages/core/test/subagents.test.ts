@@ -1045,6 +1045,143 @@ describe("subagent_spawn requester/limits + orchestration stop (ADR-0055, #1127)
   });
 });
 
+describe("the one stop reaches a child before its turn starts (#1509)", () => {
+  /**
+   * A parent whose first turn spawns `toolCalls`. The child provider counts
+   * stream starts and can call the one stop at a chosen setup phase — the
+   * windows the team stop-all lost: the child's setup runs Bun.spawnSync
+   * (the session store's and the child session's project identity), which
+   * turns the event loop, so a stop can land before the child exists.
+   * - `stopIn: "starting"`: from `childRoute()`, called once the spawn has
+   *   its slot and before the child is registered live;
+   * - `stopIn: "setup"`: from the `name` getter, read while the child
+   *   session is constructed, the first time a child is listed live.
+   * The phase is a state, never a clock.
+   */
+  function stopRig(options: { toolCalls: { name: string; args: Record<string, unknown> }[]; child: MockProvider; stopIn?: "starting" | "setup"; maxConcurrency?: number }) {
+    const rig = {
+      events: [] as AgentEvent[],
+      stopped: null as string[] | null,
+      streamsStarted: 0,
+      firstDelta: Promise.withResolvers<void>(),
+      spawnResults: (): SubagentResult[] =>
+        rig.events
+          .filter((e): e is Extract<AgentEvent, { type: "tool_call" }> => e.type === "tool_call" && e.name === "spawn")
+          .map((call) => {
+            const res = rig.events.find((e) => e.type === "tool_result" && e.callId === call.callId) as any;
+            return JSON.parse(res.output) as SubagentResult;
+          }),
+    };
+    const child: Provider & { childRoute?: () => Provider } = {
+      get name() {
+        if (options.stopIn === "setup" && rig.stopped === null && parent.liveSubagents().length > 0) rig.stopped = parent.stopSubagents();
+        return "stop-probe";
+      },
+      childRoute: () => {
+        if (options.stopIn === "starting" && rig.stopped === null) rig.stopped = parent.stopSubagents();
+        return child;
+      },
+      async *stream(messages, signal, tools, streamOptions) {
+        rig.streamsStarted += 1;
+        for await (const event of options.child.stream(messages, signal, tools, streamOptions)) {
+          if (event.type === "text_delta") rig.firstDelta.resolve();
+          yield event;
+        }
+      },
+    };
+    const parent: ReturnType<typeof createSession> = createSession({
+      provider: MockProvider.scripted([
+        { deltas: [], finish: "tool_calls", toolCalls: options.toolCalls },
+        { deltas: ["after"], finish: "stop" },
+      ]),
+      tools: builtinTools(),
+      permissions: { overrides: { tools: { spawn: "allow" } } },
+      subagents: {
+        home: tmpHome(),
+        provider: child,
+        ...(options.maxConcurrency !== undefined ? { maxConcurrency: options.maxConcurrency } : {}),
+      },
+      sink: (event) => {
+        rig.events.push(event);
+      },
+    });
+    return { rig, parent };
+  }
+
+  test("a stop during the child's setup cancels it: listed, recorded, its stream never starts", async () => {
+    // A child that would finish on its own: before the fix the stop
+    // reached nothing (`child.abort()` with no turn yet) and it ran to done.
+    const { rig, parent } = stopRig({
+      toolCalls: [{ name: "spawn", args: { name: "setup", task: "t" } }],
+      child: MockProvider.scripted([{ deltas: ["finished anyway"], finish: "stop" }]),
+      stopIn: "setup",
+    });
+    expect((await parent.send("go")).status).toBe("done");
+
+    const spawn = rig.events.find((e) => e.type === "subagent_spawn") as any;
+    expect(rig.stopped).toEqual([spawn.callId]);
+    expect(rig.spawnResults().map((r) => r.status)).toEqual(["cancelled"]);
+    const result = rig.events.find((e) => e.type === "subagent_result") as any;
+    expect(result?.status).toBe("cancelled");
+    expect(rig.streamsStarted).toBe(0);
+    const records = rig.events.filter((e) => e.type === "orchestration_stopped") as any[];
+    expect(records.map((r) => r.callIds)).toEqual([[spawn.callId]]);
+    expect(parent.liveSubagents()).toHaveLength(0);
+  });
+
+  test("a stop after the slot, before the child is registered: the spawn is listed and cancelled, its turn never runs", async () => {
+    const { rig, parent } = stopRig({
+      toolCalls: [{ name: "spawn", args: { name: "starting", task: "t" } }],
+      child: MockProvider.scripted([{ deltas: ["finished anyway"], finish: "stop" }]),
+      stopIn: "starting",
+    });
+    expect((await parent.send("go")).status).toBe("done");
+
+    // The spawn still lands its own spawn/result pair (cancelled), so the
+    // record's callId is derivable from the log.
+    const spawn = rig.events.find((e) => e.type === "subagent_spawn") as any;
+    expect(rig.stopped).toEqual([spawn.callId]);
+    expect(rig.spawnResults().map((r) => r.status)).toEqual(["cancelled"]);
+    const result = rig.events.find((e) => e.type === "subagent_result") as any;
+    expect(result?.status).toBe("cancelled");
+    expect(rig.streamsStarted).toBe(0);
+    expect(parent.liveSubagents()).toHaveLength(0);
+  });
+
+  test("a stop while a spawn waits for a slot: the queued spawn never starts, both are recorded", async () => {
+    // Cap 1: one child holds the only slot mid-stream, the other waits for
+    // it. Before the fix the stop aborted the live child, which freed the
+    // slot for the queued one — it then ran after the stop.
+    const { rig, parent } = stopRig({
+      toolCalls: [
+        { name: "spawn", args: { name: "a", task: "1" } },
+        { name: "spawn", args: { name: "b", task: "2" } },
+      ],
+      child: MockProvider.scripted([
+        { deltas: ["working", "more"], finish: "stop", hold: { afterDeltas: 1, release: new Promise<void>(() => {}) } },
+        { deltas: ["ran after the stop"], finish: "stop" },
+      ]),
+      maxConcurrency: 1,
+    });
+    const send = parent.send("go");
+    await rig.firstDelta.promise;
+    const stopped = parent.stopSubagents();
+    expect((await send).status).toBe("done");
+
+    const spawned = rig.events.filter((e) => e.type === "subagent_spawn") as any[];
+    expect(spawned).toHaveLength(1);
+    // The record lists the queued spawn too — it has no child, so no
+    // subagent_spawn/subagent_result of its own.
+    expect(stopped).toHaveLength(2);
+    expect(stopped).toContain(spawned[0].callId);
+    expect(rig.events.filter((e) => e.type === "subagent_result")).toHaveLength(1);
+    const results = rig.spawnResults();
+    expect(results.map((r) => r.status)).toEqual(["cancelled", "cancelled"]);
+    expect(results.map((r) => r.error).sort()).toEqual(["spawn aborted while waiting for a slot", "subagent was cancelled"]);
+    expect(rig.streamsStarted).toBe(1);
+  });
+});
+
 describe("#1127: extension-requested spawns", () => {
   test("setSpawnRequester attributes subsequent spawns to the named extension", async () => {
     const home = tmpHome();

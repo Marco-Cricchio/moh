@@ -924,6 +924,60 @@ describe("stopSubagents: the team-scoped one-stop (ADR-0055, #1226)", () => {
     await session.dispose();
   });
 
+  test("a stop during the child's setup cancels it, is recorded once, and leaves no steering seat (#1509)", async () => {
+    const rt = runtime();
+    let api: {
+      spawn: NonNullable<ExtensionSetupContext["spawnSubagent"]>;
+      steer: NonNullable<ExtensionSetupContext["steerSubagent"]>;
+      stop: NonNullable<ExtensionSetupContext["stopSubagents"]>;
+    } | null = null;
+    await rt.register(
+      defineExtension({
+        name: "orch",
+        version: "1",
+        apiVersion: "1.13",
+        capabilities: ["spawn-subagent"],
+        setup: (ctx) => {
+          api = { spawn: ctx.spawnSubagent!, steer: ctx.steerSubagent!, stop: ctx.stopSubagents! };
+        },
+      }),
+    );
+    // The child provider's `name` is read while the child session is being
+    // constructed: the stop lands there, once the child is listed live —
+    // the window the team's stop-all lost (the setup's Bun.spawnSync turns
+    // the event loop). A state, never a clock.
+    const probe: { stopped: string[] | null; streams: number } = { stopped: null, streams: 0 };
+    const inner = MockProvider.scripted([{ deltas: ["finished anyway"], finish: "stop" }]);
+    const session: ReturnType<typeof createSession> = createSession({
+      provider: MockProvider.scripted([{ deltas: ["ok"], finish: "stop" }]),
+      tools: { echo: echoTool },
+      extensions: rt,
+      subagents: {
+        home: tempDir(),
+        provider: {
+          get name() {
+            if (probe.stopped === null && session.liveSubagents().length > 0) probe.stopped = api!.stop();
+            return "stop-probe";
+          },
+          async *stream(messages, signal, tools, streamOptions) {
+            probe.streams += 1;
+            yield* inner.stream(messages, signal, tools, streamOptions);
+          },
+        } satisfies Provider,
+      },
+    });
+    const events = tap(session);
+    const spawned = await api!.spawn({ task: "child" });
+    expect(spawned.status).toBe("cancelled");
+    expect(probe.stopped).toEqual([spawned.callId]);
+    expect(probe.streams).toBe(0);
+    // The stop closed the seat before the child had one: nothing to steer.
+    expect(await api!.steer(spawned.callId, "after the stop")).toBeNull();
+    await session.dispose();
+    const records = events.filter((e) => e.type === "orchestration_stopped") as Extract<AgentEvent, { type: "orchestration_stopped" }>[];
+    expect(records.map((r) => [r.extension, r.callIds])).toEqual([["orch", [spawned.callId]]]);
+  });
+
   test("a stop with nothing of this extension's live records nothing and returns []", async () => {
     const rt = runtime();
     let stop: NonNullable<ExtensionSetupContext["stopSubagents"]> | null = null;

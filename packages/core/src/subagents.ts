@@ -312,6 +312,15 @@ export class SubagentHost {
   /** ADR-0055 "one stop" (#1127): the children currently in flight. */
   readonly #live = new Map<string, LiveChild>();
   /**
+   * #1509: spawns requested but not yet registered live (waiting for a
+   * slot, resolving their session store), keyed by callId, with the
+   * extension that asked ("" for the model). A stop aborts and lists
+   * them, so a sibling still queued behind the one being stopped never
+   * starts afterwards; one stopped in the slot queue never gets a child,
+   * so it lands no `subagent_spawn`/`subagent_result`.
+   */
+  readonly #starting = new Map<string, { extension: string; stop: AbortController }>();
+  /**
    * ADR-0053/#998: children an extension spawned, keyed by callId — the
    * set `subagentActivity` reads from; a session the extension did not
    * spawn is not in the map, so it cannot be read. Lives past the child's
@@ -355,6 +364,11 @@ export class SubagentHost {
    */
   stop(): string[] {
     const stopped: string[] = [];
+    for (const [callId, starting] of this.#starting) {
+      stopped.push(callId);
+      starting.stop.abort();
+    }
+    this.#starting.clear();
     for (const child of this.#live.values()) {
       stopped.push(child.callId);
       try {
@@ -384,6 +398,12 @@ export class SubagentHost {
    */
   stopForExtension(extension: string): string[] {
     const stopped: string[] = [];
+    for (const [callId, starting] of this.#starting) {
+      if (starting.extension !== extension) continue;
+      stopped.push(callId);
+      starting.stop.abort();
+      this.#starting.delete(callId);
+    }
     for (const [callId, by] of this.#spawnedByExtension) {
       if (by !== extension) continue;
       const live = this.#live.get(callId);
@@ -640,8 +660,16 @@ export class SubagentHost {
       laneCwd = lane.worktreePath;
     }
 
-    const acquired = await this.#semaphore.acquire(signal);
+    // The stop control (ADR-0055 "one stop"): a child aborts with its
+    // parent's turn; the stop is the door that does not require turning
+    // the owner's own turn off. #1509: a spawn is stoppable from the
+    // moment it is requested — first while it waits for a slot, then as a
+    // live child (below). The stop owns its own controller.
+    const stop = new AbortController();
+    this.#starting.set(spawnId, { extension: from?.extension ?? "", stop });
+    const acquired = await this.#semaphore.acquire(AbortSignal.any([signal, stop.signal]));
     if (!acquired) {
+      this.#starting.delete(spawnId);
       return resultJson({ status: "cancelled", output: "", error: "spawn aborted while waiting for a slot" });
     }
     // Only explicit context is shared: the task (plus the preset's optional
@@ -686,6 +714,36 @@ export class SubagentHost {
         : liveMode === "yolo"
           ? { ...perms, unrestrictedTools: true }
           : { ...perms, unrestrictedTools: false, mode: liveMode };
+      // ADR-0055 (#1127): who asked and what was applied — the fields that
+      // make an orchestration's children derivable from the log, reused by
+      // the live-children registry the stop control reads.
+      const requester: SubagentSpawnRequester = from ? { kind: "extension", extension: from.extension } : (this.#options.requester?.() ?? { kind: "model" });
+      const limits: SubagentSpawnLimits = {
+        ...(spec.allowedTools ? { tools: [...spec.allowedTools] } : {}),
+        ...(from?.pathScopes !== undefined ? { pathScopes: from.pathScopes } : {}),
+        mode: permsForChild.unrestrictedTools === true ? "yolo" : permsForChild.mode ?? liveMode ?? perms.mode ?? "normal",
+        maxIterations: spec.maxIterations ?? this.#options.defaultMaxIterations?.() ?? DEFAULT_MAX_ITERATIONS,
+      };
+      // #1509: the child is live — listed and stoppable — before it is
+      // constructed: the setup below runs Bun.spawnSync (the child's
+      // project identity), which turns the event loop, so a stop can land
+      // before the child exists. The stop's controller rides the child's
+      // send with the parent's signal: the child's queue checks it when the
+      // turn starts and listens while it runs, so a stop in any phase
+      // reaches the turn (`child.abort()` reaches nothing until the turn
+      // has started).
+      // The setup before this point turns the event loop too (the session
+      // store resolves the project through git): a stop that landed there
+      // already listed and aborted the spawn while it was starting. It is
+      // not listed again; the spawn goes on through the same path, so its
+      // `subagent_spawn`/`subagent_result` (cancelled) still land — its
+      // turn never runs (the send below starts on an aborted signal).
+      this.#starting.delete(spawnId);
+      this.#spawnedByExtension.set(spawnId, from?.extension ?? "");
+      this.#logs.set(spawnId, store.file);
+      if (!stop.signal.aborted) {
+        this.#live.set(spawnId, { callId: spawnId, name: spec.name, requester, limits, abort: () => stop.abort() });
+      }
       child = new AgentSession({
         provider: childProviderRef,
         ...(typeof childProviderRef === "string" && this.#options.registry ? { registry: this.#options.registry } : {}),
@@ -731,16 +789,6 @@ export class SubagentHost {
           relation: "independent",
         });
       }
-      // ADR-0055 (#1127): who asked and what was applied — the fields that
-      // make an orchestration's children derivable from the log, reused by
-      // the live-children registry the stop control reads.
-      const requester: SubagentSpawnRequester = from ? { kind: "extension", extension: from.extension } : (this.#options.requester?.() ?? { kind: "model" });
-      const limits: SubagentSpawnLimits = {
-        ...(spec.allowedTools ? { tools: [...spec.allowedTools] } : {}),
-        ...(from?.pathScopes !== undefined ? { pathScopes: from.pathScopes } : {}),
-        mode: permsForChild.unrestrictedTools === true ? "yolo" : permsForChild.mode ?? liveMode ?? perms.mode ?? "normal",
-        maxIterations: spec.maxIterations ?? this.#options.defaultMaxIterations?.() ?? DEFAULT_MAX_ITERATIONS,
-      };
       this.#options.onEvent({
         type: "subagent_spawn",
         callId: spawnId,
@@ -750,30 +798,16 @@ export class SubagentHost {
         requester,
         limits,
       });
-      // The stop control (ADR-0055 "one stop"): a live child aborts with
-      // its parent's turn; this registry adds the door that does not
-      // require turning the owner's own turn off.
-      this.#spawnedByExtension.set(spawnId, from?.extension ?? "");
-      this.#logs.set(spawnId, store.file);
       from?.onSpawned?.(spawnId);
-      from?.onSession?.(child);
-      const live: LiveChild = { callId: spawnId, name: spec.name, requester, limits, abort: () => child?.abort() };
-      this.#live.set(spawnId, live);
-      const forget = () => this.#live.delete(spawnId);
+      // A child stopped during its setup never gets a steering seat: the
+      // stop already closed the write seam (#1222).
+      if (!stop.signal.aborted) from?.onSession?.(child);
       // Abort propagation: cancelling the parent's turn aborts the child.
       // #1493: the parent's signal rides the child's send instead of a
       // listener added here — the abort can land during the synchronous
-      // setup above (Bun.spawnSync, behind the child's project identity,
-      // drains pending microtasks), and a listener added to an aborted
-      // signal never fires, while `child.abort()` has no turn to reach
-      // until the child's turn starts. The child's queue checks the
-      // signal when the turn starts and listens while it runs.
-      let turn: Awaited<ReturnType<AgentSession["send"]>>;
-      try {
-        turn = await child.send(firstMessage, { signal });
-      } finally {
-        forget();
-      }
+      // setup above, and a listener added to an aborted signal never
+      // fires. The stop's signal rides with it (#1509, see above).
+      const turn = await child.send(firstMessage, { signal: AbortSignal.any([signal, stop.signal]) });
       const usage = child.usage;
       const result: SubagentResult =
         turn.status === "done"
@@ -799,6 +833,9 @@ export class SubagentHost {
         error: err instanceof Error ? err.message : String(err),
       });
     } finally {
+      // Settled, refused or thrown: nothing left for the stop to abort.
+      this.#starting.delete(spawnId);
+      this.#live.delete(spawnId);
       this.#semaphore.release();
       // An extension-spawned child stays alive after its first turn: the
       // extension's write-into-child seam (#1222) sends its follow-up
