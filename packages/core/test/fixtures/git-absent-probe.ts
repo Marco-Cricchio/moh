@@ -10,7 +10,7 @@
  * and an origin with credentials) and `lane/` (a dir with a `.git`
  * directory), all prepared by the parent while git was still on its PATH.
  */
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { builtinTools } from "../../src/builtin-tools";
@@ -43,7 +43,7 @@ out.identitySync = prepareProjectIdentityNow(repo, temp("moh-1427-h2-")).slug;
 // Rows 6–8: handoff anchor.
 out.gitAnchor = gitAnchor(repo);
 
-// Row 9: retro-apply pre-commit target (gitDir has no try/catch today).
+// Row 9: retro-apply pre-commit target (#1614: a failed spawn falls back to <root>/.git).
 const root = temp("moh-1427-retro-");
 writeFileSync(join(root, "package.json"), JSON.stringify({ scripts: { lint: "eslint .", test: "bun test" } }));
 try {
@@ -59,7 +59,7 @@ try {
     projectRoot: root,
     confirm: true,
   });
-  out.retroApply = { threw: false, ok: result.ok };
+  out.retroApply = { threw: false, ok: result.ok, hookAtRootGit: existsSync(join(root, ".git", "hooks", "pre-commit")) };
 } catch {
   out.retroApply = { threw: true };
 }
