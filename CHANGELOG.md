@@ -19,6 +19,13 @@ matching section here at tag time.
   posture in repo terms, referenced from the AGENTS.md moh section, so any
   harness reading the repository picks it up.
 
+### Removed
+
+- **`MOH_TYPEWRITER_MS` and `MOH_TYPEWRITER_CHARS` are gone** (#1511): the
+  typewriter pacing knobs have had no effect since #1054 (the `reveal` prop
+  was never fed from them), and the dead wiring was removed in #1510. They
+  are not re-wired; no pacing configuration replaces them.
+
 ## [0.65.3] - 2026-10-23
 
 ### Changed
@@ -1360,6 +1367,9 @@ security audit, each fixed behind its own PR.
   No deletion landed before its replacement existed, each move was accepted
   by showing the new test red under a mutation that violates the old
   assertion, and the legacy `MOH_TYPEWRITER_*` knobs still work unchanged.
+  *Correction (2026-10-24, #1511):* that last clause was wrong. The
+  `MOH_TYPEWRITER_*` knobs have been inert since #1054; see the Removed
+  entry under [Unreleased].
 - **The extension and orchestration decisions are recorded** (#999, PR
   #1051, ADR-0054 through ADR-0056): prompt-section replacement (the six
   replaceable sections, one author per composition, the provenance line, the
@@ -3118,6 +3128,9 @@ security audit, each fixed behind its own PR.
   is preserved across the promotion handover. Streaming oracles were
   rebuilt for the reveal era and the PTY harness commits scrollback with
   sync blocks for deterministic checkpoints.
+  *Correction (2026-10-24, #1511):* the `MOH_TYPEWRITER_CHARS` knob named
+  above has been inert since #1054 and is removed; see the Removed entry
+  under [Unreleased].
 
 ### Fixed
 
