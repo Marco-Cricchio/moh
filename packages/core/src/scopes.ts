@@ -80,7 +80,10 @@ type HostScopeValidity =
  * Identity is string equality with the URL host — no origin-pattern
  * grammar. `host:*.example.com` covers one label of subdomains as
  * written; an explicit port is allowed for development. https is
- * implicit and never spelled inside the string.
+ * implicit and never spelled inside the string. A scope spelling the
+ * https default port (`:443`) is the bare form and normalizes to no
+ * port; `:80` stays an explicit port and is matched against the http
+ * default (#1574).
  */
 export function validateHostScope(capability: string): HostScopeValidity {
   const spec = capability.slice(HOST_SCOPE_PREFIX.length);
@@ -118,20 +121,22 @@ export function validateHostScope(capability: string): HostScopeValidity {
     // grammar outside ADR-0066 (and would dodge the reasoning vocabulary).
     return { ok: false, reason: "malformed", message: `invalid host scope "${capability}": the total wildcard takes no port` };
   }
+  if (port === 443) port = undefined;
   return { ok: true, host: hostPart, port, wildcard: hostPart.startsWith("*.") };
 }
 
 /**
  * The host a request URL must string-match against one validated scope
  * (ADR-0066: identity stays equality). The default https port is
- * implicit on both sides; an explicit default port in a request URL
- * normalizes to no port.
+ * implicit on both sides; the request port is the scheme's default
+ * when the URL carries none (WHATWG `URL` drops an explicit default
+ * port), so a `:80` scope admits `http://a.com/` (#1574).
  */
 export function hostMatchesScope(scope: HostScopeValidity & { ok: true }, url: URL): boolean {
   let requestHost = url.hostname.toLowerCase();
-  const requestPort = url.port === "" || (url.protocol === "https:" && url.port === "443") || (url.protocol === "http:" && url.port === "80")
-    ? undefined
-    : Number(url.port);
+  const requestPort = url.port !== ""
+    ? Number(url.port)
+    : url.protocol === "https:" ? 443 : url.protocol === "http:" ? 80 : undefined;
   // https implicit: a scope without a port speaks https; an http request
   // URL matches only a development scope that spelled a port (local dev
   // servers), never a bare `host:<domain>` grant.
@@ -558,10 +563,10 @@ const SCOPES = {
       if (!check.ok) return null;
       if (check.wildcard) {
         const parent = check.host.slice(2);
-        const base = `may contact any subdomain of \`${parent}\` over https`;
+        const base = `may contact any subdomain of \`${parent}\` over ${check.port === 80 ? "http" : "https"}`;
         return check.port !== undefined ? `${base} on port ${check.port}` : base;
       }
-      const named = `\`${check.host}${check.port !== undefined ? `:${check.port}` : ""}\` over https`;
+      const named = `\`${check.host}${check.port !== undefined ? `:${check.port}` : ""}\` over ${check.port === 80 ? "http" : "https"}`;
       return `may contact ${named}`;
     },
   },
