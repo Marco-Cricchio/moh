@@ -84,13 +84,19 @@ describe("sessionFromConfig", () => {
   });
 
   test("pre-built provider instance wins over references", () => {
-    const provider = MockProvider.demo();
-    const result = sessionFromConfig({
-      cwd: process.cwd(),
-      config: { provider: "nope/nope" },
-      provider,
-    });
-    expect("error" in result).toBe(false);
+    const { cwd, home, cleanup } = tempProject();
+    try {
+      const provider = MockProvider.demo();
+      const result = sessionFromConfig({
+        cwd,
+        home,
+        config: { provider: "nope/nope" },
+        provider,
+      });
+      expect("error" in result).toBe(false);
+    } finally {
+      cleanup();
+    }
   });
 
   test("merges project (moh.json) and user (~/.moh/config) MCP servers", () => {
@@ -133,55 +139,72 @@ describe("sessionFromConfig", () => {
   });
 
   test("permissionFlags merge on top of moh.json overrides (caller wins)", async () => {
-    const provider = MockProvider.scripted([
-      { deltas: [], finish: "tool_calls", toolCalls: [{ name: "bash", args: { command: "echo hi" } }] },
-      { deltas: ["ok"], finish: "stop" },
-    ]);
-    const result = sessionFromConfig({
-      cwd: process.cwd(),
-      config: { permissions: { overrides: { tools: { bash: "ask" } } } },
-      provider,
-      overrides: { permissionFlags: { tools: { bash: "allow" } } },
-    });
-    expect("error" in result).toBe(false);
-    if ("error" in result) return;
-    const events: any[] = [];
-    void (async () => {
-      for await (const e of result.session.events) events.push(e);
-    })();
-    const turn = await result.session.send("run it");
-    await result.session.dispose();
-    expect(turn.status).toBe("done");
-    // The bash call ran (no permission_requested): the CLI flag overrode the moh.json "ask".
-    expect(events.some((e) => e.type === "permission_requested")).toBe(false);
-    expect(events.some((e) => e.type === "tool_call" && e.name === "bash")).toBe(true);
+    const { cwd, home, cleanup } = tempProject();
+    try {
+      const provider = MockProvider.scripted([
+        { deltas: [], finish: "tool_calls", toolCalls: [{ name: "bash", args: { command: "echo hi" } }] },
+        { deltas: ["ok"], finish: "stop" },
+      ]);
+      const result = sessionFromConfig({
+        cwd,
+        home,
+        config: { permissions: { overrides: { tools: { bash: "ask" } } } },
+        provider,
+        overrides: { permissionFlags: { tools: { bash: "allow" } } },
+      });
+      expect("error" in result).toBe(false);
+      if ("error" in result) return;
+      const events: any[] = [];
+      void (async () => {
+        for await (const e of result.session.events) events.push(e);
+      })();
+      const turn = await result.session.send("run it");
+      await result.session.dispose();
+      expect(turn.status).toBe("done");
+      // The bash call ran (no permission_requested): the CLI flag overrode the moh.json "ask".
+      expect(events.some((e) => e.type === "permission_requested")).toBe(false);
+      expect(events.some((e) => e.type === "tool_call" && e.name === "bash")).toBe(true);
+    } finally {
+      cleanup();
+    }
   });
 
   test("without consent seams, an ask-tier call is denied headless (fail-fast, no prompt)", async () => {
-    const provider = MockProvider.scripted([
-      { deltas: [], finish: "tool_calls", toolCalls: [{ name: "bash", args: { command: "rm -rf /" } }] },
-      { deltas: ["denied then"], finish: "stop" },
-    ]);
-    const result = sessionFromConfig({ cwd: process.cwd(), provider });
-    if ("error" in result) throw new Error(result.error.message);
-    const turn = await result.session.send("run it");
-    await result.session.dispose();
-    expect(turn.status).toBe("done");
+    const { cwd, home, cleanup } = tempProject();
+    try {
+      const provider = MockProvider.scripted([
+        { deltas: [], finish: "tool_calls", toolCalls: [{ name: "bash", args: { command: "rm -rf /" } }] },
+        { deltas: ["denied then"], finish: "stop" },
+      ]);
+      const result = sessionFromConfig({ cwd, home, provider });
+      if ("error" in result) throw new Error(result.error.message);
+      const turn = await result.session.send("run it");
+      await result.session.dispose();
+      expect(turn.status).toBe("done");
+    } finally {
+      cleanup();
+    }
   });
 
   test("extra sink fans out alongside the store append", async () => {
-    const provider = MockProvider.scripted([{ deltas: ["hi"], finish: "stop" }]);
-    const seen: string[] = [];
-    const result = sessionFromConfig({
-      cwd: process.cwd(),
-      provider,
-      overrides: { sink: (e) => seen.push(e.type) },
-    });
-    if ("error" in result) throw new Error(result.error.message);
-    await result.session.send("hello");
-    await result.session.dispose();
-    expect(seen).toContain("session_start");
-    expect(seen).toContain("done");
+    const { cwd, home, cleanup } = tempProject();
+    try {
+      const provider = MockProvider.scripted([{ deltas: ["hi"], finish: "stop" }]);
+      const seen: string[] = [];
+      const result = sessionFromConfig({
+        cwd,
+        home,
+        provider,
+        overrides: { sink: (e) => seen.push(e.type) },
+      });
+      if ("error" in result) throw new Error(result.error.message);
+      await result.session.send("hello");
+      await result.session.dispose();
+      expect(seen).toContain("session_start");
+      expect(seen).toContain("done");
+    } finally {
+      cleanup();
+    }
   });
 
   test("resume: a given store seeds the conversation from its log", async () => {
