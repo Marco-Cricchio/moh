@@ -205,8 +205,9 @@ All keys are optional. Notes:
   `false`) is report only; `block: true` asks for the failure to be
   resolved before a change is called done. `timeoutMs` defaults to bash's
   30 s. `moh init` proposes the repo's own tools, or pinned `jscpd` and
-  `lizard` commands. Not run yet: the checks extension that consumes the
-  key is in progress (#1633).
+  `lizard` commands. The bundled checks extension runs them after a turn
+  that changed files and reports in the footer (see Extensions → Bundled
+  extensions); `block` is recorded but not acted on yet (#1633).
 
 ## ~/.moh/config
 

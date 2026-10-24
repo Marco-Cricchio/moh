@@ -383,6 +383,8 @@ export function sessionFromConfig(options: SessionFromConfigOptions): SessionFro
         credentialStore: options.credentialStore ?? defaultCredentialStore(home),
         // #868: the declared routing pool, verbatim (already schema-validated).
         ...(config.routingPool !== undefined ? { routingPool: config.routingPool } : {}),
+        // ADR-0080: the declared checks, verbatim (already schema-validated).
+        ...(config.checks !== undefined ? { checks: config.checks } : {}),
         skillRoster: () =>
           Promise.resolve(
             discoverSkills({ mohHome, projectDir: projectRoot, firstParty: o.firstParty ?? "include" }).map((s) => ({

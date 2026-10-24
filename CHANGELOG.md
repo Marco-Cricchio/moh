@@ -7,6 +7,18 @@ matching section here at tag time.
 
 ## [Unreleased]
 
+### Added
+
+- **Repo-declared checks** (ADR-0080, #1633): `moh.json` `checks` declares
+  named commands (a non-zero exit is a failure). `moh init` proposes the
+  repository's own tools, or pinned `jscpd` and `lizard` commands, into a
+  new `moh.json` and never edits an existing one. The new bundled checks
+  extension runs them after a turn that changed files, one at a time
+  through the bash tool and your permission rules, and reports in the
+  footer; its enable consent lists the exact commands, per project, and
+  asks again when they change. Report only for now: the model never sees
+  the results.
+
 ### Changed
 
 - **A bare `host:<domain>` grant admits https on port 443 only** (ADR-0066,
