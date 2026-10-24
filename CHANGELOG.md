@@ -44,6 +44,16 @@ matching section here at tag time.
   was never fed from them), and the dead wiring was removed in #1510. They
   are not re-wired; no pacing configuration replaces them.
 
+### Fixed
+
+- **Closing a modal while a turn runs no longer loses transcript rows**
+  (#1489): after answering a tool permission, the blocks that settled while
+  the prompt was open or just after it closed (the reply text before the
+  tool, the tool result, the permission rows, the follow-up reply) could
+  print into the closing modal's screen and vanish, or the first repaint
+  could erase rows above the session frame, depending on timing. They now
+  always land in the chat history, right below what was there before.
+
 ## [0.65.3] - 2026-10-23
 
 ### Changed
