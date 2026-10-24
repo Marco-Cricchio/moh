@@ -116,53 +116,6 @@ reference records as `on`, so they keep the default and rely on the dead proxy
 alone. `tui-hermetic.test.ts` checks the spec that `tui.ts` runs (`specFor`)
 against literal values: the proxy keys, the loopback bypass and the opt-out.
 
-## Known B5 flake: `permission-prompt` / `permission-allowed` (#1482)
-
-The `permission-allowed` frame in `tui/permission-prompt.json` is not
-deterministic. Measured on `ef00d3c6` (code unmodified, sequential runs of
-`bun scripts/ablation-baseline/tui.ts <fresh-dir> --only permission-prompt`,
-each compared byte for byte with `current`):
-
-- 10 of 60 recordings differed (about 1 in 6) in the first measurement;
-- 18 of 30 differed (60%) in the PR review, with a load average of about 5-6.
-
-The rate depends on machine load and is not a property of the scenario. In
-all 18 differing files of the second measurement only
-`frames["permission-allowed"]` differed; `frames["permission-prompt"]`,
-`scenario`, `exited` and `exitCode` were identical.
-
-Cause (measured, not fixed): the frame shape is fixed by the first repaint
-after the modal closes (`ESC[?1049l`). In some runs that repaint redraws only
-the composer and footer; in others it still redraws the tool and permission
-rows (and sometimes the assistant block). The shape then never changes (20
-runs sampled every 0.25 s for 6 s), so no longer settle or other readiness
-condition on this screen can select one. Replaying the raw bytes through
-`harness.py` `Screen` (whole, and in 7-byte chunks) reproduced the live shape
-in 13 of 13 runs, so the emulator is not the source: the difference is in the
-bytes the TUI emits (paint/promotion order, outside the harness).
-
-Rule (uses only `current`): if a full B5 recording differs from `current`
-**only** in `tui/permission-prompt.json`, re-record
-`bun scripts/ablation-baseline/tui.ts <fresh-dir> --only permission-prompt`
-in a new directory, up to 10 times, stopping at the first recording whose
-`permission-prompt.json` is byte-identical to
-`current/b5/tui/permission-prompt.json`.
-
-- If one matches, it is the known instability (#1482).
-- If none of the 10 matches, it is a regression to investigate.
-- Any difference in another B5 file is a regression in every case.
-
-A real change to that frame cannot produce a byte-identical match with
-`current`, so the rule does not hide it. Why 10: with per-recording mismatch
-probability p, a false "regression" after N attempts has probability p^N; at
-p = 0.6 that is about 0.6% for N = 10 (about 22% for N = 3). Each attempt
-takes about 14 s. Run one B5 recording at a time (fixed temp names), never
-two in parallel.
-
-The real fix is #1489 (a TUI change, outside the ablation and outside this
-harness). If it lands, re-record the `permission-prompt` reference and rotate
-`current` (#1378), then remove this section and its rule.
-
 ## B7 — Manual smoke checklist
 
 Run after each phase with a real terminal and credentials:
