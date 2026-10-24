@@ -1,3 +1,4 @@
+import "./faketty/ci-mask"; // BEFORE any ink-loading import: is-in-ci snapshots the env at module load
 import { describe, expect, test } from "bun:test";
 import { render } from "ink-testing-library";
 import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
@@ -6,7 +7,10 @@ import { join } from "node:path";
 import { MockProvider } from "@moh/core";
 import { App } from "../src/App";
 import { userConfigFile } from "../src/user-config";
-import { pressSettled, sendPrompt, stripAnsi, waitStep } from "./helpers";
+import { renderOnFakeTty, type FakeTerminal } from "./faketty/render";
+import { grantTeamExtension, pressSettled, sendPrompt, stripAnsi, useFileCredentialStore, waitStep } from "./helpers";
+
+useFileCredentialStore();
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
@@ -189,12 +193,18 @@ describe("deferred transcript repaint vs alternate-screen close (#330)", () => {
     // written while the alternate buffer is active — track buffer state
     // from the flip escapes and check every clear write lands in the
     // main buffer, whatever the close→reopen interleaving turned out to
-    // be. The final repaint must still follow the last flip.
+    // be. The final repaint must still follow the last flip. And the
+    // switches alternate: a reopen inside the flip window is still in the
+    // alternate buffer, where a second 1049h would re-save the cursor that
+    // the final flip restores the session frame at (#1489).
     const frames = i.frames;
     let inAlternate = false;
     let lastFlipIndex = -1;
     frames.forEach((frame, index) => {
-      if (frame.includes("\x1b[?1049h")) inAlternate = true;
+      if (frame.includes("\x1b[?1049h")) {
+        expect(inAlternate).toBe(false);
+        inAlternate = true;
+      }
       if (frame.includes("\x1b[?1049l")) { inAlternate = false; lastFlipIndex = index; }
       if (frame.includes("\x1b[3J")) {
         expect(inAlternate).toBe(false);
@@ -206,4 +216,84 @@ describe("deferred transcript repaint vs alternate-screen close (#330)", () => {
     expect(reprintIndex).toBeGreaterThan(lastFlipIndex);
     i.unmount();
   }, 15000);
+});
+
+/**
+ * #1489: answering a tool permission closes the modal while the turn keeps
+ * settling, and the flip back to the main buffer comes ALT_FLIP_DELAY_MS
+ * after the close. What settled meanwhile — blocks that closed while the
+ * modal was open, the tool result, the follow-up reply — used to print into
+ * the dying alternate buffer, and ink's line count after the flip described
+ * the last frame painted there rather than the one the main buffer shows.
+ * Which rows survived the cycle therefore depended on whether the turn
+ * settled before or after the flip. Here the order is the test's choice: the
+ * same permission turn runs once free (on an idle machine it settles inside
+ * the flip window) and once with the reply held until the flip is written.
+ * The terminal history must be the same in both, with every block once and
+ * in order below the history printed before the modal opened.
+ *
+ * Seam: the full App on the in-process fake terminal (ADR-0057 level 1),
+ * whose screen model keeps the main and alternate buffers apart (DECSET
+ * 1049) — what the ink-testing-library frames above cannot show.
+ */
+describe("blocks settling around the alternate-screen close (#1489)", () => {
+  /** What the user can scroll back through: native scrollback, then the screen. */
+  const historyOf = (term: FakeTerminal) => [...term.screen.scrollback(), ...term.screen.lines()];
+  /** Per-run values: the prompt hash, the temp project path, the session id and the tool's wall-clock duration. */
+  const normalized = (rows: readonly string[]) => rows.map((row) => row
+    .replace(/prompt [0-9a-f]{8}/, "prompt <hash>")
+    .replace(/▣ .* ◉/, "▣ <cwd> ◉")
+    .replace(/session-[0-9a-f]{8}/, "<session>")
+    .replace(/· \d+s$/, "· <duration>"));
+
+  async function permissionTurn(replyAfterFlip: boolean): Promise<string[]> {
+    const cwd = mkdtempSync(join(tmpdir(), "moh-cwd-"));
+    const home = mkdtempSync(join(tmpdir(), "moh-home-"));
+    grantTeamExtension(home);
+    writeFileSync(join(cwd, "moh.json"), JSON.stringify({ permissions: { overrides: { tools: { bash: "ask" } } } }));
+    writeFileSync(userConfigFile(home), JSON.stringify({ onboarded: true, workflowOffered: true, mode: "dev", updateCheck: false }));
+    let flipped!: () => void;
+    const flip = new Promise<void>((resolve) => { flipped = resolve; });
+    const provider = MockProvider.scripted([
+      { deltas: ["ASKMARKER asking\n"], finish: "tool_calls", toolCalls: [{ name: "bash", args: { command: "echo permissioned" } }] },
+      { deltas: ["ALLOWEDMARKER"], finish: "stop", ...(replyAfterFlip ? { hold: { afterDeltas: 0, release: flip } } : {}) },
+    ]);
+    // Home, not startInChat: only a session opened from Home is wired to the App's permission gate.
+    const term = renderOnFakeTty(<App intro={false} cwd={cwd} home={home} provider={provider} env={{}} skipOnboarding />, { cols: 100, rows: 30 });
+    const view = { lastFrame: () => term.screen.lines().join("\n") };
+    const onScreen = (text: string) => view.lastFrame().includes(text);
+    try {
+      await waitStep(view, () => onScreen("New session"), "home mounted", { timeoutMs: 10_000 });
+      term.write("run it");
+      await waitStep(view, () => onScreen("start “run it”"), "the prompt typed on home");
+      term.write("\r");
+      await waitStep(view, () => onScreen("a always"), "the permission modal opened", { timeoutMs: 10_000 });
+      const answeredAt = term.rawBytes().length;
+      const since = () => term.rawBytes().subarray(answeredAt).toString("utf8");
+      // The held reply is released by the very write that flips back.
+      term.stdout.on("write", (chunk: Buffer) => { if (chunk.includes("\x1b[?1049l")) flipped(); });
+      term.write("y");
+      await waitStep(view, () => since().includes("\x1b[?1049l") && since().includes("✓ done"), "the flip back and the finished turn", { timeoutMs: 10_000 });
+      await term.settle();
+      return normalized(historyOf(term));
+    } finally {
+      await term.unmount();
+    }
+  }
+
+  test("the history is the same whether the turn settles before or after the flip", async () => {
+    const free = await permissionTurn(false);
+    const held = await permissionTurn(true);
+    expect(held).toEqual(free);
+    const text = free.join("\n");
+    const count = (needle: string) => text.split(needle).length - 1;
+    const blocks = ["run it", "ASKMARKER", "✓ bash echo permissioned", "◌ permission bash · requested", "✓ permission bash · allowed (user)", "ALLOWEDMARKER", "for everything you need"];
+    expect(blocks.map((needle) => [needle, count(needle)])).toEqual(blocks.map((needle) => [needle, 1]));
+    // In order, below what was printed before the modal opened, the session frame last…
+    const rows = ["◈ extension loaded team", ...blocks].map((needle) => free.findIndex((row) => row.includes(needle)));
+    expect(rows).not.toContain(-1);
+    expect(rows).toEqual([...rows].sort((a, b) => a - b));
+    // …and no row left behind by a frame painted before the flip (a running glyph).
+    expect(text).not.toMatch(/[◔◑◕●] (bash|permission)/);
+  }, 60_000);
 });

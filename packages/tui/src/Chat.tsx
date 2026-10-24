@@ -179,7 +179,8 @@ interface ChatProps {
   /** #330: an alternate→main buffer flip is in flight (modal just closed,
   * flip timer pending). A deferred whole-transcript repaint must wait it
   * out — firing concurrently lands its Static re-emission in the dying
-  * alternate buffer and blanks the chat. */
+  * alternate buffer and blanks the chat. Static stays frozen until then
+  * too (#1489): a block printed before the flip is lost with that buffer. */
   bufferFlipPending?: boolean;
   /** Slash commands active for this context (workflow-aware completion)
    * with popup-facing descriptions and provenance markers. Standalone
@@ -1089,9 +1090,13 @@ export function Chat({
   // Static must stay MOUNTED across modal cycles: unmounting it (the old
   // alternate-screen swap) reset ink's internal printed-items counter, so
   // every remount reprinted the whole settled transcript into the main
-  // buffer — one duplicate per opened modal. While replaySettled, freeze
-  // the items so Static emits nothing into the alternate buffer; on close
-  // it resumes and prints only items settled in the meantime.
+  // buffer — one duplicate per opened modal. While the terminal shows the
+  // alternate buffer — replaySettled, and after close until the flip back
+  // has been written (bufferFlipPending) — freeze the items so Static emits
+  // nothing there; in the main buffer it resumes and prints only items
+  // settled in the meantime. Unfreezing on close instead printed whatever
+  // had settled into the dying buffer, so which blocks survived a modal
+  // depended on whether they settled before or after the flip (#1489).
   const frozenRef = useRef<readonly TranscriptBlock[] | null>(null);
   // Append-only emission ledger (#537): the blocks ink has already been
   // handed via Static, in emission order, content as at print time. Ink's
@@ -1115,7 +1120,7 @@ export function Chat({
   let staticItems: readonly TranscriptBlock[];
   if (railWide || repaintRef.current) {
     staticItems = [];
-  } else if (replaySettled) {
+  } else if (replaySettled || bufferFlipPending) {
     if (frozenRef.current === null) frozenRef.current = emittedRef.current;
     staticItems = frozenRef.current;
   } else {
