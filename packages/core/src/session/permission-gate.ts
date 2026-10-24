@@ -2,7 +2,7 @@ import { join } from "node:path";
 import { persistToolAllow } from "../config";
 import type { PermissionResolver } from "../permissions";
 import type { AgentEvent } from "../types";
-import type { SessionConfig } from "./config";
+import type { PermissionAskContext, SessionConfig } from "./config";
 
 /**
  * The tool-call hook surface PermissionGate needs (the name is historical:
@@ -68,6 +68,12 @@ export class PermissionGate {
      * ask happens anyway. A hook-driven extension ask keeps precedence.
      */
     requester?: { extension: string },
+    /**
+     * ADR-0076: the ask context a client-initiated door supplies (the
+     * composer's `!` command, `source: "user"`). It labels the ask and, like
+     * an extension ask, never lets an "always" answer write a rule.
+     */
+    clientAsk?: PermissionAskContext,
   ): Promise<{ allowed: true } | { allowed: false; denial: string }> {
     // Extension hook check first (#34, ADR-0031): a veto beats user rules,
     // defaults, yolo and auto-accept — extensions can only restrict, never
@@ -138,7 +144,7 @@ export class PermissionGate {
     const askContext =
       extensionAsk ? { source: "extension" as const, ...extensionAsk }
       : requester ? { source: "extension" as const, extension: requester.extension, reason: "host seam tool invocation" }
-      : undefined;
+      : clientAsk;
     const answer = await this.#onPermissionRequest(tool, args, askContext);
     if (answer === "no") {
       this.#append({ type: "permission_denied", callId, tool, reason: "user" });
@@ -150,9 +156,13 @@ export class PermissionGate {
     // <url-glob>` runtime rule — never a tool-wide rule, never persisted.
     // ADR-0031: an extension ask never writes a rule at all — it offers no
     // "always" (a false positive must not disarm the filter that raised it).
+    // ADR-0076: neither does a user-initiated ask — an "always" there is a
+    // one-time allow, so the reduced prompt cannot pre-authorize later
+    // model-initiated calls.
     const runtimeOnly = tool === "browser";
     if (
       !extensionAsk &&
+      clientAsk?.source !== "user" &&
       (answer === "always" || answer === "always_for_site") &&
       this.#permissions.persistable(tool, args)
     ) {

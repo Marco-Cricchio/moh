@@ -85,7 +85,7 @@ page is the same content in manual form, plus the manual's own entries
 
 | Key | Action |
 | --- | --- |
-| y / a / e / n | permission: yes / always / edit / no |
+| y / a / e / n | permission: yes / always / edit / no (a ! command or an extension ask: y / n only) |
 | ↑ / ↓ (or j / k) | scroll the body of a read-only modal taller than the terminal (/session, /extensions, /mpm, /jev, /retro, /browser) |
 | esc | close panel (deny when permission asks) |
 

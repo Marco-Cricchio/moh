@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { render } from "ink-testing-library";
 import { Box } from "ink";
+import { useSyncExternalStore } from "react";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -9,7 +10,7 @@ import { Chat } from "../src/Chat";
 import { PermissionModal } from "../src/PermissionModal";
 import { PermissionGate } from "../src/permission-gate";
 import { makeSession } from "../src/factory";
-import { grantTeamExtension, stripAnsi, unwrap } from "./helpers";
+import { grantTeamExtension, sendPrompt, stripAnsi, unwrap, waitStep, waitText } from "./helpers";
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
@@ -36,9 +37,11 @@ const script = () => [
 ];
 
 function Harness({ session, gate }: { session: AgentSession; gate: PermissionGate }) {
+  // As in App: a pending ask blocks the composer, so the modal owns the keys.
+  useSyncExternalStore(gate.subscribe, gate.getSnapshot);
   return (
     <Box flexDirection="column">
-      <Chat session={session} cwd={mkdtempSync(join(tmpdir(), "moh-gitless-"))} mode="dev" modelLabel="mock" />
+      <Chat session={session} cwd={mkdtempSync(join(tmpdir(), "moh-gitless-"))} mode="dev" modelLabel="mock" blocked={gate.current !== null} />
       <PermissionModal gate={gate} mode="dev" />
     </Box>
   );
@@ -198,5 +201,48 @@ describe("permission modal (issue #33)", () => {
     expect(calls).toEqual([]);
     expect(store.load().some((e) => e.type === "permission_denied")).toBe(true);
     i.unmount();
+  });
+
+  // #1507 (ADR-0076): the composer's `!` command reaches the modal with its
+  // `source: "user"` context — the reduced y/n prompt, no "always", no edit —
+  // and nothing it answers writes a rule, so the same command asks again.
+  test("a ! command gets the reduced y/n prompt and never writes a rule", async () => {
+    const cwd = mkdtempSync(join(tmpdir(), "moh-perm-"));
+    const home = mkdtempSync(join(tmpdir(), "moh-perm-h-"));
+    grantTeamExtension(home);
+    const store = SessionStore.create(cwd, home);
+    const gate = new PermissionGate();
+    const calls: string[] = [];
+    const { session } = unwrap(makeSession({
+      cwd,
+      home,
+      store,
+      provider: MockProvider.scripted([{ deltas: ["unused"], finish: "stop" }]),
+      tools: recordingBashTool(calls),
+      onPermissionRequest: gate.ask,
+    }));
+    const i = render(<Harness session={session} gate={gate} />);
+    try {
+      for (const round of ["first", "second"]) {
+        await sendPrompt(i, "!echo hi");
+        await waitText(i, "your command", `the ${round} ! ask is up`);
+        const frame = stripAnsi(i.lastFrame() ?? "");
+        expect(frame).toContain("command: echo hi");
+        expect(frame).not.toContain("always");
+        expect(frame).not.toContain("edit");
+        expect(frame).not.toContain("writes the session rule");
+        // "a" is not an answer on the reduced prompt: the ask stays up.
+        i.stdin.write("a");
+        await sleep(100);
+        expect(gate.current?.userAsk).toBeDefined();
+        i.stdin.write("y");
+        await waitStep(i, () => calls.length === (round === "first" ? 1 : 2), `the ${round} ! command ran`);
+        await waitText(i, "your command", `the ${round} ! ask closed`, { absent: true });
+      }
+      expect(calls).toEqual(["echo hi", "echo hi"]);
+      expect(store.load().some((e) => e.type === "permission_rule_added")).toBe(false);
+    } finally {
+      i.unmount();
+    }
   });
 });

@@ -16,7 +16,8 @@ import { EXTENSION_CONSENT_TOOL, type PermissionGate } from "./permission-gate";
  * ADR-0031: an ask raised by an extension (the hook's `ask` outcome) offers
  * yes/no only — never "always", so a false positive cannot disarm the
  * filter that raised it — and carries the extension's own reason as its
- * label.
+ * label. ADR-0076: a user-initiated ask (the composer's `!` command) gets
+ * the same reduced y/n prompt — no "always", no edit.
  */
 export function PermissionModal({
   gate,
@@ -35,14 +36,15 @@ export function PermissionModal({
   useInput((input, key) => {
     if (!view) return;
     if (input === "y" || key.return) return gate.resolve("yes");
-    if (!view.extensionAsk) {
+    const reduced = view.extensionAsk !== undefined || view.userAsk !== undefined;
+    if (!reduced) {
       if (view.tool === "browser") {
         // #775: on browser asks the "always" slot is the site-scoped rule.
         if (input === "a" || input === "s") return gate.resolve("always_for_site");
       } else if (input === "a") return gate.resolve("always");
     }
     if (input === "n" || key.escape) return gate.resolve("no");
-    if (input === "e" && !view.extensionAsk) editTarget(view.tool, view.args, editor);
+    if (input === "e" && !reduced) editTarget(view.tool, view.args, editor);
   });
 
   if (!view) return null;
@@ -84,7 +86,7 @@ export function PermissionModal({
           y
         </Text>
         {" yes  "}
-        {view.extensionAsk ? null : (
+        {view.extensionAsk || view.userAsk ? null : (
           <>
             <Text color={theme.accent}>a</Text>
             {view.tool === "browser" ? " always for this site  " : " always  "}
