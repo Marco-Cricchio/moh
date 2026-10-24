@@ -36,7 +36,7 @@ commands:
   run      non-interactive session (see: moh run --help)
   mcp      manage MCP tool servers (see: moh mcp --help)
   extension  install/list/remove extension packages (see: moh extension --help)
-  init     scaffold agent docs (docs/agents/* + AGENTS.md)
+  init     scaffold agent docs (docs/agents/* + AGENTS.md) and propose moh.json checks
   provider manage provider endpoints and auth (see: moh provider --help)
   manual   read the user manual (see: moh manual --help)
   compact  compact a session's context in place (see: moh compact --help)
