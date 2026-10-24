@@ -17,9 +17,7 @@ import { join } from "node:path";
 import { SettingsPanel } from "../src/SettingsPanel";
 import { DEFAULT_USER_CONFIG } from "../src/user-config";
 import { ThemeProvider, THEMES, DEFAULT_THEME } from "../src/themes";
-import { stripAnsi } from "./helpers";
-
-const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+import { pressCommitted, stripAnsi, waitStep, waitText } from "./helpers";
 
 function setup() {
   const cwd = mkdtempSync(join(tmpdir(), "moh-sub-h-cwd-"));
@@ -53,12 +51,17 @@ function mount(cwd: string, home: string, rows: number) {
 const frameLines = (i: ReturnType<typeof render>) =>
   stripAnsi(i.lastFrame() ?? "").split("\n").filter((l) => l.trim().length > 0);
 
+const onRow = (i: ReturnType<typeof render>, label: string) =>
+  frameLines(i).some((l) => l.includes("›") && l.includes(label));
+
+// Waits for the panel to paint its list, then moves the cursor one committed
+// key at a time (#1629: no fixed sleeps — a key lands only after the previous
+// one was rendered and its effects flushed).
 const gotoRow = async (i: ReturnType<typeof render>, label: string) => {
+  await waitStep(i, () => frameLines(i).some((l) => l.includes("›")), "the settings list painted");
   for (let k = 0; k < 24; k++) {
-    const on = frameLines(i).some((l) => l.includes("›") && l.includes(label));
-    if (on) return;
-    i.stdin.write("\x1b[B");
-    await sleep(25);
+    if (onRow(i, label)) return;
+    await pressCommitted(i, "\x1b[B", `cursor down towards "${label}"`);
   }
   throw new Error(`row "${label}" was not reachable by label`);
 };
@@ -68,10 +71,9 @@ describe("settings sub-menu height (#1042)", () => {
     test(`the Jev sub-menu fits a ${rows}-row terminal`, async () => {
       const { cwd, home } = setup();
       const i = mount(cwd, home, rows);
-      await sleep(50);
       await gotoRow(i, "Jev (TypeSafe)");
       i.stdin.write("\r"); // open the sub-menu
-      await sleep(50);
+      await waitText(i, "API key", "the Jev sub-menu opened");
       const lines = frameLines(i);
       expect(lines.some((l) => l.includes("API key"))).toBe(true);
       if (rows >= 40) {
@@ -94,10 +96,9 @@ describe("settings sub-menu height (#1042)", () => {
     test(`the fallback sub-menu fits a ${rows}-row terminal`, async () => {
       const { cwd, home } = setup();
       const i = mount(cwd, home, rows);
-      await sleep(50);
       await gotoRow(i, "Fallback models");
       i.stdin.write("\r");
-      await sleep(50);
+      await waitText(i, "c clear model", "the fallback sub-menu opened");
       const lines = frameLines(i);
       expect(lines.length).toBeLessThan(rows);
       i.unmount();
@@ -106,10 +107,9 @@ describe("settings sub-menu height (#1042)", () => {
     test(`the endpoint sub-menu fits a ${rows}-row terminal`, async () => {
       const { cwd, home } = setup();
       const i = mount(cwd, home, rows);
-      await sleep(50);
       await gotoRow(i, "Provider");
       i.stdin.write("\r");
-      await sleep(50);
+      await waitText(i, "switch endpoint", "the endpoint sub-menu opened");
       const lines = frameLines(i);
       expect(lines.some((l) => l.includes("mock"))).toBe(true);
       expect(lines.length).toBeLessThan(rows);
