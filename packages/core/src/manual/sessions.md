@@ -35,7 +35,9 @@ Reopening a past session **appends to the same file**: history, memory
 and permission decisions carry over. The home list shows your recent
 sessions — enter reopens one. On the CLI, `moh run --resume` discovers a
 session of the current project by query (an id or title text) or lists
-them newest-first; `moh run --session <file>` targets an exact log.
+them newest-first; `moh sessions list [--json]` prints them non-interactively
+(id, last-updated time, title) and the id works as `<file|id>` in every
+`moh sessions` subcommand; `moh run --session <file>` targets an exact log.
 
 ## Fork
 

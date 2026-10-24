@@ -4,7 +4,7 @@
  * rename by file and by id, reset on empty name, unknown session error.
  */
 import { describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { SessionStore, sessionTree } from "@moh/core";
@@ -30,7 +30,7 @@ describe("moh sessions rename (#477)", () => {
     const { spawn } = harness();
     const { code, stdout } = spawn(["sessions", "--help"]);
     expect(code).toBe(0);
-    expect(stdout).toContain("usage: moh sessions rename");
+    expect(stdout).toContain("usage: moh sessions list");
   }, SPAWN_TEST_TIMEOUT_MS);
 
   test("renames by session id and the event lands on the file", () => {
@@ -348,5 +348,59 @@ describe("moh sessions analyze (#767)", () => {
     const r = spawn(["sessions", "analyze", "20990101T000000000Z-00000000"]);
     expect(r.code).toBe(2);
     expect(r.stderr).toContain("no session");
+  }, SPAWN_TEST_TIMEOUT_MS);
+});
+
+describe("moh sessions list (#1470)", () => {
+  function twoSessions() {
+    const h = harness();
+    const second = SessionStore.create(h.cwd, h.home);
+    second.append({ type: "session_start", schemaVersion: 1, promptVersion: "p" });
+    second.append({ type: "user_message", text: "second user message" });
+    second.append({ type: "done", usage: { inputTokens: 1, outputTokens: 1 }, models: [] });
+    const secondId = second.file.replace(/.*\//, "").replace(/\.jsonl$/, "");
+    // Deterministic order: the first session is older.
+    utimesSync(h.file, new Date(1_700_000_000_000), new Date(1_700_000_000_000));
+    utimesSync(second.file, new Date(1_700_000_100_000), new Date(1_700_000_100_000));
+    return { ...h, secondId };
+  }
+
+  test("prints newest first: id, updated time, title", () => {
+    const { spawn, id, secondId } = twoSessions();
+    const { code, stdout } = spawn(["sessions", "list"]);
+    expect(code).toBe(0);
+    const lines = stdout.trim().split("\n");
+    expect(lines).toHaveLength(2);
+    expect(lines[0]).toBe(`${secondId}  2023-11-14T22:15:00.000Z  second user message`);
+    expect(lines[1]).toBe(`${id}  2023-11-14T22:13:20.000Z  first user message`);
+  }, SPAWN_TEST_TIMEOUT_MS);
+
+  test("--json prints the same rows as an array", () => {
+    const { spawn, file, id, secondId } = twoSessions();
+    const { code, stdout } = spawn(["sessions", "list", "--json"]);
+    expect(code).toBe(0);
+    const rows = JSON.parse(stdout) as Array<Record<string, string>>;
+    expect(rows.map((r) => r["id"])).toEqual([secondId, id]);
+    expect(rows[1]).toEqual({
+      id,
+      file,
+      updatedAt: "2023-11-14T22:13:20.000Z",
+      title: "first user message",
+    });
+  }, SPAWN_TEST_TIMEOUT_MS);
+
+  test("an empty project prints nothing and exits 0", () => {
+    const { home } = harness();
+    const empty = mkdtempSync(join(TMP_ROOT, "empty-"));
+    const { code, stdout } = runCli(["sessions", "list"], { cwd: empty, home });
+    expect(code).toBe(0);
+    expect(stdout).toBe("");
+  }, SPAWN_TEST_TIMEOUT_MS);
+
+  test("every printed id works as the file|id of `sessions tree`", () => {
+    const { spawn } = twoSessions();
+    const ids = spawn(["sessions", "list"]).stdout.trim().split("\n").map((l) => l.split("  ")[0]!);
+    expect(ids).toHaveLength(2);
+    for (const id of ids) expect(spawn(["sessions", "tree", id]).code).toBe(0);
   }, SPAWN_TEST_TIMEOUT_MS);
 });
