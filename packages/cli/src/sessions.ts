@@ -30,18 +30,24 @@ import {
 } from "@moh/core";
 import { ArgError, parseArgs } from "./args";
 
-export const SESSIONS_USAGE = `usage: moh sessions rename <file|id> <name> [--cwd <dir>]
+export const SESSIONS_USAGE = `usage: moh sessions list [--json] [--cwd <dir>]
+       moh sessions rename <file|id> <name> [--cwd <dir>]
        moh sessions delete <file|id> [--yes] [--cwd <dir>]
        moh sessions tree <file|id> [--cwd <dir>]
        moh sessions switch <file|id> <node|bookmark-name> [--cwd <dir>]
        moh sessions bookmark <file|id> <node> [name] [--cwd <dir>]
        moh sessions analyze <file|id> [--json] [--cwd <dir>]
 
+list prints this project's sessions newest first, one per line:
+<id>  <last updated, ISO 8601 UTC>  <title>. The id is accepted as
+<file|id> by every other subcommand. --json emits the same rows as a JSON
+array of {id, file, updatedAt, title}. An empty project prints nothing.
+
 Renames a session: the display name shows in the TUI home picker and
 overrides the derived first-message title. An empty name resets to the
 derived title. Display names never touch file names or slugs.
 
-  file|id   the session JSONL path, or a session id from \`moh run --list\`
+  file|id   the session JSONL path, or a session id from \`moh sessions list\`
   name      the new display name (empty string resets)
   --cwd     project root the session belongs to (default: process.cwd())
 
@@ -69,7 +75,7 @@ permission counts, shape (turns, compactions, model switches, fallbacks),
 tree stats, wall and tool durations. Stats cover the active branch; tree
 stats describe the full topology. --json emits the same data as JSON.
 
-  file|id   the session JSONL path, or a session id from \`moh run --list\`
+  file|id   the session JSONL path, or a session id from \`moh sessions list\`
   name      the new display name (empty string resets)
   node      an event id (ULID), a \`line:N\` bridge, or a bookmark name
   --cwd     project root the session belongs to (default: process.cwd())`;
@@ -104,15 +110,16 @@ export async function sessionsCommand({
     err.write(SESSIONS_USAGE + "\n");
     return sub ? 0 : 2;
   }
-  if (!["rename", "delete", "tree", "switch", "bookmark", "analyze"].includes(sub)) {
+  if (!["list", "rename", "delete", "tree", "switch", "bookmark", "analyze"].includes(sub)) {
     err.write(`moh sessions: unknown command "${sub}"\n\n${SESSIONS_USAGE}\n`);
     return 2;
   }
   const isDelete = sub === "delete";
   const isAnalyze = sub === "analyze";
+  const isList = sub === "list";
   let parsed;
   try {
-    parsed = parseArgs(rest, { strings: ["cwd"], booleans: [...(isDelete ? ["yes"] : []), ...(isAnalyze ? ["json"] : [])] });
+    parsed = parseArgs(rest, { strings: ["cwd"], booleans: [...(isDelete ? ["yes"] : []), ...(isAnalyze || isList ? ["json"] : [])] });
   } catch (e) {
     if (e instanceof ArgError) {
       err.write(`moh sessions ${sub}: ${e.message}\n`);
@@ -121,6 +128,10 @@ export async function sessionsCommand({
     throw e;
   }
   const positional = parsed.positionals;
+  if (isList) {
+    const cwd = parsed.strings["cwd"] ? resolve(parsed.strings["cwd"]) : process.cwd();
+    return sessionsList(parsed.booleans["json"] === true, cwd, home ?? homedir());
+  }
   if (positional.length < 1) {
     err.write(`moh sessions ${sub}: <file|id> is required\n`);
     return 2;
@@ -180,6 +191,23 @@ export async function sessionsCommand({
     return 2;
   }
   process.stdout.write(name ? `renamed: ${file} → ${name}\n` : `renamed (reset): ${file}\n`);
+  return 0;
+}
+
+/**
+ * `moh sessions list` (#1470) — the non-interactive discovery form. Reuses
+ * the `--resume` picker's listing (`listSessionSummaries`, newest first);
+ * the printed id resolves through `resolveSessionFile`.
+ */
+function sessionsList(json: boolean, cwd: string, home: string): number {
+  const rows = listSessionSummaries(cwd, home).map((s) => ({
+    id: s.id,
+    file: s.file,
+    updatedAt: new Date(s.mtimeMs).toISOString(),
+    title: s.title,
+  }));
+  if (json) process.stdout.write(JSON.stringify(rows, null, 2) + "\n");
+  else for (const r of rows) process.stdout.write(`${r.id}  ${r.updatedAt}  ${r.title}\n`);
   return 0;
 }
 
