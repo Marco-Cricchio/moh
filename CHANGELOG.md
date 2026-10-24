@@ -9,6 +9,12 @@ matching section here at tag time.
 
 ### Changed
 
+- **A bare `host:<domain>` grant admits https on port 443 only** (ADR-0066,
+  #1573): `host:api.example.com` no longer admits
+  `https://api.example.com:8443/`; `host:*.domain` and `host:*` follow the
+  same rule. An extension that contacts a non-standard port must now
+  declare it (`host:api.example.com:8443`). No bundled extension relied on
+  the wider behavior.
 - **Base prompt v3: lean by default** (ADR-0079, #1633): the shipped
   prompt's Code section now asks for a caller for every abstraction, one
   place per fact, extending the existing helper before writing one, and

@@ -84,7 +84,7 @@ runtime knows:
 | `contribute-panels` | one panel in the extensions rail (max 4 visible across all extensions) |
 | `contribute-overlays` | one full-screen overlay, opened by your command, closed with `Esc` |
 | `path:<glob>` | "may read and modify files under `<glob>`, including create, rename, delete" |
-| `host:<domain>` | "may contact `<domain>` over https" (`host:*` needs a manifest `reasoning` the consent displays) |
+| `host:<domain>` | "may contact `<domain>` over https" (standard port 443 only; a non-standard port is spelled, `host:<domain>:8443`; `host:*` needs a manifest `reasoning` the consent displays) |
 | `credential:<ref>` | the host injects the named credential as a bearer into your `fetch` — the value never crosses the seam |
 | `tool:<name>` / `tool:*` | "may ask the host to run the `<name>` tool through moh's normal permission gate" |
 | `contribute-tool:<name>` | "will add a `<name>` tool the model can call; its code runs when the model invokes it" |

@@ -130,20 +130,23 @@ export function validateHostScope(capability: string): HostScopeValidity {
  * (ADR-0066: identity stays equality). The default https port is
  * implicit on both sides; the request port is the scheme's default
  * when the URL carries none (WHATWG `URL` drops an explicit default
- * port), so a `:80` scope admits `http://a.com/` (#1574).
+ * port), so a `:80` scope admits `http://a.com/` (#1574). A scope
+ * without a port is "https, standard port" (ADR-0066): it refuses an
+ * https request on any other port — `*.domain` and `*` follow the same
+ * rule; a non-standard port needs a scope that spells it (#1573).
  */
 export function hostMatchesScope(scope: HostScopeValidity & { ok: true }, url: URL): boolean {
   let requestHost = url.hostname.toLowerCase();
   const requestPort = url.port !== ""
     ? Number(url.port)
     : url.protocol === "https:" ? 443 : url.protocol === "http:" ? 80 : undefined;
-  // https implicit: a scope without a port speaks https; an http request
-  // URL matches only a development scope that spelled a port (local dev
-  // servers), never a bare `host:<domain>` grant.
+  // https implicit: a scope without a port speaks https on 443 only; an
+  // http request URL matches only a development scope that spelled a port
+  // (local dev servers), never a bare `host:<domain>` grant.
   if (url.protocol !== "https:") {
     if (scope.port === undefined) return false;
     if (scope.port !== requestPort) return false;
-  } else if (scope.port !== undefined && scope.port !== requestPort) {
+  } else if (scope.port !== (requestPort === 443 ? undefined : requestPort)) {
     return false;
   }
   if (scope.host === "*") return true;
