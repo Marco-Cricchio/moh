@@ -761,13 +761,17 @@ export class SubagentHost {
       this.#live.set(spawnId, live);
       const forget = () => this.#live.delete(spawnId);
       // Abort propagation: cancelling the parent's turn aborts the child.
-      const abortChild = () => child?.abort();
-      signal.addEventListener("abort", abortChild, { once: true });
+      // #1493: the parent's signal rides the child's send instead of a
+      // listener added here — the abort can land during the synchronous
+      // setup above (Bun.spawnSync, behind the child's project identity,
+      // drains pending microtasks), and a listener added to an aborted
+      // signal never fires, while `child.abort()` has no turn to reach
+      // until the child's turn starts. The child's queue checks the
+      // signal when the turn starts and listens while it runs.
       let turn: Awaited<ReturnType<AgentSession["send"]>>;
       try {
-        turn = await child.send(firstMessage);
+        turn = await child.send(firstMessage, { signal });
       } finally {
-        signal.removeEventListener("abort", abortChild);
         forget();
       }
       const usage = child.usage;

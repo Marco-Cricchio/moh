@@ -1070,4 +1070,11 @@ export interface SendOptions {
    * (`$1`, `$@`, `${name:-default}`) at send time. Absent: the prompt
    * text is used verbatim. */
   args?: SkillArgs;
+  /** #1493: an outside abort that owns this turn. Aborted before the turn
+   * starts (still queued, or waiting on the turn-start chain), the turn
+   * never runs and resolves `{ status: "cancelled" }`; aborted during it,
+   * the turn is cancelled as by `abort()`. The subagent host passes the
+   * parent's tool signal, so a parent cancel reaches the child whenever
+   * it lands. */
+  signal?: AbortSignal;
 }
