@@ -249,4 +249,19 @@ describe("auth store — real file (#1431)", () => {
       expect(statSync(file).mode & 0o777).toBe(0o600);
     }
   });
+
+  test("a `null` auth section degrades: clears are no-ops, saves replace it, typed read error stays (#1588, real file)", () => {
+    const NULLED = { keep: 1, auth: null };
+    const file = seedFile(NULLED);
+    expect(() => readStoredTokens(file)).toThrow(/auth section/);
+    clearTokens(file, "a");
+    clearStoredApiKey(file, "a");
+    expect(raw(file)).toEqual(NULLED);
+    saveStoredApiKey(file, "a", "k1");
+    expect(raw(file).auth.apiKeys).toEqual({ a: "k1" });
+    expect(raw(file).keep).toBe(1);
+    const viaToken = seedFile(NULLED);
+    saveTokens(viaToken, "a", token);
+    expect(readStoredTokens(viaToken).a?.accessToken).toBe("at-1");
+  });
 });

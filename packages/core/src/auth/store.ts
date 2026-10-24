@@ -58,7 +58,7 @@ export function clearTokens(file: string, endpoint: string): void {
   updateUserConfigFile(
     file,
     (data) => {
-      if (data.auth === undefined || typeof data.auth !== "object") return;
+      if (data.auth === undefined || data.auth === null || typeof data.auth !== "object") return;
       const existing = data.auth as { tokens?: Record<string, AuthToken> };
       const tokens = { ...(existing.tokens ?? {}) };
       delete tokens[endpoint];
@@ -91,7 +91,7 @@ export function saveStoredApiKey(
   updateUserConfigFile(
     file,
     (data) => {
-      if (data.auth === undefined || typeof data.auth !== "object") data.auth = { tokens: {} };
+      if (data.auth === undefined || data.auth === null || typeof data.auth !== "object") data.auth = { tokens: {} };
       const auth = data.auth as { tokens?: unknown; apiKeys?: Record<string, string>; apiKeyOrigins?: Record<string, StoredApiKeyOrigin> };
       const origins = { ...(auth.apiKeyOrigins ?? {}) };
       if (origin) origins[endpoint] = origin;
@@ -130,7 +130,7 @@ export function clearStoredApiKey(file: string, endpoint: string): void {
   updateUserConfigFile(
     file,
     (data) => {
-      if (data.auth === undefined || typeof data.auth !== "object") return;
+      if (data.auth === undefined || data.auth === null || typeof data.auth !== "object") return;
       const auth = data.auth as { apiKeys?: Record<string, string>; apiKeyOrigins?: Record<string, StoredApiKeyOrigin> };
       const apiKeys = { ...(auth.apiKeys ?? {}) };
       delete apiKeys[endpoint];

@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   clearThinkingPreference,
+  endpointThinkingStatus,
   defaultThinkingLevel,
   effectiveThinkingLevel,
   readThinkingPreference,
@@ -206,6 +207,17 @@ describe("endpoint preferences — real file twins (#1431)", () => {
       setThinkingPreference(file, "a", "low");
       expect(raw(file)).toEqual({ keep: 1, thinkingLevels: { a: "low" } });
     }
+  });
+
+  test("a `null` section reads as absent and never throws; a write replaces it, a clear keeps it (#1588, real file)", () => {
+    const file = tmpFile();
+    writeFileSync(file, JSON.stringify({ keep: 1, thinkingLevels: null }));
+    expect(readThinkingPreference(file, "a")).toBeUndefined();
+    expect(endpointThinkingStatus("a/m", [], file)).toEqual({});
+    clearThinkingPreference(file, "a");
+    expect(raw(file)).toEqual({ keep: 1, thinkingLevels: null });
+    setThinkingPreference(file, "a", "low");
+    expect(raw(file)).toEqual({ keep: 1, thinkingLevels: { a: "low" } });
   });
 
   test("unknown sections survive a write and a clear; the whole file is read-modify-written (real file)", () => {
