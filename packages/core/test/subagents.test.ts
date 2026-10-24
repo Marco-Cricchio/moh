@@ -6,7 +6,7 @@ import { join } from "node:path";
 function tmpHome(): string {
   return mkdtempSync(join(tmpdir(), "moh-subagents-"));
 }
-import { builtinTools, createSession, DevelopmentLaneStore, MockProvider, type AgentEvent, type Tool } from "../src/index";
+import { builtinTools, createSession, DevelopmentLaneStore, MockProvider, type AgentEvent, type Provider, type Tool } from "../src/index";
 import { createRoute, Endpoint } from "../src/route";
 import { BUILTIN_AGENT_PRESETS, DEFAULT_SUBAGENT_CONCURRENCY, Semaphore, subagentPreview, type SubagentResult } from "../src/subagents";
 
@@ -354,8 +354,31 @@ describe("subagents (#13)", () => {
     expect(DEFAULT_SUBAGENT_CONCURRENCY).toBe(5);
   });
 
-  test("default concurrency cap allows parallel children (spawns interleave)", async () => {
+  test("default concurrency cap allows parallel children (running at a barrier)", async () => {
     const home = tmpHome();
+    // Each child's stream is held open on `release`; the wrapper counts how
+    // many streams are live at once. No clock, no event ordering: the test
+    // proves both children are running together at the barrier (#1627).
+    let running = 0;
+    let peak = 0;
+    let release!: () => void;
+    const released = new Promise<void>((resolve) => (release = resolve));
+    let bothRunning!: () => void;
+    const bothRunningP = new Promise<void>((resolve) => (bothRunning = resolve));
+    const inner = MockProvider.scripted([{ deltas: ["x"], finish: "stop", hold: { afterDeltas: 0, release: released } }]);
+    const counting: Provider = {
+      name: "counting",
+      async *stream(messages, signal, tools, options) {
+        running += 1;
+        peak = Math.max(peak, running);
+        if (running === 2) bothRunning();
+        try {
+          yield* inner.stream(messages, signal, tools, options);
+        } finally {
+          running -= 1;
+        }
+      },
+    };
     const parent = createSession({
       provider: MockProvider.scripted([
         {
@@ -370,19 +393,28 @@ describe("subagents (#13)", () => {
       ]),
       tools: builtinTools(),
       permissions: { overrides: { tools: { spawn: "allow" } } },
-      subagents: { home: home,
-        provider: MockProvider.scripted([{ deltas: ["x"], finish: "stop", deltaDelayMs: 40 }]),
-      },
+      subagents: { home: home, provider: counting },
     });
-    const tapped = tap(parent);
-    await parent.send("go");
+    tap(parent);
+    const done = parent.send("go");
 
-    // Both children start (spawn events) before either finishes: the
-    // default cap of 5 does not serialize two parallel spawns.
-    const secondSpawnIndex = tapped.findIndex((e, i) => e.type === "subagent_spawn" && i > tapped.findIndex((x) => x.type === "subagent_spawn"));
-    const firstResultIndex = tapped.findIndex((e) => e.type === "subagent_result");
-    expect(secondSpawnIndex).toBeGreaterThan(-1);
-    expect(secondSpawnIndex).toBeLessThan(firstResultIndex);
+    // Under a cap of 1 the second child never starts while the first is
+    // held, so the barrier is never reached: the deadline only bounds that
+    // failure path, it is not part of a passing run.
+    let deadline: ReturnType<typeof setTimeout> | undefined;
+    const reached = await Promise.race([
+      bothRunningP.then(() => true),
+      new Promise<boolean>((resolve) => (deadline = setTimeout(() => resolve(false), 5000))),
+    ]);
+    clearTimeout(deadline);
+    const atBarrier = running;
+    release();
+    await done;
+
+    expect(reached).toBe(true);
+    expect(atBarrier).toBe(2);
+    // The default cap (5) is not exceeded by two children.
+    expect(peak).toBeLessThanOrEqual(DEFAULT_SUBAGENT_CONCURRENCY);
   });
 
   test("default cap of 5 queues the 6th spawn until a slot frees", async () => {
