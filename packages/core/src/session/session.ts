@@ -1180,13 +1180,13 @@ export class AgentSession {
     try {
       // openai-compat has its own plain listing (endpoint-models.ts);
       // every other kind goes through the verified live-models
-      // contracts. Either way the credential is resolved host-side
-      // and the ids are all the extension sees.
-      const models = profile.type === "openai-compat"
+      // contracts, whose listings are narrowed to their ids. Either
+      // way the credential is resolved host-side and the ids are all
+      // the extension sees (#1599).
+      const models: string[] = profile.type === "openai-compat"
         ? await listOpenAiCompatModels(profile.baseUrl!, profile.apiKey)
-        : await listProviderModels(profile.type, profile.name, { ...(profile.baseUrl ? { baseUrl: profile.baseUrl } : {}), ...(profile.apiKey ? { apiKey: profile.apiKey } : {}) });
-      // #1438: non-openai-compat kinds return LiveModelListing[], not the promised ids; kept as is on purpose (ablation step, see the issue draft).
-      return { ok: true as const, models: models as string[] };
+        : (await listProviderModels(profile.type, profile.name, { ...(profile.baseUrl ? { baseUrl: profile.baseUrl } : {}), ...(profile.apiKey ? { apiKey: profile.apiKey } : {}) })).map((listing) => listing.id);
+      return { ok: true as const, models };
     } catch (err) {
       return { ok: false as const, reason: "failed" as const, message: err instanceof Error ? err.message : String(err) };
     }
