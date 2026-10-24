@@ -183,4 +183,8 @@ cannot expand the permissions you granted.
 
 Run `moh init` to scaffold agent-oriented repository instructions and
 supporting documentation. It gives a project a clear place to document its
-working conventions for people and agents.
+working conventions for people and agents, including
+`docs/agents/code-quality.md` and a `moh.json` with proposed `checks`: the
+repository's own tools when it has them, otherwise pinned duplication and
+complexity commands (see Configuration → `checks`). An existing `moh.json`
+is never edited; the proposal is printed instead.

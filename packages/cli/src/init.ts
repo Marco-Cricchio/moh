@@ -1,13 +1,15 @@
 /**
  * `moh init` (#11/#36): scaffold the agent-docs layout in a project —
  * `docs/agents/{issue-tracker,triage-labels,domain,code-quality}.md` plus a moh
- * section in AGENTS.md. Non-destructive: existing files are never
+ * section in AGENTS.md, and a moh.json carrying the proposed `checks`
+ * (ADR-0080). Non-destructive: existing files are never
  * overwritten, only reported as "kept". Pi migration: when CLAUDE.md
  * exists and AGENTS.md does not, the AGENTS.md file is created from it
  * (the original is left in place — moh keeps reading it as fallback).
  */
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
+import type { MohConfig } from "@moh/core";
 
 const ISSUE_TRACKER_MD = `# Issue tracker
 
@@ -47,7 +49,35 @@ where this repository's own conventions say otherwise, they win.
 - A change that leaves code unused deletes it in the same change.
 - Thresholds for dead code, duplication or complexity, if any, are this
   repository's to set.
+- If \`moh.json\` declares \`checks\`, run them before calling a change done.
 `;
+
+type Check = NonNullable<MohConfig["checks"]>[number];
+
+/** ADR-0080: pinned on-demand commands, proposed when the repo has no tool of its own. */
+const DEFAULT_CHECKS: Check[] = [
+  { name: "duplication", run: "npx --yes jscpd@4.0.5 --silent --gitignore --min-tokens 50 --threshold 3 ." },
+  { name: "complexity", run: 'uvx --from lizard==1.17.10 lizard -C 15 -i 0 -x "./node_modules/*" .' },
+];
+
+/** The checks `moh init` proposes: the repo's own tools when present, else the pinned defaults. */
+function proposedChecks(cwd: string): Check[] {
+  const read = (rel: string): string => (existsSync(join(cwd, rel)) ? readFileSync(join(cwd, rel), "utf8") : "");
+  let deps: Record<string, unknown> = {};
+  try {
+    const pkg = JSON.parse(read("package.json") || "{}") as { dependencies?: object; devDependencies?: object };
+    deps = { ...pkg.dependencies, ...pkg.devDependencies };
+  } catch {
+    // A malformed package.json proposes nothing from it.
+  }
+  const pyproject = read("pyproject.toml");
+  const found: Check[] = [];
+  if ("knip" in deps) found.push({ name: "knip", run: "npx knip" });
+  if ("eslint" in deps) found.push({ name: "eslint", run: "npx eslint ." });
+  if (/\bruff\b/.test(pyproject)) found.push({ name: "ruff", run: "ruff check ." });
+  if (/\bradon\b/.test(pyproject)) found.push({ name: "radon", run: "radon cc -n C ." });
+  return found.length > 0 ? found : DEFAULT_CHECKS;
+}
 
 const AGENTS_SECTION = `## moh
 
@@ -93,6 +123,17 @@ export function initCommand(options: InitOptions): InitReport {
   write("docs/agents/triage-labels.md", TRIAGE_LABELS_MD);
   write("docs/agents/domain.md", DOMAIN_MD);
   write("docs/agents/code-quality.md", CODE_QUALITY_MD);
+
+  // ADR-0080: an existing moh.json is the user's — print the proposal, never edit it.
+  const checks = JSON.stringify({ checks: proposedChecks(options.cwd) }, null, 2);
+  const mohJson = join(options.cwd, "moh.json");
+  if (existsSync(mohJson)) {
+    report.kept.push("moh.json");
+    const declared = readFileSync(mohJson, "utf8").includes('"checks"');
+    out.write(declared ? "kept    moh.json (checks already declared)\n" : `kept    moh.json (already exists) — proposed checks to add:\n${checks}\n`);
+  } else {
+    write("moh.json", `${checks}\n`);
+  }
 
   const agentsFile = join(options.cwd, "AGENTS.md");
   const claudeFile = join(options.cwd, "CLAUDE.md");
