@@ -850,13 +850,18 @@ describe("panel steering + team-scoped stop-all (#1226, ADR-0055)", () => {
     });
     const events = tap(session);
     const turn = session.send("compose the team and stop it");
-    // Wait until the live child is in the roster, then one x stops all.
-    let working = false;
-    for (let i = 0; i < 50 && !working; i++) {
+    // The members run in parallel and whichever streams first takes the
+    // held script, so wait on state (#1509): one member has settled and
+    // the other is still working — then one x stops all. Pressing on the
+    // first `◐` alone raced the quick member's settle (two live children,
+    // `callIds.length` 2).
+    let ready = false;
+    for (let i = 0; i < 100 && !ready; i++) {
       await Bun.sleep(20);
-      working = String(panel.render()).includes("◐ builder-1");
+      const settled = events.filter((e) => e.type === "subagent_result").length;
+      ready = settled === 1 && String(panel.render()).includes("◐ builder");
     }
-    expect(working).toBe(true);
+    expect(ready).toBe(true);
     expect(panel.onKey!("x", { input: "x" })).toBe(true);
     const stop = await turn;
     expect(stop.status).toBe("done");
