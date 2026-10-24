@@ -3,7 +3,7 @@ import { render } from "ink-testing-library";
 import { createSession, type Provider } from "@moh/core";
 import { Chat, embedReasoningHeads, nextReasoningHead, spliceReasoningChunks, REASONING_TAIL_LINES, type ReasoningHeadChain } from "../src/Chat";
 import type { TranscriptBlock } from "../src/transcript";
-import { stripAnsi } from "./helpers";
+import { stripAnsi, waitStep, waitText } from "./helpers";
 
 const nap = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
@@ -154,13 +154,22 @@ describe("live reasoning Static promotion (#329)", () => {
     const done = session.send("think");
     // Mid-turn: the promoted head is already in scrollback (Static) and the
     // volatile tail keeps the newest lines — both visible, each once.
-    await nap(700);
+    await waitText(ui, "thought 00", "first reasoning line painted mid-turn");
+    await waitText(ui, lines[lines.length - 1]!, "last reasoning line streamed mid-turn");
     const midTurn = stripAnsi(ui.lastFrame() ?? "");
     expect(midTurn).toContain("thought 00");
     expect((midTurn.match(/thought 00/g) ?? []).length).toBe(1);
     releaseText!();
     await done;
-    await nap(120);
+    await waitText(ui, "final answer", "answer painted after settle");
+    await waitStep(
+      ui,
+      () => {
+        const frame = stripAnsi(ui.lastFrame() ?? "");
+        return lines.every((line) => frame.includes(line));
+      },
+      "every reasoning line in the settled frame",
+    );
     const settled = stripAnsi(ui.lastFrame() ?? "");
     for (const line of lines) {
       expect(settled.split(line).length - 1).toBe(1);
@@ -178,17 +187,20 @@ describe("live reasoning Static promotion (#329)", () => {
     const ui = render(element(80));
     const done = session.send("think");
     await done;
-    await nap(120);
+    await waitText(ui, "final answer", "answer painted after settle");
+    await waitText(ui, "one thought", "reasoning in the settled frame");
     const before = stripAnsi(ui.lastFrame() ?? "");
     expect(before).toContain("one thought");
     ui.rerender(element(120));
     ui.stdout.emit("resize"); // real terminals re-render on SIGWINCH
-    await nap(500); // debounce (150ms) + repaint
+    // debounce (150ms) + repaint: wait for the clear, then the reprint.
+    await waitStep(ui, () => ui.frames.some((frame) => frame.includes("\x1b[3J")), "transcript cleared on resize");
     // The rebuild clears screen + scrollback and reprints the transcript at
     // the new width. ink-testing-library runs in debug mode (full-transcript
     // frames, no ANSI erase semantics), so assert on the clear sequence and
     // on the reprint instead of on screen-uniqueness.
     expect(ui.frames.some((frame) => frame.includes("\x1b[3J"))).toBe(true);
+    await waitText(ui, "one thought", "transcript reprinted at the new width");
     const after = stripAnsi(ui.lastFrame() ?? "");
     expect(after).toContain("one thought");
     ui.unmount();
