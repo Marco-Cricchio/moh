@@ -61,7 +61,9 @@ the exact commit, tool versions, terminal dimensions and commands.
 - `b2.ts` — B2 runner (`compare` subcommand);
 - `surface.ts` — B1 public-surface snapshot (TypeScript 5.9 compiler API);
 - `cli.ts` — B3 CLI transcripts (fixture home, every subcommand, blocked
-  network for `update`/`provider login`);
+  network for `update`/`provider login`). Each command has a 120 s ceiling
+  (`MOH_B3_TIMEOUT_MS` raises it); a command that exceeds it is killed and
+  the recording fails naming it — it is never written as `exit: 137` (#1617);
 - `serve.ts` — B4 `moh serve` conversations (RPC v1);
 - `tui.ts` — B5 TUI frame scripts (PTY harness): overlay walk, Settings
   sub-modal return, permission prompt, `!` command, `@file` mention;
