@@ -145,6 +145,15 @@ describe("read-only git tool (#1165)", () => {
     expect(sub).toBe("");
     expect(() => git.execute({ args: ["status"], cwd: "/etc" }, ctx)).toThrow(/outside project root/i);
   });
+
+  test("the root itself is a valid per-call cwd, absolute or relative (#1522)", async () => {
+    expect(await git.execute({ args: ["status", "--porcelain"], cwd: repo }, ctx)).toBe("");
+    expect(await git.execute({ args: ["status", "--porcelain"], cwd: "." }, ctx)).toBe("");
+    expect(await git.execute({ args: ["status", "--porcelain"], cwd: "src/.." }, ctx)).toBe("");
+    // A sibling of the root stays outside it.
+    expect(() => git.execute({ args: ["status"], cwd: ".." }, ctx)).toThrow(/outside project root/i);
+    expect(() => git.execute({ args: ["status"], cwd: `${repo}-sibling` }, ctx)).toThrow(/outside project root/i);
+  });
 });
 
 describe("git tool transient-option and write-path filter (#1261, #1257)", () => {
