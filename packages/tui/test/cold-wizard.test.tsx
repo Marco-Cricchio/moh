@@ -5,9 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { ColdWizard, type ColdWizardSeams } from "../src/ColdWizard";
 import { ThemeProvider, THEMES, DEFAULT_THEME } from "../src/themes";
-import { waitForCondition, stripAnsi } from "./helpers";
-
-const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+import { waitForCondition, waitText, stripAnsi } from "./helpers";
 
 function makeOffer(overrides: Record<string, unknown> = {}) {
   return {
@@ -64,11 +62,9 @@ describe("cold-directory wizard (#595)", () => {
       onProceed: (args) => { proceeded = { path: args.path, stale: args.stale }; },
       onClose: () => {},
     });
-    await sleep(30);
-    expect(stripAnsi(i.lastFrame() ?? "")).toContain("project-a");
+    await waitText(i, "project-a", "the offer picker painted");
     i.stdin.write("\r"); // choose the offer
-    await sleep(30);
-    expect(stripAnsi(i.lastFrame() ?? "")).toContain("clone where?");
+    await waitText(i, "clone where?", "the location prompt painted");
     // The dialog wraps long paths; compare whitespace-free.
     const flat = (s: string) => stripAnsi(s).replace(/\s+/g, "");
     expect(flat(i.lastFrame() ?? "")).toContain(dir.slice(0, 30));
@@ -99,15 +95,15 @@ describe("cold-directory wizard (#595)", () => {
       onProceed: (args: { path: string }) => { proceeded = args; },
       onClose: () => {},
     });
-    await sleep(30);
-    const frame = stripAnsi(i.lastFrame() ?? "").replace(/\s+/g, " ");
-    expect(frame).toContain("repoUrl");
+    await waitText(i, "repoUrl", "the offer picker painted");
     i.stdin.write("\r");
-    await sleep(30);
+    await waitText(i, "predates", "the legacy path prompt painted");
     i.stdin.write(existing);
-    await sleep(30);
+    // The prompt wraps a long path: its head is enough to see the echo.
+    await waitText(i, existing.slice(0, 20), "the typed path echoed");
     i.stdin.write("\r");
-    await sleep(50);
+    // onProceed is reached only after the async staleness check.
+    await waitForCondition(() => proceeded !== null, () => "wizard to proceed with the given path");
     expect(cloned).toBe(false);
     expect(pulledCwd as unknown as string).toBe(existing);
     expect((proceeded as { path: string } | null)?.path).toBe(existing);
@@ -124,9 +120,9 @@ describe("cold-directory wizard (#595)", () => {
       onProceed: () => {},
       onClose: () => { closed = true; },
     });
-    await sleep(30);
+    await waitText(i, "project-a", "the offer picker painted");
     i.stdin.write("\x1b");
-    await sleep(30);
+    await waitForCondition(() => closed, () => "esc to close the wizard");
     expect(closed).toBe(true);
     i.unmount();
   });
@@ -145,9 +141,9 @@ describe("cold-directory wizard (#595)", () => {
       onProceed: () => { proceeded += 1; },
       onClose: () => {},
     });
-    await sleep(30);
+    await waitText(i, "project-a", "the offer picker painted");
     i.stdin.write("\r");
-    await sleep(30);
+    await waitText(i, "clone where?", "the location prompt painted");
     i.stdin.write("\r");
     // Poll for the error frame: same load-resistance as the proceed test.
     await waitForCondition(
