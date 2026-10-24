@@ -181,12 +181,27 @@ export async function pressCommitted(view: Rendered & { frames: readonly string[
  * render: a ctrl+c written before that effect ran saw an empty draft and
  * armed the exit instead of clearing (3/6 under CPU load; 0/6 with this).
  */
-export async function pressSettled(view: Pick<Rendered, "stdin">, key: string): Promise<void> {
+export function pressSettled(view: Pick<Rendered, "stdin">, key: string): Promise<void> {
+  return inAct(() => view.stdin.write(key));
+}
+
+/**
+ * Unmounts inside React's `act()` and then lets the scheduler drain, so no
+ * work from this tree is still flushing when the next test mounts (#1495:
+ * `Should not already be working.` from react-reconciler inside a later
+ * `render()`). Idempotent: Ink ignores a second unmount.
+ */
+export async function unmountSettled(view: { unmount: () => void }): Promise<void> {
+  await inAct(() => view.unmount());
+  await effectsFlushed();
+}
+
+async function inAct(work: () => void): Promise<void> {
   const env = globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean };
   const previous = env.IS_REACT_ACT_ENVIRONMENT;
   env.IS_REACT_ACT_ENVIRONMENT = true;
   try {
-    await act(async () => { view.stdin.write(key); });
+    await act(async () => { work(); });
   } finally {
     if (previous === undefined) delete env.IS_REACT_ACT_ENVIRONMENT;
     else env.IS_REACT_ACT_ENVIRONMENT = previous;
