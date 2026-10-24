@@ -28,6 +28,11 @@ function tmpDir(prefix = "moh-bundled-"): string {
   return mkdtempSync(join(tmpdir(), prefix));
 }
 
+/** The generic activation context, rooted at `home`. */
+function context(home: string) {
+  return { mohHome: home, cwd: home, configFile: userConfigFile(home), endpoints: [], modelPool: () => Promise.resolve({ models: [], warnings: [] }), skillRoster: () => Promise.resolve([]) };
+}
+
 function writeUserConfig(home: string, body: Record<string, unknown>): void {
   const file = userConfigFile(home);
   mkdirSync(join(home, ".moh"), { recursive: true });
@@ -78,7 +83,7 @@ describe("resolveBundledExtensions (#826)", () => {
     const result = resolveBundledExtensions({
       descriptors: [mounted(syntheticSource({ note: true }), false)],
       runtime,
-      context: { mohHome: home, cwd: home, configFile: userConfigFile(home), endpoints: [], modelPool: () => Promise.resolve({ models: [], warnings: [] }), skillRoster: () => Promise.resolve([]) },
+      context: context(home),
     });
     // The core has no words for another extension's precondition: it logs
     // exactly what the extension said, in source order.
@@ -91,7 +96,7 @@ describe("resolveBundledExtensions (#826)", () => {
     const result = resolveBundledExtensions({
       descriptors: [mounted(syntheticSource(), false)],
       runtime,
-      context: { mohHome: home, cwd: home, configFile: userConfigFile(home), endpoints: [], modelPool: () => Promise.resolve({ models: [], warnings: [] }), skillRoster: () => Promise.resolve([]) },
+      context: context(home),
     });
     expect(result.notes).toEqual([]);
   });
@@ -102,7 +107,7 @@ describe("resolveBundledExtensions (#826)", () => {
     const result = resolveBundledExtensions({
       descriptors: [mounted(syntheticSource(), false)],
       runtime,
-      context: { mohHome: home, cwd: home, configFile: userConfigFile(home), endpoints: [], modelPool: () => Promise.resolve({ models: [], warnings: [] }), skillRoster: () => Promise.resolve([]) },
+      context: context(home),
     });
     expect(result.anyActive).toBe(false);
     expect(Object.keys(result.wiring)).toEqual([]);
@@ -117,7 +122,7 @@ describe("resolveBundledExtensions (#826)", () => {
     const result = resolveBundledExtensions({
       descriptors: [mounted(syntheticSource(), true)],
       runtime,
-      context: { mohHome: home, cwd: home, configFile: userConfigFile(home), endpoints: [], modelPool: () => Promise.resolve({ models: [], warnings: [] }), skillRoster: () => Promise.resolve([]) },
+      context: context(home),
     });
     expect(result.anyActive).toBe(true);
     await runtime.ready();
@@ -139,7 +144,7 @@ describe("resolveBundledExtensions (#826)", () => {
     resolveBundledExtensions({
       descriptors: [mounted({ ...source, consentRequired: true }, true)],
       runtime,
-      context: { mohHome: home, cwd: home, configFile: userConfigFile(home), endpoints: [], modelPool: () => Promise.resolve({ models: [], warnings: [] }), skillRoster: () => Promise.resolve([]) },
+      context: context(home),
     });
     await runtime.ready();
     // The enable question fired even though the host shipped the bytes:
@@ -154,7 +159,7 @@ describe("resolveBundledExtensions (#826)", () => {
     resolveBundledExtensions({
       descriptors: [mounted({ ...syntheticSource(), consentRequired: true }, true)],
       runtime: again,
-      context: { mohHome: home, cwd: home, configFile: userConfigFile(home), endpoints: [], modelPool: () => Promise.resolve({ models: [], warnings: [] }), skillRoster: () => Promise.resolve([]) },
+      context: context(home),
     });
     await again.ready();
     expect(again.instances.map((i) => i.def.name)).toEqual([SYNTHETIC]);
@@ -164,10 +169,49 @@ describe("resolveBundledExtensions (#826)", () => {
     resolveBundledExtensions({
       descriptors: [mounted({ ...syntheticSource(), consentRequired: true }, true)],
       runtime: nobody,
-      context: { mohHome: home, cwd: home, configFile: userConfigFile(home), endpoints: [], modelPool: () => Promise.resolve({ models: [], warnings: [] }), skillRoster: () => Promise.resolve([]) },
+      context: context(home),
     });
     await nobody.ready();
     expect(nobody.instances).toHaveLength(0);
+  });
+
+  test("a descriptor may decline at activation: nothing registers (ADR-0080)", async () => {
+    const runtime = new ExtensionRuntime({ mohHome: tmpDir() });
+    const resolution = resolveBundledExtensions({
+      descriptors: [mounted({ ...syntheticSource(), activate: () => null }, true)],
+      runtime,
+      context: context(tmpDir()),
+    });
+    await runtime.ready();
+    expect(resolution.anyActive).toBe(false);
+    expect(runtime.instances).toHaveLength(0);
+  });
+
+  test("a manifest derived from the context re-asks when its hash changes (ADR-0080)", async () => {
+    const home = tmpDir();
+    const asked: (string | undefined)[] = [];
+    const load = async (checks: { name: string; run: string }[]) => {
+      const runtime = new ExtensionRuntime({ mohHome: home, consent: (request) => (asked.push(request.reasoning), true) });
+      resolveBundledExtensions({
+        descriptors: [
+          mounted(
+            {
+              ...syntheticSource(),
+              consentRequired: true,
+              manifest: (ctx) => ({ capabilities: ["tool:git"], hash: JSON.stringify(ctx.checks), path: `synthetic:${ctx.cwd}`, reasoning: ctx.checks?.map((c) => c.run).join(", ") }),
+            },
+            true,
+          ),
+        ],
+        runtime,
+        context: { ...context(home), checks },
+      });
+      await runtime.ready();
+    };
+    await load([{ name: "dup", run: "jscpd ." }]);
+    await load([{ name: "dup", run: "jscpd ." }]);
+    await load([{ name: "dup", run: "jscpd --threshold 3 ." }]);
+    expect(asked).toEqual(["jscpd .", "jscpd --threshold 3 ."]);
   });
 
   test("a wiring step fills a core slot with the extension's own reader", async () => {
@@ -176,7 +220,7 @@ describe("resolveBundledExtensions (#826)", () => {
     const result = resolveBundledExtensions({
       descriptors: [mounted(syntheticSource({ wire: true }), true)],
       runtime,
-      context: { mohHome: home, cwd: home, configFile: userConfigFile(home), endpoints: [], modelPool: () => Promise.resolve({ models: [], warnings: [] }), skillRoster: () => Promise.resolve([]) },
+      context: context(home),
     });
     // The slot is present and callable, and it is the extension's closure.
     expect(typeof result.wiring.turnGate).toBe("function");
@@ -190,7 +234,7 @@ describe("resolveBundledExtensions (#826)", () => {
     const result = resolveBundledExtensions({
       descriptors: [mounted(syntheticSource(), false)],
       runtime,
-      context: { mohHome: home, cwd: home, configFile: userConfigFile(home), endpoints: [], modelPool: () => Promise.resolve({ models: [], warnings: [] }), skillRoster: () => Promise.resolve([]) },
+      context: context(home),
     });
     expect(result.anyActive).toBe(false);
   });

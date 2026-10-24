@@ -1076,6 +1076,13 @@ dotdir copy is reported as a visible line, not an error.
   (#826/ADR-0039): a client passes
   `bundledExtensions: [{ source, active }]`, where a source is
   `{ name, evaluateActive?(readConfig, configFile), activate(context), inactiveNote?(), wire?(read, wiring) }`.
+  ADR-0080: `activate` may return `null` to decline for the session (the
+  context says there is nothing to run — a project fact the client cannot
+  see), and `manifest` may be a function of the context, so a consented
+  grant can name session facts and re-ask when its `hash` changes under
+  the same `path` (the checks extension keys it per project and hashes the
+  declared commands). The context carries the project's `routingPool` and
+  `checks`, verbatim.
   The **client** evaluates `evaluateActive` — an effect-free predicate over
   the user config, which the client owns — and mounts the answer; the core
   only consumes the boolean and never reads a config on the extension's
