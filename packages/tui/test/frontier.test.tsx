@@ -2,10 +2,11 @@ import { describe, expect, test } from "bun:test";
 import { render } from "ink-testing-library";
 import { Frontier } from "../src/Frontier";
 import { ThemeProvider, THEMES, DEFAULT_THEME } from "../src/themes";
-import { stripAnsi } from "./helpers";
+import { stripAnsi, waitStep, waitText } from "./helpers";
 import type { TrackerBackend, TrackerIssue } from "@moh/core";
 
-const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+/** The tracker list (or its error) has painted and the key handler is attached (#1495). */
+const loaded = (i: { lastFrame: () => string | undefined }) => waitText(i, "loading tracker…", "tracker loaded", { absent: true });
 
 const issue = (id: string, over: Partial<TrackerIssue> = {}): TrackerIssue => ({
   id,
@@ -54,7 +55,7 @@ describe("Frontier panel", () => {
         issue("3", { blockedBy: ["2"] }),
       ]),
     );
-    await sleep(50);
+    await loaded(i);
     const text = stripAnsi(i.lastFrame() ?? "");
     expect(text).toContain("in progress");
     expect(text).toContain("ready");
@@ -66,7 +67,7 @@ describe("Frontier panel", () => {
 
   test("degrades to a flat list without dependency data", async () => {
     const i = mount(backendOf([issue("1", { assignees: ["me"] }), issue("2")]));
-    await sleep(50);
+    await loaded(i);
     const text = stripAnsi(i.lastFrame() ?? "");
     expect(text).toContain("no dependency data");
     expect(text).not.toContain("[blocked]");
@@ -77,9 +78,9 @@ describe("Frontier panel", () => {
     const backend = backendOf([issue("1"), issue("2")]);
     const toasts: string[] = [];
     const i = mount(backend, (t) => toasts.push(t));
-    await sleep(50);
+    await loaded(i);
     i.stdin.write("c");
-    await sleep(50);
+    await waitStep(i, () => toasts.includes("claimed #1"), "claim toast");
     expect(toasts).toContain("claimed #1");
     expect(backend.claimed).toEqual(["1"]);
     i.unmount();
@@ -98,9 +99,9 @@ describe("Frontier panel", () => {
         />
       </ThemeProvider>,
     );
-    await sleep(50);
+    await loaded(i);
     i.stdin.write("c");
-    await sleep(50);
+    await waitStep(i, () => handedOff.length > 0, "claimed issue handed off");
     expect(handedOff).toEqual(["1:1"]);
     i.unmount();
   });
@@ -108,9 +109,9 @@ describe("Frontier panel", () => {
   test("already-claimed issues are not re-claimable", async () => {
     const toasts: string[] = [];
     const i = mount(backendOf([issue("1", { assignees: ["bob"] })]), (t) => toasts.push(t));
-    await sleep(50);
+    await loaded(i);
     i.stdin.write("c");
-    await sleep(30);
+    await waitStep(i, () => toasts.length > 0, "already-claimed toast");
     expect(toasts[0]).toContain("already claimed");
     i.unmount();
   });
@@ -118,11 +119,12 @@ describe("Frontier panel", () => {
   test("the claim action goes through the permission seam", async () => {
     const backend = backendOf([issue("1")]);
     const asked: string[] = [];
+    const toasts: string[] = [];
     const i = render(
       <ThemeProvider value={THEMES[DEFAULT_THEME]}>
         <Frontier
           backend={backend}
-          onToast={() => {}}
+          onToast={(t) => toasts.push(t)}
           onClose={() => {}}
           requestClaim={(iss) => {
             asked.push(iss.id);
@@ -131,9 +133,9 @@ describe("Frontier panel", () => {
         />
       </ThemeProvider>,
     );
-    await sleep(50);
+    await loaded(i);
     i.stdin.write("c");
-    await sleep(30);
+    await waitStep(i, () => toasts.includes("claim of #1 denied"), "denied toast");
     expect(asked).toEqual(["1"]);
     expect(backend.claimed).toEqual([]); // denied: no mutation
     i.unmount();
@@ -141,19 +143,20 @@ describe("Frontier panel", () => {
 
   test("a failed claim does not hand off to the chooser", async () => {
     let handedOff = 0;
+    const toasts: string[] = [];
     const i = render(
       <ThemeProvider value={THEMES[DEFAULT_THEME]}>
         <Frontier
           backend={{ kind: "gh", list: async () => [issue("1")], claim: async () => { throw new Error("race"); }, unclaim: async () => {} }}
-          onToast={() => {}}
+          onToast={(t) => toasts.push(t)}
           onClose={() => {}}
           onClaimed={() => handedOff++}
         />
       </ThemeProvider>,
     );
-    await sleep(50);
+    await loaded(i);
     i.stdin.write("c");
-    await sleep(50);
+    await waitStep(i, () => toasts.some((t) => t.startsWith("claim failed")), "claim-failed toast");
     expect(handedOff).toBe(0);
     i.unmount();
   });
@@ -162,9 +165,9 @@ describe("Frontier panel", () => {
     const backend = backendOf([issue("1", { assignees: ["@me"] })]);
     const toasts: string[] = [];
     const i = mount(backend, (t) => toasts.push(t));
-    await sleep(50);
+    await loaded(i);
     i.stdin.write("u");
-    await sleep(50);
+    await waitStep(i, () => toasts.includes("unclaimed #1"), "unclaim toast");
     expect(toasts).toContain("unclaimed #1");
     expect(backend.claimed).toEqual([]);
     i.unmount();
@@ -174,9 +177,9 @@ describe("Frontier panel", () => {
     const backend = backendOf([issue("1")]);
     const toasts: string[] = [];
     const i = mount(backend, (t) => toasts.push(t));
-    await sleep(50);
+    await loaded(i);
     i.stdin.write("u");
-    await sleep(30);
+    await waitStep(i, () => toasts.length > 0, "not-claimed toast");
     expect(toasts[0]).toContain("#1 not claimed");
     i.unmount();
   });
@@ -190,21 +193,21 @@ describe("Frontier panel", () => {
       claim: async () => {},
       unclaim: async () => {},
     });
-    await sleep(50);
+    await loaded(i);
     expect(stripAnsi(i.lastFrame() ?? "")).toContain("tracker unavailable");
     i.unmount();
   });
 
   test("null backend renders an error line", async () => {
     const i = mount(null);
-    await sleep(30);
+    await loaded(i);
     expect(stripAnsi(i.lastFrame() ?? "")).toContain("tracker unavailable");
     i.unmount();
   });
 
   test("an escape-bearing tracker title renders inert (audit-v3 TUI-1)", async () => {
     const i = mount(backendOf([issue("13", { title: "ok\u001B[2J\u001B]0;pwned\u0007EVIL" })]));
-    await sleep(50);
+    await loaded(i);
     const raw = i.lastFrame() ?? "";
     expect(raw).not.toContain("\u001B");
     expect(raw).not.toContain("\u0007");
@@ -221,7 +224,7 @@ describe("Frontier panel", () => {
       claim: async () => {},
       unclaim: async () => {},
     });
-    await sleep(50);
+    await loaded(i);
     const raw = i.lastFrame() ?? "";
     expect(raw).not.toContain("\u001B");
     expect(stripAnsi(raw)).toContain("tracker unavailable");
