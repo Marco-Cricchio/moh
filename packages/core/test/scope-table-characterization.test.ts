@@ -257,8 +257,9 @@ describe("checkScope", () => {
       ["https://api.example.com/x", { ok: true }],
       ["https://API.EXAMPLE.COM/x", { ok: true }],
       ["https://api.example.com:443/x", { ok: true }],
-      // A scope without a port admits any https port.
-      ["https://api.example.com:8443/x", { ok: true }],
+      // A scope without a port admits https on the standard port only (ADR-0066, #1573).
+      ["https://api.example.com:8443/x", { ok: false, reason: "outside_scope", target: "api.example.com:8443" }],
+      ["https://a.example.org:8443/", { ok: false, reason: "outside_scope", target: "a.example.org:8443" }],
       ["http://api.example.com/x", { ok: false, reason: "outside_scope", target: "api.example.com" }],
       ["https://a.example.org/", { ok: true }],
       ["https://a.b.example.org/", { ok: false, reason: "outside_scope", target: "a.b.example.org" }],
@@ -285,10 +286,11 @@ describe("checkScope", () => {
     const seen: string[] = [];
     checkScope({ kind: "host", url: new URL("https://evil.com/"), isDenied: (h) => (seen.push(h), true) }, scopes);
     expect(seen).toEqual([]);
-    expect(["https://anything.io/", "http://anything.io/", "http://anything.io:8080/"].map((u) => checkScope({ kind: "host", url: new URL(u), isDenied: () => false }, ["host:*"]))).toEqual([
+    expect(["https://anything.io/", "http://anything.io/", "http://anything.io:8080/", "https://anything.io:8443/"].map((u) => checkScope({ kind: "host", url: new URL(u), isDenied: () => false }, ["host:*"]))).toEqual([
       { ok: true },
       { ok: false, reason: "outside_scope", target: "anything.io" },
       { ok: false, reason: "outside_scope", target: "anything.io:8080" },
+      { ok: false, reason: "outside_scope", target: "anything.io:8443" },
     ]);
   });
 
@@ -398,7 +400,10 @@ describe("matching helpers", () => {
       ["host:*", "https://x.io/", true],
       ["host:*", "http://x.io/", false],
       ["host:a.com", "https://a.com:443/", true],
-      ["host:a.com", "https://a.com:444/", true],
+      ["host:a.com", "https://a.com:444/", false],
+      ["host:a.com", "https://a.com:8443/", false],
+      ["host:*.a.com", "https://b.a.com:8443/", false],
+      ["host:*", "https://x.io:8443/", false],
       ["host:a.com:444", "https://a.com:444/", true],
       // URL drops the default port; a scope spelling it is the default-port form (#1574).
       ["host:a.com:443", "https://a.com/", true],

@@ -239,7 +239,8 @@ refusal as `host_refused` (typed reasons, never exceptions).
   beat the grant per call; the log records the real (symlink-resolved)
   target.
 - `host:<domain>` (ADR-0066, apiVersion 1.13) — `fetch(url, options)`:
-  https only, every redirect hop re-checked against the allowlist, fully
+  https only on the standard port (a bare scope refuses `:8443`; spell the
+  port, `host:<domain>:8443`), every redirect hop re-checked against the allowlist, fully
   buffered responses with a fixed size limit. A safety guard follows at
   most five redirects, refusing longer chains with `outside_scope` and
   a `more than 5 redirects` message even when all hosts are allowed. `host:*` exists only with a
