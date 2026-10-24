@@ -698,3 +698,119 @@ describe("ask_user options window (#874)", () => {
     expect(askUserBlockRows(MANY.questions, 100, 1)).toBeGreaterThanOrEqual(min);
   });
 });
+
+describe("ask_user question is never cut (#1512)", () => {
+  /** A question that wraps to several rows, its last word a sentinel. */
+  const longQuestion = (words: number) => Array.from({ length: words }, (_, i) => `w${i}`).join(" ") + " FINAL-WORD?";
+  const LAYOUTS = [
+    { name: "layout A", width: 100, preview: false },
+    { name: "layout A side-by-side", width: 100, preview: true },
+    { name: "layout C", width: 64, preview: false },
+  ] as const;
+  const setFor = (words: number, count: number, preview: boolean): AskUserQuestionSet => ({
+    questions: [{
+      question: longQuestion(words),
+      header: "Long",
+      options: Array.from({ length: count }, (_, i) => ({
+        label: `opt-${i}`,
+        description: `option ${i} explained at some length so that it wraps past one row and needs the truncation row`,
+        ...(preview ? { preview: `preview ${i}` } : {}),
+      })),
+    }],
+  });
+
+  for (const layout of LAYOUTS) {
+    test(`${layout.name}: a tight budget is taken from descriptions and options, the whole question shows`, async () => {
+      const maxRows = 18;
+      const set = setFor(90, 12, layout.preview);
+      // The budget is tight: the natural block does not fit it.
+      expect(askUserBlockRows(set.questions, layout.width)).toBeGreaterThan(maxRows);
+      const gate = new AskUserGate();
+      const pending = gate.ask(set);
+      const i = render(<AskUserBlock gate={gate} width={layout.width} maxRows={maxRows} />);
+      await waitText(i, "opt-0", `${layout.name} rendered`);
+      const frame = () => stripAnsi(i.lastFrame() ?? "");
+      expect(frame().split("\n").length).toBeLessThanOrEqual(maxRows);
+      expect(frame()).toContain("w0 ");
+      expect(frame()).toContain("FINAL-WORD?");
+      // Not scrolled and never marked as cut: the options gave the rows.
+      expect(frame()).not.toContain("pgup/pgdn");
+      expect(frame()).not.toContain("question truncated");
+      expect(frame()).toContain("↓ ");
+      expect(frame()).not.toContain("opt-11");
+      // Walking the options keeps the whole question on screen.
+      for (let n = 0; n < 5; n++) await pressCommitted(i, "\x1b[B", `${layout.name} down ${n}`);
+      await waitText(i, "opt-5", `${layout.name} window follows the focus`);
+      expect(frame()).toContain("FINAL-WORD?");
+      expect(frame().split("\n").length).toBeLessThanOrEqual(maxRows);
+      gate.resolve({ answers: [] });
+      await pending;
+      i.unmount();
+    });
+  }
+
+  for (const layout of LAYOUTS.filter((l) => !l.preview)) {
+    test(`${layout.name}: a question taller than the viewport scrolls — every word reachable, options answerable`, async () => {
+      const maxRows = 18;
+      const words = 400;
+      const set = setFor(words, 6, false);
+      const gate = new AskUserGate();
+      const pending = gate.ask(set);
+      const i = render(<AskUserBlock gate={gate} width={layout.width} maxRows={maxRows} />);
+      await waitText(i, "pgup/pgdn", `${layout.name} rendered scrolling`);
+      const frame = () => stripAnsi(i.lastFrame() ?? "");
+      const position = () => {
+        const m = /lines (\d+)–(\d+)\/(\d+)/.exec(frame());
+        if (!m) throw new Error(`no question position row in:\n${frame()}`);
+        return { start: Number(m[1]), end: Number(m[2]), total: Number(m[3]) };
+      };
+      // The question alone is taller than the whole block budget.
+      expect(position().total).toBeGreaterThan(maxRows);
+      expect(position().start).toBe(1);
+      expect(frame()).not.toContain("question truncated");
+      const seen = new Set<string>();
+      const collect = () => { for (const token of frame().split(/\s+/)) seen.add(token); };
+      collect();
+      while (position().end < position().total) {
+        const before = position().start;
+        i.stdin.write("\x1b[6~"); // pgdn
+        await waitStep(i, () => position().start > before, `${layout.name} pgdn past line ${before}`);
+        expect(frame().split("\n").length).toBeLessThanOrEqual(maxRows);
+        expect(frame()).toContain("opt-0");
+        collect();
+      }
+      for (let n = 0; n < words; n++) expect(seen.has(`w${n}`)).toBe(true);
+      expect(seen.has("FINAL-WORD?")).toBe(true);
+      // pgup walks back to the first line.
+      while (position().start > 1) {
+        const before = position().start;
+        i.stdin.write("\x1b[5~"); // pgup
+        await waitStep(i, () => position().start < before, `${layout.name} pgup before line ${before}`);
+      }
+      expect(frame()).toContain("w0 ");
+      // The options stay answerable while the question scrolls.
+      await pressCommitted(i, "\x1b[B", `${layout.name} focus opt-1`);
+      await pressCommitted(i, "\r", `${layout.name} choose opt-1`);
+      await waitText(i, "Review your answers", `${layout.name} summary`);
+      i.stdin.write("\r");
+      expect(await pending).toEqual({ answers: [{ labels: ["opt-1"] }] });
+      i.unmount();
+    });
+  }
+
+  test("the row model reserves the full question height (no budget)", () => {
+    for (const width of [100, 64]) {
+      const short = askUserBlockRows(setFor(5, 2, false).questions, width);
+      const long = askUserBlockRows(setFor(400, 2, false).questions, width);
+      // 400 words wrap to dozens of rows; without a budget all of them count.
+      expect(long - short).toBeGreaterThan(15);
+    }
+  });
+
+  test("askBlockMinRows: a long question floors at one scrolling line plus its position row", () => {
+    const set = setFor(400, 6, false);
+    const min = askBlockMinRows(set.questions, 100);
+    expect(askUserBlockRows(set.questions, 100, min)).toBe(min);
+    expect(askUserBlockRows(set.questions, 100, 1)).toBeGreaterThanOrEqual(min);
+  });
+});

@@ -38,6 +38,7 @@ export const COMMANDS: ReadonlyArray<{ area: string; keys: ReadonlyArray<[string
       ["← / →", "move between chips (subagent chips clamp at the edges)"],
       ["enter on a subagent chip", "toggle its live panel (read-only tail; freezes when done)"],
       ["esc on a chip", "back to the composer (an open subagent panel stays)"],
+      ["pgup / pgdn", "ask_user: scroll a question taller than the block (never cut; the lines N–M/T row shows where you are)"],
       ["/workflow on|off", "toggle workflow mode (skills + frontier)"],
       ["ctrl+f", "frontier panel (workflow mode on)"],
       ["/mpm", "project map status and diagnostics (MPM)"],
