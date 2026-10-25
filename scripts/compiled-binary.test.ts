@@ -15,7 +15,7 @@
  */
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { buildBinary, TARGETS, type Platform } from "./build";
@@ -41,6 +41,15 @@ describe.skipIf(!hostPlatform)(`a compiled binary starts a session (${hostPlatfo
 
   afterAll(() => {
     if (dir) rmSync(dir, { recursive: true, force: true });
+  });
+
+  // #1709: React's development build records a performance.measure per
+  // render that is never cleared, so memory grows without bound, even idle.
+  test("ships React's production build, not the development one", () => {
+    const bytes = readFileSync(binary).toString("latin1");
+    expect(bytes).not.toContain("react-reconciler.development");
+    expect(bytes).not.toContain("logComponentRender");
+    expect(bytes).toContain("react-reconciler.production");
   });
 
   /** One real session against the compiled binary: isolated project + home. */

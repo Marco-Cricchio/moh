@@ -131,6 +131,9 @@ export function buildBinary(plan: BuildPlan): string {
     "--compile",
     "--target", target.target,
     "--define", `__MOH_BUILD_VERSION__:${JSON.stringify(plan.version)}`,
+    // Without this the bundler keeps React's development build, whose
+    // Performance Tracks add a never-cleared performance.measure per render (#1709).
+    "--define", `process.env.NODE_ENV:${JSON.stringify("production")}`,
     "--outfile", outfile,
     writeBuildEntry(plan.buildDir ?? BUILD_DIR),
   ];
