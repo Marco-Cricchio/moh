@@ -102,10 +102,20 @@ export const scenarios: Scenario[] = [
       steps: [
         { send: B("\x1b") }, // end the intro (it settles at ~3.15s)
         { wait: 8.0, until: "enter select · s skip", untilFromBuffer: true },
-        { wait: 0.5 }, // settle: capture a repaint that finished
+        // #1537: the Home footer behind the modal is the last thing the
+        // startup paints. Gating on it (not a fixed settle) means the frame
+        // is complete and the keys below reach a Home whose handlers are
+        // attached; under load the fixed settle could snap the frame without
+        // its footer tail and quit into a Home that never saw the ctrl+c.
+        { wait: 8.0, until: "ctrl+c ×2 quit", untilOnScreen: true },
         { checkpoint: "onboarding" },
-        { wait: 0.3, send: B("\x03") },
-        { wait: 0.5, send: B("\x03") },
+        { wait: 0.1, send: B("\x03") },
+        // The first ctrl+c only arms; the second must land after the arm is
+        // visible, and the quit after it takes as long as the host takes. The
+        // harness SIGTERMs whatever is still alive when the last wait ends,
+        // which recorded -15 instead of the clean 0 (#1537).
+        { wait: 8.0, until: "press ctrl+c again to exit", untilOnScreen: true },
+        { wait: 4.0, send: B("\x03") },
       ],
       tail: 30,
     }),
