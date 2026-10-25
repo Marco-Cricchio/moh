@@ -944,9 +944,11 @@ export function listSessionSummaries(
   cwd: string,
   home = homedir(),
 ): SessionSummary[] {
-  return SessionStore.list(cwd, home)
-    .map(summaryRow)
-    .sort((a, b) => b.mtimeMs - a.mtimeMs);
+  const stores = SessionStore.list(cwd, home);
+  const index = new SummaryIndex(projectSessionsDir(cwd, home));
+  const rows = stores.map((store) => summaryRow(store, index));
+  index.save();
+  return rows.sort((a, b) => b.mtimeMs - a.mtimeMs);
 }
 
 /**
@@ -961,13 +963,15 @@ export async function listSessionSummariesAsync(
 ): Promise<SessionSummary[]> {
   const rows: SessionSummary[] = [];
   let sliceStart = Date.now();
+  const index = new SummaryIndex(projectSessionsDir(cwd, home));
   for (const store of SessionStore.list(cwd, home)) {
-    rows.push(summaryRow(store));
+    rows.push(summaryRow(store, index));
     if (Date.now() - sliceStart >= sliceMs) {
       await new Promise<void>((resolve) => setImmediate(resolve));
       sliceStart = Date.now();
     }
   }
+  index.save();
   return rows.sort((a, b) => b.mtimeMs - a.mtimeMs);
 }
 
@@ -986,25 +990,100 @@ export function hasRecentSession(cwd: string, home = homedir(), windowMs = 10 * 
   });
 }
 
-function summaryRow(store: SessionStore): SessionSummary {
+const SUMMARY_INDEX_FILE = ".summary-index.json";
+const SUMMARY_INDEX_VERSION = 1;
+
+interface SummaryIndexEntry extends SessionPeek {
+  size: number;
+  mtimeMs: number;
+}
+
+/**
+ * ADR-0082: the disposable per-project cache of listing projections. Loaded
+ * once per listing; a missing/corrupt/foreign-version file reads as empty.
+ */
+class SummaryIndex {
+  private readonly entries = new Map<string, SummaryIndexEntry>();
+  private dirty = false;
+  private readonly seen = new Set<string>();
+
+  constructor(private readonly dir: string) {
+    try {
+      const raw = JSON.parse(readFileSync(join(dir, SUMMARY_INDEX_FILE), "utf8")) as {
+        version?: number;
+        entries?: Record<string, SummaryIndexEntry>;
+      };
+      if (raw.version === SUMMARY_INDEX_VERSION && raw.entries && typeof raw.entries === "object") {
+        for (const [name, e] of Object.entries(raw.entries)) {
+          if (
+            typeof e?.size === "number" && typeof e.mtimeMs === "number" && typeof e.title === "string" &&
+            typeof e.pinned === "boolean" && typeof e.consumed === "boolean" &&
+            (e.displayName === null || typeof e.displayName === "string")
+          ) this.entries.set(name, e);
+        }
+      }
+    } catch {
+      // absent or unreadable: rebuild lazily
+    }
+  }
+
+  /** The projection for `file` (peeked from the log on a stale/missing entry). */
+  peek(file: string): { peek: SessionPeek; mtimeMs: number } {
+    const st = statSync(file);
+    const name = basename(file);
+    this.seen.add(name);
+    const hit = this.entries.get(name);
+    if (hit && hit.size === st.size && hit.mtimeMs === st.mtimeMs) return { peek: hit, mtimeMs: st.mtimeMs };
+    const peek = peekSession(file);
+    this.entries.set(name, { ...peek, size: st.size, mtimeMs: st.mtimeMs });
+    this.dirty = true;
+    return { peek, mtimeMs: st.mtimeMs };
+  }
+
+  /** Writes back when anything changed or a listed file vanished; failures are ignored. */
+  save(): void {
+    for (const name of this.entries.keys()) {
+      if (!this.seen.has(name)) {
+        this.entries.delete(name);
+        this.dirty = true;
+      }
+    }
+    if (!this.dirty) return;
+    const target = join(this.dir, SUMMARY_INDEX_FILE);
+    const tmp = `${target}.${process.pid}.tmp`;
+    try {
+      writeFileSync(tmp, JSON.stringify({ version: SUMMARY_INDEX_VERSION, entries: Object.fromEntries(this.entries) }), { mode: 0o600 });
+      renameSync(tmp, target);
+    } catch {
+      try {
+        unlinkSync(tmp);
+      } catch {
+        // nothing to clean
+      }
+    }
+  }
+}
+
+function summaryRow(store: SessionStore, index: SummaryIndex): SessionSummary {
   let title = "(unreadable session)";
   let displayName: string | null = null;
   let pinned = false;
   let consumed = false;
+  let mtimeMs = 0;
   try {
-    const peek = peekSession(store.file);
+    const { peek, mtimeMs: m } = index.peek(store.file);
     title = peek.title;
     displayName = peek.displayName;
     pinned = peek.pinned;
     consumed = peek.consumed;
+    mtimeMs = m;
   } catch {
     // keep the unreadable projection; listings never crash on user data
-  }
-  let mtimeMs = 0;
-  try {
-    mtimeMs = statSync(store.file).mtimeMs;
-  } catch {
-    // keep 0
+    try {
+      mtimeMs = statSync(store.file).mtimeMs;
+    } catch {
+      // keep 0
+    }
   }
   return {
     file: store.file,
@@ -1038,28 +1117,13 @@ interface SessionPeek {
  * resumed-then-closed session is consumed while resumed-then-worked-on
  * flips back to suggestible. Index comparison only: no timestamps.
  */
-function peekSession(file: string): SessionPeek {
-  // In-process memo keyed by file identity: a repeat listing (Home reload
-  // after a rename, a second CLI seam in the same process) re-reads only
-  // the files that changed. No on-disk artifact.
-  const st = statSync(file);
-  const cached = peekMemo.get(file);
-  if (cached && cached.size === st.size && cached.mtimeMs === st.mtimeMs) return cached.peek;
-  const peek = peekSessionUncached(file);
-  if (peekMemo.size > 20_000) peekMemo.clear();
-  peekMemo.set(file, { size: st.size, mtimeMs: st.mtimeMs, peek });
-  return peek;
-}
-
-const peekMemo = new Map<string, { size: number; mtimeMs: number; peek: SessionPeek }>();
-
 /**
  * Streams the file in fixed chunks, one line at a time: the raw text and the
  * parsed events are never retained. Only a light node per event (type + the
  * chain fields `activePath` reads) is kept for the consumption predicate, so
  * memory is O(lines × small constant) instead of O(bytes).
  */
-function peekSessionUncached(file: string): SessionPeek {
+function peekSession(file: string): SessionPeek {
   const nodes: AgentEvent[] = [];
   let title: string | null = null;
   let displayName: string | null = null;

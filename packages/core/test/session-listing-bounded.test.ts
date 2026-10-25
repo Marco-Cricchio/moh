@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
-import { mkdtempSync, readFileSync, writeFileSync, utimesSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync, readFileSync, statSync, writeFileSync, utimesSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { SessionStore, activePath, hasRecentSession, listSessionSummaries, listSessionSummariesAsync } from "../src/session-store";
 import type { AgentEvent } from "../src/index";
 
@@ -108,5 +108,55 @@ describe("bounded session listing (#1710)", () => {
     for (const r of listSessionSummaries(cwd, home)) utimesSync(r.file, old, old);
     expect(hasRecentSession(cwd, home)).toBe(false);
     expect(hasRecentSession(mkdtempSync(join(tmpdir(), "moh-none-")), home)).toBe(false);
+  });
+
+  describe("persisted summary index (ADR-0082)", () => {
+    const indexOf = (file: string) => join(dirname(file), ".summary-index.json");
+
+    test("cold listing writes an owner-only index; a warm listing serves it and equals the oracle", () => {
+      const { cwd, home } = fixture();
+      const cold = listSessionSummaries(cwd, home);
+      const idx = indexOf(cold[0]!.file);
+      expect(existsSync(idx)).toBe(true);
+      expect(statSync(idx).mode & 0o777).toBe(0o600);
+      // Tamper one entry whose key still matches: a warm listing must serve the index, not the log.
+      const raw = JSON.parse(readFileSync(idx, "utf8"));
+      const name = Object.keys(raw.entries)[0]!;
+      raw.entries[name].title = "from-index";
+      raw.entries[name].displayName = null;
+      writeFileSync(idx, JSON.stringify(raw));
+      const warm = listSessionSummaries(cwd, home);
+      expect(warm.find((r) => r.file.endsWith(name))!.title).toBe("from-index");
+      for (const row of warm) {
+        if (row.file.endsWith(name)) continue;
+        const ref = reference(row.file);
+        expect({ title: row.title, pinned: row.pinned, consumed: row.consumed }).toEqual({ title: ref.title, pinned: ref.pinned, consumed: ref.consumed });
+      }
+    });
+
+    test("missing, corrupt and foreign-version indexes rebuild to the oracle", () => {
+      const { cwd, home } = fixture();
+      const idx = indexOf(listSessionSummaries(cwd, home)[0]!.file);
+      for (const bad of ["{not json", JSON.stringify({ version: 99, entries: {} }), JSON.stringify({ version: 1, entries: { x: 1 } }), null]) {
+        if (bad === null) rmSync(idx);
+        else writeFileSync(idx, bad);
+        for (const row of listSessionSummaries(cwd, home)) {
+          expect(row.title).toBe(reference(row.file).title);
+        }
+        expect(JSON.parse(readFileSync(idx, "utf8")).version).toBe(1);
+      }
+    });
+
+    test("an appended file is re-peeked; a deleted file's entry is dropped", () => {
+      const { cwd, home } = fixture();
+      const rows = listSessionSummaries(cwd, home);
+      const idx = indexOf(rows[0]!.file);
+      const target = rows.find((r) => r.title === "resumed")!;
+      writeFileSync(target.file, readFileSync(target.file, "utf8") + j({ type: "user_message", text: "again" }) + "\n");
+      expect(listSessionSummaries(cwd, home).find((r) => r.file === target.file)!.consumed).toBe(false);
+      rmSync(target.file);
+      listSessionSummaries(cwd, home);
+      expect(Object.keys(JSON.parse(readFileSync(idx, "utf8")).entries)).not.toContain(target.file.split("/").pop());
+    });
   });
 });
