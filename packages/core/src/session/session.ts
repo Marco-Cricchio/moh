@@ -605,7 +605,7 @@ export class AgentSession {
         sessionId: this.#sessionId,
         intervalTurns: mem.intervalTurns,
         budgetTokens: mem.budgetTokens,
-        extractor: mem.extractor ?? createMaintenanceExtractor(this.#provider, this.#cwd),
+        extractor: mem.extractor ?? createMaintenanceExtractor(() => this.#provider, this.#cwd),
         append: (event) => this.#append(event),
         onUpdated: () => this.#assemblePrompt(),
       });
@@ -618,7 +618,7 @@ export class AgentSession {
       this.#retro = new RetroStore(retro.dir ?? RetroStore.forProject(this.#cwd, this.#mohHome).dir);
       // ADR-0075 (#1275): the judgement pipeline's extractor — the batch
       // pass is triggered on threshold, never per session.
-      this.#retroJudgment = config.retroJudgment ?? createRetroJudgmentExtractor(this.#provider, this.#cwd);
+      this.#retroJudgment = config.retroJudgment ?? createRetroJudgmentExtractor(() => this.#provider, this.#cwd);
     }
     // Compaction (#466): on by default when the option is present
     // (from-config passes it unconditionally); `enabled: false` turns it off.
@@ -671,8 +671,8 @@ export class AgentSession {
         // with the LLM summarizer as the explicit over-budget fallback;
         // the strategy box feeds the marker's `summarizer` audit stamp.
         summarizer: comp.summarizer ?? (comp.summarizerStrategy === "deterministic"
-          ? createDeterministicSummarizer(createCompactionSummarizer(this.#provider, this.#cwd), strategyBox)
-          : createCompactionSummarizer(this.#provider, this.#cwd)),
+          ? createDeterministicSummarizer(createCompactionSummarizer(() => this.#provider, this.#cwd), strategyBox)
+          : createCompactionSummarizer(() => this.#provider, this.#cwd)),
         ...(comp.summarizerStrategy === "deterministic" && !comp.summarizer
           ? { summarizerName: () => strategyBox.name }
           : {}),
@@ -1710,9 +1710,20 @@ export class AgentSession {
    * `#947` rule — a failed call's `{0,0}` is not a measurement), or
    * undefined when the log holds none. The switch guard's decision-time
    * fact: a switch applies from the next turn, so this is the context
-   * the target must hold. */
+   * the target must hold. A measurement older than the newest compaction
+   * marker describes a context that no longer exists — the rebuilt
+   * prompt is smaller — so it reads as none until the next call measures
+   * (the core never estimates tokens; an overflow there arms #947). */
   lastMeasuredTokens(): number | undefined {
-    return CompactionRunner.lastMeasuredCall(this.#eventLog.history())?.inputTokens;
+    const history = this.#eventLog.history();
+    const call = CompactionRunner.lastMeasuredCall(history);
+    if (!call) return undefined;
+    // Only a marker on the active path rebuilt the prompt (#578 d3).
+    const onPath = new Set(activePath(history));
+    for (let i = history.length - 1; i > call.index; i -= 1) {
+      if (history[i]!.type === "compaction" && onPath.has(history[i]!)) return undefined;
+    }
+    return call.inputTokens;
   }
 
   /** Tools registered on this session, including connected MCP tools. */

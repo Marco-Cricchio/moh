@@ -101,13 +101,16 @@ export function parseJudgmentFindings(text: string, sessionIds: ReadonlyArray<st
 
 /** The default judgement extractor: an in-process maintenance subagent,
  * no tools, no subagents of its own (depth discipline, #339). */
-export function createRetroJudgmentExtractor(provider: Provider, cwd: string): RetroJudgmentExtractor {
+export function createRetroJudgmentExtractor(provider: Provider | (() => Provider), cwd: string): RetroJudgmentExtractor {
   return async (input) => {
     if (input.sessions.length === 0) return [];
     // Lazy: a static import would make this module and session.ts a cycle.
     const { AgentSession } = await import("./session/session");
     const child = new AgentSession({
-      provider,
+      // A getter follows the session's in-session `/model` switch: the
+      // maintenance child runs on the model that serves now, not the one
+      // the session opened with.
+      provider: typeof provider === "function" ? provider() : provider,
       tools: {},
       cwd,
       subagents: null,

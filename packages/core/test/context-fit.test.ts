@@ -128,6 +128,29 @@ describe("switchModel context-fit guard (#948)", () => {
     if (!result.ok) expect(result.reason).toBe("context_length");
   });
 
+  test("a compaction marker supersedes the pre-compaction measurement until the next call measures", async () => {
+    // The refusal says "/compact or pick a model with a larger window":
+    // after a /compact the retried switch must not be refused on the
+    // stale number that described the context the marker replaced.
+    const session = createSession({
+      provider: measured(234_666),
+      endpoints: [{ name: "openrouter", type: "openrouter", defaultModel: "mistralai/mistral-nemo" }] as MohConfig["endpoints"],
+      // The auto trigger stays quiet (unknown serving window, huge fallback)
+      // so the only marker is the forced one.
+      compaction: { summarizer: async () => "Task state: summarized.", fallbackWindowTokens: 10_000_000 },
+    });
+    for (let i = 0; i < 12; i++) await session.send(`turn ${i}`);
+    expect(session.contextFit("openrouter/mistralai/mistral-nemo").fits).toBe(false);
+    expect((await session.compact()).ok).toBe(true);
+    expect(session.lastMeasuredTokens()).toBeUndefined();
+    expect(session.contextFit("openrouter/mistralai/mistral-nemo")).toEqual({ fits: true, measured: undefined, window: 131_072 });
+    // A fresh measurement after the marker is the fact again.
+    await session.send("after");
+    expect(session.lastMeasuredTokens()).toBe(234_666);
+    expect(session.contextFit("openrouter/mistralai/mistral-nemo").fits).toBe(false);
+    await session.dispose();
+  });
+
   test("integration: a refused switch leaves the session serving on the current model", async () => {
     const session = createSession({
       provider: measured(234_666, "before"),
