@@ -46,11 +46,15 @@ describe.skipIf(!hostPlatform)(`a compiled binary starts a session (${hostPlatfo
   // #1709: React's development build records a performance.measure per
   // render that is never cleared, so memory grows without bound, even idle.
   test("ships React's production build, not the development one", () => {
-    const bytes = readFileSync(binary).toString("latin1");
-    expect(bytes).not.toContain("react-reconciler.development");
-    expect(bytes).not.toContain("logComponentRender");
-    expect(bytes).toContain("react-reconciler.production");
-  });
+    const bytes = readFileSync(binary);
+    expect(bytes.includes("react-reconciler.development")).toBe(false);
+    expect(bytes.includes("logComponentRender")).toBe(false);
+    // Only the production build carries the minified-error decoder.
+    expect(bytes.includes("Minified React error")).toBe(true);
+    // The JSX mode must follow: dev-mode calls against production React are
+    // undefined and crash the TUI at first render (found in the #1709 run).
+    expect(bytes.includes("jsxDEV(")).toBe(false);
+  }, 30_000);
 
   /** One real session against the compiled binary: isolated project + home. */
   const runSession = (config: Record<string, unknown>) => {
