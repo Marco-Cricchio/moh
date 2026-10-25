@@ -34,6 +34,22 @@ describe("multiline input external prefill", () => {
   });
 });
 
+describe("multiline input cursor", () => {
+  // #1709: the cursor used to blink on a timer, i.e. a React render every
+  // 400 ms even when idle — fuel for the dev-build memory growth and pure
+  // frame churn. It is steady now: an idle composer renders nothing.
+  test("stays steady: an idle composer paints no further frames", async () => {
+    const i = render(<MultilineInput placeholder="p" focused onSubmit={() => {}} />);
+    await waitText(i, "p", "the input mounted");
+    await pressSettled(i, "ab");
+    const painted = i.frames.length;
+    // A negative assertion over an interval: a sleep is the right tool here.
+    await Bun.sleep(1000);
+    expect(i.frames.length).toBe(painted);
+    i.unmount();
+  });
+});
+
 describe("multiline input newline/submit keys (raw bytes through Ink's parser)", () => {
   test("ctrl+j byte (\\n) inserts a newline, never submits", async () => {
     let submitted = 0;
