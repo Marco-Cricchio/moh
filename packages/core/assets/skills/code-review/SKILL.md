@@ -1,6 +1,6 @@
 ---
 name: code-review
-description: "Review the changes since a fixed point (commit, branch, tag, or merge-base) along two axes: Standards (does the code follow this repo's documented coding standards?) and Spec (does the code match what the originating issue/spec asked for?). Runs both reviews in parallel sub-agents and reports them side by side. Use when the user wants to review a branch, a PR, work-in-progress changes, or asks to \"review since X\"."
+description: "Review the changes since a fixed point (commit, branch, tag, or merge-base) along two axes: Standards (does the code follow this repo's documented coding standards?) and Spec (does the code match what the originating issue/spec asked for?). Runs both reviews in parallel sub-agents and reports them side by side. Use when the user wants to review a branch, a PR, work-in-progress changes, or asks to \"review since X\". `apply` mode (`/code-review apply [fixed-point]`) fixes the lean smells of the Standards axis in your own change instead of reporting them."
 minMohVersion: 0.1.0
 ---
 
@@ -10,6 +10,8 @@ Two-axis review of the diff between `HEAD` and a fixed point the user supplies:
 - **Spec**: does the code faithfully implement the originating issue / spec?
 
 Both axes run as **parallel sub-agents** so they don't pollute each other's context, then this skill aggregates their findings.
+
+When the first argument is `apply`, skip to [Apply mode](#apply-mode): it fixes instead of reporting, on the Standards axis only.
 
 The issue tracker should have been provided to you. If `docs/agents/issue-tracker.md` is missing, tell the user to run `/setup-matt-pocock-skills`.
 
@@ -77,6 +79,19 @@ If the spec is missing, skip the Spec sub-agent and note this in the final repor
 Present the two reports under `## Standards` and `## Spec` headings, verbatim or lightly cleaned. Do **not** merge or rerank findings, because the two axes are deliberately separate (see _Why two axes_).
 
 End with a one-line summary: total findings per axis, and the worst issue _within each axis_ (if any). Don't pick a single winner across axes: that's the reranking the separation exists to prevent.
+
+## Apply mode
+
+`/code-review apply [fixed-point]`: the construction-time counterpart of the review. It fixes the lean smells in **your own change** and leaves the fixes in the working tree; it never reviews the Spec axis (a missing requirement is built, not simplified).
+
+1. **The change.** Default the fixed point to the repository's integration branch when none is given. The change is everything since the merge-base, uncommitted work included: `git diff $(git merge-base <fixed-point> HEAD)` plus the untracked files `git status --porcelain` lists. Stop if it is empty.
+2. **Judge in isolation.** Spawn one Standards sub-agent with the change, the standards sources from step 3 and the smell baseline pasted in full. Brief: "Tag each finding `apply` or `report`. `apply` only for: Speculative Generality (an abstraction, parameter or hook with no caller in the change → inline or delete), Duplicated Code (→ reuse the existing helper, or extract one shape both sites call), Middle Man (→ call the real target), and code the change leaves unused (→ delete). Everything else is `report`. A documented repo standard overrides the baseline. Give file:line and the fix in one line. Under 400 words."
+3. **Apply.** Make the `apply` fixes yourself:
+   - edit only files the change already touches; reusing an existing helper elsewhere is allowed, editing it is not;
+   - preserve behaviour;
+   - then run the typecheck and the tests of the touched files;
+   - a fix that breaks them is reverted and listed as not applied, with the failure.
+4. **Report.** `## Applied` (file:line, smell, the fix) and `## Not applied` (file:line, smell, why: `report`-tagged, reverted, or overridden by a repo standard). Commit nothing: the fixes are part of the change under review.
 
 ## Why two axes
 

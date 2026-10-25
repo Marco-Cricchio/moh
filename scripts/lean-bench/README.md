@@ -5,7 +5,7 @@ reduce structural drift, and decides slice 4 (the executable gate) of #1633.
 Dev tooling; nothing in `packages/` imports it.
 
 ```sh
-bun scripts/lean-bench/bench.ts run    --model <endpoint/model-id> --out <dir> [--runs 3] [--only moh-993 ...]
+bun scripts/lean-bench/bench.ts run    --model <endpoint/model-id> --out <dir> [--runs 3] [--only moh-776 ...] [--conditions a,b]
 bun scripts/lean-bench/bench.ts judge  --model <endpoint/model-id> --out <dir>
 bun scripts/lean-bench/bench.ts report --out <dir>
 ```
@@ -34,8 +34,15 @@ fetched by SHA when missing. The base prompt is injected through the
 
 - `v2` — the BASE_PROMPT text at `8f06512d` (develop before #1634);
 - `v3` — the BASE_PROMPT text of this checkout;
-- `v3+code-quality` — v3 plus `moh init` (AGENTS.md moh section and
-  `docs/agents/code-quality.md`).
+- `v3+code-quality` — v3 plus `moh init` (AGENTS.md moh section,
+  `docs/agents/code-quality.md` and, since #1685, `moh.json` `checks`);
+- `v3+code-quality+apply` — the same, then a second fresh `moh run` over
+  the change with the code-review skill in apply mode (`apply HEAD`), as
+  `/implement` runs it (#1633 slice 2). Its events are `apply-events.jsonl`;
+  the diff and metrics cover the end state.
+
+`--conditions` runs a subset; a comparison across moh versions belongs in a
+fresh `<dir>`, run with both of its conditions.
 
 The model runs once per cell through this checkout's `moh run --auto-accept`;
 the diff is taken against the setup commit. Each run gets a throwaway HOME
@@ -63,7 +70,7 @@ directory, and classifies it against the smell baseline of the code-review
 skill. `knip` from the #1633 draft is left out: it needs per-repo
 configuration, and `uncalledSymbols` covers unused exports in any language.
 
-## Pre-registered criterion
+## Pre-registered criteria
 
 Structural findings are the judge's Speculative Generality, Duplicated Code and
 Middle Man. `report` averages runs per task, then tasks per condition. If
@@ -71,5 +78,11 @@ Middle Man. `report` averages runs per task, then tasks per condition. If
 `uncalled`, `duplicates` and `highCcn` no worse, slice 4 is archived;
 otherwise slice 4 is justified, and jscpd and lizard are its recipe
 candidates.
+
+Slice 2 (`/code-review apply`): if `v3+code-quality+apply` cuts structural
+findings by at least 30% against `v3+code-quality`, with `linesAdded` no
+higher, apply keeps its place in `/implement`; otherwise the hook is
+reverted and the mode stays available on demand. `report` prints each
+verdict whose two conditions are complete.
 
 Cost: 10 tasks × 3 conditions × 3 runs = 90 model runs plus 90 judge runs.

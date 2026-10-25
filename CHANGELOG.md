@@ -9,6 +9,12 @@ matching section here at tag time.
 
 ### Added
 
+- **`/code-review apply`** (#1633 slice 2): the construction-time
+  counterpart of the review. On your own change (uncommitted work
+  included) it fixes the lean smells of the Standards axis — speculative
+  generality, duplication, middle men, code left unused — keeps every other
+  smell as a report, re-runs typecheck and the touched tests, and reverts a
+  fix that breaks them. `/implement` runs it before the two-axis review.
 - **Repo-declared checks** (ADR-0080, #1633): `moh.json` `checks` declares
   named commands (a non-zero exit is a failure). `moh init` proposes the
   repository's own tools, or pinned `jscpd` and `lizard` commands, into a
