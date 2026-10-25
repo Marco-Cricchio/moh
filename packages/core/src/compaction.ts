@@ -31,21 +31,28 @@ import { lastAssistantText } from "./session-store";
 
 /** Turns kept verbatim after `upTo`; the summary covers only the past.
  * #949 (ADR-0022 §2 amendment): a *preference*, never a floor — the
- * window wins when the two conflict. */
-const DEFAULT_TAIL_TURNS = 10;
+ * window wins when the two conflict. ADR-0022 §2 (second amendment): 3,
+ * one value for the auto and the forced path — a compaction must free
+ * room, and the chunked summary carries the older turns' detail. */
+const DEFAULT_TAIL_TURNS = 3;
 /** Fraction of the model context window that arms auto compaction. */
 const DEFAULT_COMPACTION_THRESHOLD = 0.8;
 /** Absolute inputTokens fallback when the window is unknown (0). */
 export const FALLBACK_CONTEXT_WINDOW = 180_000;
 /** The verbatim tail may never exceed this fraction of the context window
- * (ADR-0022: "at least 10 turns and at most ~25% of the window"). */
+ * (ADR-0022 §2: the window wins over the turn preference). */
 const DEFAULT_TAIL_WINDOW_FRACTION = 0.25;
 /** Backoff between auto-retry runs while above threshold (#466): doubling,
  * capped; unlimited retries — a success or a below-threshold stop ends it. */
 const RETRY_BACKOFF_BASE_MS = 2_000;
 const RETRY_BACKOFF_MAX_MS = 60_000;
-/** Hard character cap on the transcript handed to the summarizer. */
-const TRANSCRIPT_CAP_CHARS = 60_000;
+/** ADR-0022 §5 (amended): the covered transcript is never truncated —
+ * the LLM summarizer folds it in chunks of about this many characters,
+ * each cut preferably at a turn boundary (`chunkTranscript`). */
+const TRANSCRIPT_CHUNK_CHARS = 60_000;
+/** Upper bound on summarizer calls per compaction: past it the chunks
+ * grow instead of multiplying (the whole span is still read). */
+const MAX_TRANSCRIPT_CHUNKS = 12;
 
 /** ADR-0035: the survival floor — at least this fraction of the droppable
  * text survives, however many sections the hooks asked to drop. The floor
@@ -227,9 +234,39 @@ export function compactionTranscript(
   }
   flush();
   maybeCut();
-  let text = parts.join("\n");
-  if (text.length > TRANSCRIPT_CAP_CHARS) text = `[…earlier transcript truncated…]\n${text.slice(-TRANSCRIPT_CAP_CHARS)}`;
-  return text;
+  return parts.join("\n");
+}
+
+/**
+ * ADR-0022 §5 (amended): splits a rendered transcript into the chunks the
+ * LLM summarizer folds one after another. Every chunk is at most
+ * `chunkChars` (grown so there are never more than `maxChunks`), and a
+ * cut lands on a line boundary — on the last `user:` line (a turn start)
+ * when one sits in the second half of the chunk, so a turn is rarely
+ * split. A single line longer than a chunk is cut by characters. Only
+ * the newline a cut lands on is consumed: no content is dropped.
+ */
+export function chunkTranscript(
+  text: string,
+  chunkChars = TRANSCRIPT_CHUNK_CHARS,
+  maxChunks = MAX_TRANSCRIPT_CHUNKS,
+): string[] {
+  const size = Math.max(chunkChars, Math.ceil(text.length / Math.max(1, maxChunks)), 1);
+  if (text.length <= size) return [text];
+  const chunks: string[] = [];
+  let rest = text;
+  while (rest.length > size) {
+    const window = rest.slice(0, size + 1);
+    // Preferred: the last turn start in the second half of the window.
+    let cut = window.lastIndexOf("\nuser: ");
+    if (cut < size / 2) cut = window.lastIndexOf("\n");
+    // A line longer than the chunk: cut it by characters.
+    if (cut <= 0) cut = size;
+    chunks.push(rest.slice(0, cut));
+    rest = rest.slice(rest[cut] === "\n" ? cut + 1 : cut);
+  }
+  if (rest.length > 0) chunks.push(rest);
+  return chunks;
 }
 
 /** The compaction child session's role prompt (also the disjunction rule). */
@@ -238,6 +275,8 @@ const COMPACTION_PROMPT = [
   "",
   "Rules:",
   "- Summarize TASK STATE only: the goal, decisions made, current progress, concrete next steps, and open questions.",
+  "- The previous summary is the only record of the turns before it: carry forward everything in it that is still relevant, updated by the new conversation.",
+  "- The conversation may arrive in parts. For a part that is not the last, fold it into the running summary losing no detail a later part may need.",
   "- Keep file paths, commands, identifiers and error messages that the next turn still needs.",
   "- Never record durable project facts (conventions, preferences, environment truths) — those belong to memory, and memory and compaction are disjoint stores.",
   "- Never store credentials, tokens, or personal data.",
@@ -408,7 +447,7 @@ export interface CompactionOptions {
   /** Default true; `false` disables the runner entirely (no auto
    * trigger, no forced path). */
   enabled?: boolean;
-  /** Turns kept verbatim. Default 10. */
+  /** Turns kept verbatim. Default 3 (ADR-0022 §2). */
   tailTurns?: number;
   /** Fraction of the context window arming auto compaction. Default 0.8. */
   threshold?: number;
@@ -557,7 +596,7 @@ export class CompactionRunner {
 
   /** Absolute `upTo` for a new marker, per the #949 tail policy (ADR-0022
    * §2 amendment): one rule for the auto and the forced path — the tail
-   * is a contiguous suffix, `tailTurns` (default 10) a *preference*
+   * is a contiguous suffix, `tailTurns` (default 3) a *preference*
    * rather than a floor, and the window wins when the two conflict:
    *
    * 1. candidate = the last `tailTurns` whole turns;
@@ -986,34 +1025,52 @@ export class CompactionRunner {
  * discipline), a dedicated conversational-summary prompt (not the
  * memory fact-JSON protocol). Errors propagate to the runner's retry.
  */
-export function createCompactionSummarizer(provider: Provider, cwd: string): CompactionSummarizer {
+export function createCompactionSummarizer(provider: Provider | (() => Provider), cwd: string): CompactionSummarizer {
   return async (input) => {
     // Lazy import: session.ts already imports memory.ts; keep the cycle
     // impossible at load time (same pattern as createMaintenanceExtractor).
     const { AgentSession } = await import("./session/session");
-    const child = new AgentSession({
-      provider,
-      tools: {},
-      cwd,
-      subagents: null,
-      promptComposer: new PromptComposer({ projectDir: cwd, basePrompt: COMPACTION_PROMPT }),
-    });
-    input.signal?.addEventListener("abort", () => child.abort(), { once: true });
-    try {
-      const user = [
-        input.previous ? `# Previous summary\n${input.previous}\n` : "# Previous summary\n(none — this is the first compaction)",
-        "",
-        "# Conversation to summarize",
-        input.transcript,
-        "",
-        "Write the chained summary per your rules. Respond with only the summary text.",
-      ].join("\n");
-      const turn = await child.send(user);
-      if (turn.status !== "done") throw new Error(`compaction subagent ended ${turn.status}`);
-      return lastAssistantText(child.history());
-    } finally {
-      await child.dispose().catch(() => {});
+    // ADR-0022 §5 (amended): the span is folded chunk by chunk, each call
+    // refining the running summary — the whole covered transcript is read,
+    // nothing is truncated away.
+    const chunks = chunkTranscript(input.transcript);
+    let running = input.previous;
+    for (let part = 0; part < chunks.length; part++) {
+      if (input.signal?.aborted) throw new Error("compaction aborted");
+      const child = new AgentSession({
+        // A getter follows the session's in-session `/model` switch: the
+        // maintenance child runs on the model that serves now, not the one
+        // the session opened with.
+        provider: typeof provider === "function" ? provider() : provider,
+        tools: {},
+        cwd,
+        subagents: null,
+        promptComposer: new PromptComposer({ projectDir: cwd, basePrompt: COMPACTION_PROMPT }),
+      });
+      const onAbort = () => child.abort();
+      input.signal?.addEventListener("abort", onAbort, { once: true });
+      try {
+        const last = part === chunks.length - 1;
+        const user = [
+          running ? `# Previous summary\n${running}\n` : "# Previous summary\n(none — this is the first compaction)",
+          "",
+          chunks.length > 1 ? `# Conversation to summarize (part ${part + 1} of ${chunks.length})` : "# Conversation to summarize",
+          chunks[part],
+          "",
+          last
+            ? "Write the chained summary per your rules. Respond with only the summary text."
+            : "Fold this part into the running summary per your rules; later parts follow. Respond with only the summary text.",
+        ].join("\n");
+        const turn = await child.send(user);
+        if (turn.status !== "done") throw new Error(`compaction subagent ended ${turn.status}`);
+        running = lastAssistantText(child.history());
+        if (!running.trim()) throw new Error(`empty compaction summary (part ${part + 1} of ${chunks.length})`);
+      } finally {
+        input.signal?.removeEventListener("abort", onAbort);
+        await child.dispose().catch(() => {});
+      }
     }
+    return running ?? "";
   };
 }
 

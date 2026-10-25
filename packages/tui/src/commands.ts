@@ -735,13 +735,17 @@ const wayfinderCommand: SlashCommand = {
 
 /** #466: forced compaction through the session's own producer — the
  * same path the auto trigger uses. Feedback rides the appended
- * `compaction` event; the toast here covers the failure modes. */
+ * `compaction` event; the toasts here cover the start and the failure
+ * modes. */
 const compactCommand: SlashCommand = {
   name: "compact",
   description: "compact the session context (force a summary of the past)",
   usage: "/compact",
   run(ctx) {
     if (!ctx.session) return ctx.notify("/compact needs an open session");
+    // The summarizer is a model call (one per chunk on a long span): say it
+    // started, so the seconds before the marker lands do not read as a no-op.
+    ctx.notify("compacting… the summary lands as a `context compacted` line");
     void ctx.session.compact().then((result) => {
       if (!result.ok) ctx.notify(`✗ compaction: ${result.error}`);
     });

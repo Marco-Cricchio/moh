@@ -81,6 +81,12 @@ export function projectSidebar(events: ReadonlyArray<AgentEvent>): SidebarState 
         tokens.contextIn = event.usage.inputTokens;
         tokens.totalOut += event.usage.outputTokens;
         break;
+      case "compaction":
+        // The marker rebuilt the prompt: the last measurement describes a
+        // context that no longer exists. The gauge stays empty until the
+        // next call measures (the core never estimates tokens).
+        tokens.contextIn = 0;
+        break;
       case "user_message":
         turnCount += 1;
         break;
