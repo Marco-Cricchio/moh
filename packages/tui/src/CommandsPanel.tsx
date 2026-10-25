@@ -107,6 +107,9 @@ const LINES: ReadonlyArray<Line> = COMMANDS.flatMap((group) => [
 
 import { windowing } from "./viewport";
 
+/** Key column: at least 24 wide, and always one space wider than the longest key. */
+const KEY_COLUMN_WIDTH = Math.max(24, ...COMMANDS.flatMap((g) => g.keys.map(([name]) => name.length + 1)));
+
 export function CommandsPanel({ onClose }: { onClose: () => void }) {
   const theme = useTheme();
   const viewport = useViewport();
@@ -131,7 +134,7 @@ export function CommandsPanel({ onClose }: { onClose: () => void }) {
           </Text>
         ) : (
           <Text key={`${line.name}-${win.start + i}`} wrap="truncate-end">
-            <Text color={theme.accent}>{`  ${line.name.padEnd(24)}`}</Text>
+            <Text color={theme.accent}>{`  ${line.name.padEnd(KEY_COLUMN_WIDTH)}`}</Text>
             <Dim>{line.desc}</Dim>
           </Text>
         ),
