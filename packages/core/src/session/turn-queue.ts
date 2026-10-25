@@ -56,7 +56,7 @@ export class TurnQueue {
   #turn: Promise<TurnResult> | null = null;
   #controller: AbortController | null = null;
   /** Pending sends: front runs as soon as the session is idle. */
-  readonly #queue: { text: string; resolve: (result: TurnResult) => void; attachment?: SkillPrompt; synthetic?: boolean }[] = [];
+  readonly #queue: { text: string; resolve: (result: TurnResult) => void; attachment?: SkillPrompt; synthetic?: boolean; signal?: AbortSignal }[] = [];
 
   constructor(options: TurnQueueOptions) {
     this.#execute = options.execute;
@@ -79,10 +79,12 @@ export class TurnQueue {
 
   /** Enqueues a user message; preempts the active turn if sends are waiting.
    * An optional opaque attachment (ADR-0011 skill prompt) is applied at
-   * turn start via `onTurnStart`, surviving preemption and queueing. */
-  send(text: string, attachment?: SkillPrompt): Promise<TurnResult> {
+   * turn start via `onTurnStart`, surviving preemption and queueing.
+   * #1493: an optional outside signal owns the turn's cancellation from
+   * the moment of the send — see `#pump`. */
+  send(text: string, attachment?: SkillPrompt, signal?: AbortSignal): Promise<TurnResult> {
     return new Promise<TurnResult>((resolve) => {
-      this.#queue.push({ text, resolve, attachment });
+      this.#queue.push({ text, resolve, attachment, ...(signal ? { signal } : {}) });
       this.#pump();
     });
   }
@@ -117,7 +119,21 @@ export class TurnQueue {
     if (item.attachment !== undefined) this.#onTurnStart?.(item.attachment);
     const controller = new AbortController();
     this.#controller = controller;
-    const turn = (item.synthetic ? this.#executeSynthetic : this.#execute)(item.text, controller);
+    // #1493: an outside signal aborted before the turn starts (the send
+    // waited in the queue or on the session's turn-start chain, where
+    // `abort()` has no controller to reach) never runs the turn: no
+    // `beforeTurn`, no `user_message`, no provider call — it settles as
+    // cancelled, like a turn its `beforeTurn` confirmation refused. One
+    // aborted later cancels the running turn the way `abort()` does.
+    const outside = item.signal;
+    const abortTurn = () => controller.abort();
+    let turn: Promise<TurnResult>;
+    if (outside?.aborted) {
+      turn = Promise.resolve({ status: "cancelled" });
+    } else {
+      outside?.addEventListener("abort", abortTurn, { once: true });
+      turn = (item.synthetic ? this.#executeSynthetic : this.#execute)(item.text, controller);
+    }
     // Defensive: an unexpected rejection must still settle the caller's
     // promise instead of becoming an unhandled rejection.
     const guarded = turn.then(
@@ -132,6 +148,7 @@ export class TurnQueue {
     void guarded.then((result) => {
       // Settled: chrome cleanup first (ADR-0011 — the skill prompt drops
       // before the next turn pumps), then free the slot and re-pump.
+      outside?.removeEventListener("abort", abortTurn);
       this.#onTurnSettled?.(result);
       this.#turn = null;
       this.#controller = null;

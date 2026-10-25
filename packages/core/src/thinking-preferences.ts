@@ -176,7 +176,7 @@ type ThinkingPreferences = Record<string, ThinkingLevel>;
 function readSection(file: string): ThinkingPreferences {
   const data = readUserConfigFile(file);
   const raw = data.thinkingLevels;
-  if (raw === undefined || typeof raw !== "object" || Array.isArray(raw)) return {};
+  if (raw === undefined || raw === null || typeof raw !== "object" || Array.isArray(raw)) return {};
   // Tolerant per-entry read: an invalid stored value reads as absent —
   // a hand-edited preference never fails a session. Valid siblings survive.
   const out: ThinkingPreferences = {};

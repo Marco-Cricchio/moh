@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { mkdirSync } from "node:fs";
 import { App } from "../src/App";
 import { MockProvider, SessionStore, createSession } from "@moh/core";
-import { stripAnsi, waitForCondition, waitForFrame } from "./helpers";
+import { COMPOSER_READY, grantTeamExtension, sendPrompt, stripAnsi, waitForCondition, waitStep, waitText } from "./helpers";
 
 const dir = () => join(tmpdir(), `moh-tui-growth-${process.pid}-${Date.now()}`);
 
@@ -22,6 +22,9 @@ describe("detect-and-fork (#468)", () => {
     const cwd = join(dir(), "repo");
     mkdirSync(join(home, ".moh"), { recursive: true });
     mkdirSync(cwd, { recursive: true });
+    // #1495: the team extension's consent modal (ADR-0074) otherwise opens
+    // over the resumed chat, and "next turn"'s leading "n" answered it.
+    grantTeamExtension(home);
 
     // Yesterday's persisted session to resume.
     const store = SessionStore.create(cwd, home);
@@ -44,22 +47,23 @@ describe("detect-and-fork (#468)", () => {
       // commit (Home defers the scan), so settle before the first keystroke —
       // the #637 lost-first-keystroke race drops it otherwise, and the list
       // row itself contains the title, which would mask the lost resume.
-      await waitForFrame(frameText, "▸");
-      await new Promise((r) => setTimeout(r, 100));
-      await waitForFrame(frameText, "▸");
+      // #1495: wait for that row (and its handler), not a fixed pause.
+      await waitStep(
+        i,
+        () => frameText().includes("▸") && frameText().includes("some earlier work"),
+        "the pertinent session pre-selected in the list",
+      );
       await i.stdin.write("\r");
       await waitForCondition(
         () => readFileSync(originalFile, "utf8").includes("session_resumed"),
         () => "session never opened",
       );
-      await new Promise((r) => setTimeout(r, 100));
+      await waitText(i, COMPOSER_READY, "the resumed chat's composer");
 
       // External writer appends behind our back, then the next turn emits
       // the growth event.
       appendFileSync(originalFile, JSON.stringify({ type: "user_message", text: "from elsewhere" }) + "\n");
-      await i.stdin.write("next turn");
-      await new Promise((r) => setTimeout(r, 80));
-      await i.stdin.write("\r");
+      await sendPrompt(i, "next turn");
       // The growth event crosses the session's event stream → sticky banner.
       await waitForCondition(
         () => frameText().includes("⚡"),
@@ -72,9 +76,9 @@ describe("detect-and-fork (#468)", () => {
       // suggestion into the textarea, the second sends it. The forked
       // session becomes active on a new file.
       await i.stdin.write("/fork");
-      await new Promise((r) => setTimeout(r, 80));
+      await waitText(i, "▶ /fork", "the /fork suggestion selected");
       await i.stdin.write("\r");
-      await new Promise((r) => setTimeout(r, 80));
+      await waitText(i, "▶", "the suggestion accepted into the textarea", { absent: true });
       await i.stdin.write("\r");
       const slugDir = join(originalFile, "..");
       await waitForCondition(

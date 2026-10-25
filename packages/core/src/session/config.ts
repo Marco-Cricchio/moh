@@ -164,10 +164,10 @@ export interface SessionConfig {
   extensions?: ExtensionRuntime;
   /**
    * #784 (spec §5): hooks from a runtime this session does NOT own —
-   * subagent children share the parent's runtime. The gate-check half is
-   * mandatory; the turn-start half (#787, ADR-0033) rides along so a
-   * child's turns are routed too (the child's own `switchModel` applies
-   * the ref, so the `model_switched` chrome lands in the child's log).
+   * subagent children share the parent's runtime, typed as the whole
+   * `ExtensionRuntime` (#1439). The turn-start hook (#787, ADR-0033) routes
+   * a child's turns too (the child's own `switchModel` applies the ref, so
+   * the `model_switched` chrome lands in the child's log).
    * Session lifecycle hooks, statuses and load events stay the parent's:
    * a child ending must never end the extension's session, and a child's
    * `appendEvent` still lands in the runtime's single event channel.

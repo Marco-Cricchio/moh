@@ -10,8 +10,8 @@
  * The three modules differ on purpose and the differences are pinned as they
  * are: provider-test keeps appended order and has no dedup; context-refusal
  * rebuilds each entry and evicts by `last` recency only past the cap;
- * the redact miss report keeps raw parsed objects, stops reading at the first
- * torn line and has no read-side cap.
+ * the redact miss report keeps raw parsed objects, skips a torn line like the
+ * others and has no read-side cap.
  */
 import { describe, expect, test } from "bun:test";
 import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
@@ -141,7 +141,7 @@ describe("context-refusal trace", () => {
 describe("redact miss report", () => {
   const row = (i: number) => ({ at: stamp(i), last: stamp(i), shape: `opaque-word:${i}`, count: 1 });
 
-  test("reading stops at the first torn line (later lines are lost); raw objects kept; no read cap; evicted by `last` past the cap", () => {
+  test("a torn line is skipped and later entries survive (#1615); raw objects kept; no read cap; evicted by `last` past the cap", () => {
     const dir = home("miss");
     const file = secretRedactionMissesFile(dir);
     const seed: string[] = [];
@@ -155,17 +155,20 @@ describe("redact miss report", () => {
 
     noteSecretRedactionMiss({ home: dir, shape: "fresh:1", now: NOW });
 
-    // 52 entries read (no cap), 53 with the new one; sorted by `last` desc,
-    // the three oldest (rows 0..2) go. Rows 60 and 61 sat after the torn line.
+    // 52 + 2 entries read (torn line skipped, no cap), 55 with the new one;
+    // sorted by `last` desc, the five oldest (rows 0..4) go. Rows 60 and 61 sat
+    // after the torn line and now survive.
     const expected = [JSON.stringify({ at: NOW_ISO, last: NOW_ISO, shape: "fresh:1", count: 1 })];
-    for (let i = 51; i >= 3; i--) {
+    for (const i of [61, 60]) expected.push(JSON.stringify(row(i)));
+    for (let i = 51; i >= 5; i--) {
       expected.push(i === 40 ? JSON.stringify({ shape: "opaque-word:40", foo: "raw", last: stamp(40), count: 1, at: stamp(40) }) : JSON.stringify(row(i)));
     }
     expect(expected).toHaveLength(50);
     const written = readFileSync(file, "utf8");
     expect(written).toBe(body(expected));
-    expect(written).not.toContain("opaque-word:60");
-    expect(written).not.toContain("opaque-word:61");
+    expect(written).toContain("opaque-word:60");
+    expect(written).toContain("opaque-word:61");
+    expect(written).not.toContain("{torn");
   });
 
   test("same shape bumps count and last in place; under the cap the order is kept; ends with a newline", () => {

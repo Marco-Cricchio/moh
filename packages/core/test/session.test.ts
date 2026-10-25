@@ -79,6 +79,43 @@ describe("core agent loop", () => {
     expect(deltas.length).toBeLessThan(3);
   });
 
+  test("send's outside signal (#1493): aborted before the turn starts it never runs; aborted during it cancels", async () => {
+    const firstDelta = Promise.withResolvers<void>();
+    let streams = 0;
+    const inner = MockProvider.scripted([
+      { deltas: ["a", "b"], finish: "stop", hold: { afterDeltas: 1, release: new Promise<void>(() => {}) } },
+      { deltas: ["fine"], finish: "stop" },
+    ]);
+    const provider: Provider = {
+      name: "counting",
+      async *stream(messages, signal, tools, options) {
+        streams += 1;
+        for await (const event of inner.stream(messages, signal, tools, options)) {
+          if (event.type === "text_delta") firstDelta.resolve();
+          yield event;
+        }
+      },
+    };
+    const session = createSession({ provider });
+
+    // Already aborted: no turn at all — no user_message, no provider call.
+    expect((await session.send("never", { signal: AbortSignal.abort() })).status).toBe("cancelled");
+    expect(streams).toBe(0);
+    expect(session.history().some((e) => e.type === "user_message")).toBe(false);
+
+    // Aborted mid-stream: the turn is cancelled as by abort().
+    const outside = new AbortController();
+    const running = session.send("held", { signal: outside.signal });
+    await firstDelta.promise;
+    outside.abort();
+    expect((await running).status).toBe("cancelled");
+    expect(session.history().at(-1)!.type).toBe("cancelled");
+
+    // The session keeps working afterwards.
+    expect((await session.send("again")).status).toBe("done");
+    expect(streams).toBe(2);
+  });
+
   test("two AgentSessions in the same process share no global state", async () => {
     const a = createSession({
       provider: MockProvider.scripted([{ deltas: ["A"], finish: "stop" }]),

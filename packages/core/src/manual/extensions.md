@@ -188,9 +188,9 @@ holds.
 
 ## Bundled extensions
 
-Two extensions ship inside the binary — no install, no `moh.json` entry;
-the mount is decided by the client and the switch is, in both cases,
-something you are asked before anything runs.
+Three extensions ship inside the binary — no install, no `moh.json`
+`extensions` entry; the mount is decided by the client and the switch is,
+in every case, something you are asked before anything runs.
 
 - **Jev (TypeSafe)** — inactive until you arm it: a `typesafe` block in
   your config plus a stored credential turn it on (`moh jev status`
@@ -210,8 +210,21 @@ something you are asked before anything runs.
   worktrees survive). Members also appear in the ordinary subagent chips.
   A headless run with no prior grant mounts nothing: it neither asks nor
   fails — the team is simply absent from that session.
+- **Checks** (ADR-0080) — runs the project's declared `checks` (see
+  Configuration → `checks`) after a turn that changed files, one at a time
+  through the bash tool and your permission rules, and shows the outcome
+  in the footer (`checks ✓`, or `checks: <names> ✗`). A project that
+  declares no checks loads nothing. The enable consent lists the exact
+  commands and is stored per project; editing the commands asks again. A
+  failing check marked `block: true` is handed to the model as a
+  correction turn carrying its output; a fix that changes files runs the
+  checks again. After two correction turns in a row (the core's limit), or
+  a correction that changes nothing, the footer stays at
+  `checks: <names> ✗ (unresolved)`. Report-only results never reach the
+  model, and nothing blocks a commit. A headless run with no stored grant
+  refuses the load with a warning and runs nothing.
 
-Both appear in `/extensions` as `bundled`, with their declared
+All three appear in `/extensions` as `bundled`, with their declared
 capabilities; declining the team's consent is remembered and no session
 asks again until its bytes or manifest change.
 

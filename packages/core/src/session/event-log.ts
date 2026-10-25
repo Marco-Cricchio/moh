@@ -310,6 +310,13 @@ interface EventLogOptions {
   sink?: (event: AgentEvent) => void;
   /** Extensions whose onEvent hooks receive appended events. */
   extensions?: EventDispatcher;
+  /**
+   * #1487: where the failures a dispatch returns (a throwing `onEvent`
+   * hook) are appended — the host session's own append, so they chain on
+   * its turn pin like every other event of the turn. Default: this log's
+   * `append`.
+   */
+  write?: (event: AgentEvent) => void;
 }
 
 /**
@@ -326,6 +333,7 @@ export class EventLog {
   readonly #log: AgentEvent[] = [];
   readonly #sink: ((event: AgentEvent) => void) | undefined;
   readonly #extensions: EventDispatcher | undefined;
+  readonly #write: (event: AgentEvent) => void;
   readonly #listeners = new Set<(event: AgentEvent) => void>();
   /** #253: live (ephemeral) reasoning listeners — notified without
    * storage, sink, or extension dispatch. The completed block still
@@ -340,6 +348,7 @@ export class EventLog {
   constructor(options: EventLogOptions = {}) {
     this.#sink = options.sink;
     this.#extensions = options.extensions;
+    this.#write = options.write ?? ((event) => this.append(event));
   }
 
   /** Stores resume events without sink, listeners or hook dispatch. */
@@ -349,8 +358,14 @@ export class EventLog {
 
   /** Appends one event; returns the stamped event as stored (its ULID is
    * writer-minted, so callers that need to reference the event — e.g. the
-   * local-tip tracking of #576 — read it here). */
-  append(event: AgentEvent): AgentEvent {
+   * local-tip tracking of #576 — read it here).
+   *
+   * #1487: `onStored` runs once the event is stored, before its `onEvent`
+   * dispatch can start. With the queue idle that dispatch starts inside
+   * this call, so a hook appending from it runs in the caller's stack: the
+   * caller's bookkeeping (the session's turn pin) must already be past
+   * this event, or the hook's events chain on a stale parent. */
+  append(event: AgentEvent, onStored?: (stamped: AgentEvent) => void): AgentEvent {
     // #575: every appended event carries identity — a fresh ULID `id` and
     // a `parentId` chaining it to the branch head (the last identified
     // event in the log; legacy tails have none, so the field is simply
@@ -371,6 +386,7 @@ export class EventLog {
     this.#log.push(stamped);
     this.#sink?.(stamped);
     for (const listener of this.#listeners) listener(stamped);
+    onStored?.(stamped);
     if (this.#extensions && stamped.type !== "extension_failed") {
       this.#queue.push(stamped);
       this.#drain();
@@ -449,7 +465,7 @@ export class EventLog {
     this.#dispatchTail = this.#extensions
       .dispatchEvent(event)
       .then((errors) => {
-        for (const e of errors) this.append(e);
+        for (const e of errors) this.#write(e);
       })
       .finally(() => {
         this.#dispatching = false;

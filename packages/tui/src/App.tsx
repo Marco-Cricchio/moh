@@ -215,7 +215,7 @@ function AppShell({
   session: preBuiltSession,
 }: AppProps) {
   const { exit } = useApp();
-  const { stdout } = useStdout();
+  const { stdout, write } = useStdout();
   // `~/.moh` — computed once; the single spelling inside App (the core
   // guardian owns the config-file path constant itself).
   const mohHome = join(home ?? homedir(), ".moh");
@@ -1548,6 +1548,9 @@ function AppShell({
   // before the flip effect runs) until the delayed 1049l fires. Chat
   // holds any deferred whole-transcript repaint until then, or its Static
   // re-emission lands in the dying alternate buffer and blanks the chat.
+  // #1489: Chat holds Static itself too — a block that settled while the
+  // modal was open, or settles before the flip, would otherwise print into
+  // the dying buffer and be lost.
   const [flipPending, setFlipPending] = useState(false);
   const bufferFlipPending = (!overlayOpen && alternateScreen) || flipPending;
   const chat = showChat ? (
@@ -1688,15 +1691,23 @@ function AppShell({
   // push the main buffer's transcript upward, and closing restores it byte-for-byte.
   //
   // The flip must respect ink's diff state: log-update tracks how many lines
-  // its current frame occupies *in whichever buffer is active*. A modal frame
-  // is fullscreen (~rows lines); if the first post-close paint ran in the
-  // main buffer with that stale count, its eraseLines(~rows) would clear the
-  // whole screen from the restored cursor and rewrite the short session
-  // frame from the top (the "chat jumps up" regression). So on close the
-  // native-grammar frame is committed first — ink repaints it into the dying
-  // alternate buffer, resyncing the line count to the session frame — and
-  // the buffer flip waits out ink's write throttle (maxFps 30 ⇒ ≤34ms) so
-  // the resync paint always precedes the flip.
+  // its current frame occupies *in whichever buffer is active*, and erases
+  // that many before each repaint. Both switches therefore go through ink's
+  // own external-write path (`useStdout().write`): it erases the live frame,
+  // writes the switch, and repaints the last frame in the buffer active
+  // afterwards. On open the session frame leaves the main buffer before
+  // 1049h saves the cursor, so the main buffer holds only printed (Static)
+  // history with the cursor right below it; on close 1049l restores that
+  // cursor and ink repaints the session frame there, with a line count that
+  // describes the main buffer again. A raw flip kept the count of whichever
+  // frame the alternate buffer painted last, so the first post-flip erase
+  // took transcript rows with it or left stale frame rows behind, depending
+  // on timing (#1489; with a fullscreen modal count it cleared the whole
+  // screen — the "chat jumps up" regression). The frame repainted on close
+  // must be the session frame, not the modal: the native-grammar frame is
+  // committed first — ink paints it into the dying alternate buffer — and
+  // the flip waits out ink's render throttle (maxFps 30 ⇒ ≤34ms) so that
+  // paint always precedes it.
   const ALT_FLIP_DELAY_MS = 40;
   const flipTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isTty = stdout.isTTY === true;
@@ -1708,12 +1719,21 @@ function AppShell({
     if (overlayOpen) {
       // A close flip may still be pending (rapid close→reopen): cancel it,
       // or it would drop the terminal out of the alternate screen mid-modal.
+      // The terminal never left the alternate buffer then, so 1049h is not
+      // written again: it would re-save the cursor there, and the final flip
+      // would restore the session frame at that row.
+      const stillAlternate = flipTimerRef.current !== null;
       if (flipTimerRef.current !== null) {
         clearTimeout(flipTimerRef.current);
         flipTimerRef.current = null;
         setFlipPending(false);
       }
-      if (isTty) stdout.write("\x1b[?1049h\x1b[2J\x1b[H");
+      if (isTty) {
+        if (!stillAlternate) write("\x1b[?1049h");
+        // Blank and home: ink has just repainted the session frame into the
+        // fresh buffer; the modal paints from the top of a blank screen.
+        stdout.write("\x1b[2J\x1b[H");
+      }
       setAlternateScreen(true);
       return;
     }
@@ -1725,13 +1745,14 @@ function AppShell({
     setFlipPending(true);
     flipTimerRef.current = setTimeout(() => {
       flipTimerRef.current = null;
-      stdout.write("\x1b[?1049l");
+      write("\x1b[?1049l");
       // Flip completed first (same task, before any repaint render fires)
-      // so a deferred whole-transcript repaint re-emits into the main
-      // buffer, not the dying alternate one (#330).
+      // so a deferred whole-transcript repaint (#330) and the Static blocks
+      // held meanwhile (#1489) emit into the main buffer, not the dying
+      // alternate one.
       setFlipPending(false);
     }, ALT_FLIP_DELAY_MS);
-  }, [alternateScreen, overlayOpen, isTty, stdout]);
+  }, [alternateScreen, overlayOpen, isTty, stdout, write]);
   // Unmount: a pending flip (close raced with exit) or an open overlay
   // leaves the terminal in the alternate screen — drop it out either way.
   useEffect(() => () => {

@@ -97,6 +97,10 @@ Key decisions, each with its rationale:
    runtime has one owner (the session that registers it, ADR-0047): a client
    that hands the same runtime to two owning sessions gives them one budget,
    as before — the many are the borrowers.
+   *#1143/#1487 deviation:* the reset is the turn's, once — at the loop's turn
+   entry, before `beforeTurn` runs (synthetic turns included), no longer at the
+   `user_message` append. A second reset there gave a turn whose `beforeTurn`
+   recorded two budgets (up to 2 × 50 events); the cap value is unchanged.
 
 4. **Redaction heuristic on the payload.** Keys whose normalized form (lowercased, `_`
    and `-` stripped) is exactly `apikey`, `apitoken`, `accesstoken`, `refreshtoken`,

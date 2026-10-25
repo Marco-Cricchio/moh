@@ -711,6 +711,123 @@ describe("#777: download staging", () => {
   });
 });
 
+describe("#1508: stageDownload honors its timeout", () => {
+  const okDownload = (filename: string, content: string) => ({
+    suggestedFilename: () => filename,
+    saveAs: async (p: string) => {
+      mkdirSync(dirname(p), { recursive: true });
+      writeFileSync(p, content);
+    },
+    cancel: async () => {},
+  });
+
+  async function openSession() {
+    const fake = fakePlaywright({ snapshot: () => "- main [ref=e1]" });
+    const session = new BrowserSession({ home: mkdtempSync(join(tmpdir(), "moh-browser-")), playwright: fake });
+    await session.navigate("http://localhost:3000");
+    return { fake, session };
+  }
+
+  test("a download event arriving late (within the timeout) is staged", async () => {
+    const { fake, session } = await openSession();
+    (fake.page as any).waitForEvent = async () => {
+      await new Promise((r) => setTimeout(r, 50));
+      return okDownload("late.csv", "x,y");
+    };
+    const dir = mkdtempSync(join(tmpdir(), "moh-dl-"));
+    const path = await session.stageDownload({ dir, ask: () => "allow" }, 2000);
+    expect(path).toBe(join(dir, "late.csv"));
+    await session.dispose();
+  });
+
+  test("no download within the timeout: returns null without asking", async () => {
+    const { fake, session } = await openSession();
+    (fake.page as any).waitForEvent = async (_e: string, o: { timeout: number }) => {
+      await new Promise((r) => setTimeout(r, o.timeout));
+      throw new Error("Timeout exceeded");
+    };
+    let asked = 0;
+    const t0 = Date.now();
+    const path = await session.stageDownload({ ask: () => { asked++; return "allow"; } }, 100);
+    expect(path).toBeNull();
+    expect(asked).toBe(0);
+    expect(Date.now() - t0).toBeLessThan(1000);
+    await session.dispose();
+  });
+
+  test("a save that never resolves settles within the timeout, cancels, and removes the temp file", async () => {
+    const { session } = await openSession();
+    const dir = mkdtempSync(join(tmpdir(), "moh-dl-"));
+    let cancelled = 0;
+    session.emitDownload({
+      suggestedFilename: () => "stuck.bin",
+      saveAs: (p: string) => {
+        mkdirSync(dirname(p), { recursive: true });
+        writeFileSync(p, "partial"); // the partial bytes
+        return new Promise<void>(() => {}); // never settles
+      },
+      cancel: async () => { cancelled++; },
+    });
+    const t0 = Date.now();
+    await expect(session.stageDownload({ dir, ask: () => "allow" }, 100)).rejects.toThrow(/timed out after 100ms/);
+    expect(Date.now() - t0).toBeLessThan(1000);
+    expect(cancelled).toBe(1);
+    expect(readdirSync(dir)).toHaveLength(0);
+    await session.dispose();
+  });
+
+  test("the browser tool returns and reports a stalled download", async () => {
+    const { session } = await openSession();
+    session.emitDownload({
+      suggestedFilename: () => "stuck.bin",
+      saveAs: () => new Promise<void>(() => {}),
+      cancel: async () => {},
+    });
+    const origStage = session.stageDownload.bind(session);
+    session.stageDownload = (o, _t) => origStage(o, 100); // keep the test fast
+    const tool = browserTool({ session, askDownload: () => "allow" });
+    const out = await tool.execute({ action: "click", ref: "e1" }, ctx("/tmp"));
+    expect(out).toContain("Download staging failed");
+    expect(out).toContain("timed out");
+    await session.dispose();
+  });
+
+  test("a click picks up a download event that lands just after it returns", async () => {
+    const { fake, session } = await openSession();
+    (fake.page as any).waitForEvent = async () => {
+      await new Promise((r) => setTimeout(r, 30));
+      return okDownload("after.csv", "a");
+    };
+    const tool = browserTool({ session, askDownload: () => "allow" });
+    const out = await tool.execute({ action: "click", ref: "e1" }, ctx("/tmp"));
+    expect(out).toMatch(/Download staged: .+after\.csv/);
+    await session.dispose();
+  });
+
+  test("actions that cannot download never wait for an event", async () => {
+    const { fake, session } = await openSession();
+    let waits = 0;
+    (fake.page as any).waitForEvent = async () => { waits++; throw new Error("nope"); };
+    const tool = browserTool({ session, askDownload: () => "allow" });
+    await tool.execute({ action: "fill", ref: "e1", text: "hi" }, ctx("/tmp"));
+    expect(waits).toBe(0);
+    await session.dispose();
+  });
+
+  test("an event seen by both the listener and waitForEvent is staged once", async () => {
+    const { fake, session } = await openSession();
+    const dl = okDownload("dup.csv", "a");
+    (fake.page as any).waitForEvent = async () => {
+      session.emitDownload(dl); // the page listener fired first
+      return dl;
+    };
+    const dir = mkdtempSync(join(tmpdir(), "moh-dl-"));
+    expect(await session.stageDownload({ dir, ask: () => "allow" }, 1000)).toBe(join(dir, "dup.csv"));
+    expect(await session.stageDownload({ dir, ask: () => "allow", eventWaitMs: 0 }, 1000)).toBeNull();
+    await session.dispose();
+  });
+});
+
 describe("#777: staging error visibility + stale-ref re-probe", () => {
   test("a staging failure surfaces in the result instead of vanishing", async () => {
     const fake = fakePlaywright({ snapshot: () => "- main [ref=e1]" });

@@ -3,7 +3,7 @@ import { selectionStyle } from "./color";
 import { Text, useInput } from "ink";
 import { listOpenAiCompatModels, type CatalogModel } from "@moh/core";
 import { useTheme } from "./themes";
-import { useViewport, windowing } from "./viewport";
+import { dialogWidth, useViewport, windowing, wrapLines } from "./viewport";
 import { Dialog, Dim, truncate } from "./ui";
 import {
   fetchedToCatalog,
@@ -58,6 +58,10 @@ export interface ModelPickerModalProps {
   declaredWindow?: (ref: string) => number | undefined;
   onClose: () => void;
 }
+
+const FOOTER = "type to filter (endpoint or model) · r refresh live · ↑↓ select · enter switch · esc close";
+const MIN_LIST_ROWS = 3;
+const UNFIT_HINT = " c compact now, then pick again · any other key keeps browsing";
 
 type RemoteState = Record<string, CatalogModel[] | "error" | "loading">;
 
@@ -163,7 +167,6 @@ export function ModelPickerModal({
 
   const visibleRows = rows;
 
-  const win = windowing(visibleRows.length, cursor, Math.max(3, viewport.rows - 8));
   const innerWidth = Math.max(20, Math.floor(viewport.columns * 0.6) - 6);
 
   const commit = (row: Row) => {
@@ -240,14 +243,55 @@ export function ModelPickerModal({
   const loading = endpoints.filter((e) => remote[e.name] === "loading").map((e) => e.name);
   const failed = endpoints.filter((e) => remote[e.name] === "error");
 
+  // #1540: every row the modal draws around the list, as text, so the list
+  // window is what is left of the viewport — not a guessed constant. Each
+  // text is pre-wrapped (wrapLines) because a Text decides its height at
+  // render time, after the budget is spent.
+  const header =
+    servingModel && servingModel !== activeModel
+      ? `active: ${activeModel} · serving ${servingModel}`
+      : `active: ${activeModel}`;
+  const fetching =
+    loading.length > 0 || refreshingLive
+      ? ` fetching models${refreshingLive && !loading.length ? " (live refresh)" : `: ${loading.join(", ")}`}…`
+      : null;
+  const noList = failed.length > 0 ? ` no list from ${failed.map((e) => e.name).join(", ")} — free text works` : null;
+  const empty = visibleRows.length === 0 && !loading.length ? " no models yet — type a model id (free text)" : null;
+  const unfitLines = unfit
+    ? [" ✗ this model cannot hold this session's context", ` ${unfit.error}`, UNFIT_HINT]
+    : [];
+  const textWidth = Math.max(1, dialogWidth(viewport) - 2 - 4 - 1);
+  const wrapped = (text: string) => wrapLines(text, textWidth).length;
+  // While the context-fit prompt is up its own hint names the keys, so the
+  // footer yields its rows; the blank spacers yield next, only when even
+  // the minimum list would not fit with them.
+  const showFooter = !unfit;
+  const chromeRows = (spacers: number) =>
+    2 + // border
+    2 + // title + its spacer
+    wrapped(header) +
+    wrapped(`filter: ${query}▏`) +
+    2 + // `↑ N more` / `↓ N more` — reserved so the window never depends on itself
+    (empty ? wrapped(empty) : 0) +
+    (fetching ? wrapped(fetching) : 0) +
+    (noList ? wrapped(noList) : 0) +
+    (unfit ? unfitLines.reduce((n, l) => n + wrapped(l), 0) : 0) +
+    (showFooter ? wrapped(FOOTER) : 0) +
+    spacers; // after the header, after the filter, before the footer / unfit prompt
+  // One row of slack: a frame as tall as the terminal makes Ink clear it.
+  const available = viewport.rows - 1;
+  const spacers = available - chromeRows(3) >= MIN_LIST_ROWS ? 3 : 0;
+  const win = windowing(visibleRows.length, cursor, Math.max(MIN_LIST_ROWS, available - chromeRows(spacers)));
+  const gap = spacers > 0 ? <Text> </Text> : null;
+
   return (
     <Dialog title=" model " color={theme.ok}>
       {/* ADR-0050: `active:` is what a pick replaces (the selection); the
           serving stop appears only while a fallback serves the calls. */}
-      <Dim>{servingModel && servingModel !== activeModel ? `active: ${activeModel} · serving ${servingModel}` : `active: ${activeModel}`}</Dim>
-      <Text> </Text>
+      <Dim>{header}</Dim>
+      {gap}
       <Text bold>{`filter: ${query}▏`}</Text>
-      <Text> </Text>
+      {gap}
       {win.above > 0 && <Dim>{` ↑ ${win.above} more`}</Dim>}
       {visibleRows.slice(win.start, win.start + win.count).map((row, i) => {
         const index = win.start + i;
@@ -262,25 +306,23 @@ export function ModelPickerModal({
         );
       })}
       {win.below > 0 && <Dim>{` ↓ ${win.below} more`}</Dim>}
-      {visibleRows.length === 0 && !loading.length && (
-        <Dim> no models yet — type a model id (free text)</Dim>
-      )}
-      {loading.length > 0 || refreshingLive ? (
-        <Dim>{` fetching models${refreshingLive && !loading.length ? " (live refresh)" : `: ${loading.join(", ")}`}…`}</Dim>
-      ) : null}
-      {failed.length > 0 && (
-        <Dim>{` no list from ${failed.map((e) => e.name).join(", ")} — free text works`}</Dim>
-      )}
+      {empty && <Dim>{empty}</Dim>}
+      {fetching && <Dim>{fetching}</Dim>}
+      {noList && <Dim>{noList}</Dim>}
       {unfit && (
         <>
-          <Text> </Text>
-          <Text bold>{" ✗ this model cannot hold this session's context"}</Text>
-          <Dim>{` ${unfit.error}`}</Dim>
-          <Text bold>{" c compact now, then pick again · any other key keeps browsing"}</Text>
+          {gap}
+          <Text bold>{unfitLines[0]}</Text>
+          <Dim>{unfitLines[1]}</Dim>
+          <Text bold>{unfitLines[2]}</Text>
         </>
       )}
-      <Text> </Text>
-      <Dim>type to filter (endpoint or model) · r refresh live · ↑↓ select · enter switch · esc close</Dim>
+      {showFooter && (
+        <>
+          {gap}
+          <Dim>{FOOTER}</Dim>
+        </>
+      )}
     </Dialog>
   );
 }

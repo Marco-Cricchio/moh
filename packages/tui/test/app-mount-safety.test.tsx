@@ -21,7 +21,11 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { MockProvider } from "@moh/core";
 import { App } from "../src/App";
-import { COMPOSER_READY, stripAnsi, waitForFrame } from "./helpers";
+import { COMPOSER_READY, stripAnsi, useFileCredentialStore, waitForFrame } from "./helpers";
+
+// #1504: no test here may read the login keychain (a synchronous `security`
+// spawn at mount).
+useFileCredentialStore();
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const tempHome = () => mkdtempSync(join(tmpdir(), "moh-mount-safety-home-"));

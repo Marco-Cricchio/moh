@@ -106,3 +106,7 @@ performs; the log records.
   reading rule the codebase has.
 - **Allowing grandchildren** — rejected: depth one is what makes the envelope checkable at every
   level and keeps the "one stop" complete.
+
+## Amendment — ablation (2026-10-23)
+
+The decision above is unchanged. This amendment records the borrowed runtime's name and type after #1439 (S4.4, delivered by #1600). The parent's extension runtime is passed to the child as `SessionConfig.borrowedRuntime` (it was `toolHooks`, ADR-0047), typed as the whole `ExtensionRuntime`. The original text is kept as written.

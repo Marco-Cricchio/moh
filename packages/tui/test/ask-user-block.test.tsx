@@ -10,7 +10,7 @@ import { AskUserGate } from "../src/ask-user-gate";
 import { makeSession } from "../src/factory";
 import { toolArgSummary } from "../src/permission-gate";
 import { Chat } from "../src/Chat";
-import { COMPOSER_READY, stripAnsi, unwrap, waitForFrame } from "./helpers";
+import { COMPOSER_READY, effectsFlushed, pressCommitted, stripAnsi, unwrap, waitForFrame, waitStep, waitText } from "./helpers";
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
@@ -87,7 +87,9 @@ const script = (args: unknown) => [
 /** Renders the inline block and drains a tick so ink installs input. */
 async function mount(gate: AskUserGate) {
   const i = render(<AskUserBlock gate={gate} />);
-  await sleep(30);
+  // The wiring tests mount before the model asks: nothing to wait on yet.
+  if (gate.current) await waitText(i, gate.current.questions[0]!.question, "block rendered");
+  else await effectsFlushed();
   return i;
 }
 
@@ -114,15 +116,13 @@ describe("ask_user inline block (ADR-0019 / #412)", () => {
     const gate = new AskUserGate();
     const pending = gate.ask(QUESTION);
     const i = await mount(gate);
-    i.stdin.write("\x1b[B"); // down to Postgres
-    await sleep(20);
-    i.stdin.write("\r"); // advance
-    await sleep(20);
+    await pressCommitted(i, "\x1b[B", "key 1"); // down to Postgres
+    await pressCommitted(i, "\r", "key 2"); // advance
+    await waitText(i, "Review your answers", "summary shown");
     const mid = stripAnsi(i.lastFrame() ?? "");
     expect(mid).toContain("Review your answers");
     expect(mid).toContain("✓ Database     — Postgres"); // #426 summary row: check + padded header — answer
     i.stdin.write("\r"); // submit
-    await sleep(20);
     expect(await pending).toEqual({ answers: [{ labels: ["Postgres"] }] });
     expect(gate.current).toBeNull();
     i.unmount();
@@ -133,7 +133,7 @@ describe("ask_user inline block (ADR-0019 / #412)", () => {
     const pending = gate.ask(TWO);
     const i = await mount(gate);
     i.stdin.write("\x1b"); // esc on 1/2
-    await sleep(20);
+    await sleep(20); // negative assertion: nothing may change
     expect(gate.current).not.toBeNull(); // still up, not cancelled
     expect(stripAnsi(i.lastFrame() ?? "")).toContain("1/2");
     gate.resolve({ answers: [{ labels: ["SQLite"] }, { labels: ["Valkey"] }] });
@@ -146,26 +146,21 @@ describe("ask_user inline block (ADR-0019 / #412)", () => {
     const pending = gate.ask(TWO);
     const i = await mount(gate);
     // Q1: down to Postgres, tab to Q2
-    i.stdin.write("\x1b[B");
-    await sleep(20);
-    i.stdin.write("\t");
-    await sleep(20);
+    await pressCommitted(i, "\x1b[B", "key 5");
+    await pressCommitted(i, "\t", "key 6");
+    await waitText(i, "2/2", "second question");
     expect(stripAnsi(i.lastFrame() ?? "")).toContain("2/2");
     // esc → back to Q1, answer state restored
-    i.stdin.write("\x1b");
-    await sleep(20);
+    await pressCommitted(i, "\x1b", "key 7");
+    await waitText(i, "1/2", "back on the first question");
     expect(stripAnsi(i.lastFrame() ?? "")).toContain("1/2");
-    i.stdin.write("\x1b[B");
-    await sleep(20);
-    i.stdin.write("\r"); // Postgres again (enter also advances)
-    await sleep(20);
-    i.stdin.write("\x1b[B"); // Q2: down to Valkey
-    await sleep(20);
-    i.stdin.write("\r");
-    await sleep(20);
+    await pressCommitted(i, "\x1b[B", "key 8");
+    await pressCommitted(i, "\r", "key 9"); // Postgres again (enter also advances)
+    await pressCommitted(i, "\x1b[B", "key 10"); // Q2: down to Valkey
+    await pressCommitted(i, "\r", "key 11");
+    await waitText(i, "Review your answers", "summary shown");
     expect(stripAnsi(i.lastFrame() ?? "")).toContain("Review your answers");
     i.stdin.write("\r"); // submit
-    await sleep(20);
     expect(await pending).toEqual({ answers: [{ labels: ["Postgres"] }, { labels: ["Valkey"] }] });
     i.unmount();
   });
@@ -175,10 +170,8 @@ describe("ask_user inline block (ADR-0019 / #412)", () => {
     const pending = gate.ask(QUESTION);
     const i = await mount(gate);
     // Arrow down past the last option → Other
-    i.stdin.write("\x1b[B\x1b[B\x1b[B"); // SQLite→Postgres→Redis→Other
-    await sleep(20);
-    i.stdin.write("Mon");
-    await sleep(20);
+    await pressCommitted(i, "\x1b[B\x1b[B\x1b[B", "key 13"); // SQLite→Postgres→Redis→Other
+    await pressCommitted(i, "Mon", "key 14");
     i.stdin.write("go");
     const frame = () => stripAnsi(i.lastFrame() ?? "");
     await waitForFrame(frame, "Mongo");
@@ -186,11 +179,10 @@ describe("ask_user inline block (ADR-0019 / #412)", () => {
     await waitForFrame(frame, "Mong");
     i.stdin.write("o");
     await waitForFrame(frame, "Mongo");
-    i.stdin.write("\r"); // advance with the Other answer
-    await sleep(20);
+    await pressCommitted(i, "\r", "key 15"); // advance with the Other answer
+    await waitText(i, "Other: Mongo", "Other answer in the summary");
     expect(stripAnsi(i.lastFrame() ?? "")).toContain("Other: Mongo");
     i.stdin.write("\r"); // submit
-    await sleep(20);
     expect(await pending).toEqual({ answers: [{ other: "Mongo" }] });
     i.unmount();
   });
@@ -199,10 +191,9 @@ describe("ask_user inline block (ADR-0019 / #412)", () => {
     const gate = new AskUserGate();
     const pending = gate.ask(QUESTION);
     const i = await mount(gate);
-    i.stdin.write("\x1b[B\x1b[B\x1b[B"); // Other
-    await sleep(20);
+    await pressCommitted(i, "\x1b[B\x1b[B\x1b[B", "key 17"); // Other
     i.stdin.write("\r"); // empty
-    await sleep(20);
+    await sleep(20); // negative assertion: nothing may change
     expect(gate.current).not.toBeNull();
     gate.resolve({ answers: [{ other: "fallback" }] });
     expect(await pending).toEqual({ answers: [{ other: "fallback" }] });
@@ -213,19 +204,16 @@ describe("ask_user inline block (ADR-0019 / #412)", () => {
     const gate = new AskUserGate();
     const pending = gate.ask(MULTI);
     const i = await mount(gate);
-    i.stdin.write(" "); // toggle unit
-    await sleep(20);
+    await pressCommitted(i, " ", "key 19"); // toggle unit
+    await waitText(i, "[x]  unit", "unit toggled");
     expect(stripAnsi(i.lastFrame() ?? "")).toContain("[x]  unit"); // #426: marker columns, no option numbers in multiSelect
-    i.stdin.write("\x1b[B"); // down
-    await sleep(30);
-    i.stdin.write(" "); // toggle pty
-    await sleep(30);
-    i.stdin.write("\r"); // confirm selection
-    await sleep(30);
+    await pressCommitted(i, "\x1b[B", "key 20"); // down
+    await pressCommitted(i, " ", "key 21"); // toggle pty
+    await pressCommitted(i, "\r", "key 22"); // confirm selection
+    await waitText(i, "✓ Tests        — unit, pty", "multiSelect summary");
     const mid = stripAnsi(i.lastFrame() ?? "");
     expect(mid).toContain("✓ Tests        — unit, pty");
     i.stdin.write("\r"); // submit
-    await sleep(20);
     expect(await pending).toEqual({ answers: [{ labels: ["unit", "pty"] }] });
     i.unmount();
   });
@@ -234,11 +222,10 @@ describe("ask_user inline block (ADR-0019 / #412)", () => {
     const gate = new AskUserGate();
     const pending = gate.ask(QUESTION);
     const i = await mount(gate);
-    i.stdin.write("\r"); // advance to summary
-    await sleep(20);
+    await pressCommitted(i, "\r", "key 24"); // advance to summary
+    await waitText(i, "ctrl+x cancel", "summary footer");
     expect(stripAnsi(i.lastFrame() ?? "")).toContain("ctrl+x cancel"); // #426 first-question summary footer
     i.stdin.write("\x18"); // ctrl+x — explicit cancel
-    await sleep(20);
     expect(await pending).toEqual({ answers: [], cancelled: true });
     expect(gate.current).toBeNull();
     i.unmount();
@@ -258,12 +245,12 @@ describe("ask_user inline block (ADR-0019 / #412)", () => {
     }));
     const i = await mount(gate);
     void session.send("pick one");
-    await sleep(200);
+    await waitText(i, "Which database should I use?", "the model's ask_user reached the block");
     expect(gate.current?.questions[0]?.question).toBe("Which database should I use?");
     expect(seen).toEqual([]); // turn suspended on the block
 
     gate.resolve({ answers: [{ labels: ["Redis"] }] });
-    await sleep(300);
+    await waitStep(i, () => seen.length > 0, "the model received the answer");
     expect(seen).toEqual(["Which database should I use?: Redis"]);
     i.unmount();
   });
@@ -283,9 +270,9 @@ describe("ask_user inline block (ADR-0019 / #412)", () => {
       onAskUser: gate.ask,
     }));
     void session.send("pick one");
-    await sleep(200);
+    await waitStep({ lastFrame: () => "" }, () => gate.current !== null, "the ask_user call reached the gate");
     gate.resolve({ answers: [{ labels: ["Postgres"] }] });
-    await sleep(300);
+    await waitStep({ lastFrame: () => "" }, () => seen.length > 0, "the model received the answer");
 
     const events = store.load();
     const toolCall = events.find((e) => e.type === "tool_call" && e.name === "ask_user");
@@ -320,7 +307,8 @@ describe("ask_user preview side-by-side (#414)", () => {
   /** Mounts the block at an explicit width (side-by-side needs columns). */
   async function mountAt(gate: AskUserGate, width: number) {
     const i = render(<AskUserBlock gate={gate} width={width} />);
-    await sleep(30);
+    if (gate.current) await waitText(i, gate.current.questions[0]!.question, "block rendered");
+    else await effectsFlushed();
     return i;
   }
 
@@ -340,8 +328,8 @@ describe("ask_user preview side-by-side (#414)", () => {
     i.stdin.write("\x1b[B");
     await waitForFrame(frame, "Verbose style");
     // Down to plain (no preview): the box disappears.
-    i.stdin.write("\x1b[B");
-    await sleep(40);
+    await pressCommitted(i, "\x1b[B", "key 26");
+    await waitText(i, "┌", "preview box absent", { absent: true });
     expect(frame()).not.toContain("┌");
     gate.resolve({ answers: [{ labels: ["verbose"] }] });
     await pending;
@@ -423,9 +411,9 @@ describe("ask_user preview side-by-side (#414)", () => {
     }));
     const i = await mountAt(gate, 100);
     void session.send("pick a style");
-    await sleep(200);
+    await waitText(i, "Which reply style?", "the ask_user call reached the block");
     gate.resolve({ answers: [{ labels: ["verbose"] }] });
-    await sleep(300);
+    await waitStep(i, () => seen.length > 0, "the model received the answer");
     expect(seen[0]).toContain("Which reply style?: verbose\n# Verbose style");
     i.unmount();
   });
@@ -471,7 +459,7 @@ async function mountChat(
   // The session's own ask_user drives the gate — never pre-ask manually.
   const frame = () => stripAnsi(ink.lastFrame() ?? "");
   await waitForFrame(frame, set.questions[0]!.question, { timeoutMs: 4000 });
-  await sleep(80); // let ink install the block's useInput handler
+  await effectsFlushed(); // ink installs the block's useInput handler in a passive effect
   return { ink, session, element };
 }
 
@@ -561,16 +549,12 @@ describe("ask_user dynamic resize + Static projection (#413)", () => {
     const gate = new AskUserGate();
     const { ink } = await mountChat(gate, BIG_SET, { columns: 100, rows: 40 });
     // Answer both questions: Q1 down to canary, advance; Q2 down to Postgres, advance; submit.
-    ink.stdin.write("\x1b[B"); // canary
-    await sleep(30);
-    ink.stdin.write("\r");
-    await sleep(30);
-    ink.stdin.write("\x1b[B"); // Postgres
-    await sleep(30);
-    ink.stdin.write("\r");
-    await sleep(30);
+    await pressCommitted(ink, "\x1b[B", "key 27"); // canary
+    await pressCommitted(ink, "\r", "key 28");
+    await pressCommitted(ink, "\x1b[B", "key 29"); // Postgres
+    await pressCommitted(ink, "\r", "key 30");
     ink.stdin.write("\r"); // submit from summary
-    await sleep(150);
+    await waitText(ink, "↳ you: Postgres", "settled projection");
     expect(gate.current).toBeNull(); // settled
     // The settled projection lands in the frame while the long reply
     // still streams: questions once, answers attached, no unchosen option
@@ -610,7 +594,7 @@ describe("ask_user options window (#874)", () => {
     expect(frame()).not.toContain("route-12");
     // Arrow far down: the window scrolls, the focus stays visible.
     for (let n = 0; n < 20; n++) i.stdin.write("\x1b[B");
-    await sleep(30);
+    await waitText(i, "route-20", "window scrolled to the focus");
     expect(frame()).toContain("route-20");
     expect(frame()).toContain("↑ ");
     expect(frame()).not.toContain("route-8\n");
@@ -673,12 +657,11 @@ describe("ask_user options window (#874)", () => {
       const gate = new AskUserGate();
       const pending = gate.ask(shape.set);
       const i = render(<AskUserBlock gate={gate} width={shape.width} />);
-      await sleep(30);
+      await waitStep(i, () => stripAnsi(i.lastFrame() ?? "").trim().length > 0, `${shape.name} rendered`);
       // Walk every option (and Other): the tallest screen must still fit.
       let worst = stripAnsi(i.lastFrame() ?? "").split("\n").length;
       for (let n = 0; n < shape.set.questions[0]!.options.length; n++) {
-        i.stdin.write("\x1b[B");
-        await sleep(20);
+        await pressCommitted(i, "\x1b[B", "key 33");
         worst = Math.max(worst, stripAnsi(i.lastFrame() ?? "").split("\n").length);
       }
       const reserved = askUserBlockRows(shape.set.questions, shape.width);
@@ -698,7 +681,7 @@ describe("ask_user options window (#874)", () => {
       const gate = new AskUserGate();
       const pending = gate.ask(MANY);
       const i = render(<AskUserBlock gate={gate} width={100} maxRows={maxRows} />);
-      await sleep(40);
+      await waitText(i, "route-0", `maxRows ${maxRows} rendered`);
       const frame = stripAnsi(i.lastFrame() ?? "");
       expect(frame.split("\n").length).toBeLessThanOrEqual(maxRows);
       expect(frame).toContain("route-0");
@@ -713,5 +696,121 @@ describe("ask_user options window (#874)", () => {
     expect(askUserBlockRows(MANY.questions, 100, min)).toBe(min);
     // An impossible budget can only reach the floor, never under it.
     expect(askUserBlockRows(MANY.questions, 100, 1)).toBeGreaterThanOrEqual(min);
+  });
+});
+
+describe("ask_user question is never cut (#1512)", () => {
+  /** A question that wraps to several rows, its last word a sentinel. */
+  const longQuestion = (words: number) => Array.from({ length: words }, (_, i) => `w${i}`).join(" ") + " FINAL-WORD?";
+  const LAYOUTS = [
+    { name: "layout A", width: 100, preview: false },
+    { name: "layout A side-by-side", width: 100, preview: true },
+    { name: "layout C", width: 64, preview: false },
+  ] as const;
+  const setFor = (words: number, count: number, preview: boolean): AskUserQuestionSet => ({
+    questions: [{
+      question: longQuestion(words),
+      header: "Long",
+      options: Array.from({ length: count }, (_, i) => ({
+        label: `opt-${i}`,
+        description: `option ${i} explained at some length so that it wraps past one row and needs the truncation row`,
+        ...(preview ? { preview: `preview ${i}` } : {}),
+      })),
+    }],
+  });
+
+  for (const layout of LAYOUTS) {
+    test(`${layout.name}: a tight budget is taken from descriptions and options, the whole question shows`, async () => {
+      const maxRows = 18;
+      const set = setFor(90, 12, layout.preview);
+      // The budget is tight: the natural block does not fit it.
+      expect(askUserBlockRows(set.questions, layout.width)).toBeGreaterThan(maxRows);
+      const gate = new AskUserGate();
+      const pending = gate.ask(set);
+      const i = render(<AskUserBlock gate={gate} width={layout.width} maxRows={maxRows} />);
+      await waitText(i, "opt-0", `${layout.name} rendered`);
+      const frame = () => stripAnsi(i.lastFrame() ?? "");
+      expect(frame().split("\n").length).toBeLessThanOrEqual(maxRows);
+      expect(frame()).toContain("w0 ");
+      expect(frame()).toContain("FINAL-WORD?");
+      // Not scrolled and never marked as cut: the options gave the rows.
+      expect(frame()).not.toContain("pgup/pgdn");
+      expect(frame()).not.toContain("question truncated");
+      expect(frame()).toContain("↓ ");
+      expect(frame()).not.toContain("opt-11");
+      // Walking the options keeps the whole question on screen.
+      for (let n = 0; n < 5; n++) await pressCommitted(i, "\x1b[B", `${layout.name} down ${n}`);
+      await waitText(i, "opt-5", `${layout.name} window follows the focus`);
+      expect(frame()).toContain("FINAL-WORD?");
+      expect(frame().split("\n").length).toBeLessThanOrEqual(maxRows);
+      gate.resolve({ answers: [] });
+      await pending;
+      i.unmount();
+    });
+  }
+
+  for (const layout of LAYOUTS.filter((l) => !l.preview)) {
+    test(`${layout.name}: a question taller than the viewport scrolls — every word reachable, options answerable`, async () => {
+      const maxRows = 18;
+      const words = 400;
+      const set = setFor(words, 6, false);
+      const gate = new AskUserGate();
+      const pending = gate.ask(set);
+      const i = render(<AskUserBlock gate={gate} width={layout.width} maxRows={maxRows} />);
+      await waitText(i, "pgup/pgdn", `${layout.name} rendered scrolling`);
+      const frame = () => stripAnsi(i.lastFrame() ?? "");
+      const position = () => {
+        const m = /lines (\d+)–(\d+)\/(\d+)/.exec(frame());
+        if (!m) throw new Error(`no question position row in:\n${frame()}`);
+        return { start: Number(m[1]), end: Number(m[2]), total: Number(m[3]) };
+      };
+      // The question alone is taller than the whole block budget.
+      expect(position().total).toBeGreaterThan(maxRows);
+      expect(position().start).toBe(1);
+      expect(frame()).not.toContain("question truncated");
+      const seen = new Set<string>();
+      const collect = () => { for (const token of frame().split(/\s+/)) seen.add(token); };
+      collect();
+      while (position().end < position().total) {
+        const before = position().start;
+        i.stdin.write("\x1b[6~"); // pgdn
+        await waitStep(i, () => position().start > before, `${layout.name} pgdn past line ${before}`);
+        expect(frame().split("\n").length).toBeLessThanOrEqual(maxRows);
+        expect(frame()).toContain("opt-0");
+        collect();
+      }
+      for (let n = 0; n < words; n++) expect(seen.has(`w${n}`)).toBe(true);
+      expect(seen.has("FINAL-WORD?")).toBe(true);
+      // pgup walks back to the first line.
+      while (position().start > 1) {
+        const before = position().start;
+        i.stdin.write("\x1b[5~"); // pgup
+        await waitStep(i, () => position().start < before, `${layout.name} pgup before line ${before}`);
+      }
+      expect(frame()).toContain("w0 ");
+      // The options stay answerable while the question scrolls.
+      await pressCommitted(i, "\x1b[B", `${layout.name} focus opt-1`);
+      await pressCommitted(i, "\r", `${layout.name} choose opt-1`);
+      await waitText(i, "Review your answers", `${layout.name} summary`);
+      i.stdin.write("\r");
+      expect(await pending).toEqual({ answers: [{ labels: ["opt-1"] }] });
+      i.unmount();
+    });
+  }
+
+  test("the row model reserves the full question height (no budget)", () => {
+    for (const width of [100, 64]) {
+      const short = askUserBlockRows(setFor(5, 2, false).questions, width);
+      const long = askUserBlockRows(setFor(400, 2, false).questions, width);
+      // 400 words wrap to dozens of rows; without a budget all of them count.
+      expect(long - short).toBeGreaterThan(15);
+    }
+  });
+
+  test("askBlockMinRows: a long question floors at one scrolling line plus its position row", () => {
+    const set = setFor(400, 6, false);
+    const min = askBlockMinRows(set.questions, 100);
+    expect(askUserBlockRows(set.questions, 100, min)).toBe(min);
+    expect(askUserBlockRows(set.questions, 100, 1)).toBeGreaterThanOrEqual(min);
   });
 });

@@ -1,17 +1,17 @@
 {
   "schemaVersion": 1,
-  "version": "0.65.3",
-  "generatedAt": "2026-10-23T20:08:27.070Z",
+  "version": "0.65.4",
+  "generatedAt": "2026-10-25T05:29:01.437Z",
   "sources": [
     {
       "name": "models.dev",
       "url": "https://models.dev/api.json",
-      "fetchedAt": "2026-10-23T20:08:26.503Z"
+      "fetchedAt": "2026-10-25T05:29:00.960Z"
     },
     {
       "name": "openrouter",
       "url": "https://openrouter.ai/api/v1/models",
-      "fetchedAt": "2026-10-23T20:08:26.832Z"
+      "fetchedAt": "2026-10-25T05:29:01.261Z"
     }
   ],
   "files": {
@@ -176,7 +176,7 @@
       }
     },
     "opencode-go": {
-      "sha256": "d4e8d181050f6ba0024e4978b4ab4036e1ffb952f8f5e36a6c54330b9804837d",
+      "sha256": "023f1fed9a7f76f4e66be538480d837cb7d5cc34947215f1468f44db9700d125",
       "rows": 26,
       "verdicts": {
         "exact": 20,
@@ -196,10 +196,10 @@
       }
     },
     "openrouter": {
-      "sha256": "d856ae3604d66d0610d25ed3bff9d621cc31837fd4a53e03d4c10f3d03b4ba78",
-      "rows": 342,
+      "sha256": "e89c86c2968505c3f7145d370b34bd26ac7a86b5c6073c12660300eec50ba12c",
+      "rows": 340,
       "verdicts": {
-        "exact": 317,
+        "exact": 315,
         "base-model": 1,
         "ambiguous": 0,
         "absent": 24
@@ -5329,21 +5329,6 @@
       ],
       "overrides": []
     },
-    "openrouter/openai/gpt-3.5-turbo": {
-      "provider": "openrouter",
-      "id": "openai/gpt-3.5-turbo",
-      "verdict": "exact",
-      "source": "models.dev",
-      "namespace": "openrouter",
-      "supplied": [
-        "cost",
-        "contextWindow",
-        "maxTokens",
-        "reasoning",
-        "input"
-      ],
-      "overrides": []
-    },
     "openrouter/openai/gpt-3.5-turbo-0613": {
       "provider": "openrouter",
       "id": "openai/gpt-3.5-turbo-0613",
@@ -5373,22 +5358,6 @@
         "input"
       ],
       "overrides": []
-    },
-    "openrouter/openai/gpt-3.5-turbo:batch": {
-      "provider": "openrouter",
-      "id": "openai/gpt-3.5-turbo:batch",
-      "verdict": "exact",
-      "source": "openrouter",
-      "namespace": "openai/gpt-3.5-turbo:batch",
-      "supplied": [
-        "cost",
-        "contextWindow",
-        "input"
-      ],
-      "overrides": [
-        "maxTokens",
-        "reasoning"
-      ]
     },
     "openrouter/openai/gpt-4": {
       "provider": "openrouter",

@@ -12,9 +12,15 @@ import type { JevUseCase, JevUseCaseAction, JevUseCaseSnapshot, JevUseCaseState 
 import { JEV_USE_CASES, JEV_USE_CASE_DESCRIPTIONS } from "@moh/jev-guard";
 import { JevModal, flipOutcome, sessionOnlyNote } from "../src/JevModal";
 import { ThemeProvider, THEMES, DEFAULT_THEME } from "../src/themes";
-import { stripAnsi } from "./helpers";
+import { stripAnsi, waitStep, waitText } from "./helpers";
 
-const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+/** The frame with the dialog's border and wrapping collapsed to single spaces. */
+const flat = (i: ReturnType<typeof render>) => stripAnsi(i.lastFrame() ?? "").replace(/[\s│]+/g, " ");
+/** Waits (state, not time) for `text` to appear in the flattened frame. */
+const waitFlat = (i: ReturnType<typeof render>, text: string, step: string) =>
+  waitStep(i, () => flat(i).includes(text), `${step} (flat frame containing ${JSON.stringify(text)})`);
+/** The modal has painted its rows and the cursor is on the first one. */
+const ready = (i: ReturnType<typeof render>) => waitText(i, "› guardrail", "the modal painted its rows");
 
 /** A full snapshot with everything off but the given overrides. */
 function snapshot(overrides: Partial<Record<JevUseCase, JevUseCaseState>> = {}): JevUseCaseSnapshot {
@@ -60,10 +66,12 @@ function mount(props: { active?: boolean; read?: (extension: string, key: string
   return { i, closed: () => closed };
 }
 
-const down = async (i: ReturnType<typeof render>, n: number) => {
-  for (let k = 0; k < n; k++) {
+/** Moves the cursor down to `usecase`, one key at a time, waiting for the cursor to land on each row. */
+const downTo = async (i: ReturnType<typeof render>, usecase: JevUseCase) => {
+  const target = JEV_USE_CASES.indexOf(usecase);
+  for (let k = 1; k <= target; k++) {
     i.stdin.write("\x1b[B");
-    await sleep(25);
+    await waitText(i, `› ${JEV_USE_CASES[k]}`, `the cursor moved to ${JEV_USE_CASES[k]}`);
   }
 };
 
@@ -78,7 +86,7 @@ describe("the /jev modal (#833)", () => {
       }),
     );
     const { i } = mount(ext);
-    await sleep(30);
+    await ready(i);
     const frame = stripAnsi(i.lastFrame() ?? "");
     for (const usecase of JEV_USE_CASES) expect(frame).toContain(usecase);
     expect(frame).toContain("guardrail");
@@ -97,12 +105,12 @@ describe("the /jev modal (#833)", () => {
       snapshot({ [usecase]: { status: action === "on" ? "on" : "off", config: false, sessionOnly: true } }),
     );
     const { i } = mount(ext);
-    await sleep(30);
-    // Cursor starts on guardrail; two rows down is routing.
-    await down(i, 1);
+    await ready(i);
+    // Cursor starts on guardrail; one row down is routing.
+    await downTo(i, "routing");
     i.stdin.write("\r");
     // The report is composed from the extension's answer, one dispatch later.
-    await sleep(80);
+    await waitFlat(i, "the config still says off", "the flip's report");
     expect(ext.commands).toEqual([{ usecase: "routing", action: "on" }]);
     const frame = stripAnsi(i.lastFrame() ?? "");
     expect(frame.replace(/[\s│]+/g, " ")).toContain("routing: on for this session");
@@ -117,12 +125,12 @@ describe("the /jev modal (#833)", () => {
       (usecase, action) => snapshot({ [usecase]: { status: action === "on" ? "on" : "off", config: true, sessionOnly: true } }),
     );
     const { i } = mount(ext);
-    await sleep(30);
+    await ready(i);
     i.stdin.write("\r"); // guardrail: on → off
-    await sleep(30);
-    await down(i, 1);
+    await waitFlat(i, "guardrail: off for this session", "the guardrail flip's report");
+    await downTo(i, "routing");
     i.stdin.write(" "); // routing: paused → on (space flips too)
-    await sleep(30);
+    await waitFlat(i, "routing: on for this session", "the routing flip's report");
     expect(ext.commands).toEqual([
       { usecase: "guardrail", action: "off" },
       { usecase: "routing", action: "on" },
@@ -139,9 +147,9 @@ describe("the /jev modal (#833)", () => {
         snapshot({ [usecase]: { status: action === "on" ? "on" : "off", config: true, ...(action === "off" ? { sessionOnly: true, note: "off for this session" } : {}) } }),
     );
     const { i } = mount(ext);
-    await sleep(30);
+    await ready(i);
     i.stdin.write("\r");
-    await sleep(140);
+    await waitFlat(i, "guardrail: off for this session", "the flip's report");
     expect(ext.commands).toEqual([{ usecase: "guardrail", action: "off" }]);
     const frame = stripAnsi(i.lastFrame() ?? "").replace(/[\s│]+/g, " ");
     expect(frame).toContain("guardrail: off for this session");
@@ -151,18 +159,19 @@ describe("the /jev modal (#833)", () => {
   test("an unavailable use case is refused with its own line", async () => {
     const ext = extension(snapshot({ skills: { status: "inert", config: false, note: "not available in this session" } }));
     const { i } = mount(ext);
-    await sleep(30);
-    await down(i, 6); // skills
+    await ready(i);
+    await downTo(i, "skills");
     i.stdin.write("\r");
-    await sleep(140);
-    const frame = stripAnsi(i.lastFrame() ?? "").replace(/[\s│]+/g, " ");
+    // A refusal is only called after the second read, so wait for its line.
+    await waitFlat(i, "skills: refused — not available in this session", "the refusal");
+    const frame = flat(i);
     expect(frame).toContain("skills: refused — not available in this session");
     i.unmount();
   });
 
   test("with no extension the modal points at the Settings entry, never an invented state", async () => {
     const { i } = mount({ active: false, read: () => undefined });
-    await sleep(30);
+    await waitText(i, "not active in this session", "the inactive modal painted");
     const frame = stripAnsi(i.lastFrame() ?? "");
     expect(frame).toContain("not active in this session");
     expect(frame.replace(/[\s│]+/g, " ")).toContain("settings (ctrl+s) → Jev (TypeSafe) → API key");
@@ -173,7 +182,7 @@ describe("the /jev modal (#833)", () => {
 
   test("an extension that has not answered yet says so instead of guessing", async () => {
     const { i } = mount({ read: () => undefined });
-    await sleep(30);
+    await waitText(i, "still starting", "the starting notice painted");
     const frame = stripAnsi(i.lastFrame() ?? "");
     expect(frame).toContain("still starting");
     i.unmount();
@@ -186,18 +195,15 @@ describe("the /jev modal (#833)", () => {
       read: (_e, key) => (key === "jevState" ? () => current : undefined),
       send: ext.send,
     });
-    await sleep(30);
+    await ready(i);
     // The extension moved behind the modal's back (another client, a turn).
     current = snapshot({ injection: { status: "on", config: false, sessionOnly: true } });
     i.stdin.write("r");
-    await sleep(30);
     // Per non-persistent state, the row says so — the whole point of the
     // modal being session-warm (#833).
-    expect(stripAnsi(i.lastFrame() ?? "").replace(/[\s│]+/g, " ")).toContain(
-      "on for this session — the config still says off",
-    );
+    await waitFlat(i, "on for this session — the config still says off", "the re-read state");
     i.stdin.write("\x1b");
-    await sleep(30);
+    await waitStep(i, () => closed() === 1, "esc closed the modal");
     expect(closed()).toBe(1);
     i.unmount();
   });
@@ -255,29 +261,45 @@ describe("the flip's answer arrives with the extension's, not before it (#833)",
   test("no sentence is composed while the state the command was sent against is still the current one", async () => {
     // The extension answers one dispatch later, so `read` keeps returning the
     // pre-command snapshot for a moment (this is the real timing, not a
-    // stub's): nothing must be claimed until the answer is there.
-    let current = snapshot({ injection: { status: "off", config: false } });
-    let answered = false;
+    // stub's): nothing must be claimed until the answer is there. The answer
+    // is gated on the modal's first read after the command, not on a timer:
+    // the frame is captured at that read — the exact moment "before the
+    // answer" — and the answer lands right after it.
+    const before = snapshot({ injection: { status: "off", config: false } });
+    const after = snapshot({ injection: { status: "on", config: false, sessionOnly: true } });
+    let current = before;
+    let sent = false;
+    let beat: string | null = null;
+    // eslint-disable-next-line prefer-const -- assigned once mounted, read by the getter
+    let view: ReturnType<typeof render> | undefined;
     const { i } = mount({
-      read: (_e, key) => (key === "jevState" ? () => current : undefined),
+      read: (_e, key) =>
+        key === "jevState"
+          ? () => {
+              const state = current;
+              if (sent && beat === null) {
+                beat = stripAnsi(view?.lastFrame() ?? "");
+                queueMicrotask(() => {
+                  current = after;
+                });
+              }
+              return state;
+            }
+          : undefined,
       send: () => {
-        // The answer lands after the modal's read beat, not before it.
-        setTimeout(() => {
-          current = snapshot({ injection: { status: "on", config: false, sessionOnly: true } });
-          answered = true;
-        }, 20);
+        sent = true;
       },
     });
-    await sleep(30);
-    await down(i, 3); // injection
+    view = i;
+    await ready(i);
+    await downTo(i, "injection");
     i.stdin.write("\r");
-    await sleep(10); // the read beat (0ms) may already have run, the answer has not
-    // Nothing was invented from the pre-command state.
-    expect(stripAnsi(i.lastFrame() ?? "")).not.toContain("not applied");
-    await sleep(60);
-    expect(answered).toBe(true);
-    const frame = stripAnsi(i.lastFrame() ?? "").replace(/[\s│]+/g, " ");
-    expect(frame).toContain("injection: on for this session — the config still says off");
+    await waitFlat(i, "injection: on for this session — the config still says off", "the extension's answer");
+    // At the read beat the answer was not there yet, and nothing was invented
+    // from the pre-command state.
+    expect(beat).not.toBeNull();
+    expect(beat!).not.toContain("not applied");
+    expect(beat!).not.toContain("injection: on for this session");
     i.unmount();
   });
 });
@@ -300,14 +322,14 @@ describe("what each use case does, on the selected row (#1041)", () => {
   test("the description follows the cursor and is the /jev words, not the Settings panel's", async () => {
     const ext = extension(snapshot({ guardrail: { status: "on", config: true } }));
     const { i } = mount({ read: ext.read, send: ext.send });
-    await sleep(30);
+    await ready(i);
     const frame = () => stripAnsi(i.lastFrame() ?? "").replace(/[\s│]+/g, " ");
 
     // The cursor opens on the guardrail, the first row.
     expect(frame()).toContain(JEV_USE_CASE_DESCRIPTIONS.guardrail);
     expect(frame()).not.toContain(JEV_USE_CASE_DESCRIPTIONS.routing);
 
-    await down(i, 1);
+    await downTo(i, "routing");
     expect(frame()).toContain(JEV_USE_CASE_DESCRIPTIONS.routing);
     expect(frame()).not.toContain(JEV_USE_CASE_DESCRIPTIONS.guardrail);
 
@@ -321,7 +343,7 @@ describe("what each use case does, on the selected row (#1041)", () => {
   test("the status stays the modal's own field — a description never claims one", async () => {
     const ext = extension(snapshot({ guardrail: { status: "inert", config: false, note: "not available in this session" } }));
     const { i } = mount({ read: ext.read, send: ext.send });
-    await sleep(30);
+    await waitFlat(i, "not available in this session", "the inert row painted");
     const frame = stripAnsi(i.lastFrame() ?? "").replace(/[\s│]+/g, " ");
     expect(frame).toContain("guardrail");
     expect(frame).toContain("not available in this session");

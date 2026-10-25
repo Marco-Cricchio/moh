@@ -1415,8 +1415,8 @@ export class ExtensionRuntime {
   /**
    * #1438: binds the owning session (called by its constructor). The
    * synthetic-turn entry (ADR-0037) and the tool and model seams
-   * (ADR-0067, ADR-0068) are read at call time; the path deny answer
-   * (ADR-0064 + ADR-0065) is read when a file host is built. A
+   * (ADR-0067, ADR-0068) and the path deny answer (ADR-0064 + ADR-0065,
+   * #1597) are read at call time. A
    * contributed-tool registration made before a session exists (setup
    * runs during load) is held and applied — and logged — here, so the
    * `tool_contributed` event lands inside the session's log
@@ -1427,19 +1427,20 @@ export class ExtensionRuntime {
     const pending = this.#pendingContributed.splice(0);
     for (const registration of pending) {
       port.contributeTool(registration);
-      // ADR-0067: the registration record lands with the session's log —
-      // emitted at bind time, never during setup, so a replay sees it
-      // where the tool became callable.
-      this.#emit({ type: "tool_contributed", extension: registration.extension, tool: (registration.tool as { name: string }).name });
+      // ADR-0067: a held registration's record lands with the session's
+      // log — emitted at bind time, never during setup, so a replay sees
+      // it where the tool became callable.
+      this.#emitToolContributed(registration);
     }
   }
 
   /**
    * ADR-0067 `registerTool`: the name must be one the consent named; a
    * mismatch is a loud `extension_failed` and the tool never reaches the
-   * model. With a session bound, the tool registers immediately (and the
-   * `tool_contributed` record rides the session's log); without one, the
-   * registration is held for `bindSession`.
+   * model. With a session bound, the tool registers immediately and its
+   * `tool_contributed` record is logged at once; without one, the
+   * registration is held for `bindSession`, which applies and logs it.
+   * Either way: exactly one record per applied tool.
    */
   #registerContributedTool(instance: RuntimeExtension, tool: ExtensionContributedTool, grantedNames: readonly string[]): void {
     const extension = instance.def.name;
@@ -1454,11 +1455,20 @@ export class ExtensionRuntime {
     }
     const registration = { extension, tool };
     this.#contributedToolNames.add(name);
-    if (this.#session) this.#session.contributeTool(registration);
-    else this.#pendingContributed.push(registration);
-    // The `tool_contributed` record is emitted by `bindSession`
-    // at bind time — the log of the session where the tool became
-    // callable, never a setup-time orphan event.
+    if (this.#session) {
+      this.#session.contributeTool(registration);
+      this.#emitToolContributed(registration);
+    } else {
+      // Held for `bindSession`, which applies and logs it there — the log
+      // of the session where the tool became callable, never a setup-time
+      // orphan event.
+      this.#pendingContributed.push(registration);
+    }
+  }
+
+  /** ADR-0067: the one `tool_contributed` record per applied tool — same shape whether the registration was held for the bind or arrived after it. */
+  #emitToolContributed(registration: { extension: string; tool: unknown }): void {
+    this.#emit({ type: "tool_contributed", extension: registration.extension, tool: (registration.tool as { name: string }).name });
   }
 
   /**
@@ -2276,8 +2286,10 @@ export class ExtensionRuntime {
   #fileHostFor(instance: RuntimeExtension, scopes: readonly string[]): Omit<ExtensionHost, "fetch" | "runTool" | "modelCall" | "listModels"> {
     const name = instance.def.name;
     const root = this.#options.projectRoot ?? process.cwd();
-    const session = this.#session;
-    const isDenied = session ? (resolvedAbsPath: string) => session.isPathDenied(resolvedAbsPath) : () => false;
+    // ADR-0065 (#1597): the deny answer is read per call, from whichever
+    // session is bound now — a host built before the bind (bundled setup,
+    // a second assembly, `register()` → `createSession()`) still honours it.
+    const isDenied = (resolvedAbsPath: string): boolean => this.#session?.isPathDenied(resolvedAbsPath) ?? false;
     const opEvent = (
       op: HostOpName,
       resolved: string,

@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   clearThinkingPreference,
+  endpointThinkingStatus,
   defaultThinkingLevel,
   effectiveThinkingLevel,
   readThinkingPreference,
@@ -175,8 +176,7 @@ describe("endpoint preferences in ~/.moh/config (#241)", () => {
   });
 });
 
-// #1431 (expand phase of S4.1): twins of the injected-`read` tests above, on a
-// real temporary file. Migration ticket #1433 deletes the injected ones.
+// Real temporary file twins of the `read` tests above (#1431).
 describe("endpoint preferences — real file twins (#1431)", () => {
   const raw = (file: string) => JSON.parse(readFileSync(file, "utf8")) as Record<string, unknown>;
 
@@ -207,6 +207,17 @@ describe("endpoint preferences — real file twins (#1431)", () => {
       setThinkingPreference(file, "a", "low");
       expect(raw(file)).toEqual({ keep: 1, thinkingLevels: { a: "low" } });
     }
+  });
+
+  test("a `null` section reads as absent and never throws; a write replaces it, a clear keeps it (#1588, real file)", () => {
+    const file = tmpFile();
+    writeFileSync(file, JSON.stringify({ keep: 1, thinkingLevels: null }));
+    expect(readThinkingPreference(file, "a")).toBeUndefined();
+    expect(endpointThinkingStatus("a/m", [], file)).toEqual({});
+    clearThinkingPreference(file, "a");
+    expect(raw(file)).toEqual({ keep: 1, thinkingLevels: null });
+    setThinkingPreference(file, "a", "low");
+    expect(raw(file)).toEqual({ keep: 1, thinkingLevels: { a: "low" } });
   });
 
   test("unknown sections survive a write and a clear; the whole file is read-modify-written (real file)", () => {

@@ -16,6 +16,24 @@ import { Normalizer } from "./normalize";
 const REPO = join(import.meta.dir, "..", "..");
 const CLI = join(REPO, "packages/cli/src/cli.ts");
 
+/**
+ * Per-command ceiling. Under machine load slow commands (`sessions analyze
+ * --json`, `sessions tree`) can exceed a short one; a killed command is a
+ * harness error, never a recorded result (#1617). Raise it with
+ * `MOH_B3_TIMEOUT_MS` instead of editing this file.
+ */
+const DEFAULT_TIMEOUT_MS = 120_000;
+function commandTimeoutMs(): number {
+  const raw = process.env.MOH_B3_TIMEOUT_MS;
+  if (raw === undefined || raw === "") return DEFAULT_TIMEOUT_MS;
+  const n = Number(raw);
+  if (!Number.isInteger(n) || n <= 0) {
+    console.error(`MOH_B3_TIMEOUT_MS must be a positive integer (ms), got "${raw}"`);
+    process.exit(2);
+  }
+  return n;
+}
+
 /** Fixed ULIDs (valid Crockford base32, 26 chars) for seeded logs. */
 const SEED_ULIDS = [
   "01M4V7J7QVD9KRMGCBTQH01F8H",
@@ -127,13 +145,24 @@ async function runCli(run: CliRun): Promise<{ stdout: string; stderr: string; ex
     sink.flush();
     sink.end();
   }
-  const timer = setTimeout(() => proc.kill("SIGKILL"), 30_000);
+  const ceiling = commandTimeoutMs();
+  let timedOut = false;
+  const timer = setTimeout(() => {
+    timedOut = true;
+    proc.kill("SIGKILL");
+  }, ceiling);
   const [stdout, stderr, exit] = await Promise.all([
     new Response(proc.stdout).text(),
     new Response(proc.stderr).text(),
     proc.exited,
   ]);
   clearTimeout(timer);
+  if (timedOut) {
+    throw new Error(
+      `\`moh ${run.args.join(" ")}\` exceeded the ${ceiling} ms ceiling and was killed; ` +
+        `not recorded (raise MOH_B3_TIMEOUT_MS)`,
+    );
+  }
   return { stdout, stderr, exit };
 }
 

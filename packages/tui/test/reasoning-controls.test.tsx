@@ -8,9 +8,7 @@ import { App, REASONING_PERSISTENCE_NOTICE } from "../src/App";
 import { Chat, settledBoundary } from "../src/Chat";
 import { visibleChips } from "../src/BottomBar";
 import { loadUserConfig } from "../src/user-config";
-import { stripAnsi, waitForFrame } from "./helpers";
-
-const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+import { stripAnsi, waitForFrame, waitText } from "./helpers";
 
 function drain(session: { events: AsyncIterable<unknown> }) {
   void (async () => {
@@ -31,13 +29,13 @@ describe("reasoning display and controls (#242)", () => {
       <Chat session={session} cwd={process.cwd()} mode="dev" modelLabel="mock" width={80} showReasoning={false} />,
     );
     await session.send("question");
-    await sleep(30);
+    await waitText(ui, "answer", "the settled turn painted");
     expect(stripAnsi(ui.lastFrame() ?? "")).not.toContain("persisted historical reasoning");
 
     ui.rerender(
       <Chat session={session} cwd={process.cwd()} mode="dev" modelLabel="mock" width={80} showReasoning />,
     );
-    await sleep(30);
+    await waitText(ui, "persisted historical reasoning", "the historical reasoning repainted");
     const shown = stripAnsi(ui.lastFrame() ?? "");
     expect(shown).toContain("thinking");
     expect(shown).toContain("persisted historical reasoning");
@@ -85,7 +83,7 @@ describe("reasoning display and controls (#242)", () => {
       async *stream() { yield { type: "finish" as const, reason: "stop" as const }; },
     };
     const ui = render(<App intro={false} cwd={cwd} home={home} provider={provider} startInChat skipOnboarding />);
-    await sleep(50);
+    await waitForFrame(() => stripAnsi(ui.lastFrame() ?? ""), "provider-exposed reasoni");
     expect(stripAnsi(ui.lastFrame() ?? "")).toContain("provider-exposed reasoni");
     expect(loadUserConfig(join(home, ".moh", "config")).reasoningNoticeShown).toBe(true);
     ui.unmount();

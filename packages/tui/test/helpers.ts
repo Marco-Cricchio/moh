@@ -1,4 +1,6 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { afterAll, beforeAll } from "bun:test";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { act } from "react";
 import { teamManifestAuthority } from "@moh/team";
@@ -20,6 +22,33 @@ export function grantTeamExtension(home: string): void {
   store.manifests[authority.path] = { hash: authority.hash, capabilities: [...authority.capabilities] };
   writeFileSync(file, JSON.stringify(store));
 }
+
+/**
+ * #1504: pins the 0600-file credential store for the calling file and
+ * restores `MOH_SECRET_STORE` after it. On darwin the default store is the
+ * login keychain: every App mount would read it through a synchronous
+ * `security` spawn (the bundled-extension activation check), which stalls
+ * frame waits and writes into the developer's keychain. Call at module top
+ * level, once per file.
+ */
+export function useFileCredentialStore(): void {
+  const original = process.env.MOH_SECRET_STORE;
+  beforeAll(() => {
+    process.env.MOH_SECRET_STORE = "file";
+  });
+  afterAll(() => {
+    if (original === undefined) delete process.env.MOH_SECRET_STORE;
+    else process.env.MOH_SECRET_STORE = original;
+  });
+}
+
+/**
+ * #1504: an empty project directory. A test that mounts App on
+ * `process.cwd()` reads the checkout's own (gitignored) `moh.json`, so a
+ * developer's local settings — a provider, `browser.enabled` — leak into
+ * the frame.
+ */
+export const tempProjectDir = (prefix = "moh-test-cwd-"): string => mkdtempSync(join(tmpdir(), prefix));
 
 export async function waitForCondition(
 
@@ -152,12 +181,27 @@ export async function pressCommitted(view: Rendered & { frames: readonly string[
  * render: a ctrl+c written before that effect ran saw an empty draft and
  * armed the exit instead of clearing (3/6 under CPU load; 0/6 with this).
  */
-export async function pressSettled(view: Pick<Rendered, "stdin">, key: string): Promise<void> {
+export function pressSettled(view: Pick<Rendered, "stdin">, key: string): Promise<void> {
+  return inAct(() => view.stdin.write(key));
+}
+
+/**
+ * Unmounts inside React's `act()` and then lets the scheduler drain, so no
+ * work from this tree is still flushing when the next test mounts (#1495:
+ * `Should not already be working.` from react-reconciler inside a later
+ * `render()`). Idempotent: Ink ignores a second unmount.
+ */
+export async function unmountSettled(view: { unmount: () => void }): Promise<void> {
+  await inAct(() => view.unmount());
+  await effectsFlushed();
+}
+
+async function inAct(work: () => void): Promise<void> {
   const env = globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean };
   const previous = env.IS_REACT_ACT_ENVIRONMENT;
   env.IS_REACT_ACT_ENVIRONMENT = true;
   try {
-    await act(async () => { view.stdin.write(key); });
+    await act(async () => { work(); });
   } finally {
     if (previous === undefined) delete env.IS_REACT_ACT_ENVIRONMENT;
     else env.IS_REACT_ACT_ENVIRONMENT = previous;

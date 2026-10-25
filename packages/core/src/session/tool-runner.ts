@@ -38,6 +38,8 @@ interface GateCheck {
     args: unknown,
     /** ADR-0067: the host-seam requester — names the ask prompt only. */
     requester?: { extension: string },
+    /** ADR-0076: a client-initiated door's ask context (`source: "user"`). */
+    clientAsk?: PermissionAskContext,
   ): Promise<{ allowed: true } | { allowed: false; denial: string }>;
 }
 
@@ -396,7 +398,7 @@ export class ToolRunner {
     signal: AbortSignal,
     requester?: { extension: string },
     /** ADR-0076: the ask context a client-initiated door supplies. */
-    _askContext?: PermissionAskContext,
+    askContext?: PermissionAskContext,
   ): Promise<ToolOutcome> {
     const tool = this.#tools()[name];
     if (!tool) {
@@ -414,7 +416,7 @@ export class ToolRunner {
       validated = parsed.data;
     }
     const gateArgs = tool.gateArgs ? tool.gateArgs(validated) : validated;
-    const gate = await this.#gate.check(name, callId, gateArgs, requester);
+    const gate = await this.#gate.check(name, callId, gateArgs, requester, askContext);
     if (!gate.allowed) {
       return { callId, ok: false, output: gate.denial, errorKind: "permission" };
     }

@@ -19,6 +19,7 @@
 import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { checksBundledSource } from "@moh/checks";
 import { jevBundledSource } from "@moh/jev-guard";
 import { teamBundledSource } from "@moh/team";
 import { defaultCredentialStore, userConfigFile, type MountedBundledExtension } from "@moh/core";
@@ -76,5 +77,9 @@ export function bundledExtensionSources(home?: string, options: { consentSeamAva
   return [
     { source: jevBundledSource, active },
     { source: teamBundledSource, active: teamMountable },
+    // ADR-0080: always mounted — the project's declared checks decide at
+    // activation (the descriptor declines when there are none), and the
+    // consent per checks hash is the grant.
+    { source: checksBundledSource, active: true },
   ];
 }

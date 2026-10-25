@@ -113,6 +113,21 @@ describe("host scope: grammar and validation (ADR-0066)", () => {
     expect(validateHostScope("host:localhost:3000")).toEqual({ ok: true, host: "localhost", port: 3000, wildcard: false });
   });
 
+  test("an explicit default port is the default-port form (#1574)", () => {
+    // :443 is the bare https form; :80 is the http development port, matched against the http default.
+    expect(validateHostScope("host:a.com:443")).toEqual(validateHostScope("host:a.com"));
+    expect(validateHostScope("host:a.com:80")).toEqual({ ok: true, host: "a.com", port: 80, wildcard: false });
+    const admits = (scope: string, url: string): boolean => {
+      const check = validateHostScope(scope);
+      return check.ok && hostMatchesScope(check, new URL(url));
+    };
+    expect(["https://a.com/", "https://a.com:443/"].map((u) => admits("host:a.com:443", u))).toEqual([true, true]);
+    expect(["http://a.com/", "http://a.com:80/"].map((u) => admits("host:a.com:80", u))).toEqual([true, true]);
+    expect(admits("host:a.com:80", "http://a.com:8080/")).toBe(false);
+    expect(scopeEffectSentence("host:a.com:443")).toBe("may contact `a.com` over https");
+    expect(scopeEffectSentence("host:a.com:80")).toBe("may contact `a.com:80` over http");
+  });
+
   test("malformed forms refuse loudly", () => {
     for (const bad of ["host:", "host: ", "host:api.example.com/path", "host://api.example.com", "host:a..b", "host:*.*.example.com", "host:*:99999", "host:not_a_host", "host:*:8443"]) {
       expect(validateHostScope(bad).ok).toBe(false);

@@ -4,7 +4,7 @@
  * (an invalid key must not stay persisted, an unreachable service must), and
  * the validator is always injected so no test touches the network.
  */
-import { describe, expect, test } from "bun:test";
+import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { render } from "ink-testing-library";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -14,28 +14,78 @@ import { JEV_USE_CASE_DESCRIPTIONS, readTypesafeConfig, type JevKeyValidation } 
 import { SettingsPanel } from "../src/SettingsPanel";
 import { DEFAULT_USER_CONFIG, type UserConfig } from "../src/user-config";
 import { ThemeProvider, THEMES, DEFAULT_THEME } from "../src/themes";
-import { pressSettled, stripAnsi, waitForCondition, waitStep, waitText } from "./helpers";
+import { pressSettled, stripAnsi, waitStep, waitText } from "./helpers";
 import { fileCredentialStore } from "../../core/src/credential-store";
 
 // #1162: these tests drive the credential store — the 0600-file fallback
-// under each test's isolated home, never the developer's keychain.
-process.env.MOH_SECRET_STORE = "file";
+// under each test's isolated home, never the developer's keychain. #1504:
+// set for this file only and restored after, so no other file leans on it.
+const originalSecretStore = process.env.MOH_SECRET_STORE;
+beforeAll(() => {
+  process.env.MOH_SECRET_STORE = "file";
+});
+afterAll(() => {
+  if (originalSecretStore === undefined) delete process.env.MOH_SECRET_STORE;
+  else process.env.MOH_SECRET_STORE = originalSecretStore;
+});
 
-const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+type View = ReturnType<typeof render>;
+
+const frameOf = (i: View) => stripAnsi(i.lastFrame() ?? "");
+
+/**
+ * The highlighted row: the last line carrying `›` (the parent list keeps its
+ * marker while the Jev sub-menu is open, so the sub-menu's cursor is last).
+ */
+const cursorRow = (i: View) => frameOf(i).split("\n").filter((l) => l.includes("›")).at(-1) ?? "";
+
+/** #1495: the settings list has painted and its key handler is attached. */
+const mounted = (i: View) => waitText(i, "Jev (TypeSafe)", "settings list rendered");
+
+/** Presses ↓ and waits for the cursor to reach another row, never a fixed pause (#1495). */
+const pressDown = async (i: View, step: string) => {
+  const before = cursorRow(i);
+  i.stdin.write("\x1b[B");
+  await waitStep(i, () => cursorRow(i) !== before, `${step} (cursor leaving ${JSON.stringify(before.trim())})`);
+};
 
 /**
  * Moves the settings cursor onto the Jev entry by its LABEL. A fixed index
  * broke 14 tests the moment a settings row was inserted above it; the label
  * survives insertions.
  */
-const gotoJevRow = async (i: ReturnType<typeof render>) => {
+const gotoJevRow = async (i: View) => {
   for (let k = 0; k < 24; k++) {
-    const on = stripAnsi(i.lastFrame() ?? "").split("\n").some((l) => l.includes("›") && l.includes("Jev (TypeSafe)"));
-    if (on) return;
-    i.stdin.write("\x1b[B");
-    await sleep(25);
+    if (cursorRow(i).includes("Jev (TypeSafe)")) return;
+    await pressDown(i, `walking to the Jev row (${k + 1})`);
   }
   throw new Error("the Jev settings row was not reachable by label");
+};
+
+/** The Jev sub-menu is open with its cursor on the first row ("API key"). */
+const entryTop = (i: View, step: string) =>
+  waitStep(i, () => cursorRow(i).includes("API key") && !frameOf(i).includes("api key: "), step);
+
+/** Opens the Jev entry from its row. */
+const openEntry = async (i: View) => {
+  i.stdin.write("\r");
+  await entryTop(i, "Jev sub-menu opened");
+};
+
+/**
+ * Presses enter on a sub-menu row that acts and resets the cursor to the top
+ * (a toggle, Remove, a saved key): the write precedes that reset, so the
+ * reset is the state to wait on.
+ */
+const enterBackToTop = async (i: View, step: string) => {
+  i.stdin.write("\r");
+  await entryTop(i, step);
+};
+
+/** Types a key into the masked input and waits for its echo. */
+const typeKey = async (i: View, key: string) => {
+  i.stdin.write(key);
+  await waitText(i, `api key: ${"•".repeat(Math.min(24, key.length))}▏`, "key typed");
 };
 
 /**
@@ -46,7 +96,7 @@ const gotoJevRow = async (i: ReturnType<typeof render>) => {
  */
 const JEV_OPTION = { apiKey: 0, guardrail: 1, routing: 2, injection: 3, classification: 4, lint: 5, rerank: 6, skills: 7, status: 8, remove: 9 } as const;
 /** Walk the sub-menu cursor onto one row, by the map above. */
-const gotoOption = (i: ReturnType<typeof render>, option: number) => down(i, option);
+const gotoOption = (i: View, option: number) => down(i, option);
 
 function setup() {
   const cwd = mkdtempSync(join(tmpdir(), "moh-jev-cwd-"));
@@ -82,20 +132,16 @@ function mount(cwd: string, home: string, validateKey: (key: string) => Promise<
   return { i, toasts };
 }
 
-const down = async (i: ReturnType<typeof render>, n: number) => {
-  for (let k = 0; k < n; k++) {
-    i.stdin.write("\x1b[B");
-    await sleep(25);
-  }
+const down = async (i: View, n: number) => {
+  for (let k = 0; k < n; k++) await pressDown(i, `arrow down ${k + 1}/${n}`);
 };
 
 /** Walk to the Jev entry's key input. */
-async function openKeyInput(i: ReturnType<typeof render>) {
+async function openKeyInput(i: View) {
   await gotoJevRow(i);
-  i.stdin.write("\r"); // open the Jev entry
-  await sleep(30);
+  await openEntry(i);
   i.stdin.write("\r"); // "API key"
-  await sleep(30);
+  await waitText(i, "api key: ", "key input opened");
 }
 
 /** #1162: the key lives in the credential store, not in config. */
@@ -105,16 +151,14 @@ describe("settings Jev entry (#784)", () => {
   test("the row renders and the disclosure shows under the entry", async () => {
     const { cwd, home } = setup();
     const { i } = mount(cwd, home, async () => ({ status: "active", latencyMs: 10 }));
-    await sleep(30);
+    await mounted(i);
     expect(stripAnsi(i.lastFrame() ?? "")).toContain("Jev (TypeSafe)");
     await gotoJevRow(i);
-    await sleep(30);
     // The row's footer hint wraps, so assert on a fragment that always fits.
     const hint = stripAnsi(i.lastFrame() ?? "");
     expect(hint).toContain("judgments send the command, working directory and git");
     expect(hint).toContain("training on inputs.");
-    i.stdin.write("\r");
-    await sleep(30);
+    await openEntry(i);
     const frame = stripAnsi(i.lastFrame() ?? "");
     expect(frame).toContain("API key");
     expect(frame).toContain("Status");
@@ -129,12 +173,10 @@ describe("settings Jev entry (#784)", () => {
   test("a valid key is persisted and reported active", async () => {
     const { cwd, home } = setup();
     const { i, toasts } = mount(cwd, home, async () => ({ status: "active", latencyMs: 812 }));
-    await sleep(30);
+    await mounted(i);
     await openKeyInput(i);
-    i.stdin.write("sk-valid-1234");
-    await sleep(30);
-    i.stdin.write("\r");
-    await sleep(80);
+    await typeKey(i, "sk-valid-1234");
+    await enterBackToTop(i, "key saved, back in the sub-menu");
     expect(storedKey(home)).toBe("sk-valid-1234");
     expect(toasts).toContain("jev: active");
     expect(stripAnsi(i.lastFrame() ?? "")).toContain("active");
@@ -144,12 +186,11 @@ describe("settings Jev entry (#784)", () => {
   test("an invalid key is NOT persisted and says so", async () => {
     const { cwd, home } = setup();
     const { i, toasts } = mount(cwd, home, async () => ({ status: "invalid", message: "HTTP 401" }));
-    await sleep(30);
+    await mounted(i);
     await openKeyInput(i);
-    i.stdin.write("sk-bad");
-    await sleep(30);
+    await typeKey(i, "sk-bad");
     i.stdin.write("\r");
-    await sleep(80);
+    await waitText(i, "invalid key — not saved", "rejected key reported");
     expect(storedKey(home)).toBeUndefined();
     expect(toasts.some((t) => t.includes("invalid key"))).toBe(true);
     expect(stripAnsi(i.lastFrame() ?? "")).toContain("invalid key — not saved");
@@ -161,12 +202,11 @@ describe("settings Jev entry (#784)", () => {
     mkdirSync(join(home, ".moh"), { recursive: true });
     fileCredentialStore({ home }).set("typesafe", "sk-previous-abcd");
     const { i } = mount(cwd, home, async () => ({ status: "invalid", message: "HTTP 401" }));
-    await sleep(30);
+    await mounted(i);
     await openKeyInput(i);
-    i.stdin.write("sk-bad");
-    await sleep(30);
+    await typeKey(i, "sk-bad");
     i.stdin.write("\r");
-    await sleep(80);
+    await waitText(i, "invalid key — not saved", "rejected key reported");
     // Validation runs first: the rejected key never reaches the file, and
     // the good one the user already had is still there.
     expect(storedKey(home)).toBe("sk-previous-abcd");
@@ -176,12 +216,10 @@ describe("settings Jev entry (#784)", () => {
   test("an unreachable service keeps the key (fail-open) with its own message", async () => {
     const { cwd, home } = setup();
     const { i, toasts } = mount(cwd, home, async () => ({ status: "unreachable", kind: "network", message: "fetch failed" }));
-    await sleep(30);
+    await mounted(i);
     await openKeyInput(i);
-    i.stdin.write("sk-slow");
-    await sleep(30);
-    i.stdin.write("\r");
-    await sleep(80);
+    await typeKey(i, "sk-slow");
+    await enterBackToTop(i, "key saved, back in the sub-menu");
     expect(storedKey(home)).toBe("sk-slow");
     expect(toasts.some((t) => t.includes("could not verify"))).toBe(true);
     i.unmount();
@@ -192,18 +230,15 @@ describe("settings Jev entry (#784)", () => {
     const { i, toasts } = mount(cwd, home, async () => ({ status: "active", latencyMs: 1 }), {
       ...DEFAULT_USER_CONFIG,
     });
-    await sleep(30);
+    await mounted(i);
     await openKeyInput(i);
-    i.stdin.write("sk-remove-me");
-    await sleep(30);
-    i.stdin.write("\r");
-    await sleep(80);
+    await typeKey(i, "sk-remove-me");
+    await enterBackToTop(i, "key saved, back in the sub-menu");
     expect(storedKey(home)).toBe("sk-remove-me");
     // Back to the entry menu (the valid path returns there), then "Remove"
     // (see JEV_OPTION: it is the last row, #833 added Classification).
     await down(i, JEV_OPTION.remove);
-    i.stdin.write("\r");
-    await sleep(60);
+    await enterBackToTop(i, "row acted, cursor back on top");
     expect(storedKey(home)).toBeUndefined();
     expect(toasts.some((t) => t.includes("key removed"))).toBe(true);
     i.unmount();
@@ -215,7 +250,7 @@ describe("settings Jev entry (#784)", () => {
     writeFileSync(userConfigFile(home), JSON.stringify({ typesafe: { timeoutMs: 1200 } }));
     fileCredentialStore({ home }).set("typesafe", "sk-existing-abcd");
     const { i } = mount(cwd, home, async () => ({ status: "active", latencyMs: 1 }));
-    await sleep(30);
+    await mounted(i);
     const frame = stripAnsi(i.lastFrame() ?? "");
     // The row column truncates; the masked hint and the effective timeout
     // are what a user reads there, and the full key never appears.
@@ -235,13 +270,11 @@ describe("settings Jev entry: model routing (#787)", () => {
   test("the toggle writes the opt-in and reports that it starts next session", async () => {
     const { cwd, home } = setup();
     const { i, toasts } = mount(cwd, home, async () => ({ status: "active", latencyMs: 1 }));
-    await sleep(30);
+    await mounted(i);
     await gotoJevRow(i);
-    i.stdin.write("\r"); // open the Jev entry
-    await sleep(30);
+    await openEntry(i);
     await gotoOption(i, JEV_OPTION.routing);
-    i.stdin.write("\r");
-    await sleep(60);
+    await enterBackToTop(i, "row acted, cursor back on top");
 
     expect(storedRouting(home)).toBe(true);
     expect(toasts.some((t) => t.includes("routing on"))).toBe(true);
@@ -257,13 +290,11 @@ describe("settings Jev entry: model routing (#787)", () => {
     mkdirSync(join(home, ".moh"), { recursive: true });
     writeFileSync(file, JSON.stringify({ typesafe: { apiKey: "sk-keep-abcd", routing: true }, theme: "dark" }));
     const { i, toasts } = mount(cwd, home, async () => ({ status: "active", latencyMs: 1 }));
-    await sleep(30);
+    await mounted(i);
     await gotoJevRow(i);
-    i.stdin.write("\r");
-    await sleep(30);
+    await openEntry(i);
     await gotoOption(i, JEV_OPTION.routing);
-    i.stdin.write("\r");
-    await sleep(60);
+    await enterBackToTop(i, "row acted, cursor back on top");
 
     expect(storedRouting(home)).toBe(false);
     expect(toasts.some((t) => t.includes("routing off"))).toBe(true);
@@ -287,15 +318,13 @@ describe("settings Jev entry: anti-injection (#791)", () => {
   test("off by default, the toggle writes the opt-in and states what it sends", async () => {
     const { cwd, home } = setup();
     const { i, toasts } = mount(cwd, home, async () => ({ status: "active", latencyMs: 1 }));
-    await sleep(30);
+    await mounted(i);
     expect(storedInjection(home)).toBeUndefined();
 
     await gotoJevRow(i);
-    i.stdin.write("\r"); // open the Jev entry
-    await sleep(30);
+    await openEntry(i);
     await gotoOption(i, JEV_OPTION.injection);
-    i.stdin.write("\r");
-    await sleep(60);
+    await enterBackToTop(i, "row acted, cursor back on top");
 
     expect(storedInjection(home)).toBe(true);
     expect(toasts.some((t) => t.includes("anti-injection on"))).toBe(true);
@@ -313,13 +342,11 @@ describe("settings Jev entry: anti-injection (#791)", () => {
     mkdirSync(join(home, ".moh"), { recursive: true });
     writeFileSync(file, JSON.stringify({ typesafe: { apiKey: "sk-keep-abcd", injection: true } }));
     const { i, toasts } = mount(cwd, home, async () => ({ status: "active", latencyMs: 1 }));
-    await sleep(30);
+    await mounted(i);
     await gotoJevRow(i);
-    i.stdin.write("\r");
-    await sleep(30);
+    await openEntry(i);
     await gotoOption(i, JEV_OPTION.injection);
-    i.stdin.write("\r");
-    await sleep(60);
+    await enterBackToTop(i, "row acted, cursor back on top");
 
     expect(storedInjection(home)).toBe(false);
     expect(toasts.some((t) => t.includes("anti-injection off"))).toBe(true);
@@ -340,14 +367,12 @@ describe("settings Jev entry: quality gate (#789)", () => {
   test("off by default; the toggle writes the opt-in and states what it sends", async () => {
     const { cwd, home } = setup();
     const { i, toasts } = mount(cwd, home, async () => ({ status: "active", latencyMs: 1 }));
-    await sleep(30);
+    await mounted(i);
     expect(storedLint(home)).toBeUndefined(); // off by default
     await gotoJevRow(i);
-    i.stdin.write("\r"); // open the Jev entry
-    await sleep(30);
+    await openEntry(i);
     await gotoOption(i, JEV_OPTION.lint);
-    i.stdin.write("\r");
-    await sleep(60);
+    await enterBackToTop(i, "row acted, cursor back on top");
 
     expect(storedLint(home)).toBe(true);
     expect(toasts.some((t) => t.includes("quality gate on"))).toBe(true);
@@ -360,17 +385,14 @@ describe("settings Jev entry: quality gate (#789)", () => {
   test("toggling twice turns it back off", async () => {
     const { cwd, home } = setup();
     const { i } = mount(cwd, home, async () => ({ status: "active", latencyMs: 1 }));
-    await sleep(30);
+    await mounted(i);
     await gotoJevRow(i);
-    i.stdin.write("\r");
-    await sleep(30);
+    await openEntry(i);
     await gotoOption(i, JEV_OPTION.lint);
-    i.stdin.write("\r");
-    await sleep(60);
+    await enterBackToTop(i, "row acted, cursor back on top");
     expect(storedLint(home)).toBe(true);
     await gotoOption(i, JEV_OPTION.lint); // "Quality gate" again (cursor reset to the entry top)
-    i.stdin.write("\r");
-    await sleep(60);
+    await enterBackToTop(i, "row acted, cursor back on top");
     expect(storedLint(home)).toBe(false);
     i.unmount();
   });
@@ -386,14 +408,12 @@ describe("settings Jev entry: skill suggestion (#793)", () => {
   test("off by default; the toggle writes the opt-in and states what it sends", async () => {
     const { cwd, home } = setup();
     const { i, toasts } = mount(cwd, home, async () => ({ status: "active", latencyMs: 1 }));
-    await sleep(30);
+    await mounted(i);
     expect(storedSkills(home)).toBeUndefined(); // off by default
     await gotoJevRow(i);
-    i.stdin.write("\r"); // open the Jev entry
-    await sleep(30);
+    await openEntry(i);
     await gotoOption(i, JEV_OPTION.skills);
-    i.stdin.write("\r");
-    await sleep(60);
+    await enterBackToTop(i, "row acted, cursor back on top");
 
     expect(storedSkills(home)).toBe(true);
     expect(toasts.some((t) => t.includes("skill suggestion on"))).toBe(true);
@@ -405,17 +425,14 @@ describe("settings Jev entry: skill suggestion (#793)", () => {
   test("toggling twice turns it back off", async () => {
     const { cwd, home } = setup();
     const { i } = mount(cwd, home, async () => ({ status: "active", latencyMs: 1 }));
-    await sleep(30);
+    await mounted(i);
     await gotoJevRow(i);
-    i.stdin.write("\r");
-    await sleep(30);
+    await openEntry(i);
     await gotoOption(i, JEV_OPTION.skills);
-    i.stdin.write("\r");
-    await sleep(60);
+    await enterBackToTop(i, "row acted, cursor back on top");
     expect(storedSkills(home)).toBe(true);
     await gotoOption(i, JEV_OPTION.skills);
-    i.stdin.write("\r");
-    await sleep(60);
+    await enterBackToTop(i, "row acted, cursor back on top");
     expect(storedSkills(home)).toBe(false);
     i.unmount();
   });
@@ -473,17 +490,15 @@ describe("settings Jev entry: prompt classification (#788/#833)", () => {
   test("on by default; the row turns it off and states what it changes", async () => {
     const { cwd, home } = setup();
     const { i, toasts } = mount(cwd, home, async () => ({ status: "active", latencyMs: 1 }));
-    await sleep(30);
+    await mounted(i);
     expect(storedClassification(home)).toBeUndefined(); // on unless opted out
     await gotoJevRow(i);
-    i.stdin.write("\r"); // open the Jev entry
-    await sleep(30);
+    await openEntry(i);
     const frame = stripAnsi(i.lastFrame() ?? "");
     expect(frame).toContain("Classification");
     expect(frame.replace(/[\s│]+/g, " ")).toContain("Classification on");
     await down(i, JEV_OPTION.classification);
-    i.stdin.write("\r");
-    await sleep(60);
+    await enterBackToTop(i, "row acted, cursor back on top");
 
     expect(storedClassification(home)).toBe(false);
     expect(toasts.some((t) => t.includes("classification off"))).toBe(true);
@@ -496,40 +511,27 @@ describe("settings Jev entry: prompt classification (#788/#833)", () => {
     mkdirSync(join(home, ".moh"), { recursive: true });
     writeFileSync(file, JSON.stringify({ typesafe: { apiKey: "sk-keep-me" }, telemetry: true }));
     const { i } = mount(cwd, home, async () => ({ status: "active", latencyMs: 1 }));
-    const frame = () => stripAnsi(i.lastFrame() ?? "");
-    // The parent list keeps its marker while the submenu is open.
-    const selectedRow = () => frame().split("\n").filter((line) => line.includes("›")).at(-1)?.trim() ?? "";
-    const waitForSelection = (label: string) => waitForCondition(
-      () => selectedRow().includes(label),
-      () => `selected ${label}. Last frame:\n${frame()}`,
-    );
+    const frame = () => frameOf(i);
+    // #1495: every key waits on the cursor row through `waitStep`, which
+    // also flushes passive effects — an enter written the moment the cursor
+    // painted reached the previous row's handler and toggled Anti-injection.
     const selectRow = async (label: string) => {
-      await waitForCondition(() => selectedRow() !== "", () => `initial selection. Last frame:\n${frame()}`);
-      for (let step = 0; step < 24 && !selectedRow().includes(label); step++) {
-        const previous = selectedRow();
-        i.stdin.write("\x1b[B");
-        await waitForCondition(
-          () => selectedRow() !== "" && selectedRow() !== previous,
-          () => `selection to move from ${previous} toward ${label}. Last frame:\n${frame()}`,
-        );
+      await waitStep(i, () => cursorRow(i) !== "", "initial selection");
+      for (let step = 0; step < 24 && !cursorRow(i).includes(label); step++) {
+        await pressDown(i, `selection moving toward ${label}`);
       }
-      expect(selectedRow()).toContain(label);
+      expect(cursorRow(i)).toContain(label);
     };
     try {
       await selectRow("Jev (TypeSafe)");
-      i.stdin.write("\r");
-      await waitForSelection("API key");
+      await openEntry(i);
       expect(frame().replace(/[\s│]+/g, " ")).toContain("Classification on");
 
       for (const next of [false, true]) {
         await selectRow("Classification");
-        i.stdin.write("\r");
-        await waitForCondition(
-          () => storedClassification(home) === next,
-          () => `persisted classification ${next}; got ${storedClassification(home)}. Last frame:\n${frame()}`,
-        );
         // Persistence precedes the render that resets the submenu cursor.
-        await waitForSelection("API key");
+        await enterBackToTop(i, `classification toggled ${next ? "on" : "off"}`);
+        expect(storedClassification(home)).toBe(next);
         expect(frame().replace(/[\s│]+/g, " ")).toContain(`Classification ${next ? "on" : "off"}`);
       }
       // #1162: the key survives — in the store, not the config file.
@@ -544,10 +546,9 @@ describe("settings Jev entry: prompt classification (#788/#833)", () => {
   test("the entry states the persistent-vs-session split", async () => {
     const { cwd, home } = setup();
     const { i } = mount(cwd, home, async () => ({ status: "active", latencyMs: 1 }));
-    await sleep(30);
+    await mounted(i);
     await gotoJevRow(i);
-    i.stdin.write("\r");
-    await sleep(30);
+    await openEntry(i);
     const frame = stripAnsi(i.lastFrame() ?? "").replace(/[\s│]+/g, " ");
     expect(frame).toContain("these switches are persistent (they apply from your next session); changing one in an open session is /jev.");
     i.unmount();
@@ -564,12 +565,11 @@ describe("settings Jev entry: the guardrail row (#1041)", () => {
   test("on by default: the row shows an armed guardrail with nothing in the file", async () => {
     const { cwd, home } = setup();
     const { i } = mount(cwd, home, async () => ({ status: "active", latencyMs: 1 }));
-    await sleep(30);
+    await mounted(i);
     expect(storedGuardrail(home)).toBeUndefined();
 
     await gotoJevRow(i);
-    i.stdin.write("\r"); // open the Jev entry
-    await sleep(30);
+    await openEntry(i);
     const frame = () => stripAnsi(i.lastFrame() ?? "").replace(/[\s│]+/g, " ");
     expect(frame()).toContain("Guardrail on");
     i.unmount();
@@ -578,13 +578,11 @@ describe("settings Jev entry: the guardrail row (#1041)", () => {
   test("the row writes the opt-out the extension reads at the next assembly", async () => {
     const { cwd, home } = setup();
     const { i, toasts } = mount(cwd, home, async () => ({ status: "active", latencyMs: 1 }));
-    await sleep(30);
+    await mounted(i);
     await gotoJevRow(i);
-    i.stdin.write("\r"); // open the Jev entry
-    await sleep(30);
+    await openEntry(i);
     await gotoOption(i, JEV_OPTION.guardrail);
-    i.stdin.write("\r");
-    await sleep(60);
+    await enterBackToTop(i, "row acted, cursor back on top");
 
     expect(storedGuardrail(home)).toBe(false);
     expect(toasts.some((t) => t.includes("guardrail off · from your next session"))).toBe(true);
@@ -594,8 +592,7 @@ describe("settings Jev entry: the guardrail row (#1041)", () => {
 
     // ...and back on, in the same entry, leaving an explicit flag.
     await gotoOption(i, JEV_OPTION.guardrail);
-    i.stdin.write("\r");
-    await sleep(60);
+    await enterBackToTop(i, "row acted, cursor back on top");
     expect(storedGuardrail(home)).toBe(true);
     expect(toasts.some((t) => t.includes("guardrail on · from your next session"))).toBe(true);
     i.unmount();
@@ -604,10 +601,9 @@ describe("settings Jev entry: the guardrail row (#1041)", () => {
   test("every row of the entry states what it does, and the use cases share the /jev words (#1041)", async () => {
     const { cwd, home } = setup();
     const { i } = mount(cwd, home, async () => ({ status: "active", latencyMs: 1 }));
-    await sleep(30);
+    await mounted(i);
     await gotoJevRow(i);
-    i.stdin.write("\r");
-    await sleep(30);
+    await openEntry(i);
 
     const frame = () => stripAnsi(i.lastFrame() ?? "").replace(/[\s│]+/g, " ");
     /** The words the row must carry, in row order: the seven use cases read

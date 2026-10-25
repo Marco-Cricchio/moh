@@ -349,7 +349,9 @@ export class AgentSession {
     });
     this.#onAskUser = config.onAskUser;
     this.#onConfirmTurn = config.onConfirmTurn;
-    this.#eventLog = new EventLog({ sink: config.sink, extensions: config.extensions });
+    // #1487: a throwing onEvent hook's failure is appended through the
+    // session's own append, so it takes the turn pin like any other event.
+    this.#eventLog = new EventLog({ sink: config.sink, extensions: config.extensions, write: (event) => this.#append(event) });
     // Resume (#31): the persisted history seeds the log here, before anything
     // else can append. Registration of a bundled extension resolves on a
     // microtask — which Bun may run inside a synchronous child-process spawn
@@ -743,9 +745,9 @@ export class AgentSession {
               dispatch: (text, turnIndex, model) =>
                 dispatchBeforeTurn({ text, turnIndex, model, endpointCooldowns: this.endpointCooldowns }),
               applyModel: (ref) => this.switchModel(ref),
-              // #1143: the per-turn `extension_event` budget resets at
-              // dispatch entry — `beforeTurn` runs before the
-              // `user_message` append that used to reset it. Owner and
+              // #1143/#1487: the per-turn `extension_event` budget resets
+              // once per turn, at the loop's turn entry — before
+              // `beforeTurn` runs, synthetic turns included. Owner and
               // borrowed sessions reset their own budget.
               beginBudgetTurn: () => {
                 if (this.#extensions) this.#extensions.beginTurn(this.#sessionId);
@@ -1180,13 +1182,13 @@ export class AgentSession {
     try {
       // openai-compat has its own plain listing (endpoint-models.ts);
       // every other kind goes through the verified live-models
-      // contracts. Either way the credential is resolved host-side
-      // and the ids are all the extension sees.
-      const models = profile.type === "openai-compat"
+      // contracts, whose listings are narrowed to their ids. Either
+      // way the credential is resolved host-side and the ids are all
+      // the extension sees (#1599).
+      const models: string[] = profile.type === "openai-compat"
         ? await listOpenAiCompatModels(profile.baseUrl!, profile.apiKey)
-        : await listProviderModels(profile.type, profile.name, { ...(profile.baseUrl ? { baseUrl: profile.baseUrl } : {}), ...(profile.apiKey ? { apiKey: profile.apiKey } : {}) });
-      // #1438: non-openai-compat kinds return LiveModelListing[], not the promised ids; kept as is on purpose (ablation step, see the issue draft).
-      return { ok: true as const, models: models as string[] };
+        : (await listProviderModels(profile.type, profile.name, { ...(profile.baseUrl ? { baseUrl: profile.baseUrl } : {}), ...(profile.apiKey ? { apiKey: profile.apiKey } : {}) })).map((listing) => listing.id);
+      return { ok: true as const, models };
     } catch (err) {
       return { ok: false as const, reason: "failed" as const, message: err instanceof Error ? err.message : String(err) };
     }
@@ -1943,7 +1945,7 @@ export class AgentSession {
     // waits for the setup to settle — a hook is never missing from a turn's
     // first tool call. No pending registration (the common case): `send`
     // starts the turn synchronously, exactly as before.
-    const start = (): Promise<TurnResult> => this.#queue.send(text, options?.prompt);
+    const start = (): Promise<TurnResult> => this.#queue.send(text, options?.prompt, options?.signal);
     // #790: the rerank rescue runs inside the turn-start chain (it must
     // land before the first prompt assembly). Nothing to wait for keeps
     // today's synchronous start — `send` begins the turn in the same tick,
@@ -2276,18 +2278,12 @@ export class AgentSession {
   }
 
   #append(event: AgentEvent): void {
-    // ADR-0032: a turn begins with its user_message — the per-session
-    // `extension_event` cap counts per turn, so the counter resets here
-    // (steering sends are turns too). #981: the budget belongs to the
-    // session whose turn started: its own when it owns the runtime, the
-    // borrowed one's when it runs through the parent's.
-    if (event.type === "user_message") {
-      if (this.#extensions) this.#extensions.beginTurn(this.#sessionId);
-      else this.#borrowedHooks?.beginBorrowedTurn(this.#sessionId);
-      // ADR-0037: a real (non-synthetic) user turn refills every
-      // extension's synthetic-turn budget.
-      if (event.synthetic !== true) this.#extensions?.noteRealTurn();
-    }
+    // ADR-0032: the per-session `extension_event` cap counts per turn. Its
+    // reset is the loop's, once per turn at turn entry (#1143, #1487) — a
+    // second reset here let a turn whose `beforeTurn` recorded spend two
+    // budgets. ADR-0037: a real (non-synthetic) user turn refills every
+    // extension's synthetic-turn budget.
+    if (event.type === "user_message" && event.synthetic !== true) this.#extensions?.noteRealTurn();
     // #759: the reasoning text of the last persisted call is the low-tier
     // orientation seed source. Content stays in the log; only the plan
     // (paths + reasons) ever reaches the prompt.
@@ -2335,18 +2331,23 @@ export class AgentSession {
       event.parentId === undefined && event.type !== "branch_switched"
         ? (this.#turnHead ?? (this.#diverged ? this.#localTip : undefined))
         : undefined;
-    const stamped = this.#eventLog.append(
-      pinned ? { ...event, parentId: pinned } : event,
-    );
-    // The pin advances through the turn's own events only — a switch line
-    // rides the old branch without moving the turn's head.
-    if (this.#turnHead !== undefined && event.type !== "branch_switched") {
-      this.#turnHead = stamped.id;
-    }
-    // The local tip only advances through this writer's own appends.
-    if (stamped.type !== "session_file_growth" || stamped.localTip !== undefined) {
-      this.#localTip = stamped.id;
-    }
+    // #1487: the pin and the local tip advance as soon as the event is
+    // stored, before its onEvent dispatch can start. With the queue idle
+    // that dispatch runs inside this append, and a hook appending from it
+    // must chain past this event — on the stale pin its events were a
+    // sibling the rest of the turn abandoned. Nested appends advance both
+    // in turn; nothing overwrites them on the way out.
+    this.#eventLog.append(pinned ? { ...event, parentId: pinned } : event, (stamped) => {
+      // The pin advances through the turn's own events only — a switch line
+      // rides the old branch without moving the turn's head.
+      if (this.#turnHead !== undefined && event.type !== "branch_switched") {
+        this.#turnHead = stamped.id;
+      }
+      // The local tip only advances through this writer's own appends.
+      if (stamped.type !== "session_file_growth" || stamped.localTip !== undefined) {
+        this.#localTip = stamped.id;
+      }
+    });
   }
   /**
    * #576: moves the head for this live session by appending one validated

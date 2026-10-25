@@ -35,9 +35,15 @@ export const PRE_COMMIT_TARGET = ".git/hooks/pre-commit";
  * repository (tests write to bare temp dirs).
  */
 function gitDir(projectRoot: string): string {
-  const probe = gitSync(projectRoot, ["rev-parse", "--path-format=absolute", "--git-common-dir"], { dir: "cwd", stderr: "ignore" });
-  const out = probe.stdout.trim();
-  return probe.exitCode === 0 && out ? out : join(projectRoot, ".git");
+  const fallback = join(projectRoot, ".git");
+  try {
+    const probe = gitSync(projectRoot, ["rev-parse", "--path-format=absolute", "--git-common-dir"], { dir: "cwd", stderr: "ignore" });
+    const out = probe.stdout.trim();
+    return probe.exitCode === 0 && out ? out : fallback;
+  } catch {
+    // A failed spawn (git missing, cwd missing) is a non-zero exit (#1614).
+    return fallback;
+  }
 }
 
 /** The detector's fixed observation fingerprint for the pre-commit shape

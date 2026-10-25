@@ -5,7 +5,61 @@ All notable changes to moh are documented here. The format follows
 SemVer. Each release's GitHub Release description is extracted from the
 matching section here at tag time.
 
-## [Unreleased]
+## [0.65.4] - 2026-10-25
+
+### Added
+
+- **`/code-review apply`** (#1633 slice 2): the construction-time
+  counterpart of the review. On your own change (uncommitted work
+  included) it fixes the lean smells of the Standards axis — speculative
+  generality, duplication, middle men, code left unused — keeps every other
+  smell as a report, re-runs typecheck and the touched tests, and reverts a
+  fix that breaks them. `/implement` runs it before the two-axis review.
+- **Repo-declared checks** (ADR-0080, #1633): `moh.json` `checks` declares
+  named commands (a non-zero exit is a failure). `moh init` proposes the
+  repository's own tools, or pinned `jscpd` and `lizard` commands, into a
+  new `moh.json` and never edits an existing one. The new bundled checks
+  extension runs them after a turn that changed files, one at a time
+  through the bash tool and your permission rules, and reports in the
+  footer; its enable consent lists the exact commands, per project, and
+  asks again when they change. A failing `block: true` check becomes a
+  correction turn for the model (at most two in a row, then the footer
+  reads `✗ (unresolved)`); report-only results never reach it.
+
+### Changed
+
+- **A bare `host:<domain>` grant admits https on port 443 only** (ADR-0066,
+  #1573): `host:api.example.com` no longer admits
+  `https://api.example.com:8443/`; `host:*.domain` and `host:*` follow the
+  same rule. An extension that contacts a non-standard port must now
+  declare it (`host:api.example.com:8443`). No bundled extension relied on
+  the wider behavior.
+- **Base prompt v3: lean by default** (ADR-0079, #1633): the shipped
+  prompt's Code section now asks for a caller for every abstraction, one
+  place per fact, extending the existing helper before writing one, and
+  deleting what a change leaves unused. New Tool use and Review sections;
+  rewriting git history (including `reset --hard`) only when explicitly
+  asked; insecure code is flagged and fixed when in scope.
+- **`moh init` scaffolds `docs/agents/code-quality.md`** (#1633): the lean
+  posture in repo terms, referenced from the AGENTS.md moh section, so any
+  harness reading the repository picks it up.
+
+### Removed
+
+- **`MOH_TYPEWRITER_MS` and `MOH_TYPEWRITER_CHARS` are gone** (#1511): the
+  typewriter pacing knobs have had no effect since #1054 (the `reveal` prop
+  was never fed from them), and the dead wiring was removed in #1510. They
+  are not re-wired; no pacing configuration replaces them.
+
+### Fixed
+
+- **Closing a modal while a turn runs no longer loses transcript rows**
+  (#1489): after answering a tool permission, the blocks that settled while
+  the prompt was open or just after it closed (the reply text before the
+  tool, the tool result, the permission rows, the follow-up reply) could
+  print into the closing modal's screen and vanish, or the first repaint
+  could erase rows above the session frame, depending on timing. They now
+  always land in the chat history, right below what was there before.
 
 ## [0.65.3] - 2026-10-23
 
@@ -1348,6 +1402,9 @@ security audit, each fixed behind its own PR.
   No deletion landed before its replacement existed, each move was accepted
   by showing the new test red under a mutation that violates the old
   assertion, and the legacy `MOH_TYPEWRITER_*` knobs still work unchanged.
+  *Correction (2026-10-24, #1511):* that last clause was wrong. The
+  `MOH_TYPEWRITER_*` knobs have been inert since #1054; see the Removed
+  entry under [Unreleased].
 - **The extension and orchestration decisions are recorded** (#999, PR
   #1051, ADR-0054 through ADR-0056): prompt-section replacement (the six
   replaceable sections, one author per composition, the provenance line, the
@@ -3106,6 +3163,9 @@ security audit, each fixed behind its own PR.
   is preserved across the promotion handover. Streaming oracles were
   rebuilt for the reveal era and the PTY harness commits scrollback with
   sync blocks for deterministic checkpoints.
+  *Correction (2026-10-24, #1511):* the `MOH_TYPEWRITER_CHARS` knob named
+  above has been inert since #1054 and is removed; see the Removed entry
+  under [Unreleased].
 
 ### Fixed
 

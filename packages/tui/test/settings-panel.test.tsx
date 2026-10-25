@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, test } from "bun:test";
 import { render } from "ink-testing-library";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -7,7 +7,7 @@ import { loadMohConfig, readUserProviderConfig, upsertUserEndpoint } from "@moh/
 import { SettingsPanel } from "../src/SettingsPanel";
 import { DEFAULT_USER_CONFIG, type UserConfig } from "../src/user-config";
 import { ThemeProvider, THEMES, DEFAULT_THEME, THEME_ORDER } from "../src/themes";
-import { stripAnsi, waitForCondition, waitForFrame } from "./helpers";
+import { stripAnsi, unmountSettled, waitForCondition, waitForFrame } from "./helpers";
 
 function setupCwd(): string {
   const cwd = mkdtempSync(join(tmpdir(), "moh-set-"));
@@ -23,6 +23,15 @@ function setupCwd(): string {
   );
   return cwd;
 }
+
+/**
+ * #1495: every panel this file mounts, so a test that fails before its own
+ * unmount still leaves no live tree behind for the next test's mount.
+ */
+const live: { unmount: () => void }[] = [];
+afterEach(async () => {
+  for (const view of live.splice(0)) await unmountSettled(view);
+});
 
 function mount(cwd: string, overrides: Partial<Parameters<typeof SettingsPanel>[0]> = {}) {
   const changes: Partial<UserConfig>[] = [];
@@ -48,6 +57,7 @@ function mount(cwd: string, overrides: Partial<Parameters<typeof SettingsPanel>[
       <SettingsPanel {...props} />
     </ThemeProvider>,
   );
+  live.push(i);
   return { i, changes, switched, toasts, wizardCount: () => wizard };
 }
 
@@ -173,7 +183,7 @@ describe("settings panel ToS card (#444)", () => {
     await settle(i, "Machine-written informational summary", "back from the ToS card", { absent: true });
     frame = stripAnsi(i.lastFrame() ?? "");
     expect(frame).toContain("anthropic"); // endpoint list again
-    i.unmount();
+    await unmountSettled(i);
   });
 });
 
@@ -203,7 +213,7 @@ describe("settings panel (issue #33)", () => {
     // The list scrolls: the rows below the fold are reachable, not missing.
     await gotoRow(i.i, "Provider reasoning");
     expect(stripAnsi(i.i.lastFrame() ?? "")).toContain("Provider reasoning");
-    i.i.unmount();
+    await unmountSettled(i.i);
   });
 
   test("enter toggles fields and persists via onChange", async () => {
@@ -224,7 +234,7 @@ describe("settings panel (issue #33)", () => {
     expect(changes).toContainEqual({ mode: "dev" });
     expect(changes).toContainEqual({ theme: "catppuccin" });
     expect(changes).toContainEqual({ icons: false });
-    i.unmount();
+    await unmountSettled(i);
   });
 
   test("Session handoff shows its project transport state and opens its chooser", async () => {
@@ -238,7 +248,7 @@ describe("settings panel (issue #33)", () => {
     i.stdin.write("\r");
     await until(i, () => opened > 0, "the handoff chooser callback");
     expect(opened).toBe(1);
-    i.unmount();
+    await unmountSettled(i);
   });
 
   test("provider reasoning sets the persisted global display default", async () => {
@@ -248,7 +258,7 @@ describe("settings panel (issue #33)", () => {
     i.stdin.write("\r");
     await until(i, () => changes.some((c) => "showReasoning" in c), "the reasoning change");
     expect(changes).toContainEqual({ showReasoning: true });
-    i.unmount();
+    await unmountSettled(i);
   });
 
   test("provider switch is hierarchical: endpoint → model, rewrites defaultModel + provider in moh.json", async () => {
@@ -283,7 +293,7 @@ describe("settings panel (issue #33)", () => {
     const config = loadMohConfig(join(cwd, "moh.json"));
     expect(config.provider).toBe("openai/gpt-5.4");
     expect(config.endpoints?.find((e) => e.name === "openai")?.defaultModel).toBe("gpt-5.4");
-    i.unmount();
+    await unmountSettled(i);
   });
 
   test("ADR-0049: the model rows show a provider-declared window next to the catalog one", async () => {
@@ -308,7 +318,7 @@ describe("settings panel (issue #33)", () => {
     expect(frame).toContain("claude-fable-5) · ctx 131k declared");
     // The sibling that declared nothing renders exactly as before.
     expect(frame).toContain("claude-fable-5-1) · ctx 1000k");
-    i.unmount();
+    await unmountSettled(i);
   });
 
   test("typing in the model level filters the catalog incrementally", async () => {
@@ -326,17 +336,21 @@ describe("settings panel (issue #33)", () => {
     await settle(i, "› openai", "cursor on the openai endpoint");
     i.stdin.write("\r");
     await settle(i, "type to filter", "model level opened");
+    // The catalog must be listed before typing, or the "gpt-5.5 left" wait
+    // below could pass on a list that has not loaded yet (#1625).
+    await settle(i, "gpt-5.5", "catalog listed before the filter");
     i.stdin.write("mini");
     // #1042: the model list windows to the terminal height now, so a slow
     // keystroke commit can show one filtered row next to unfiltered ones —
     // wait for the full filter to settle, not just for one matching row.
-    await waitForCondition(
-      () => !stripAnsi(i.lastFrame() ?? "").includes("gpt-5.5"),
-      () => "for gpt-5.5 to leave the filtered list",
+    await until(
+      i,
+      () => frameOf(i).includes("gpt-5.4-mini") && !frameOf(i).includes("gpt-5.5"),
+      "the filtered list (gpt-5.4-mini kept, gpt-5.5 gone)",
     );
     expect(frame()).toContain("gpt-5.4-mini");
     expect(frame()).not.toContain("gpt-5.5");
-    i.unmount();
+    await unmountSettled(i);
   });
 
   test("provider remove deletes the endpoint from moh.json", async () => {
@@ -352,7 +366,7 @@ describe("settings panel (issue #33)", () => {
     const config = loadMohConfig(join(cwd, "moh.json"));
     expect(config.endpoints?.map((e) => e.name)).toEqual(["anthropic"]);
     expect(toasts.some((t) => t.includes("removed endpoint openai"))).toBe(true);
-    i.unmount();
+    await unmountSettled(i);
   });
 
   test("removing the active endpoint resets the default provider to a remaining one", async () => {
@@ -365,7 +379,7 @@ describe("settings panel (issue #33)", () => {
     i.stdin.write("\r"); // first option = anthropic (the active one)
     await toasted(i, toasts, "removed endpoint anthropic");
     expect(loadMohConfig(join(cwd, "moh.json")).provider).toBe("openai/gpt-5");
-    i.unmount();
+    await unmountSettled(i);
   });
 
   test("add provider opens the wizard overlay", async () => {
@@ -375,7 +389,7 @@ describe("settings panel (issue #33)", () => {
     h.i.stdin.write("\r");
     await until(h.i, () => h.wizardCount() > 0, "the wizard callback");
     expect(h.wizardCount()).toBe(1);
-    h.i.unmount();
+    await unmountSettled(h.i);
   });
 
   test("esc closes; submenus back out with esc first", async () => {
@@ -392,7 +406,7 @@ describe("settings panel (issue #33)", () => {
     i.stdin.write("\x1b");
     await until(i, () => closed > 0, "the close callback");
     expect(closed).toBe(1);
-    i.unmount();
+    await unmountSettled(i);
   });
 });
 
@@ -420,7 +434,7 @@ describe("merged provider endpoints (#129)", () => {
       await settle(i, `› ${endpoint}`, `cursor on ${endpoint}`);
     }
     expect(frame()).toContain("zai (user)");
-    i.unmount();
+    await unmountSettled(i);
   });
 
   test("picking a model on a user openai-compat endpoint fetches the live list and switches only the provider ref", async () => {
@@ -466,7 +480,7 @@ describe("merged provider endpoints (#129)", () => {
       // user endpoint: its defaultModel is never rewritten here
       expect(readUserProviderConfig(userFile).endpoints?.find((e) => e.name === "zai")?.defaultModel).toBe("glm-5.3");
       expect(loadMohConfig(join(cwd, "moh.json")).endpoints?.some((e) => e.name === "zai")).toBe(false);
-      i.unmount();
+      await unmountSettled(i);
     } finally {
       server.stop(true);
     }
@@ -493,7 +507,7 @@ describe("merged provider endpoints (#129)", () => {
     await toasted(i, toasts, "removed endpoint zai");
     expect(readUserProviderConfig(userFile).endpoints?.some((e) => e.name === "zai")).toBe(false);
     expect(toasts.some((t) => t.includes("removed endpoint zai"))).toBe(true);
-    i.unmount();
+    await unmountSettled(i);
   });
 });
 
@@ -523,7 +537,7 @@ describe("fallback models screen (ADR-0012 preferred model)", () => {
     expect(frame).toContain("Fallback models");
     // anthropic + openai (project) + zai (user) all carry a preferred model.
     expect(frame).toContain("3 of 3 endpoint(s)");
-    i.i.unmount();
+    await unmountSettled(i.i);
   });
 
   test("lists every endpoint with its preferred model, and why one cannot be a stop", async () => {
@@ -549,7 +563,7 @@ describe("fallback models screen (ADR-0012 preferred model)", () => {
     await waitForFrame(() => overline(i.i.lastFrame() ?? ""), "zai · 📌 glm-5.3-flash");
     frame = stripAnsi(i.i.lastFrame() ?? "");
     expect(frame).toContain("zai · 📌 glm-5.3-flash");
-    i.i.unmount();
+    await unmountSettled(i.i);
   });
 
   test("a burst of arrow presses inside one commit window moves the cursor every time (#930)", async () => {
@@ -571,7 +585,7 @@ describe("fallback models screen (ADR-0012 preferred model)", () => {
       () => overline(i.i.lastFrame() ?? "").includes("zai · 📌 glm-5.3-flash"),
       () => `for the burst to land on the zai stop — swallowed key; cursor is on: ${overline(i.i.lastFrame() ?? "")}`,
     );
-    i.i.unmount();
+    await unmountSettled(i.i);
   });
 
   test("picking a model writes the preferred model and NEVER switches the active provider", async () => {
@@ -594,7 +608,7 @@ describe("fallback models screen (ADR-0012 preferred model)", () => {
     expect(i.switched).toEqual([]);
     // …and the toast says so.
     expect(i.toasts.some((t) => t.includes("fallback: openai →"))).toBe(true);
-    i.i.unmount();
+    await unmountSettled(i.i);
   });
 
   test("picking a preferred model for a USER endpoint writes ~/.moh/config, not moh.json", async () => {
@@ -615,7 +629,7 @@ describe("fallback models screen (ADR-0012 preferred model)", () => {
     // moh.json is untouched: no user endpoint leaked into the project file.
     const project = loadMohConfig(join(cwd, "moh.json"));
     expect(project.endpoints!.some((e) => e.name === "zai")).toBe(false);
-    i.i.unmount();
+    await unmountSettled(i.i);
   });
 
   test("`x` excludes the whole provider while keeping its preferred model, and puts it back", async () => {
@@ -644,7 +658,7 @@ describe("fallback models screen (ADR-0012 preferred model)", () => {
     // Re-including removes the key instead of writing `true`.
     expect("fallbackEligible" in after).toBe(false);
     expect(i.toasts.some((t) => t.includes("anthropic back in the chain"))).toBe(true);
-    i.i.unmount();
+    await unmountSettled(i.i);
   });
 
   test("`x` on a USER endpoint writes ~/.moh/config", async () => {
@@ -660,7 +674,7 @@ describe("fallback models screen (ADR-0012 preferred model)", () => {
     expect(zai.defaultModel).toBe("glm-5.3-flash");
     // No user endpoint leaked into the project file.
     expect(loadMohConfig(join(cwd, "moh.json")).endpoints!.some((e) => e.name === "zai")).toBe(false);
-    i.i.unmount();
+    await unmountSettled(i.i);
   });
 
   test("`c` clears the preferred model and drops the endpoint out of the chain", async () => {
@@ -676,7 +690,7 @@ describe("fallback models screen (ADR-0012 preferred model)", () => {
     expect("defaultModel" in anthropic).toBe(false);
     expect(i.toasts.some((t) => t.includes("removed from the chain"))).toBe(true);
     expect(stripAnsi(i.i.lastFrame() ?? "")).toContain("anthropic · — no preferred model");
-    i.i.unmount();
+    await unmountSettled(i.i);
   });
 });
 
@@ -710,7 +724,7 @@ describe("max iterations row (#498)", () => {
     frame = stripAnsi(i.lastFrame() ?? "");
     expect(frame).not.toContain("anti-runaway");
     expect(toasts.some((t) => t.includes("unlimited"))).toBe(true);
-    i.unmount();
+    await unmountSettled(i);
   });
 
   test("cycles backward on shift+tab (wraps unlimited → 500)", async () => {
@@ -727,7 +741,7 @@ describe("max iterations row (#498)", () => {
     i.stdin.write("\x1b[Z"); // unlimited → 500
     await toasted(i, toasts, iterToast("500"));
     expect(loadMohConfig(join(cwd, "moh.json")).maxIterations).toBe(500);
-    i.unmount();
+    await unmountSettled(i);
   });
 
   test("warning re-arms after leaving unlimited and returning", async () => {
@@ -743,7 +757,7 @@ describe("max iterations row (#498)", () => {
     await toasted(i, toasts, iterToast("unlimited"));
     await settle(i, "unlimited", "the unlimited value painted");
     expect(stripAnsi(i.lastFrame() ?? "")).toContain("anti-runaway");
-    i.unmount();
+    await unmountSettled(i);
   });
 
   test("round-trips an existing unlimited config and shows the row value", async () => {
@@ -760,7 +774,7 @@ describe("max iterations row (#498)", () => {
     await gotoRow(i, "Max iterations/turn");
     const frame = stripAnsi(i.lastFrame() ?? "");
     expect(frame).toContain("unlimited");
-    i.unmount();
+    await unmountSettled(i);
   });
 });
 
@@ -776,7 +790,7 @@ describe("max iterations row (#498) — right arrow", () => {
     i.stdin.write("\x1b[C"); // →: 100 → 200
     await toasted(i, toasts, iterToast("200"));
     expect(loadMohConfig(join(cwd, "moh.json")).maxIterations).toBe(200);
-    i.unmount();
+    await unmountSettled(i);
   });
 
   test("MPM row (ADR-0026): cycles inherit → on → off → inherit and persists to moh.json", async () => {
@@ -804,7 +818,7 @@ describe("max iterations row (#498) — right arrow", () => {
     await settle(i, "inherit (global default)", "the inherit value painted");
     expect(loadMohConfig(join(cwd, "moh.json")).mpm).toBeUndefined();
     expect(stripAnsi(i.lastFrame() ?? "")).toContain("inherit (global default)");
-    i.unmount();
+    await unmountSettled(i);
   });
 
   test("MPM row shows an existing explicit off as its starting state", async () => {
@@ -817,7 +831,7 @@ describe("max iterations row (#498) — right arrow", () => {
     await mounted(i);
     await gotoRow(i, "Moh Project Map");
     expect(stripAnsi(i.lastFrame() ?? "")).toContain("off (this project)");
-    i.unmount();
+    await unmountSettled(i);
   });
 });
 
@@ -852,7 +866,7 @@ describe("user themes in settings (#749)", () => {
     i.stdin.write("\r");
     await settle(i, "enter change · esc close", "theme picker closed");
     expect(changes).toContainEqual({ theme: "user:my-violet" });
-    i.unmount();
+    await unmountSettled(i);
   });
 
   test("My themes… opens the theme studio; sliders derive colors; naming saves & applies", async () => {
@@ -879,7 +893,7 @@ describe("user themes in settings (#749)", () => {
     expect(onDisk.id).toBe("my-neon");
     expect(onDisk.name).toBe("My Neon");
     expect(onDisk.colors.accent).toMatch(/^#[0-9a-f]{6}$/);
-    i.unmount();
+    await unmountSettled(i);
   });
 
   test("studio: enter on an override row clears to auto and does NOT close the modal", async () => {
@@ -897,7 +911,7 @@ describe("user themes in settings (#749)", () => {
     expect(frame()).toContain("theme studio");
     expect(frame()).toContain("auto");
     expect(changes.every((c) => !("theme" in c))).toBe(true); // nothing applied
-    i.unmount();
+    await unmountSettled(i);
   });
 
   test("studio: 'n' opens the name prompt from an override row; esc returns to the studio", async () => {
@@ -914,7 +928,7 @@ describe("user themes in settings (#749)", () => {
     await settle(i, "theme name:", "esc out of the name prompt", { absent: true });
     expect(frame()).toContain("theme studio");
     expect(changes.every((c) => !("theme" in c))).toBe(true);
-    i.unmount();
+    await unmountSettled(i);
   });
 
   test("studio: create a theme, then delete it from the manage view (r → d)", async () => {
@@ -943,7 +957,7 @@ describe("user themes in settings (#749)", () => {
       () => !existsSync(join(home, ".moh", "themes", "temp.json")),
       () => `for deletion; frame: ${frame()}`,
     );
-    i.unmount();
+    await unmountSettled(i);
   });
 
   test("studio: deleting the ACTIVE theme from manage view applies the base fallback", async () => {
@@ -964,7 +978,7 @@ describe("user themes in settings (#749)", () => {
       { timeoutMs: 10_000 },
     );
     expect(changes).toContainEqual({ theme: "candy" });
-    i.unmount();
+    await unmountSettled(i);
   });
 
   test("deleting the active user theme falls back to a built-in", async () => {
@@ -991,6 +1005,6 @@ describe("user themes in settings (#749)", () => {
     // #749: deleting the active theme falls back to its extends base, not a
     // hardcoded preset.
     expect(changes).toContainEqual({ theme: "candy" });
-    i.unmount();
+    await unmountSettled(i);
   });
 });

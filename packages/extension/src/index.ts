@@ -1077,10 +1077,13 @@ export interface ExtensionSetupContext {
    * and its tool calls are gated exactly like any other.
    *
    * The promise resolves when the requested turn settles — `true` when it
-   * ran, `false` when the core refused it (the consecutive-synthetic-turn
-   * cap of 2 is reached, a turn is already in flight, or the session is
-   * disposed/closed). Refusals are also recorded as a visible
-   * `extension_failed`-style event, never silently dropped. On a runtime
+   * ran, `false` when the core refused it (the text is empty, the
+   * consecutive-synthetic-turn cap of 2 is reached, no session is bound
+   * yet, or the session is disposed/closed). A request made while a turn
+   * is running is not refused: it is queued and runs when the slot is
+   * free, after any queued user sends, and never preempts the active
+   * turn. Refusals other than disposal are also recorded as a visible
+   * `extension_failed` event, never silently dropped. On a runtime
    * older than 1.6 the method is absent and calling it throws: check with
    * `typeof ctx.requestTurn === "function"` if you support older hosts.
    */
