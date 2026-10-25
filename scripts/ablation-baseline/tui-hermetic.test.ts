@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { scenarios, specFor } from "./tui";
+import { recordedExitCode, scenarios, specFor } from "./tui";
 
 // #1517: B5 baselines never touch the network. These tests exercise the spec
 // that `tui.ts main()` hands to `runPtyRaw` (`specFor`) and assert literals,
@@ -48,5 +48,21 @@ describe("B5 scenarios are hermetic", () => {
     const spec = specFor({ name: "x", spec: () => ({ cols: 1, rows: 1, steps: [], env: { TERM_PROGRAM: "x" } }) }, url);
     expect(spec.env?.TERM_PROGRAM).toBe("x");
     expect(spec.meta).toBe(true);
+  });
+});
+
+// #1524: a signal-killed child's status depends on how fast it shut down, not
+// on what the TUI does; the recorded value must not.
+describe("B5 recorded exit code", () => {
+  test("the harness's SIGKILL fallback records the same value as its SIGTERM", () => {
+    expect(recordedExitCode(-9)).toBe(-15);
+    expect(recordedExitCode(-15)).toBe(-15);
+  });
+
+  test("a clean exit, a running child and any other status stay distinguishable", () => {
+    expect(recordedExitCode(0)).toBe(0);
+    expect(recordedExitCode(null)).toBeNull();
+    expect(recordedExitCode(1)).toBe(1);
+    expect(recordedExitCode(-2)).toBe(-2);
   });
 });

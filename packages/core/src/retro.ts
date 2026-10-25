@@ -455,6 +455,10 @@ function head(text: string): string {
  * - `tool-economy` — the same expensive bash command re-issued within
  *   one session (the #304 rerun ledger's territory), or repeated tool
  *   timeouts.
+ * - `structural-drift` (#1633 slice 5) — a repo-declared check (moh.json
+ *   `checks`, ADR-0080) still failing at the end of the session, read from
+ *   the `checks` extension events. One finding per check name, so the same
+ *   check failing across sessions dedups into one accumulating finding.
  *
  * Returns nothing for a session that used no tools.
  */
@@ -529,6 +533,28 @@ export function extractRetroFindings(
       confidence: 0.6,
       session,
       signature: retroSignature("tool-economy", "timeouts"),
+    });
+  }
+
+  // (c) Structural drift: the last recorded outcome of each declared check.
+  const lastOutcome = new Map<string, { outcome: string; block: boolean }>();
+  for (const e of events) {
+    if (e.type !== "extension_event" || e.extension !== "checks" || e.name !== "checks") continue;
+    const run = (e.payload as { results?: unknown } | undefined)?.results;
+    if (!Array.isArray(run)) continue;
+    for (const r of run) {
+      const { name, outcome, block } = (r ?? {}) as { name?: unknown; outcome?: unknown; block?: unknown };
+      if (typeof name === "string" && typeof outcome === "string") lastOutcome.set(name, { outcome, block: block === true });
+    }
+  }
+  for (const [name, { outcome, block }] of lastOutcome) {
+    if (outcome !== "fail") continue;
+    candidates.push({
+      category: "structural-drift",
+      evidence: `the ${block ? "blocking " : ""}check \`${head(name)}\` was still failing at the end of the session`,
+      confidence: block ? 0.7 : 0.5,
+      session,
+      signature: retroSignature("structural-drift", `check:${name}`),
     });
   }
 

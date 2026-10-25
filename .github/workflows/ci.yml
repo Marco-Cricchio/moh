@@ -10,6 +10,8 @@
 #   typecheck  — bun run typecheck (~30s)
 #   core       — packages/core + packages/extension
 #   cli        — packages/cli
+#   packages   — packages/team, packages/jev-guard and packages/evals unit
+#                tests (#1498; ~7s of tests locally, no retry)
 #   scripts    — build/install/platform-vocabulary tests plus the
 #                compiled-binary gate (#1068: compiles the release artifact
 #                and runs mock sessions against it — ~1s on CI, a few
@@ -26,14 +28,14 @@
 # the tagged tree is the develop tree the PR checks already covered.
 name: ci
 
-# The test jobs run one exact Bun. `latest` made the gate a moving
-# target (#1061): the runner resolved 1.4.2 while a local checkout ran
-# 1.2.19, so "green on CI" and "green locally" were different claims.
-# Pinned to the version this suite was last verified green on; bumping it
-# is a deliberate change reviewed like any other, not a side effect of a
-# PR that happened to run that day.
+# Every workflow runs Bun `latest` (ADR-0081). The release builds the
+# shipped binary on `latest`, so the gate must test that runtime: the
+# earlier pin (ADR-0057, #1061) left CI on 1.4.2 while 0.65.4 shipped on
+# 1.4.4, and "green on CI" stopped describing the binary users run.
+# Local checkouts follow too (`bun upgrade`). A red that only a new Bun
+# explains is fixed forward, not pinned around.
 env:
-  BUN_VERSION: "1.4.2"
+  BUN_VERSION: latest
 
 on:
   pull_request:
@@ -90,6 +92,22 @@ jobs:
       - run: bun install --frozen-lockfile
       - run: bun test packages/cli
 
+  # Unit tests of the packages no other job runs (#1498): team, jev-guard and
+  # the evals harness's own tests (the `evals` job below runs the suites, not
+  # `bun test`). A separate job rather than a step of core/cli: the tests
+  # take ~7s, so the cost is the checkout/install, and a failure here stays
+  # attributable to these packages instead of hiding in an unrelated job.
+  packages:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: ${{ env.BUN_VERSION }}
+      - run: bun install --frozen-lockfile
+      - run: bun test packages/team/test packages/jev-guard/test packages/evals/test
+
   # Scripts tests (#916): the compile targets, the release matrix, the
   # installer's uname mapping and the self-update vocabulary are four copies
   # of one platform list, and the release workflow that consumes them only
@@ -131,8 +149,8 @@ jobs:
         with:
           bun-version: ${{ env.BUN_VERSION }}
       - run: bun install --frozen-lockfile
-      # Non-PTY TUI tests only (top-level test dir); the PTY tail runs in
-      # its own job below. Globs avoid bun --exclude, which this version
+      # Non-PTY TUI tests only (every test dir except pty/); the PTY tail runs in
+      # its own job below. The file list avoids bun --exclude, which this version
       # ignores for directory args. The retry mirrors tui-pty: known
       # load-dependent flakes (frame reads racing a slow paint, #930) pass
       # when the job is re-run, so the job re-runs itself once instead of
@@ -140,7 +158,7 @@ jobs:
       - name: TUI unit tests (retry once)
         run: |
           set +e
-          globs="packages/tui/test/*.test.ts packages/tui/test/*.test.tsx"
+          globs=$(find packages/tui/test -type f \( -name '*.test.ts' -o -name '*.test.tsx' \) -not -path 'packages/tui/test/pty/*' | LC_ALL=C sort | tr '\n' ' ')
           bun test --preload ./packages/tui/test/faketty/ci-mask.ts $globs
           first=$?
           if [ "$first" -eq 0 ]; then

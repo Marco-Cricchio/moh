@@ -136,3 +136,17 @@ test("each token kind is numbered on its own: another kind registered first does
   const m = normalizer();
   expect(m.text(`id deadbeef-0000 ${SID_A}`)).toBe("id <uuid8:0>-0000 <session:0>");
 });
+
+// #1538: an id painted inside the status row's masked `▣ … ◉` span must not
+// take a number: it is erased, so it would only renumber the header's id.
+test("a session id inside the masked status span does not renumber the header id", () => {
+  const n = normalizer();
+  expect(n.text("▣ /x session-bbbbbbbb ◉ dev", "display")).toBe("▣ <path>◉ dev");
+  expect(n.text("MoH - v0.1.0  session-aaaaaaaa", "display")).toBe("MoH - v0.1.0  <session:0>");
+});
+
+test("the header id keeps its number when the same id also appears in the masked span", () => {
+  const n = normalizer();
+  expect(n.text("▣ /x session-aaaaaaaa ◉ dev", "display")).toBe("▣ <path>◉ dev");
+  expect(n.text("MoH - v0.1.0  session-aaaaaaaa", "display")).toBe("MoH - v0.1.0  <session:0>");
+});

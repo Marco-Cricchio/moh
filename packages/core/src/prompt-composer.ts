@@ -1,3 +1,4 @@
+import { probeStage } from "./session-probe";
 import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
@@ -194,7 +195,9 @@ export class PromptComposer {
     this.#basePrompt = config.basePrompt ?? BASE_PROMPT;
     // Session-notes path (#467): the canonical Core-resolved slug
     // (`.moh/project.json` identity), never recomputed by the skill.
+    probeStage("composer:before-slug");
     this.#projectSlug = projectSlug(this.#projectDir, dirname(this.#mohHome));
+    probeStage("composer:after-slug");
     this.#overrides = config.sections ?? {};
   }
 

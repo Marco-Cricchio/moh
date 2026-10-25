@@ -9,6 +9,7 @@
  * `docs/adr/0004-public-surface-criterion.md`.
  */
 export { MockProvider } from "./mock-provider";
+import { probeStage } from "./session-probe";
 import { AgentSession } from "./session/session";
 export {
   sessionFromConfig,
@@ -592,6 +593,7 @@ export {
 } from "./auth/oauth";
 
 export function createSession(config: SessionConfig): AgentSession {
+  probeStage("createSession");
   return new AgentSession(config);
 }
 

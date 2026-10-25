@@ -277,13 +277,20 @@ export function buildScenarios(): Scenario[] {
     assemble: (ctx) => {
       ctx.file("a.txt", "A\n");
       ctx.file("b.txt", "B\n");
+      ctx.overrides.permissionFlags = overridesFromFlags(["bash:sleep 0.4", "bash:cat b.txt"], []);
       return RecordingProvider.scripted([
         {
           deltas: [],
           finish: "tool_calls",
           toolCalls: [
+            // #1544: the runtime records parallel results in completion order
+            // (product behaviour, a C1–C12 contract), so the scenario fixes
+            // that order itself instead of racing two reads: the denied bash
+            // settles at once, the in-process read next, and the allowed
+            // bash sleeps first — a margin far wider than any load jitter.
+            // Result order stays ping, a, b.
             { name: "read", args: { path: join(ctx.cwd, "a.txt") } },
-            { name: "read", args: { path: join(ctx.cwd, "b.txt") } },
+            { name: "bash", args: { command: "sleep 0.4 && cat b.txt" } },
             { name: "bash", args: { command: "echo ping" } },
           ],
         },

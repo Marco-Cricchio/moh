@@ -153,6 +153,11 @@ export class Normalizer {
     out = out.split(tmpdir()).join("<TMP>");
     out = out.replace(this.#pidRe, "$1<PID>");
     out = out.replace(new RegExp(`((?:<HOME>|<CWD>|<TMP>|/)[^\\s"\\n]*\\.)${process.pid}(?=\\.tmp\\b)`, "g"), "$1<PID>");
+    // #1538: the status row's `▣ … ◉` span is erased wholesale, so it must be
+    // erased BEFORE any token is registered: an id painted inside it (a
+    // second session briefly shown there) would otherwise take a number, be
+    // erased, and renumber the header's id.
+    out = out.replace(IDENTITY_PATH_RE, (_m, pre: string, post: string) => `${pre}<path>${post}`);
     out = out.replace(PROMPT_VERSION_RE, (_m, pre: string, pv: string, post: string) => pre + this.#token("pv", pv) + post);
     out = out.replace(HASH_KEY_RE, (_m, pre: string, hash: string, post: string) => pre + this.#token("hash", hash) + post);
     out = out.replace(ULID_RE, (ulid) => this.#token("ulid", ulid));
@@ -161,7 +166,6 @@ export class Normalizer {
     out = out.replace(SESSION_ID_RE, (sid) => this.#token("session", sid));
     out = out.replace(SUBAGENT_CALL_RE, (sc) => this.#token("subagent", sc));
     out = out.replace(SLUG_RE, () => "<slug>");
-    out = out.replace(IDENTITY_PATH_RE, (_m, pre: string, post: string) => `${pre}<path>${post}`);
     out = out.replace(IDENTITY_TAIL_RE, () => "<path>");
     out = out.replace(PTY_DIR_RE, (_m, which: string) => `<pty-${which}>`);
     out = out.replace(LOOPBACK_URL_RE, () => "<loopback>");
