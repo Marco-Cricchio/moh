@@ -5,7 +5,7 @@ import { manualIndex, manualPage } from "@moh/core";
 import { createMarkdownRenderer, parseAnsiSegments, renderMarkdownRows } from "./markdown";
 import { useTheme } from "./themes";
 import { Dialog, Dim, truncate } from "./ui";
-import { dialogWidth, useViewport, windowing } from "./viewport";
+import { dialogWidth, useViewport, windowing, wrapLines } from "./viewport";
 
 /**
  * The user manual modal (#457): a filterable index of the bundled pages
@@ -17,6 +17,8 @@ import { dialogWidth, useViewport, windowing } from "./viewport";
  * (headings, lists, fenced code and tables) is rendered rather than shown
  * as source Markdown.
  */
+
+const INDEX_FOOTER = "type to filter · enter read · esc close";
 
 interface IndexEntry {
   id: string;
@@ -45,8 +47,20 @@ export function ManualModal({ onClose }: { onClose: () => void }) {
     });
   }, [query]);
 
-  // Dialog chrome ≈ 7 rows (title, breadcrumb/filter, blank, footer).
-  const budget = Math.max(4, viewport.rows - 8);
+  // #1674: the list window is what is left of the viewport after the rows
+  // drawn around it, pre-wrapped (a Text decides its height at render time,
+  // after the budget is spent) — the footer wraps on a narrow terminal.
+  const textWidth = Math.max(1, dialogWidth(viewport) - 2 - 4 - 1);
+  const wrapped = (text: string) => wrapLines(text, textWidth).length;
+  const indexChromeRows =
+    2 + // border
+    2 + // title + its spacer
+    wrapped(`filter: ${query || "…"}`) +
+    1 + // spacer after the filter
+    2 + // `↑ N more` / `↓ N more` — reserved so the window never depends on itself
+    wrapped(INDEX_FOOTER);
+  // One row of slack: a frame as tall as the terminal makes Ink clear it.
+  const budget = Math.max(4, viewport.rows - 1 - indexChromeRows);
   const win = windowing(matches.length, cursor, budget);
 
   const page = openId ? manualPage(openId) : null;
@@ -138,7 +152,7 @@ export function ManualModal({ onClose }: { onClose: () => void }) {
       })}
       {matches.length === 0 && <Dim> no page matches this filter</Dim>}
       {win.below > 0 && <Dim>{` ↓ ${win.below} more (↑↓ scroll)`}</Dim>}
-      <Dim>type to filter · enter read · esc close</Dim>
+      <Dim>{INDEX_FOOTER}</Dim>
     </Dialog>
   );
 }
