@@ -131,8 +131,8 @@ jobs:
         with:
           bun-version: ${{ env.BUN_VERSION }}
       - run: bun install --frozen-lockfile
-      # Non-PTY TUI tests only (top-level test dir); the PTY tail runs in
-      # its own job below. Globs avoid bun --exclude, which this version
+      # Non-PTY TUI tests only (every test dir except pty/); the PTY tail runs in
+      # its own job below. The file list avoids bun --exclude, which this version
       # ignores for directory args. The retry mirrors tui-pty: known
       # load-dependent flakes (frame reads racing a slow paint, #930) pass
       # when the job is re-run, so the job re-runs itself once instead of
@@ -140,7 +140,7 @@ jobs:
       - name: TUI unit tests (retry once)
         run: |
           set +e
-          globs="packages/tui/test/*.test.ts packages/tui/test/*.test.tsx"
+          globs=$(find packages/tui/test -type f \( -name '*.test.ts' -o -name '*.test.tsx' \) -not -path 'packages/tui/test/pty/*' | LC_ALL=C sort | tr '\n' ' ')
           bun test --preload ./packages/tui/test/faketty/ci-mask.ts $globs
           first=$?
           if [ "$first" -eq 0 ]; then
