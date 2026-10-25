@@ -266,6 +266,7 @@ ghUsername
 handoffDebug
 handoffSeedMessage
 handoffSeedPrompt
+hasRecentSession
 hasSkillPlaceholders
 imageDimensions
 importHandoffFile
@@ -285,6 +286,7 @@ lastAssistantText
 listInstalledExtensions
 listOpenAiCompatModels
 listSessionSummaries
+listSessionSummariesAsync
 listTrashedSessions
 liveListings
 loadFirstPartyManifest
