@@ -10,6 +10,8 @@
 #   typecheck  — bun run typecheck (~30s)
 #   core       — packages/core + packages/extension
 #   cli        — packages/cli
+#   packages   — packages/team, packages/jev-guard and packages/evals unit
+#                tests (#1498; ~7s of tests locally, no retry)
 #   scripts    — build/install/platform-vocabulary tests plus the
 #                compiled-binary gate (#1068: compiles the release artifact
 #                and runs mock sessions against it — ~1s on CI, a few
@@ -89,6 +91,22 @@ jobs:
           bun-version: ${{ env.BUN_VERSION }}
       - run: bun install --frozen-lockfile
       - run: bun test packages/cli
+
+  # Unit tests of the packages no other job runs (#1498): team, jev-guard and
+  # the evals harness's own tests (the `evals` job below runs the suites, not
+  # `bun test`). A separate job rather than a step of core/cli: the tests
+  # take ~7s, so the cost is the checkout/install, and a failure here stays
+  # attributable to these packages instead of hiding in an unrelated job.
+  packages:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: ${{ env.BUN_VERSION }}
+      - run: bun install --frozen-lockfile
+      - run: bun test packages/team/test packages/jev-guard/test packages/evals/test
 
   # Scripts tests (#916): the compile targets, the release matrix, the
   # installer's uname mapping and the self-update vocabulary are four copies
