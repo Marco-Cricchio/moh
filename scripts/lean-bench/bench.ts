@@ -4,7 +4,7 @@
  * three prompt conditions and measures the structural quality of each diff.
  * Dev tooling; nothing in packages/ imports it. See README.md.
  *
- *   bun scripts/lean-bench/bench.ts run    --model <ref> --out <dir> [--runs 3] [--only <id>...]
+ *   bun scripts/lean-bench/bench.ts run    --model <ref> --out <dir> [--runs 3] [--only <id>...] [--conditions a,b]
  *   bun scripts/lean-bench/bench.ts judge  --model <ref> --out <dir>
  *   bun scripts/lean-bench/bench.ts report --out <dir>
  */
@@ -20,7 +20,7 @@ const CLI = join(ROOT, "packages/cli/src/cli.ts");
 const COMPOSER = "packages/core/src/prompt-composer.ts";
 /** develop just before base prompt v3 (#1634): the source of the v2 text. */
 const V2_REV = "8f06512d";
-const CONDITIONS = ["v2", "v3", "v3+code-quality"] as const;
+const CONDITIONS = ["v2", "v3", "v3+code-quality", "v3+code-quality+apply"] as const;
 type Condition = (typeof CONDITIONS)[number];
 /** The pre-registered criterion counts these judge smells (README). */
 const STRUCTURAL_SMELLS = ["Speculative Generality", "Duplicated Code", "Middle Man"];
@@ -89,7 +89,7 @@ function prepare(task: Task, condition: Condition, wt: string): void {
     condition === "v2" ? sh("git", ["show", `${V2_REV}:${COMPOSER}`], ROOT) : readFileSync(join(ROOT, COMPOSER), "utf8");
   mkdirSync(join(wt, ".moh/prompts"), { recursive: true });
   writeFileSync(join(wt, ".moh/prompts/system.md"), parseBasePrompt(source));
-  if (condition === "v3+code-quality") initCommand({ cwd: wt, stdout: new Writable({ write: (_c, _e, done) => done() }) });
+  if (condition.startsWith("v3+code-quality")) initCommand({ cwd: wt, stdout: new Writable({ write: (_c, _e, done) => done() }) });
   sh("git", ["add", "-A"], wt);
   sh("git", ["-c", "user.name=lean-bench", "-c", "user.email=lean-bench@localhost", "commit", "-q", "--no-verify", "-m", "lean-bench setup"], wt);
   if (task.setup) sh("sh", ["-c", task.setup], wt);
@@ -169,6 +169,13 @@ function mohRun(args: string[], cwd: string) {
   }
 }
 
+/** The code-review skill in apply mode over the uncommitted change, framed as moh frames a skill turn. */
+function applyPrompt(): string {
+  const skill = readFileSync(join(ROOT, "packages/core/assets/skills/code-review/SKILL.md"), "utf8");
+  const body = skill.slice(skill.indexOf("\n---", 3) + 4).trim();
+  return `Follow the "code-review" skill for this turn. Its instructions are reproduced verbatim below.\n\n${body}\n\n---\n\napply HEAD`;
+}
+
 function runCell(task: Task, condition: Condition, model: string, cell: string): void {
   const wt = join(mkdtempSync(join(tmpdir(), "task-")), "repo");
   try {
@@ -176,6 +183,9 @@ function runCell(task: Task, condition: Condition, model: string, cell: string):
     const r = mohRun(["--provider", model, "--auto-accept", "-p", task.prompt], wt);
     mkdirSync(cell, { recursive: true });
     writeFileSync(join(cell, "events.jsonl"), r.stdout ?? "");
+    // #1633 slice 2: the construction-time pass, as /implement runs it — a fresh
+    // session over the change only, judged on the end state.
+    if (condition.endsWith("+apply")) writeFileSync(join(cell, "apply-events.jsonl"), mohRun(["--provider", model, "--auto-accept", "-p", applyPrompt()], wt).stdout ?? "");
     sh("git", ["add", "-A"], wt);
     writeFileSync(join(cell, "diff.patch"), sh("git", ["diff", "--cached", "HEAD"], wt));
     const changed = changedCodeFiles(wt);
@@ -282,18 +292,33 @@ function report(out: string): void {
     summary.set(condition, row);
     console.log([condition, byTask.length, ...columns.map((col) => row[col].toFixed(2))].join("\t"));
   }
-  const v2 = summary.get("v2")!;
-  const lean = summary.get("v3+code-quality")!;
-  if (Object.values(v2).some(Number.isNaN) || Object.values(lean).some(Number.isNaN)) {
-    console.log("\nverdict: incomplete data (every condition needs judged cells and tool metrics)");
-    process.exitCode = 1;
-    return;
+  // The pre-registered criteria (README): each prints only when both of its conditions are complete.
+  const complete = (condition: string) => {
+    const row = summary.get(condition)!;
+    return Object.values(row).some(Number.isNaN) ? undefined : row;
+  };
+  // A baseline with no structural findings leaves nothing to cut.
+  const cut = (base: Record<string, number>, treated: Record<string, number>) => (base.structural === 0 ? 1 : 1 - treated.structural / base.structural);
+  let verdicts = 0;
+  const v2 = complete("v2");
+  const lean = complete("v3+code-quality");
+  const applied = complete("v3+code-quality+apply");
+  if (v2 && lean) {
+    verdicts++;
+    const noWorse = lean.uncalled <= v2.uncalled && lean.duplicates <= v2.duplicates && lean.highCcn <= v2.highCcn;
+    console.log(`\nstructural findings cut (v3+code-quality vs v2): ${(cut(v2, lean) * 100).toFixed(0)}%; deterministic metrics no worse: ${noWorse}`);
+    console.log(cut(v2, lean) >= 0.5 && noWorse ? "verdict: slice 4 archived" : "verdict: slice 4 justified");
   }
-  // A baseline with no structural findings leaves nothing for a gate to catch.
-  const cut = v2.structural === 0 ? 1 : 1 - lean.structural / v2.structural;
-  const noWorse = lean.uncalled <= v2.uncalled && lean.duplicates <= v2.duplicates && lean.highCcn <= v2.highCcn;
-  console.log(`\nstructural findings cut (v3+code-quality vs v2): ${(cut * 100).toFixed(0)}%; deterministic metrics no worse: ${noWorse}`);
-  console.log(cut >= 0.5 && noWorse ? "verdict: slice 4 archived" : "verdict: slice 4 justified");
+  if (lean && applied) {
+    verdicts++;
+    const noLarger = applied.linesAdded <= lean.linesAdded;
+    console.log(`\nstructural findings cut (apply vs v3+code-quality): ${(cut(lean, applied) * 100).toFixed(0)}%; lines added no higher: ${noLarger}`);
+    console.log(cut(lean, applied) >= 0.3 && noLarger ? "verdict: apply stays in /implement" : "verdict: revert the /implement hook; apply stays on demand");
+  }
+  if (verdicts === 0) {
+    console.log("\nverdict: incomplete data (a criterion needs both of its conditions judged, with tool metrics)");
+    process.exitCode = 1;
+  }
 }
 
 function flag(args: string[], name: string): string | undefined {
@@ -306,7 +331,7 @@ if (import.meta.main) {
   const out = flag(args, "--out");
   const model = flag(args, "--model");
   if (!out || (command !== "report" && !model) || !["run", "judge", "report"].includes(command ?? "")) {
-    console.error("usage: bench.ts run|judge --model <ref> --out <dir> [--runs n] [--only id...] | report --out <dir>");
+    console.error("usage: bench.ts run|judge --model <ref> --out <dir> [--runs n] [--only id...] [--conditions a,b] | report --out <dir>");
     process.exit(2);
   }
   if (command === "report") report(out);
@@ -317,10 +342,12 @@ if (import.meta.main) {
       (task) => only.length === 0 || only.includes(task.id),
     );
     const runs = Number(flag(args, "--runs") ?? 3);
+    const picked = flag(args, "--conditions")?.split(",");
+    const conditions = CONDITIONS.filter((c) => !picked || picked.includes(c));
     // Runs interleave tasks and conditions so provider drift spreads evenly; existing cells are kept (resumable).
     for (let n = 1; n <= runs; n++) {
       for (const task of tasks) {
-        for (const condition of CONDITIONS) {
+        for (const condition of conditions) {
           const cell = join(out, task.id, condition, String(n));
           if (existsSync(join(cell, "metrics.json"))) continue;
           console.error(`run ${n}/${runs} ${task.id} ${condition}`);
