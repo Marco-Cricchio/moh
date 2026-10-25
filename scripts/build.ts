@@ -130,6 +130,12 @@ export function buildBinary(plan: BuildPlan): string {
     "build",
     "--compile",
     "--target", target.target,
+    // React's development build (what a bare `--compile` bundles) records a
+    // never-cleared performance.measure per render (#1709). `--production`
+    // is the only switch that flips the bundler's JSX mode with it: a bare
+    // NODE_ENV define leaves `jsxDEV` calls against production React, which
+    // has none. It also minifies.
+    "--production",
     "--define", `__MOH_BUILD_VERSION__:${JSON.stringify(plan.version)}`,
     "--outfile", outfile,
     writeBuildEntry(plan.buildDir ?? BUILD_DIR),
@@ -139,6 +145,8 @@ export function buildBinary(plan: BuildPlan): string {
     cwd: ROOT,
     stdio: plan.inheritStdio ? "inherit" : "pipe",
     encoding: "utf8",
+    // `bun test` exports NODE_ENV=test, which would win over `--production`.
+    env: { ...process.env, NODE_ENV: "production" },
   });
   if (r.status !== 0) {
     const detail = plan.inheritStdio ? "" : `\n${r.stderr ?? ""}${r.stdout ?? ""}`;

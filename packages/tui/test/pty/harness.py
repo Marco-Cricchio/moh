@@ -667,8 +667,11 @@ def main() -> None:
                 # Readiness wait for the post-resize repaint: a fixed pump can
                 # stop mid-frame on a slow host, leaving the last footer rows
                 # unpainted (#538 flake). Wait until the needle appears in the
-                # post-resize byte stream (or the budget expires).
-                pump_until(resize.get("untilWait", 10.0), resize["until"], since=len(buf))
+                # post-resize byte stream (or the budget expires). A steady
+                # frame (no cursor-blink timer, #1709) repaints only the rows
+                # whose content changed, so a needle on an unchanged row never
+                # re-enters the stream: the freshly reset screen is the truth.
+                pump_until(resize.get("untilWait", 10.0), resize["until"], since=len(buf), on_screen=True)
     finally:
         # aliveAtEnd (#236): sampled BEFORE the harness kills the process —
         # `exited` alone can be false merely because the kill hasn't landed
