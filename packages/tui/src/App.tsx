@@ -51,7 +51,7 @@ import { Chat, type Mode } from "./Chat";
 import { handoffPublishWork, retryPendingHandoffPublish, discoverHandoffForHome, makeSession, providerLabel, transportActiveFor } from "./factory";
 import { ColdWizard } from "./ColdWizard";
 import { isColdDirectory, discoverGistHandoffs, type GistHandoffOffer } from "@moh/core";
-import { listSessionSummaries, type SessionSummary } from "@moh/core";
+import { hasRecentSession, type SessionSummary } from "@moh/core";
 import { loadUserConfig, saveUserConfig, userConfigFile, type ThemeRef, type UserConfig } from "./user-config";
 import { PermissionGate } from "./permission-gate";
 import { AskUserGate } from "./ask-user-gate";
@@ -970,9 +970,7 @@ function AppShell({
         // Lazy-lane evidence: another session of this project touched in
         // the last 10 minutes (another Home window, a moh run) — the
         // cross-process signal, the same seam Home lists with.
-        const recentSibling = listSessionSummaries(cwd, home).some(
-          (summary) => Date.now() - summary.mtimeMs < 10 * 60 * 1000,
-        );
+        const recentSibling = hasRecentSession(cwd, home);
         const setup = readLaneSetup(home);
         const provisioned = await new DevelopmentLaneService({
           cwd,
@@ -1830,7 +1828,7 @@ function AppShell({
                 setOverlay("settings");
               } else {
                 const handoff = loadMohConfig(join(cwd, "moh.json")).handoff;
-                if (!startInChat && listSessionSummaries(cwd, home).length === 0 && handoff?.transport === undefined && handoff?.onboarding === undefined) {
+                if (!startInChat && SessionStore.list(cwd, home).length === 0 && handoff?.transport === undefined && handoff?.onboarding === undefined) {
                   setOverlay("handoff-onboarding");
                 } else if (!configRef.current.workflowOffered) {
                   // First-run workflow offer (#36): right after onboarding.

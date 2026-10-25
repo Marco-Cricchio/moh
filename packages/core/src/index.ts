@@ -81,6 +81,8 @@ export { type EventIdentity } from "./types";
 export {
   SessionStore,
   listSessionSummaries,
+  listSessionSummariesAsync,
+  hasRecentSession,
   // #477: session rename — the ADR-0004 reopening that lets clients (TUI
   // Home picker, `moh sessions rename`) append the `session_renamed` event.
   renameSession,
