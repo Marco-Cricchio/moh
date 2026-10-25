@@ -1,17 +1,17 @@
 {
   "schemaVersion": 1,
   "version": "0.65.4",
-  "generatedAt": "2026-10-25T05:07:06.076Z",
+  "generatedAt": "2026-10-25T05:29:01.437Z",
   "sources": [
     {
       "name": "models.dev",
       "url": "https://models.dev/api.json",
-      "fetchedAt": "2026-10-25T05:07:05.671Z"
+      "fetchedAt": "2026-10-25T05:29:00.960Z"
     },
     {
       "name": "openrouter",
       "url": "https://openrouter.ai/api/v1/models",
-      "fetchedAt": "2026-10-25T05:07:05.915Z"
+      "fetchedAt": "2026-10-25T05:29:01.261Z"
     }
   ],
   "totals": {
@@ -510,10 +510,10 @@
         "input": 337
       },
       "previous": {
-        "rows": 342,
+        "rows": 340,
         "pricing": 317,
         "contextWindow": 340,
-        "maxTokens": 338,
+        "maxTokens": 337,
         "reasoning": 261,
         "input": 337
       }
@@ -920,7 +920,36 @@
   ],
   "contextWindowShrinks": [],
   "changes": {
-    "pricing": [],
+    "pricing": [
+      {
+        "provider": "openrouter",
+        "id": "z-ai/glm-5.3-flash",
+        "from": {
+          "input": 0.15,
+          "output": 0.5,
+          "cacheRead": 0.03
+        },
+        "to": {
+          "input": 0.044,
+          "output": 0.2,
+          "cacheRead": 0.043
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "~z-ai/glm-flash-latest",
+        "from": {
+          "input": 0.0511,
+          "output": 0.0761,
+          "cacheRead": 0.03
+        },
+        "to": {
+          "input": 0.044,
+          "output": 0.2,
+          "cacheRead": 0.043
+        }
+      }
+    ],
     "contextWindow": [],
     "reasoning": []
   },
