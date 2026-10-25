@@ -1,17 +1,17 @@
 {
   "schemaVersion": 1,
-  "version": "0.65.4",
-  "generatedAt": "2026-10-25T05:29:01.437Z",
+  "version": "0.66.0",
+  "generatedAt": "2026-10-25T21:49:01.573Z",
   "sources": [
     {
       "name": "models.dev",
       "url": "https://models.dev/api.json",
-      "fetchedAt": "2026-10-25T05:29:00.960Z"
+      "fetchedAt": "2026-10-25T21:48:57.265Z"
     },
     {
       "name": "openrouter",
       "url": "https://openrouter.ai/api/v1/models",
-      "fetchedAt": "2026-10-25T05:29:01.261Z"
+      "fetchedAt": "2026-10-25T21:49:01.326Z"
     }
   ],
   "totals": {
@@ -923,30 +923,57 @@
     "pricing": [
       {
         "provider": "openrouter",
-        "id": "z-ai/glm-5.3-flash",
+        "id": "qwen/qwen3.6-27b",
         "from": {
-          "input": 0.15,
-          "output": 0.5,
-          "cacheRead": 0.03
+          "input": 0.25,
+          "output": 2,
+          "cacheRead": 0.025
         },
         "to": {
-          "input": 0.044,
-          "output": 0.2,
-          "cacheRead": 0.043
+          "input": 0.32,
+          "output": 3.2
         }
       },
       {
         "provider": "openrouter",
-        "id": "~z-ai/glm-flash-latest",
+        "id": "tencent/hy3",
         "from": {
-          "input": 0.0511,
-          "output": 0.0761,
-          "cacheRead": 0.03
+          "input": 0.132,
+          "output": 0.528,
+          "cacheRead": 0.033
         },
         "to": {
-          "input": 0.044,
-          "output": 0.2,
-          "cacheRead": 0.043
+          "input": 0.0825,
+          "output": 0.33,
+          "cacheRead": 0.020625
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "tencent/hy4-preview",
+        "from": {
+          "input": 0.834,
+          "output": 2.501,
+          "cacheRead": 0.042
+        },
+        "to": {
+          "input": 0.7506,
+          "output": 2.2509,
+          "cacheRead": 0.0378
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "~moonshotai/kimi-latest",
+        "from": {
+          "input": 0.214,
+          "output": 16,
+          "cacheRead": 0.204
+        },
+        "to": {
+          "input": 0.171,
+          "output": 8.5226,
+          "cacheRead": 0.17
         }
       }
     ],

@@ -428,13 +428,16 @@ export function scriptedExtractor(entries: MemoryEntry[]): MemoryExtractor {
  * its own (no recursion). Fail-silent upstream: any error propagates
  * to the caller, which retries once and then gives up quietly.
  */
-export function createMaintenanceExtractor(provider: Provider, cwd: string): MemoryExtractor {
+export function createMaintenanceExtractor(provider: Provider | (() => Provider), cwd: string): MemoryExtractor {
   return async (input) => {
     // Lazy: importing AgentSession statically would make memory.ts and
     // session.ts a cycle (config.ts reads memoryConfigSchema at load).
     const { AgentSession } = await import("./session/session");
     const child = new AgentSession({
-      provider,
+      // A getter follows the session's in-session `/model` switch: the
+      // maintenance child runs on the model that serves now, not the one
+      // the session opened with.
+      provider: typeof provider === "function" ? provider() : provider,
       tools: {},
       cwd,
       subagents: null, // depth discipline (#339): the extractor never spawns

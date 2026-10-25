@@ -9,6 +9,7 @@
  * `docs/adr/0004-public-surface-criterion.md`.
  */
 export { MockProvider } from "./mock-provider";
+import { probeStage } from "./session-probe";
 import { AgentSession } from "./session/session";
 export {
   sessionFromConfig,
@@ -81,6 +82,8 @@ export { type EventIdentity } from "./types";
 export {
   SessionStore,
   listSessionSummaries,
+  listSessionSummariesAsync,
+  hasRecentSession,
   // #477: session rename — the ADR-0004 reopening that lets clients (TUI
   // Home picker, `moh sessions rename`) append the `session_renamed` event.
   renameSession,
@@ -590,6 +593,7 @@ export {
 } from "./auth/oauth";
 
 export function createSession(config: SessionConfig): AgentSession {
+  probeStage("createSession");
   return new AgentSession(config);
 }
 

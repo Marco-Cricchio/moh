@@ -14,7 +14,7 @@ import {
   widthClass,
   useViewport,
 } from "./viewport";
-import { deleteSession, listSessionSummaries, renameSession, setSessionPinned, type SessionSummary } from "@moh/core";
+import { deleteSession, listSessionSummariesAsync, renameSession, setSessionPinned, type SessionSummary } from "@moh/core";
 import { MOH_VERSION, projectSessionsDir, readStrandedDataRecord, type HandoffOffer, type StrandedDataRecord } from "@moh/core";
 import type { Mode } from "./Chat";
 import type { UpdateNotice } from "@moh/core";
@@ -192,10 +192,10 @@ export function Home({ cwd, home, onOpen, onOpenSettings, onOpenCommands, blocke
     // Once the intro settles, the static Home paints its loading state first.
     if (intro) return;
     let cancelled = false;
-    const load = () => {
+    const load = async () => {
       let next: SessionSummary[] = [];
       try {
-        next = listSessionSummaries(cwd, home);
+        next = await listSessionSummariesAsync(cwd, home);
       } catch {
         // The list seam already degrades per file; retain an empty, usable Home
         // if the project directory itself cannot be read.
@@ -210,7 +210,7 @@ export function Home({ cwd, home, onOpen, onOpenSettings, onOpenCommands, blocke
         }
       }
     };
-    const timer = setTimeout(load, 0);
+    const timer = setTimeout(() => void load(), 0);
     return () => {
       cancelled = true;
       clearTimeout(timer);

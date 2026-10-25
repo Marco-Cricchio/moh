@@ -35,6 +35,21 @@ describe("projectSidebar (issue #118)", () => {
     ]);
   });
 
+  test("tokens: a compaction marker empties the context gauge until the next call measures", () => {
+    const compacted = projectSidebar([
+      ev({ type: "model_call", model: "m", usage: { inputTokens: 150_000, outputTokens: 50 } }),
+      ev({ type: "compaction", summary: "S", upToId: "e1" }),
+    ]);
+    expect(compacted.tokens.contextIn).toBe(0);
+    expect(compacted.tokens.totalOut).toBe(50);
+    const remeasured = projectSidebar([
+      ev({ type: "model_call", model: "m", usage: { inputTokens: 150_000, outputTokens: 50 } }),
+      ev({ type: "compaction", summary: "S", upToId: "e1" }),
+      ev({ type: "model_call", model: "m", usage: { inputTokens: 20_000, outputTokens: 10 } }),
+    ]);
+    expect(remeasured.tokens.contextIn).toBe(20_000);
+  });
+
   test("tokens: context = last model_call input, out = cumulative output", () => {
     const events = [
       ev({ type: "model_call", model: "m", usage: { inputTokens: 100, outputTokens: 50 } }),

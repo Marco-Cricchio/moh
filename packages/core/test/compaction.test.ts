@@ -14,6 +14,7 @@ import {
   compactionTranscript,
   contextWindowFor,
   createCompactionSummarizer,
+  chunkTranscript,
   type CompactionSummarizer,
   type CompactionSummarizerInput,
 } from "../src/compaction";
@@ -256,7 +257,8 @@ describe("forced compaction", () => {
     expect(result.ok).toBe(true);
     expect(appended).toHaveLength(1);
     const marker = appended[0] as Extract<AgentEvent, { type: "compaction" }>;
-    const upTo = CompactionRunner.upToFor(events, 10)!.upTo;
+    // ADR-0022 §2 (second amendment): the default tail keeps 3 turns.
+    const upTo = CompactionRunner.upToFor(events, 3)!.upTo;
     // #578: the marker carries `upToId` — the id (or legacy bridge) of
     // the last covered event on the path.
     expect(marker.upToId).toBe(events[upTo - 1]!.id ?? `line:${upTo}`);
@@ -382,6 +384,58 @@ describe("subagent summarizer (integration)", () => {
     );
     const summary = await summarizer({ transcript: "user: hi\nassistant: hello" });
     expect(summary).toContain("Next: commit");
+  });
+
+  test("a long span is folded chunk by chunk, each call refining the running summary", async () => {
+    mkdirSync(TMP, { recursive: true });
+    const prompts: string[] = [];
+    const provider: Provider = {
+      name: "fold",
+      async *stream(messages) {
+        const user = [...messages].reverse().find((m) => m.role === "user");
+        prompts.push(JSON.stringify(user));
+        yield { type: "text_delta", text: `summary after part ${prompts.length}` } as never;
+        yield { type: "finish", reason: "stop" } as never;
+      },
+    };
+    const summarizer = createCompactionSummarizer(provider, TMP);
+    // Two turns of ~40k chars each: over one 60k chunk, so two parts —
+    // and the oldest turn (the goal) is read, not truncated away.
+    const transcript = [`user: GOAL ${"a".repeat(40_000)}`, `user: later ${"b".repeat(40_000)}`].join("\n");
+    const summary = await summarizer({ previous: "OLD", transcript });
+    expect(summary).toBe("summary after part 2");
+    expect(prompts).toHaveLength(2);
+    expect(prompts[0]).toContain("part 1 of 2");
+    expect(prompts[0]).toContain("OLD");
+    expect(prompts[0]).toContain("GOAL");
+    expect(prompts[1]).toContain("part 2 of 2");
+    expect(prompts[1]).toContain("summary after part 1");
+    expect(prompts[1]).not.toContain("GOAL");
+  });
+
+  test("the default summarizer runs on the model serving now, after an in-session switch", async () => {
+    mkdirSync(TMP, { recursive: true });
+    const summarizedBy: string[] = [];
+    const make = (name: string): Provider => ({
+      name,
+      async *stream(messages) {
+        const system = messages.find((m) => m.role === "system");
+        if (system && JSON.stringify(system).includes("compaction subagent")) summarizedBy.push(name);
+        yield { type: "text_delta", text: "Task state: summarized." } as never;
+        yield { type: "finish", reason: "stop" } as never;
+      },
+    });
+    const { ProviderRegistry } = require("../src/provider-registry");
+    const registry = new ProviderRegistry()
+      .registerProvider("pa", () => make("pa"))
+      .registerProvider("pb", () => make("pb"));
+    const session = createSession({ provider: "pa", registry, cwd: TMP, compaction: {} });
+    for (let i = 0; i < 12; i++) await session.send(`turn ${i}`);
+    expect(session.switchModel("pb").ok).toBe(true);
+    const result = await session.compact();
+    expect(result.ok).toBe(true);
+    expect(summarizedBy).toEqual(["pb"]);
+    await session.dispose();
   });
 
   test("end-to-end: forced compaction through an AgentSession", async () => {
@@ -777,5 +831,36 @@ describe("deterministic digest list cap (characterization, #1437)", () => {
 
   test("an empty list renders (none)", () => {
     expect(render([])).toContain("## Files modified\n\n- (none)");
+  });
+});
+
+describe("chunkTranscript (ADR-0022 §5 amended)", () => {
+  test("a transcript within one chunk stays whole", () => {
+    expect(chunkTranscript("user: hi\nassistant: hello", 100)).toEqual(["user: hi\nassistant: hello"]);
+  });
+
+  test("cuts at the last turn start in the second half of the chunk", () => {
+    const text = ["user: one", "assistant: " + "x".repeat(40), "user: two", "assistant: " + "y".repeat(40)].join("\n");
+    const chunks = chunkTranscript(text, 70);
+    expect(chunks[0]!.startsWith("user: one")).toBe(true);
+    expect(chunks[1]!.startsWith("user: two")).toBe(true);
+    for (const c of chunks) expect(c.length).toBeLessThanOrEqual(70);
+  });
+
+  test("nothing is dropped: the chunks rejoin to the input", () => {
+    const text = Array.from({ length: 200 }, (_, i) => `user: turn ${i}\nassistant: ${"z".repeat(i % 37)}`).join("\n");
+    const chunks = chunkTranscript(text, 500);
+    expect(chunks.length).toBeGreaterThan(1);
+    expect(chunks.join("\n")).toBe(text);
+  });
+
+  test("a line longer than a chunk is cut by characters", () => {
+    const chunks = chunkTranscript("x".repeat(250), 100);
+    expect(chunks.map((c) => c.length)).toEqual([100, 100, 50]);
+  });
+
+  test("the chunk count is bounded: chunks grow instead of multiplying", () => {
+    const text = Array.from({ length: 1000 }, (_, i) => `user: ${i} ${"w".repeat(90)}`).join("\n");
+    expect(chunkTranscript(text, 1_000, 4).length).toBeLessThanOrEqual(5);
   });
 });

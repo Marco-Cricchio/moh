@@ -38,7 +38,8 @@ fetched by SHA when missing. The base prompt is injected through the
   `docs/agents/code-quality.md` and, since #1685, `moh.json` `checks`);
 - `v3+code-quality+apply` — the same, then a second fresh `moh run` over
   the change with the code-review skill in apply mode (`apply HEAD`), as
-  `/implement` runs it (#1633 slice 2). Its events are `apply-events.jsonl`;
+  an implementation would run it (#1633 slice 2; measured, not part of
+  `/implement`). Its events are `apply-events.jsonl`;
   the diff and metrics cover the end state.
 
 `--conditions` runs a subset; a comparison across moh versions belongs in a

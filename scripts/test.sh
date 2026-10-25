@@ -22,9 +22,11 @@ if [ "$split" -eq 1 ]; then
   for dir in packages/*/test; do
     [ -d "$dir" ] || continue
     if [ "$dir" = "packages/tui/test" ]; then
-      for f in "$dir"/*.test.*; do
-        [ -f "$f" ] && MAIN_PATHS+=("$f")
-      done
+      # Every non-PTY test file, including non-PTY subdirectories (faketty/);
+      # pty/ is left to the PTY phase below.
+      while IFS= read -r f; do MAIN_PATHS+=("$f"); done < <(
+        find "$dir" -type f -name '*.test.*' -not -path "$dir/pty/*" | LC_ALL=C sort
+      )
     elif [ "$tui_only" -eq 0 ]; then
       MAIN_PATHS+=("$dir")
     fi

@@ -732,7 +732,9 @@ describe("/compact slash command (#466)", () => {
     await new Promise((r) => setTimeout(r, 0));
     const marker = [...session.history()].reverse().find((e) => e.type === "compaction");
     expect(marker).toBeDefined();
-    expect(ctx.notices()).toHaveLength(0);
+    // One start notice, no failure toast.
+    expect(ctx.notices()).toHaveLength(1);
+    expect(ctx.notices()[0]).toContain("compacting…");
     await session.dispose();
   });
 
