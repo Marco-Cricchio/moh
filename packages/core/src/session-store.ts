@@ -1,11 +1,14 @@
 import {
   appendFileSync,
   chmodSync,
+  closeSync,
   copyFileSync,
   existsSync,
   mkdirSync,
+  openSync,
   readdirSync,
   readFileSync,
+  readSync,
   renameSync,
   statSync,
   unlinkSync,
@@ -942,41 +945,77 @@ export function listSessionSummaries(
   home = homedir(),
 ): SessionSummary[] {
   return SessionStore.list(cwd, home)
-    .map((store) => {
-      let title = "(unreadable session)";
-      let displayName: string | null = null;
-      let pinned = false;
-      let consumed = false;
-      try {
-        // One full JSONL parse supplies every listing projection. The old
-        // form parsed the same log again just to read `consumed`, making a
-        // large Home session directory pay roughly 2× its necessary I/O.
-        const peek = peekSession(store.file);
-        title = peek.title;
-        displayName = peek.displayName;
-        pinned = peek.pinned;
-        consumed = peek.consumed;
-      } catch {
-        // keep the unreadable projection; listings never crash on user data
-      }
-      let mtimeMs = 0;
-      try {
-        mtimeMs = statSync(store.file).mtimeMs;
-      } catch {
-        // keep 0
-      }
-      return {
-        file: store.file,
-        id: basename(store.file, ".jsonl"),
-        // #477: display name (rename override) when present, else derived.
-        title: displayName ?? title,
-        derivedTitle: title,
-        mtimeMs,
-        consumed,
-        pinned,
-      };
-    })
+    .map(summaryRow)
     .sort((a, b) => b.mtimeMs - a.mtimeMs);
+}
+
+/**
+ * Same projection as `listSessionSummaries`, but yields to the event loop
+ * between bounded slices so a caller on the main thread (Home) keeps
+ * handling input while a large history loads.
+ */
+export async function listSessionSummariesAsync(
+  cwd: string,
+  home = homedir(),
+  sliceMs = 8,
+): Promise<SessionSummary[]> {
+  const rows: SessionSummary[] = [];
+  let sliceStart = Date.now();
+  for (const store of SessionStore.list(cwd, home)) {
+    rows.push(summaryRow(store));
+    if (Date.now() - sliceStart >= sliceMs) {
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      sliceStart = Date.now();
+    }
+  }
+  return rows.sort((a, b) => b.mtimeMs - a.mtimeMs);
+}
+
+/**
+ * Whether any session file of the project was modified within `windowMs`.
+ * Stats only — no JSONL is opened (recency needs mtimes, not the projection).
+ */
+export function hasRecentSession(cwd: string, home = homedir(), windowMs = 10 * 60 * 1000): boolean {
+  const now = Date.now();
+  return SessionStore.list(cwd, home).some((store) => {
+    try {
+      return now - statSync(store.file).mtimeMs < windowMs;
+    } catch {
+      return false;
+    }
+  });
+}
+
+function summaryRow(store: SessionStore): SessionSummary {
+  let title = "(unreadable session)";
+  let displayName: string | null = null;
+  let pinned = false;
+  let consumed = false;
+  try {
+    const peek = peekSession(store.file);
+    title = peek.title;
+    displayName = peek.displayName;
+    pinned = peek.pinned;
+    consumed = peek.consumed;
+  } catch {
+    // keep the unreadable projection; listings never crash on user data
+  }
+  let mtimeMs = 0;
+  try {
+    mtimeMs = statSync(store.file).mtimeMs;
+  } catch {
+    // keep 0
+  }
+  return {
+    file: store.file,
+    id: basename(store.file, ".jsonl"),
+    // #477: display name (rename override) when present, else derived.
+    title: displayName ?? title,
+    derivedTitle: title,
+    mtimeMs,
+    consumed,
+    pinned,
+  };
 }
 
 /** Result of the full-line parse of one session file (ADR-0021 read seam). */
@@ -1000,18 +1039,40 @@ interface SessionPeek {
  * flips back to suggestible. Index comparison only: no timestamps.
  */
 function peekSession(file: string): SessionPeek {
-  const raw = readFileSync(file, "utf8");
-  const events: AgentEvent[] = [];
+  // In-process memo keyed by file identity: a repeat listing (Home reload
+  // after a rename, a second CLI seam in the same process) re-reads only
+  // the files that changed. No on-disk artifact.
+  const st = statSync(file);
+  const cached = peekMemo.get(file);
+  if (cached && cached.size === st.size && cached.mtimeMs === st.mtimeMs) return cached.peek;
+  const peek = peekSessionUncached(file);
+  if (peekMemo.size > 20_000) peekMemo.clear();
+  peekMemo.set(file, { size: st.size, mtimeMs: st.mtimeMs, peek });
+  return peek;
+}
+
+const peekMemo = new Map<string, { size: number; mtimeMs: number; peek: SessionPeek }>();
+
+/**
+ * Streams the file in fixed chunks, one line at a time: the raw text and the
+ * parsed events are never retained. Only a light node per event (type + the
+ * chain fields `activePath` reads) is kept for the consumption predicate, so
+ * memory is O(lines × small constant) instead of O(bytes).
+ */
+function peekSessionUncached(file: string): SessionPeek {
+  const nodes: AgentEvent[] = [];
   let title: string | null = null;
   let displayName: string | null = null;
   let pinned = false;
-  for (const line of raw.split("\n")) {
-    if (line.trim() === "") continue;
+  let corrupt = false;
+  const onLine = (line: string): void => {
+    if (line.trim() === "") return;
     let event: AgentEvent;
     try {
       event = JSON.parse(line) as AgentEvent;
     } catch {
-      break; // corrupt tail: stop at the first bad line
+      corrupt = true; // corrupt tail: stop at the first bad line
+      return;
     }
     if (event.type === "user_message" && title === null) {
       const text = event.text.replace(/\s+/g, " ").trim();
@@ -1025,8 +1086,46 @@ function peekSession(file: string): SessionPeek {
     if (event.type === "session_pinned") {
       pinned = event.pinned;
     }
-    events.push(event);
+    const node: Record<string, unknown> = { type: event.type };
+    if (event.id !== undefined) node.id = event.id;
+    if (event.parentId !== undefined) node.parentId = event.parentId;
+    if (event.type === "branch_switched") node.to = (event as { to: string }).to;
+    nodes.push(node as unknown as AgentEvent);
+  };
+  const fd = openSync(file, "r");
+  try {
+    // Newline scan on bytes, decode once per line: no chunk-sized string
+    // concatenation and no per-chunk array of every line.
+    let buf = Buffer.allocUnsafe(1 << 20);
+    let filled = 0;
+    let eof = false;
+    while (!corrupt) {
+      let start = 0;
+      let nl: number;
+      while (!corrupt && (nl = buf.indexOf(10, start)) !== -1 && nl < filled) {
+        onLine(buf.toString("utf8", start, nl));
+        start = nl + 1;
+      }
+      if (corrupt) break;
+      if (eof) {
+        if (start < filled) onLine(buf.toString("utf8", start, filled));
+        break;
+      }
+      buf.copy(buf, 0, start, filled);
+      filled -= start;
+      if (filled === buf.length) {
+        const bigger = Buffer.allocUnsafe(buf.length * 2); // a line longer than the buffer
+        buf.copy(bigger, 0, 0, filled);
+        buf = bigger;
+      }
+      const n = readSync(fd, buf, filled, buf.length - filled, null);
+      if (n === 0) eof = true;
+      else filled += n;
+    }
+  } finally {
+    closeSync(fd);
   }
+  const events = nodes;
   // #577 (core spec d8): the consumption predicate runs on the active-path
   // projection — an abandoned branch's turn no longer consumes the head.
   // Same predicate, new array: consumed iff the last `session_resumed` on
