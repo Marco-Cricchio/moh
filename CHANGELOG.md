@@ -5,15 +5,71 @@ All notable changes to moh are documented here. The format follows
 SemVer. Each release's GitHub Release description is extracted from the
 matching section here at tag time.
 
-## [Unreleased]
+## [0.66.0] - 2026-10-25
+
+### Added
+
+- **A steady composer cursor** (#1709): the input no longer runs a blink
+  timer, so an idle composer repaints nothing — the cursor is drawn and
+  stays drawn. Terminal sessions stop waking up twice a second for a
+  visual effect, and a PTY test that waited for new bytes now waits on
+  the screen.
+- **A persisted per-project session summary index** (ADR-0082, #1714):
+  listing sessions was CPU-bound by total history bytes, not rows shown,
+  because a cold listing parsed every line of every log. A disposable
+  index beside the logs (`<project dir>/.summary-index.json`) caches each
+  session's projection keyed by file name + size + mtime; anything else
+  is re-read with the existing streaming peek, a broken or missing index
+  rebuilds, and the event log stays the only source of truth.
+- **Retro gains a structural-drift finding** (#1633 slice 5): a
+  repo-declared check (ADR-0080) still failing at the end of a session
+  becomes one mechanical retro finding per check name, so the same check
+  failing across sessions accumulates into one finding instead of being
+  found by audit.
+- **Opt-in diagnostics for the session-construction stall** (#1679):
+  `MOH_SESSION_PROBE=<file>` records one line per `createSession` stage
+  (plus an unref'd 100 ms worker heartbeat that distinguishes "the main
+  thread was blocked" from "the process was not running"), and
+  `MOH_GIT_PROBE=<file>` records every `gitSync` call with duration, pid,
+  exit code and slow-call frames. Both are off by default.
 
 ### Changed
 
+- **CI runs Bun latest in every workflow** (ADR-0081, #1711): the pin
+  from ADR-0057 held the gate on 1.4.2 while the release pipeline
+  compiled the shipped binary on 1.4.4, so CI no longer tested the
+  runtime users got. ADR-0081 records the reversal.
 - **`/implement` no longer runs `/code-review apply`** (#1633): measured on
   the lean bench, the apply pass cut structural findings by 21% — under
   the pre-registered 30% — while lines added rose. `/implement`, the
   implementation flow and the `ask-moh` router are back to the two-axis
   review; `/code-review apply` stays available on demand.
+
+### Fixed
+
+- **The release binary ships React's production build** (#1709): a bare
+  `NODE_ENV` define left the bundle on the development build, whose
+  `jsxDEV` path crashes the TUI.
+- **`/compact` is reliable and lossless** (#1717): the summarizer, memory
+  extractor and retro judgement extractor now follow the model actually
+  serving, so a `/model` switch reaches them; a measurement older than the
+  newest compaction marker stops feeding the switch fit check, the
+  routing chain and the context gauge; `/compact` shows a "compacting…"
+  notice when the run starts. ADR-0022 §2 sets one verbatim tail (3 turns)
+  for the automatic and the forced path, and §5 records that the covered
+  transcript is folded in ~60k-char chunks cut at turn boundaries rather
+  than truncated.
+- **The Frontier and manual lists size from the rows actually drawn**
+  (#1674): the window was `rows - 8` regardless of the modal's own rows,
+  so a wrapped footer pushed the frame past a narrow viewport.
+- **The commands panel keeps a space between key and description**
+  (#1691): the key column was padded to a fixed 24, so the longest key ran
+  into its own description.
+- **The origin probes are bounded** (#1679): a synchronous `git remote
+  get-url` probe was once seen parked for 30 s+ inside `createSession`;
+  probes now kill the child after 10 s and read it as no origin. The root
+  cause is not established — this bounds the hang.
+- **The team, jev-guard and evals package tests now run in CI** (#1498).
 
 ## [0.65.4] - 2026-10-25
 
@@ -2782,7 +2838,9 @@ security audit, each fixed behind its own PR.
   passed; a regression test pins the resolved path under
   `<home>/.moh/projects`.
 
-[Unreleased]: https://github.com/Marco-Cricchio/moh/compare/v0.65.3...develop
+[Unreleased]: https://github.com/Marco-Cricchio/moh/compare/v0.66.0...develop
+[0.66.0]: https://github.com/Marco-Cricchio/moh/compare/v0.65.4...v0.66.0
+[0.65.4]: https://github.com/Marco-Cricchio/moh/compare/v0.65.3...v0.65.4
 [0.65.3]: https://github.com/Marco-Cricchio/moh/compare/v0.65.2...v0.65.3
 [0.65.2]: https://github.com/Marco-Cricchio/moh/compare/v0.65.1...v0.65.2
 [0.65.1]: https://github.com/Marco-Cricchio/moh/compare/v0.65.0...v0.65.1
