@@ -4,7 +4,7 @@ import { projectFrontier, type TrackerBackend, type TrackerIssue } from "@moh/co
 import { useTheme } from "./themes";
 import { sanitizeForDisplay } from "@moh/core";
 import { Dialog, Dim } from "./ui";
-import { useViewport, windowing } from "./viewport";
+import { dialogWidth, useViewport, windowing, wrapLines } from "./viewport";
 
 /**
  * The wayfinder frontier panel (#36): a read-only projection of the
@@ -25,6 +25,9 @@ interface FrontierProps {
   /** Called only after the backend has confirmed the mutation. */
   onClaimed?: (issue: TrackerIssue) => void;
 }
+
+const FLAT_HINT = "no dependency data — flat list";
+const FOOTER = "↑↓ move · c claim · u unclaim · esc close";
 
 type Load = { kind: "loading" } | { kind: "error"; message: string } | { kind: "ready"; issues: TrackerIssue[] };
 
@@ -67,8 +70,21 @@ export function Frontier({ backend, onToast, onClose, requestClaim, onClaimed }:
 
   const current = rows[cursor]?.issue;
 
-  // Height-aware list (#64): the issue list scrolls inside the dialog.
-  const win = windowing(rows.length, cursor, Math.max(3, viewport.rows - 8));
+  // Height-aware list (#64): the issue list scrolls inside the dialog. #1674:
+  // the window is what is left of the viewport after the rows drawn around
+  // it, pre-wrapped (a Text decides its height at render time, after the
+  // budget is spent) — on a narrow terminal the footer wraps to several rows.
+  const textWidth = Math.max(1, dialogWidth(viewport) - 2 - 4 - 1);
+  const wrapped = (text: string) => wrapLines(text, textWidth).length;
+  const chromeRows =
+    2 + // border
+    2 + // title + its spacer
+    2 + // `↑ N more` / `↓ N more` — reserved so the window never depends on itself
+    1 + // spacer before the footer
+    (frontier && !frontier.deps ? wrapped(FLAT_HINT) : 0) +
+    wrapped(FOOTER);
+  // One row of slack: a frame as tall as the terminal makes Ink clear it.
+  const win = windowing(rows.length, cursor, Math.max(3, viewport.rows - 1 - chromeRows));
 
   useInput((input, key) => {
     if (key.escape || input === "q") return onClose();
@@ -136,8 +152,8 @@ export function Frontier({ backend, onToast, onClose, requestClaim, onClaimed }:
         })}
       {win.below > 0 && <Dim>{` ↓ ${win.below} more`}</Dim>}
       <Text> </Text>
-      {frontier && !frontier.deps && <Dim>no dependency data — flat list</Dim>}
-      <Dim>↑↓ move · c claim · u unclaim · esc close</Dim>
+      {frontier && !frontier.deps && <Dim>{FLAT_HINT}</Dim>}
+      <Dim>{FOOTER}</Dim>
     </Dialog>
   );
 }
