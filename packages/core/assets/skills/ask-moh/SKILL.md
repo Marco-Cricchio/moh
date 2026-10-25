@@ -30,7 +30,7 @@ The route most work travels. You have an idea and want it built.
    - **Yes** → **`/to-spec`** (turn the thread into a spec), then **`/to-tickets`** to split it into tracer-bullet tickets, each declaring its **blocking edges**. On the moh tracker (GitHub Issues via `gh`, see `docs/agents/issue-tracker.md`) the edges become native blocking links. Kick off **`/implement`** per ticket, clearing context between each one.
    - **No** → **`/implement`** right here, in the same context window.
 
-   Either way, **`/implement`** builds each issue by driving **`/tdd`** internally — one red-green slice at a time — then closes out with **`/code-review apply`** (fixes the lean smells in its own change) and **`/code-review`**, a two-axis review (Standards + Spec) of the diff, before committing, and **`/pr`** drafts the PR body (summary view, before/after evidence, merge danger). Reach for **`/tdd`** on its own for a concrete behaviour test-first, and **`/code-review`** whenever a branch or PR needs reviewing against a fixed point.
+   Either way, **`/implement`** builds each issue by driving **`/tdd`** internally — one red-green slice at a time — then closes out by running **`/code-review`**, a two-axis review (Standards + Spec) of the diff, before committing, and **`/pr`** drafts the PR body (summary view, before/after evidence, merge danger). Reach for **`/tdd`** on its own for a concrete behaviour test-first, and **`/code-review`** whenever a branch or PR needs reviewing against a fixed point.
 
 ### Design detour: `/prototype`
 

@@ -183,7 +183,7 @@ function runCell(task: Task, condition: Condition, model: string, cell: string):
     const r = mohRun(["--provider", model, "--auto-accept", "-p", task.prompt], wt);
     mkdirSync(cell, { recursive: true });
     writeFileSync(join(cell, "events.jsonl"), r.stdout ?? "");
-    // #1633 slice 2: the construction-time pass, as /implement runs it — a fresh
+    // #1633 slice 2: the construction-time pass at the end of the work — a fresh
     // session over the change only, judged on the end state.
     if (condition.endsWith("+apply")) writeFileSync(join(cell, "apply-events.jsonl"), mohRun(["--provider", model, "--auto-accept", "-p", applyPrompt()], wt).stdout ?? "");
     sh("git", ["add", "-A"], wt);
