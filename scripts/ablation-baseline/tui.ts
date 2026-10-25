@@ -436,6 +436,12 @@ async function main(): Promise<number> {
   }
   rmSync(outDir, { recursive: true, force: true });
   mkdirSync(join(outDir, "tui"), { recursive: true });
+  // #1538: the raw checkpoint frames, kept beside the recording (a sibling
+  // folder, so `compare.ts` over the recording is unaffected): a recurrence
+  // of an unexplained difference can then name what the normalizer saw.
+  const rawDir = `${outDir.replace(/\/+$/, "")}.raw`;
+  rmSync(rawDir, { recursive: true, force: true });
+  mkdirSync(join(rawDir, "tui"), { recursive: true });
 
   // One turn server per scenario kind, started lazily and kept alive for the
   // whole run (the harness's runPtyRaw is async, so the parent event loop
@@ -469,9 +475,12 @@ async function main(): Promise<number> {
         // and the screens under test never print absolute paths.
         const norm = new Normalizer({ home: meta.home ?? "/\u0000none", cwd: meta.cwd ?? "/\u0000none" });
         const frames: Record<string, string[]> = {};
+        const rawFrames: Record<string, string[]> = {};
         for (const [name, snap] of Object.entries(meta.checkpoints ?? {})) {
+          rawFrames[name] = snap.lines.map((l) => l.text);
           frames[name] = snap.lines.map((l) => norm.text(l.text, "display"));
         }
+        writeFileSync(join(rawDir, "tui", `${scenario.name}.json`), JSON.stringify({ home: meta.home, cwd: meta.cwd, frames: rawFrames }, null, 2) + "\n");
         const payload = {
           scenario: scenario.name,
           exited: meta.exited,
