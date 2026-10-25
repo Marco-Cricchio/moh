@@ -5,7 +5,7 @@ All notable changes to moh are documented here. The format follows
 SemVer. Each release's GitHub Release description is extracted from the
 matching section here at tag time.
 
-## [Unreleased]
+## [0.65.4] - 2026-10-25
 
 ### Added
 
