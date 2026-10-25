@@ -5,6 +5,16 @@ All notable changes to moh are documented here. The format follows
 SemVer. Each release's GitHub Release description is extracted from the
 matching section here at tag time.
 
+## [Unreleased]
+
+### Changed
+
+- **`/implement` no longer runs `/code-review apply`** (#1633): measured on
+  the lean bench, the apply pass cut structural findings by 21% — under
+  the pre-registered 30% — while lines added rose. `/implement`, the
+  implementation flow and the `ask-moh` router are back to the two-axis
+  review; `/code-review apply` stays available on demand.
+
 ## [0.65.4] - 2026-10-25
 
 ### Added
