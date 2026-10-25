@@ -207,7 +207,8 @@ All keys are optional. Notes:
   30 s. `moh init` proposes the repo's own tools, or pinned `jscpd` and
   `lizard` commands. The bundled checks extension runs them after a turn
   that changed files and reports in the footer (see Extensions → Bundled
-  extensions); `block` is recorded but not acted on yet (#1633).
+  extensions); a failing `block: true` check is handed to the model as a
+  correction turn, at most two in a row.
 
 ## ~/.moh/config
 
