@@ -1509,9 +1509,13 @@ const gitTool: Tool<z.infer<typeof gitSchema>> = {
     // root — a read elsewhere is a different question the tool never
     // answers. Containment follows the real filesystem (resolvedInRoot,
     // symlink-aware), the repo's one convention for path containment.
+    // #1522: the root itself is a valid cwd — `resolvedInRoot` refuses it
+    // (a path tool never targets the root), but Jev passes the session's
+    // own root (an auto-lane worktree included) on every read.
     let cwd = toolCtx.cwd;
     if (args.cwd !== undefined) {
-      cwd = resolvedInRoot(args.cwd, toolCtx.cwd);
+      const abs = isAbsolute(args.cwd) ? args.cwd : resolve(toolCtx.cwd, args.cwd);
+      cwd = realpathish(abs) === realpathish(toolCtx.cwd) ? toolCtx.cwd : resolvedInRoot(args.cwd, toolCtx.cwd);
     }
     let i = 0;
     while (i < a.length && (a[i]!.startsWith("-") || a[i]!.includes("="))) {

@@ -1,6 +1,7 @@
 import { afterAll, describe, expect, test } from "bun:test";
 import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { PromptComposer, SECTION_ORDER, type PromptContext } from "../src/prompt-composer";
 
@@ -11,12 +12,18 @@ import { PromptComposer, SECTION_ORDER, type PromptContext } from "../src/prompt
 
 const NOW = new Date("2026-02-14T12:00:00Z");
 
+// Dirs live under the OS temp dir and are removed after the whole file runs,
+// whichever describe block created them.
 const tmpDirs: string[] = [];
 function tmp(): string {
-  const d = mkdtempSync(join(import.meta.dir, ".tmp-prompt-"));
+  const d = mkdtempSync(join(tmpdir(), "moh-prompt-"));
   tmpDirs.push(d);
   return d;
 }
+
+afterAll(() => {
+  for (const d of tmpDirs) rmSync(d, { recursive: true, force: true });
+});
 
 function baseCtx(overrides: Partial<PromptContext> = {}): PromptContext {
   return {
@@ -34,10 +41,6 @@ function baseCtx(overrides: Partial<PromptContext> = {}): PromptContext {
 }
 
 describe("PromptComposer", () => {
-  afterAll(() => {
-    for (const d of tmpDirs) rmSync(d, { recursive: true, force: true });
-  });
-
   test("section order is fixed and stable; every section is a TS function", () => {
     expect(SECTION_ORDER).toEqual([
       "base",
@@ -92,6 +95,13 @@ describe("PromptComposer", () => {
     const composer = new PromptComposer({ projectDir: tmp(), mohHome: tmp() });
     expect(composer.sections.base(baseCtx())).toContain("Keep bash command payloads comment-free");
     expect(composer.sections.base(baseCtx())).toContain("put narration in assistant text before the tool call");
+  });
+
+  test("shipped base prompt carries the lean posture and no rg preference (ADR-0079)", () => {
+    const base = new PromptComposer({ projectDir: tmp(), mohHome: tmp() }).sections.base(baseCtx());
+    expect(base).toContain("every abstraction needs a caller");
+    expect(base).toContain("Delete what your change leaves unused");
+    expect(base).not.toMatch(/`rg`/); // #731: rg is often absent; the grep tool is the path
   });
 
   test("CLAUDE.md is a silent fallback when AGENTS.md is absent", () => {

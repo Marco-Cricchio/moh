@@ -99,6 +99,9 @@ const CAPABILITIES: readonly (readonly [string, Kind, string | null, unknown, un
   ["host:a..b.com", "host", null, {"ok": false, "reason": "malformed", "message": "invalid host scope \"host:a..b.com\": not a hostname"}, {"ok": false, "message": "invalid scope \"host:a..b.com\": invalid host scope \"host:a..b.com\": not a hostname"}, true],
   ["host:*.*.example.com", "host", null, {"ok": false, "reason": "malformed", "message": "invalid host scope \"host:*.*.example.com\": not a hostname"}, {"ok": false, "message": "invalid scope \"host:*.*.example.com\": invalid host scope \"host:*.*.example.com\": not a hostname"}, true],
   ["host:example.com:0", "host", null, {"ok": false, "reason": "malformed", "message": "invalid host scope \"host:example.com:0\": port out of range"}, {"ok": false, "message": "invalid scope \"host:example.com:0\": invalid host scope \"host:example.com:0\": port out of range"}, true],
+  ["host:api.example.com:443", "host", "may contact `api.example.com` over https", {"ok": true, "host": "api.example.com", "wildcard": false}, {"ok": true}, true],
+  ["host:api.example.com:80", "host", "may contact `api.example.com:80` over http", {"ok": true, "host": "api.example.com", "port": 80, "wildcard": false}, {"ok": true}, true],
+  ["host:*.example.com:80", "host", "may contact any subdomain of `example.com` over http on port 80", {"ok": true, "host": "*.example.com", "port": 80, "wildcard": true}, {"ok": true}, true],
   ["host:example.com:65535", "host", "may contact `example.com:65535` over https", {"ok": true, "host": "example.com", "port": 65535, "wildcard": false}, {"ok": true}, true],
   ["host:example.com:65536", "host", null, {"ok": false, "reason": "malformed", "message": "invalid host scope \"host:example.com:65536\": port out of range"}, {"ok": false, "message": "invalid scope \"host:example.com:65536\": invalid host scope \"host:example.com:65536\": port out of range"}, true],
   ["host:example.com:99999", "host", null, {"ok": false, "reason": "malformed", "message": "invalid host scope \"host:example.com:99999\": port out of range"}, {"ok": false, "message": "invalid scope \"host:example.com:99999\": invalid host scope \"host:example.com:99999\": port out of range"}, true],
@@ -231,11 +234,10 @@ describe("checkScope", () => {
       ["endpoint", "main", ["endpoint:main/x", "endpoint:main"], { ok: true }],
       ["credential", "token", ["credential:token"], { ok: true }],
       ["credential", "other", ["credential:token"], { ok: false, reason: "outside_scope" }],
-      // The credential check matches the ref without validating the scope:
-      // an empty or whitespace ref passes against its own malformed scope.
-      ["credential", "", ["credential:"], { ok: true }],
-      ["credential", "a b", ["credential:a b"], { ok: true }],
-      ["credential", "  ", ["credential:  "], { ok: true }],
+      // A malformed credential scope never matches, even its own ref (#1572).
+      ["credential", "", ["credential:"], { ok: false, reason: "outside_scope" }],
+      ["credential", "a b", ["credential:a b"], { ok: false, reason: "outside_scope" }],
+      ["credential", "  ", ["credential:  "], { ok: false, reason: "outside_scope" }],
       ["credential", "token", ["path:token", "tool:token"], { ok: false, reason: "outside_scope" }],
       // Kinds the dispatcher does not route return undefined, not a refusal.
       ["contribute-tool", "team", ["contribute-tool:team"], undefined],
@@ -255,8 +257,9 @@ describe("checkScope", () => {
       ["https://api.example.com/x", { ok: true }],
       ["https://API.EXAMPLE.COM/x", { ok: true }],
       ["https://api.example.com:443/x", { ok: true }],
-      // A scope without a port admits any https port.
-      ["https://api.example.com:8443/x", { ok: true }],
+      // A scope without a port admits https on the standard port only (ADR-0066, #1573).
+      ["https://api.example.com:8443/x", { ok: false, reason: "outside_scope", target: "api.example.com:8443" }],
+      ["https://a.example.org:8443/", { ok: false, reason: "outside_scope", target: "a.example.org:8443" }],
       ["http://api.example.com/x", { ok: false, reason: "outside_scope", target: "api.example.com" }],
       ["https://a.example.org/", { ok: true }],
       ["https://a.b.example.org/", { ok: false, reason: "outside_scope", target: "a.b.example.org" }],
@@ -283,10 +286,11 @@ describe("checkScope", () => {
     const seen: string[] = [];
     checkScope({ kind: "host", url: new URL("https://evil.com/"), isDenied: (h) => (seen.push(h), true) }, scopes);
     expect(seen).toEqual([]);
-    expect(["https://anything.io/", "http://anything.io/", "http://anything.io:8080/"].map((u) => checkScope({ kind: "host", url: new URL(u), isDenied: () => false }, ["host:*"]))).toEqual([
+    expect(["https://anything.io/", "http://anything.io/", "http://anything.io:8080/", "https://anything.io:8443/"].map((u) => checkScope({ kind: "host", url: new URL(u), isDenied: () => false }, ["host:*"]))).toEqual([
       { ok: true },
       { ok: false, reason: "outside_scope", target: "anything.io" },
       { ok: false, reason: "outside_scope", target: "anything.io:8080" },
+      { ok: false, reason: "outside_scope", target: "anything.io:8443" },
     ]);
   });
 
@@ -396,11 +400,21 @@ describe("matching helpers", () => {
       ["host:*", "https://x.io/", true],
       ["host:*", "http://x.io/", false],
       ["host:a.com", "https://a.com:443/", true],
-      ["host:a.com", "https://a.com:444/", true],
+      ["host:a.com", "https://a.com:444/", false],
+      ["host:a.com", "https://a.com:8443/", false],
+      ["host:*.a.com", "https://b.a.com:8443/", false],
+      ["host:*", "https://x.io:8443/", false],
       ["host:a.com:444", "https://a.com:444/", true],
-      // URL drops the default port, so a scope pinned to 80 never matches http.
-      ["host:a.com:80", "http://a.com/", false],
-      ["host:a.com:80", "http://a.com:80/", false],
+      // URL drops the default port; a scope spelling it is the default-port form (#1574).
+      ["host:a.com:443", "https://a.com/", true],
+      ["host:a.com:443", "https://a.com:443/", true],
+      ["host:a.com:443", "http://a.com/", false],
+      ["host:a.com:80", "http://a.com/", true],
+      ["host:a.com:80", "http://a.com:80/", true],
+      ["host:a.com:80", "http://a.com:8080/", false],
+      ["host:a.com:80", "https://a.com/", false],
+      ["host:*.a.com:443", "https://b.a.com/", true],
+      ["host:*.a.com:80", "http://b.a.com/", true],
       ["host:*.a.com", "https://b.a.com/", true],
       ["host:*.a.com", "https://a.com/", false],
       ["host:*.a.com", "https://c.b.a.com/", false],

@@ -9,6 +9,7 @@ import { AskUserGate } from "../src/ask-user-gate";
 import { Chat } from "../src/Chat";
 import { createSession } from "@moh/core";
 import { renderOnFakeTty } from "./faketty/render";
+import { COMPOSER_READY } from "./helpers";
 
 const CLEAR = "\x1b[2J\x1b[3J\x1b[H";
 const FAST_REVEAL = { tickMs: 5, charsPerTick: 400, catchupChars: 4000 };
@@ -62,6 +63,19 @@ function history(term: ReturnType<typeof renderOnFakeTty>): string {
   return [...term.screen.scrollback(), ...term.screen.lines()].join("\n");
 }
 
+async function waitChange(term: ReturnType<typeof renderOnFakeTty>, previous: string, timeoutMs = 10_000): Promise<string> {
+  const deadline = Date.now() + timeoutMs;
+  while (history(term) === previous && Date.now() < deadline) await sleep(20);
+  return history(term);
+}
+
+/** Waits until `needle` has left the visible screen (the composer hint yields to the typed draft). */
+async function waitGone(term: ReturnType<typeof renderOnFakeTty>, needle: string, timeoutMs = 10_000): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (term.screen.lines().join("\n").includes(needle) && Date.now() < deadline) await sleep(20);
+  expect(term.screen.lines().join("\n")).not.toContain(needle);
+}
+
 async function waitFor(term: ReturnType<typeof renderOnFakeTty>, needle: string, timeoutMs = 10_000): Promise<void> {
   const deadline = Date.now() + timeoutMs;
   while (!history(term).includes(needle) && Date.now() < deadline) await sleep(20);
@@ -78,11 +92,14 @@ describe("ask-user in-process interaction gate (T7 / #1060)", () => {
       { deltas: ["done"], finish: "stop" },
     ], gate);
     const term = renderOnFakeTty(<GateHost gate={gate} chatProps={{ session, cwd, mode: "dev", modelLabel: "mock", width: 100, reveal: FAST_REVEAL }} />, { cols: 100, rows: 24 });
-    term.write("ask"); await sleep(20); term.write("\r");
+    await waitFor(term, COMPOSER_READY);
+    term.write("ask");
+    await waitGone(term, COMPOSER_READY);
+    term.write("\r");
     await waitFor(term, "Which route");
     const before = history(term);
     term.write("\x1b[B\x1b[Axy");
-    await sleep(80);
+    await waitFor(term, "xy");
     const after = history(term);
     expect(after).not.toBe(before);
     expect(after).toContain("xy");
@@ -99,10 +116,10 @@ describe("ask-user in-process interaction gate (T7 / #1060)", () => {
     const term = renderOnFakeTty(<GateHost gate={gate} chatProps={{ session, cwd, mode: "dev", modelLabel: "mock", width: 120, reveal: FAST_REVEAL }} />, { cols: 120, rows: 40 });
     await waitFor(term, "Which route");
     const first = history(term);
-    term.write("\x1b[B"); await sleep(30);
-    const second = history(term);
-    term.write("\x1b[B"); await sleep(30);
-    const third = history(term);
+    term.write("\x1b[B");
+    const second = await waitChange(term, first);
+    term.write("\x1b[B");
+    const third = await waitChange(term, second);
     expect(second).not.toBe(first);
     expect(third).not.toBe(second);
     expect(gate.current).not.toBeNull();
@@ -138,7 +155,7 @@ describe("ask-user in-process interaction gate (T7 / #1060)", () => {
     const pending = gate.ask(TALL_QUESTION);
     await waitFor(term, "tall box question");
     term.write("\x1b[B\x1b[B\r");
-    await sleep(50);
+    await waitFor(term, "Review your answers");
     // At a 20-row long transcript the panel is compacted: the selected
     // option is represented by the review surface rather than the option
     // label remaining in the bounded screen history.
@@ -153,7 +170,8 @@ describe("ask-user in-process interaction gate (T7 / #1060)", () => {
     const pending = gate.ask({ questions: [{ ...TALL_QUESTION.questions[0], question: "large turn question — choose one" }] });
     const term = renderOnFakeTty(<GateHost gate={gate} chatProps={{ session: createSession({ provider: MockProvider.scripted([{ deltas: ["large"], finish: "stop" }]), sink: () => {} }), cwd: mkdtempSync(join(tmpdir(), "moh-ask-large-")), mode: "dev", modelLabel: "mock", width: 120, reveal: FAST_REVEAL }} />, { cols: 120, rows: 40 });
     await waitFor(term, "large turn question");
-    term.write("\x1b[B\x1b[B\x1b[B"); await sleep(40);
+    term.write("\x1b[B\x1b[B\x1b[B");
+    await term.settle();
     expect(history(term)).toContain("route-3");
     gate.resolve({ answers: [{ labels: ["route-3"] }] });
     await pending;

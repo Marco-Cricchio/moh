@@ -23,9 +23,21 @@
  * the client owns the config surface of what it ships.
  */
 import type { ExtensionRuntime, RuntimeExtension } from "./extensions";
-import type { EndpointProfile } from "./config";
+import type { EndpointProfile, MohConfig } from "./config";
 import type { ModelPoolResult } from "./model-pool";
 import type { CredentialStore } from "./credential-store";
+
+/**
+ * A descriptor's manifest authority. ADR-0080: a function of the activation
+ * context when the grant must name session facts — the consent re-asks
+ * whenever the derived `hash` changes under the same `path`.
+ */
+interface BundledManifest {
+  hash?: string;
+  path?: string;
+  capabilities: readonly string[];
+  reasoning?: string;
+}
 
 /** What `resolveBundledExtensions` hands an active descriptor. */
 export interface BundledActivationContext {
@@ -45,6 +57,12 @@ export interface BundledActivationContext {
    * its tier bound. Generic: the core knows only "a declared ref list".
    */
   routingPool?: readonly string[];
+  /**
+   * ADR-0080: the project's declared checks (`moh.json` `checks`),
+   * verbatim and schema-validated. Generic: the core knows only "named
+   * commands", never who runs them.
+   */
+  checks?: MohConfig["checks"];
   /** The session's skill roster (bundled first-party + user skills). */
   skillRoster: () => Promise<readonly { name: string; description: string }[]>;
   /**
@@ -77,8 +95,13 @@ export interface BundledExtensionSource {
    * another package's file). When present, the same subset rule applies at
    * registration: code capabilities not declared here refuse the load.
    */
-  readonly manifest?: { hash?: string; path?: string; capabilities: readonly string[]; reasoning?: string };
-  /** Builds the definition to register. Called only when `active` is true. */
+  readonly manifest?: BundledManifest | ((context: BundledActivationContext) => BundledManifest);
+  /**
+   * Builds the definition to register. Called only when `active` is true.
+   * ADR-0080: `null` declines for this session — the context says there is
+   * nothing to run (a project-declared fact the client cannot see) — and
+   * nothing registers; `inactiveNote` is not consulted.
+   */
   activate(context: BundledActivationContext): unknown;
   /**
    * The vendor's own activation answer, evaluated by the **client** (never
@@ -191,9 +214,12 @@ export function resolveBundledExtensions(options: {
       if (note) notes.push(note);
       continue;
     }
+    const definition = descriptor.activate(options.context);
+    if (definition === null) continue;
     anyActive = true;
-    const { manifest, consentRequired, ...rest } = descriptor;
-    void options.runtime.register(descriptor.activate(options.context), {
+    const { manifest: declared, consentRequired, ...rest } = descriptor;
+    const manifest = typeof declared === "function" ? declared(options.context) : declared;
+    void options.runtime.register(definition, {
       bundled: !consentRequired,
       ...rest,
       // A bundled source without a hash derives its store key from the name

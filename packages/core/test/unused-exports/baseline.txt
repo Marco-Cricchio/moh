@@ -146,7 +146,6 @@ packages/jev-guard/src/skills.ts SkillSuggestVerdict
 packages/jev-guard/src/typesafe.ts TYPESAFE_TIERS
 packages/jev-guard/src/typesafe.ts TypesafeConfig
 packages/jev-guard/src/typesafe.ts TypesafeTier
-packages/jev-guard/src/typesafe.ts removeTypesafeApiKey
 packages/jev-guard/src/typesafe.ts typesafeConfigSchema
 packages/jev-guard/src/use-cases.ts JEV_USE_CASE_ACTIONS
 packages/jev-guard/src/use-cases.ts JevRoutingHost

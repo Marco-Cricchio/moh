@@ -106,8 +106,12 @@ interface AskScreenFit {
   window: number;
   /** Wrapped description rows kept per option (never above ASK_DESCRIPTION_ROW_CAP). */
   descriptionRows: number;
-  /** Wrapped question rows kept. */
+  /** Wrapped question rows on screen at once. The question is never cut
+   * (#1512): this is the full wrapped height unless `questionScroll`. */
   questionRows: number;
+  /** #1512: the whole question does not fit even with the option floor —
+   * it scrolls inside the block (pgup/pgdn) behind one position row. */
+  questionScroll: boolean;
   /** Hidden-row marker rows the window still needs. */
   markers: number;
   /** Total rows this plan renders. */
@@ -129,65 +133,105 @@ const ASK_MIN_OPTION_ROWS = 3;
 type AskScreen = { question: string; options: ReadonlyArray<{ description?: string; preview?: string }> };
 
 const screenCompact = (width: number): boolean => width < ASK_COMPACT_WIDTH;
-const screenInner = (width: number): number => Math.max(50, width - 6);
+/** The render's text area: one margin column each side plus "│ " … " │". */
+const screenInner = (width: number): number => width - 6;
+
+/** #1512: the width the question wraps at — shared by the model and the
+ * render (one leading space per line), so the full question height the
+ * model reserves is the height the frame shows. */
+const screenQuestionWidth = (width: number): number => Math.max(1, screenInner(width) - 1);
 
 /** Layout C renders its descriptions at a different indent than A, so the
- * two layouts wrap them differently — the model must not share one width. */
-const screenDescWidth = (width: number, inner: number): number =>
-  screenCompact(width) ? Math.max(1, inner - DESC_INDENT_C.length - 2) : Math.max(1, inner - DESC_INDENT_A.length - 2);
+ * two layouts wrap them differently — the model must not share one width.
+ * The same widths the render wraps at. */
+const screenDescWidth = (width: number): number =>
+  screenCompact(width)
+    ? Math.max(1, screenInner(width) - DESC_INDENT_C.length - 2)
+    : Math.max(1, screenInner(width) - DESC_INDENT_A.length - 6);
 
 const screenHasPreview = (q: AskScreen, width: number): boolean =>
   !screenCompact(width) && q.options.some((o) => o.preview !== undefined);
 
 /** Rows one screen renders for a given plan. */
 function screenRows(q: AskScreen, width: number, plan: Omit<AskScreenFit, "rows">): number {
-  const inner = screenInner(width);
   const compact = screenCompact(width);
   const visibleOptions = q.options.length > plan.window ? plan.window : q.options.length;
-  let optionArea = visibleOptions; // one label row each
-  if (!screenHasPreview(q, width)) {
-    const descWidth = screenDescWidth(width, inner);
-    for (const option of q.options.slice(0, visibleOptions)) {
-      const desc = option.description ?? "";
-      if (desc.trim() === "") continue;
-      const wraps = wrapText(desc, descWidth).length;
-      optionArea += Math.min(plan.descriptionRows, wraps) + (wraps > plan.descriptionRows ? 1 : 0);
-    }
+  const questionArea = plan.questionRows + (plan.questionScroll ? 1 : 0);
+  if (screenHasPreview(q, width)) {
+    // Side-by-side (#414): the option column (labels, markers, Other) and
+    // the preview box share their rows, and no blank row follows the
+    // question — summing the two overstated the screen, which made a
+    // question that fits scroll (#1512).
+    const preview = Math.min(PREVIEW_ROW_CAP, Math.max(...q.options.map((o) => (o.preview ? o.preview.split("\n").length : 1)))) + 3;
+    return CHROME_A - 2 + questionArea + Math.max(visibleOptions + plan.markers + 1, preview);
   }
-  const preview = screenHasPreview(q, width)
-    ? Math.min(PREVIEW_ROW_CAP, Math.max(...q.options.map((o) => (o.preview ? o.preview.split("\n").length : 1)))) + 3
-    : 0;
-  return (compact ? CHROME_C : CHROME_A) + plan.questionRows + optionArea + plan.markers + preview;
+  let optionArea = visibleOptions; // one label row each
+  const descWidth = screenDescWidth(width);
+  for (const option of q.options.slice(0, visibleOptions)) {
+    const desc = option.description ?? "";
+    if (desc.trim() === "") continue;
+    const wraps = wrapText(desc, descWidth).length;
+    optionArea += Math.min(plan.descriptionRows, wraps) + (wraps > plan.descriptionRows ? 1 : 0);
+  }
+  return (compact ? CHROME_C : CHROME_A) + questionArea + optionArea + plan.markers;
 }
+
+/** Wrapped height of the full question at this width (#1512). */
+const questionHeight = (q: AskScreen, width: number): number =>
+  wrapText(q.question, screenQuestionWidth(width)).length;
+
+/** #1512: the fewest rows the question can take — all of it when it is
+ * one or two lines (a scroll row would save nothing), else one visible
+ * line plus the scroll position row. */
+const questionFloor = (lines: number): Pick<AskScreenFit, "questionRows" | "questionScroll"> =>
+  lines >= 3 ? { questionRows: 1, questionScroll: true } : { questionRows: lines, questionScroll: false };
+
+/** #1512: the option window's floor. A question that could scroll (three or
+ * more lines) takes the option rows first — down to the focused option
+ * alone, ↑/↓ still reach the rest — before it scrolls; a shorter one is
+ * shown whole at any budget Chat grants and keeps three options. */
+const optionFloor = (lines: number): number => (lines >= 3 ? 1 : ASK_MIN_OPTION_ROWS);
 
 /**
  * The largest plan that fits `maxRows`, or the natural one when no budget
- * is given (#874). Preference order: keep as many question rows as
- * possible, then options, then description rows — the user answering a
- * question needs the options, not the prose. Shrinking to the floor
- * overflows still: a viewport too small to show three options cannot be
- * honoured, and the caller's transcript budget already floors at one row.
+ * is given (#874). The question is never cut (#1512): the space comes from
+ * the description rows first, then the option window — the user answering
+ * a question needs the options more than their prose. When even the option
+ * floor (`optionFloor`, no descriptions) leaves too little room for the
+ * whole question, the question scrolls inside the block (pgup/pgdn) — every
+ * word stays reachable. Below the block's floor (`askBlockMinRows`) the plan
+ * overflows still: the question must stay answerable, and the caller's
+ * transcript budget already floors at one row.
  */
 function fitAskScreen(q: AskScreen, width: number, maxRows?: number): AskScreenFit {
+  const lines = questionHeight(q, width);
   const natural: Omit<AskScreenFit, "rows"> = {
     window: Math.min(q.options.length, ASK_MAX_OPTION_ROWS),
     descriptionRows: ASK_DESCRIPTION_ROW_CAP,
-    questionRows: wrapText(q.question, Math.max(1, screenInner(width))).length,
+    questionRows: lines,
+    questionScroll: false,
     markers: q.options.length > ASK_MAX_OPTION_ROWS ? 2 : 0,
   };
   const naturalRows = screenRows(q, width, natural);
   if (maxRows === undefined || naturalRows <= maxRows) return { ...natural, rows: naturalRows };
-  const questionRows = Math.max(1, Math.min(natural.questionRows, maxRows - (screenCompact(width) ? CHROME_C : CHROME_A) - ASK_MIN_OPTION_ROWS));
-  for (let window = natural.window; window >= ASK_MIN_OPTION_ROWS; window--) {
+  const minWindow = optionFloor(lines);
+  for (let window = natural.window; window >= minWindow; window--) {
     for (let descriptionRows = natural.descriptionRows; descriptionRows >= 0; descriptionRows--) {
       const markers = q.options.length > window ? 2 : 0;
-      const plan = { window, descriptionRows, questionRows, markers };
+      const plan = { ...natural, window, descriptionRows, markers };
       const rows = screenRows(q, width, plan);
       if (rows <= maxRows) return { ...plan, rows };
     }
   }
-  const floorPlan = { ...natural, window: Math.min(natural.window, ASK_MIN_OPTION_ROWS), descriptionRows: 0, questionRows, markers: q.options.length > ASK_MIN_OPTION_ROWS ? 2 : 0 };
-  return { ...floorPlan, rows: screenRows(q, width, floorPlan) };
+  const window = Math.min(natural.window, minWindow);
+  const floorPlan = { ...natural, window, descriptionRows: 0, markers: q.options.length > window ? 2 : 0 };
+  const floorRows = screenRows(q, width, floorPlan);
+  if (!questionFloor(lines).questionScroll) return { ...floorPlan, rows: floorRows };
+  // The whole question would push the floor plan past the budget: show as
+  // many question lines as the budget leaves, minus the scroll position row.
+  const questionRows = Math.max(1, lines - (floorRows - maxRows) - 1);
+  const scrollPlan = { ...floorPlan, questionRows, questionScroll: true };
+  return { ...scrollPlan, rows: screenRows(q, width, scrollPlan) };
 }
 
 /** Summary-screen rows for `count` questions inside a row budget. */
@@ -209,8 +253,9 @@ function fitAskSummary(count: number, width: number, maxRows?: number): { window
 }
 
 /**
- * The smallest row count the block can render at this width: one question
- * row, the minimum option window (labels plus their truncation markers),
+ * The smallest row count the block can render at this width: the question
+ * floor (one scrolling line plus its position row, or the whole question
+ * when it is shorter, #1512), the minimum option window (labels plus their truncation markers),
  * the window markers and the chrome — for the TALLEST question screen, so
  * whichever question is showing fits. A caller asking for less than this
  * cannot be honoured: the question must stay answerable, so the block wins
@@ -220,13 +265,16 @@ function fitAskSummary(count: number, width: number, maxRows?: number): { window
  */
 export function askBlockMinRows(questions: ReadonlyArray<AskScreen>, width: number): number {
   const blockWidth = Math.max(40, width);
-  const screens = questions.map((q) =>
-    screenRows(q, blockWidth, {
-      window: Math.min(q.options.length, ASK_MIN_OPTION_ROWS),
+  const screens = questions.map((q) => {
+    const lines = questionHeight(q, blockWidth);
+    const window = Math.min(q.options.length, optionFloor(lines));
+    return screenRows(q, blockWidth, {
+      window,
       descriptionRows: 0,
-      questionRows: 1,
-      markers: q.options.length > ASK_MIN_OPTION_ROWS ? 2 : 0,
-    }));
+      ...questionFloor(lines),
+      markers: q.options.length > window ? 2 : 0,
+    });
+  });
   return Math.max(...screens, fitAskSummary(questions.length, blockWidth).rows);
 }
 
@@ -319,9 +367,25 @@ export function AskUserBlock({ gate, width, maxRows }: { gate: AskUserGate; widt
   const [selected, setSelected] = useState<string[]>([]);
   const [text, setText] = useState("");
   const [summary, setSummary] = useState(false);
+  /** #1512: first visible question line when the question scrolls. */
+  const [questionScroll, setQuestionScroll] = useState(0);
 
   const question: AskUserQuestion | undefined = questions[index];
   const textMode = !summary && "other" in focused;
+
+  // #874: the visible slice of the option list around the focused option —
+  // a many-option question scrolls internally instead of growing past the
+  // viewport (Ink's fullscreen path). The plan is the SAME model the caller
+  // budgets with (`fitAskScreen`): window size, description cap and
+  // question rows come from one place, so render and reservation can't drift.
+  const fit = question
+    ? fitAskScreen({ question: question.question, options: question.options }, blockWidth, maxRows)
+    : undefined;
+  // #1512: the question is never cut — wrapped in full, and windowed only
+  // when even the option floor leaves no room for all of it.
+  const allQuestionLines = question ? wrapText(question.question, screenQuestionWidth(blockWidth)) : [];
+  const maxQuestionScroll = fit?.questionScroll ? allQuestionLines.length - fit.questionRows : 0;
+  const questionStart = Math.min(questionScroll, maxQuestionScroll);
 
   // New set → reset all navigation and collection state.
   useEffect(() => {
@@ -331,6 +395,7 @@ export function AskUserBlock({ gate, width, maxRows }: { gate: AskUserGate; widt
     setSelected([]);
     setText("");
     setSummary(false);
+    setQuestionScroll(0);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [gate.version]);
 
@@ -343,6 +408,7 @@ export function AskUserBlock({ gate, width, maxRows }: { gate: AskUserGate; widt
       setFocused({ option: 0 });
       setSelected([]);
       setText("");
+      setQuestionScroll(0);
     } else {
       setAnswers(nextAnswers);
       setSummary(true);
@@ -361,11 +427,21 @@ export function AskUserBlock({ gate, width, maxRows }: { gate: AskUserGate; widt
       setFocused({ option: 0 });
       setSelected(prevAnswer?.labels ?? []);
       setText(prevAnswer?.other ?? "");
+      setQuestionScroll(0);
     }
   };
 
   useInput((input, key) => {
     if (!question) return;
+    // #1512: a question taller than the block scrolls a page at a time
+    // (one line of overlap), in option and free-text focus alike.
+    if (!summary && (key.pageUp || key.pageDown)) {
+      const page = Math.max(1, (fit?.questionRows ?? 1) - 1);
+      setQuestionScroll(key.pageUp
+        ? Math.max(0, questionStart - page)
+        : Math.min(maxQuestionScroll, questionStart + page));
+      return;
+    }
     if (summary) {
       if (key.escape || key.tab) return back();
       if (key.ctrl && input === "x") return settle({ answers: [], cancelled: true });
@@ -440,21 +516,18 @@ export function AskUserBlock({ gate, width, maxRows }: { gate: AskUserGate; widt
     }
   });
 
-  if (!question) return null;
+  if (!question || !fit) return null;
 
-  // #874: the visible slice of the option list around the focused option —
-  // a many-option question scrolls internally instead of growing past the
-  // viewport (Ink's fullscreen path). The plan is the SAME model the caller
-  // budgets with (`fitAskScreen`): window size, description cap and
-  // question cap come from one place, so render and reservation can't drift.
-  const fit = fitAskScreen(
-    { question: question.question, options: question.options },
-    blockWidth,
-    maxRows,
-  );
   const window = optionWindow(question.options.length, "option" in focused ? focused.option : 0, fit.window);
   const summaryFit = fitAskSummary(questions.length, blockWidth, maxRows);
-  const questionLines = wrapText(question.question, Math.max(1, innerWidth - 1)).slice(0, fit.questionRows);
+  const questionLines = allQuestionLines.slice(questionStart, questionStart + fit.questionRows);
+  /** #1512: where the scrolling question is — a position, not a cut: the
+   * rest of the question is one pgup/pgdn away. */
+  const questionPosition = fit.questionScroll && (
+    <Text color={theme.dim}>
+      {`  lines ${questionStart + 1}–${questionStart + questionLines.length}/${allQuestionLines.length} · pgup/pgdn`}
+    </Text>
+  );
   /** The windowed option rows, rendered at the caller's layout width. */
   const renderOptionRows = (descWidth: number, sideBySide: boolean, descIndent: string) => {
     const visible = question.options.slice(window.start, window.start + window.count);
@@ -466,7 +539,10 @@ export function AskUserBlock({ gate, width, maxRows }: { gate: AskUserGate; widt
       const marker = question.multiSelect ? (checked ? "[x]" : "[ ]") : isFocused ? "❯ " : "  ";
       const number = question.multiSelect ? "  " : `${optionIndex + 1} `;
       const label = sanitizeForDisplay(option.label);
-      const fullDescription = sideBySide ? [] : wrapText(sanitizeForDisplay(option.description ?? ""), descWidth);
+      // An option without a description renders no description row — the
+      // row model counts none (#1512: wrapText("") is one blank line).
+      const description = sanitizeForDisplay(option.description ?? "");
+      const fullDescription = sideBySide || description.trim() === "" ? [] : wrapText(description, descWidth);
       const descriptionHidden = fullDescription.length > fit.descriptionRows;
       const desc = fullDescription.slice(0, fit.descriptionRows).map((line, index) =>
         descriptionHidden && index === fit.descriptionRows - 1 ? `${line.slice(0, Math.max(0, descWidth - 1))}…` : line,
@@ -515,7 +591,8 @@ export function AskUserBlock({ gate, width, maxRows }: { gate: AskUserGate; widt
               <Text color={theme.dim}>{` ${index + 1}/${questions.length}`}</Text>
             </Text>
             <Text bold>{questionLines.join("\n")}</Text>
-            {renderOptionRows(innerWidth - DESC_INDENT_C.length - 2, false, DESC_INDENT_C)}
+            {questionPosition}
+            {renderOptionRows(screenDescWidth(blockWidth), false, DESC_INDENT_C)}
             <Text>
               {textMode ? (
                 <>
@@ -597,7 +674,8 @@ export function AskUserBlock({ gate, width, maxRows }: { gate: AskUserGate; widt
             <Text color={theme.dim}>{` ${chipLine}`}</Text>
           </Text>
           <Text color={theme.dim}>{` ${divider}`}</Text>
-          <Text bold>{` ${questionLines.join("\n")}`}</Text>
+          <Text bold>{questionLines.map((line) => ` ${line}`).join("\n")}</Text>
+          {questionPosition}
           <Box flexDirection="row" gap={2} paddingLeft={1}>
             <Box flexDirection="column" width={Math.min(32, Math.max(20, Math.floor((innerWidth - 2) * 0.4)))}>
               {renderOptionRows(0, true, DESC_INDENT_A)}
@@ -623,9 +701,10 @@ export function AskUserBlock({ gate, width, maxRows }: { gate: AskUserGate; widt
             <Text color={theme.dim}>{` ${chipLine}`}</Text>
           </Text>
           <Text color={theme.dim}>{` ${divider}`}</Text>
-          <Text bold>{` ${questionLines.join("\n")}`}</Text>
+          <Text bold>{questionLines.map((line) => ` ${line}`).join("\n")}</Text>
+          {questionPosition}
           <Text> </Text>
-          {renderOptionRows(innerWidth - DESC_INDENT_A.length - 6, false, DESC_INDENT_A)}
+          {renderOptionRows(screenDescWidth(blockWidth), false, DESC_INDENT_A)}
           {otherRow}
         </Box>
       )}

@@ -377,7 +377,8 @@ function readMissEntries(file: string): SecretRedactionMissEntry[] {
       try {
         entries.push(JSON.parse(trimmed) as SecretRedactionMissEntry);
       } catch {
-        break;
+        // A torn line is skipped, not a stop: later entries survive (#1615).
+        continue;
       }
     }
     return entries;

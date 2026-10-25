@@ -38,17 +38,35 @@ function repo(): string {
   return root;
 }
 
-async function sessionWithGit(capabilities: readonly string[]): Promise<{
+/**
+ * #1522: the auto-lane shape — a real `git worktree` of `checkout` under
+ * `<home>/projects/<repo>/lanes/<lane>`, the session's cwd in a `moh run`
+ * that opened a lane (ADR-0060).
+ */
+function laneOf(checkout: string, home: string): string {
+  const lanes = join(home, "projects", "example", "lanes");
+  mkdirSync(lanes, { recursive: true });
+  const lane = join(lanes, "moh-auto-test");
+  execFileSync("git", ["worktree", "add", "-q", "-b", "moh-auto-test", lane], { cwd: checkout });
+  return lane;
+}
+
+async function sessionWithGit(
+  capabilities: readonly string[],
+  options: { lane?: boolean } = {},
+): Promise<{
   host: ExtensionHost;
   root: string;
+  checkout: string;
   events: AgentEvent[];
   seamEvents: AgentEvent[];
 }> {
-  const root = repo();
+  const checkout = repo();
   const events: AgentEvent[] = [];
   const seamEvents: AgentEvent[] = [];
   const home = mkdtempSync(join(tmpdir(), "moh-git-seam-home-"));
   homes.push(home);
+  const root = options.lane ? laneOf(checkout, home) : checkout;
   const rt = new ExtensionRuntime({ mohHome: home, projectRoot: root, consent: () => true });
   const box: { ctx: ExtensionSetupContext | null } = { ctx: null };
   rt.onLoadEvent((event) => events.push(event));
@@ -74,8 +92,11 @@ async function sessionWithGit(capabilities: readonly string[]): Promise<{
     },
   });
   if (!("session" in assembled)) throw new Error(assembled.error.message);
-  return { host: box.ctx!.host as ExtensionHost, root, events, seamEvents };
+  return { host: box.ctx!.host as ExtensionHost, root, checkout, events, seamEvents };
 }
+
+const gitOps = (events: AgentEvent[]) =>
+  events.filter((e) => (e.type === "host_op" || e.type === "host_refused") && e.op === "run_tool" && e.tool === "git");
 
 describe("tool:git through the seam (#1165)", () => {
   test("a granted read runs through the gate and logs one host_op ok", async () => {
@@ -102,5 +123,44 @@ describe("tool:git through the seam (#1165)", () => {
     expect(host?.runTool).toBeUndefined();
     const ops = seamEvents.filter((e) => e.type === "host_op" || e.type === "host_refused");
     expect(ops).toHaveLength(0);
+  });
+});
+
+describe("tool:git with the session root as cwd — Jev's reads (#1522)", () => {
+  test("in an auto lane, a read with cwd = the lane worktree runs (not denied)", async () => {
+    const { host, root, seamEvents } = await sessionWithGit(["tool:git"], { lane: true });
+    // Jev's exact calls: the snapshot reads, cwd = the session's own root.
+    const branch = await (host as Required<ExtensionHost>).runTool("git", { args: ["rev-parse", "--abbrev-ref", "HEAD"], cwd: root });
+    expect(branch).toEqual({ ok: true, output: "moh-auto-test\n" });
+    const status = await (host as Required<ExtensionHost>).runTool("git", { args: ["status", "--porcelain"], cwd: root });
+    expect(status.ok).toBe(true);
+    const ops = gitOps(seamEvents);
+    expect(ops).toHaveLength(2);
+    for (const op of ops) expect(op).toMatchObject({ type: "host_op", outcome: "ok" });
+    expect(JSON.stringify(seamEvents)).not.toContain("path outside project root");
+  });
+
+  test("in an auto lane, a cwd outside the lane — the original checkout or elsewhere — is still denied", async () => {
+    const { host, checkout, seamEvents } = await sessionWithGit(["tool:git"], { lane: true });
+    for (const cwd of [checkout, tmpdir()]) {
+      const result = await (host as Required<ExtensionHost>).runTool("git", { args: ["status"], cwd });
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.reason).toBe("denied");
+        expect(result.message).toContain("path outside project root");
+      }
+    }
+    const ops = gitOps(seamEvents);
+    expect(ops).toHaveLength(2);
+    for (const op of ops) expect(op).toMatchObject({ type: "host_op", outcome: "denied" });
+  });
+
+  test("without a lane, a read with cwd = the checkout runs; a subdirectory still runs; outside is denied", async () => {
+    const { host, root, seamEvents } = await sessionWithGit(["tool:git"]);
+    const run = (cwd: string) => (host as Required<ExtensionHost>).runTool("git", { args: ["status", "--porcelain"], cwd });
+    expect((await run(root)).ok).toBe(true);
+    expect((await run(join(root, "src"))).ok).toBe(true);
+    expect(await run(tmpdir())).toMatchObject({ ok: false, reason: "denied" });
+    expect(gitOps(seamEvents).map((e) => (e as { outcome?: string }).outcome)).toEqual(["ok", "ok", "denied"]);
   });
 });

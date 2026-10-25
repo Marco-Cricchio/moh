@@ -282,6 +282,36 @@ describe("endpoint scope: a granted endpoint end to end", () => {
     }
   });
 
+  test("a non-openai-compat endpoint lists model ids (string[]), not listing objects (#1599)", async () => {
+    const server = Bun.serve({
+      port: 0,
+      fetch(req) {
+        if (new URL(req.url).pathname.endsWith("/models")) {
+          return Response.json({ data: [{ id: "claude-x", display_name: "Claude X" }, { id: "claude-y" }], has_more: false });
+        }
+        return new Response("not found", { status: 404 });
+      },
+    });
+    try {
+      const events: AgentEvent[] = [];
+      const { rt, host } = await probe(project(), ["endpoint:anth"]);
+      const session = await sessionWith({
+        host,
+        rt,
+        endpoints: [{ name: "anth", type: "anthropic", baseUrl: `http://localhost:${server.port}/v1`, apiKey: "sk-ant-test", defaultModel: "claude-x" }],
+        events,
+      });
+      try {
+        const listed = await (host as Required<ExtensionHost>).listModels!("anth");
+        expect(listed).toEqual({ ok: true, models: ["claude-x", "claude-y"] });
+      } finally {
+        await session.dispose();
+      }
+    } finally {
+      server.stop(true);
+    }
+  });
+
   test("a thinking override within capability rides the call and lands in model_call; an unsupported level refuses typed", async () => {
     const server = startCompatServer();
     try {

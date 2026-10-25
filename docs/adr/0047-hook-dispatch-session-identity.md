@@ -119,3 +119,7 @@ applies to it for free (its chrome now lands where the call happened).
   own reset at its own turn start, its own warning naming it. A borrowed
   session's budget is released when the child disposes; a record made
   outside a scoped dispatch is still the owner's.)
+
+## Amendment — ablation (2026-10-23)
+
+The decision above is unchanged. This amendment records the name and type of the borrowed runtime after #1439 (S4.4, delivered by #1600): the field is `SessionConfig.borrowedRuntime`, no longer `toolHooks`, and it is typed as the whole `ExtensionRuntime`, not a partial pick of its hooks. A child receives the whole runtime by type; the sharing rule above is unchanged. The original text is kept as written.

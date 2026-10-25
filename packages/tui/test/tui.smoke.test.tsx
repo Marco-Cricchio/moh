@@ -8,7 +8,10 @@ import { Home } from "../src/Home";
 import { Chat } from "../src/Chat";
 import { makeSession } from "../src/factory";
 import { MockProvider, createSession, SessionStore } from "@moh/core";
-import { COMPOSER_READY, actUntilFrame, grantTeamExtension, stripAnsi, unwrap, waitForCondition, waitForFrame } from "./helpers";
+import { COMPOSER_READY, actUntilFrame, grantTeamExtension, stripAnsi, tempProjectDir, unwrap, useFileCredentialStore, waitForCondition, waitForFrame } from "./helpers";
+
+// #1504: no test here may read the login keychain or the checkout's moh.json.
+useFileCredentialStore();
 
 const tempHome = () => { const h = mkdtempSync(join(tmpdir(), "moh-tui-smoke-")); grantTeamExtension(h); return h; };
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -28,7 +31,7 @@ describe("chat smoke (mock provider)", () => {
     const provider = MockProvider.scripted([
       { deltas: ["I keep a **diary** of it.\n\n", "- saved automatically\n", "- private"], finish: "stop" },
     ]);
-    const { session } = unwrap(makeSession({ cwd: process.cwd(), home: tempHome(), provider }));
+    const { session } = unwrap(makeSession({ cwd: tempProjectDir(), home: tempHome(), provider }));
     const i = render(<Chat session={session} cwd={mkdtempSync(join(tmpdir(), "moh-gitless-"))} mode="vibe" modelLabel="mock" />);
     await sleep(30);
     i.stdin.write("where do you keep our conversation?");
@@ -47,7 +50,7 @@ describe("chat smoke (mock provider)", () => {
     const provider = MockProvider.scripted([
       { deltas: Array.from({ length: 20 }, () => "word "), finish: "stop", deltaDelayMs: 40 },
     ]);
-    const { session } = unwrap(makeSession({ cwd: process.cwd(), home: tempHome(), provider }));
+    const { session } = unwrap(makeSession({ cwd: tempProjectDir(), home: tempHome(), provider }));
     const i = render(<Chat session={session} cwd={mkdtempSync(join(tmpdir(), "moh-gitless-"))} mode="dev" modelLabel="mock" />);
     await sleep(30);
     i.stdin.write("go");
@@ -72,7 +75,7 @@ describe("chat smoke (mock provider)", () => {
       { deltas: Array.from({ length: 10 }, () => "x "), finish: "stop", deltaDelayMs: 40 },
       { deltas: ["second answer"], finish: "stop" },
     ]);
-    const { session } = unwrap(makeSession({ cwd: process.cwd(), home: tempHome(), provider }));
+    const { session } = unwrap(makeSession({ cwd: tempProjectDir(), home: tempHome(), provider }));
     const i = render(<Chat session={session} cwd={mkdtempSync(join(tmpdir(), "moh-gitless-"))} mode="vibe" modelLabel="mock" />);
     await sleep(30);
     i.stdin.write("first");
@@ -93,7 +96,7 @@ describe("chat smoke (mock provider)", () => {
 
   test("status row always shows model and current mode", async () => {
     const provider = MockProvider.scripted([{ deltas: ["ok"], finish: "stop" }]);
-    const { session } = unwrap(makeSession({ cwd: process.cwd(), home: tempHome(), provider }));
+    const { session } = unwrap(makeSession({ cwd: tempProjectDir(), home: tempHome(), provider }));
     const i = render(<Chat session={session} cwd={mkdtempSync(join(tmpdir(), "moh-gitless-"))} mode="dev" modelLabel="mock" />);
     expect(stripAnsi(i.lastFrame() ?? "")).toContain("◆ mock");
     expect(stripAnsi(i.lastFrame() ?? "")).toContain("◉ dev");
@@ -107,7 +110,7 @@ describe("chat smoke (mock provider)", () => {
 
 describe("home smoke", () => {
   test("filter-first: typed query filters live, enter opens the new-session row", async () => {
-    const cwd = process.cwd();
+    const cwd = tempProjectDir();
     const home = tempHome();
     const store = SessionStore.create(cwd, home);
     const persisted = createSession({
@@ -144,7 +147,7 @@ describe("home smoke", () => {
 
   test("App: enter on the new-session row opens a chat and sends the prompt", async () => {
     const provider = MockProvider.scripted([{ deltas: ["hello there"], finish: "stop" }]);
-    const i = await mountApp({ intro: false, cwd: process.cwd(), home: tempHome(), provider, skipOnboarding: true });
+    const i = await mountApp({ intro: false, cwd: tempProjectDir(), home: tempHome(), provider, skipOnboarding: true });
     const frame = () => stripAnsi(i.lastFrame() ?? "");
     // Poll each step: the settled Home paints a beat before its input
     // handlers attach, so a fixed sleep can drop the keystroke.
@@ -157,7 +160,7 @@ describe("home smoke", () => {
   });
 
   test("App: enter on a session row resumes the persisted session", async () => {
-    const cwd = process.cwd();
+    const cwd = tempProjectDir();
     const home = tempHome();
     const store = SessionStore.create(cwd, home);
     const persisted = createSession({
@@ -199,7 +202,7 @@ describe("home smoke", () => {
 
   test("App: ctrl+o switches vibe ↔ dev in session (regression: ctrl+m is \\r, indistinguishable from Enter)", async () => {
     const provider = MockProvider.demo();
-    const i = await mountApp({ intro: false, cwd: process.cwd(), home: tempHome(), provider, startInChat: true, skipOnboarding: true });
+    const i = await mountApp({ intro: false, cwd: tempProjectDir(), home: tempHome(), provider, startInChat: true, skipOnboarding: true });
     await sleep(30);
     expect(stripAnsi(i.lastFrame() ?? "")).toContain("○ vibe");
     i.stdin.write("\x0f");
@@ -212,7 +215,7 @@ describe("home smoke", () => {
   });
 
   test("App: ctrl+l opens the model picker on any terminal (legacy byte 0x0c)", async () => {
-    const i = await mountApp({ intro: false, cwd: process.cwd(), home: tempHome(), provider: MockProvider.demo(), startInChat: true, skipOnboarding: true });
+    const i = await mountApp({ intro: false, cwd: tempProjectDir(), home: tempHome(), provider: MockProvider.demo(), startInChat: true, skipOnboarding: true });
     expect(stripAnsi(i.lastFrame() ?? "")).toContain("^l model");
     i.stdin.write("\x0c"); // ctrl+l — a control byte no terminal encodes as another key
     await waitForFrame(() => stripAnsi(i.lastFrame() ?? ""), "model");
@@ -220,7 +223,7 @@ describe("home smoke", () => {
   });
 
   test("App: kitty Ctrl+M opens the model picker (legacy ctrl+m is byte-identical to Enter)", async () => {
-    const i = await mountApp({ intro: false, cwd: process.cwd(), home: tempHome(), provider: MockProvider.demo(), startInChat: true, skipOnboarding: true });
+    const i = await mountApp({ intro: false, cwd: tempProjectDir(), home: tempHome(), provider: MockProvider.demo(), startInChat: true, skipOnboarding: true });
     i.stdin.write("\x1b[109;5u"); // kitty keyboard protocol: Ctrl+M
     await waitForFrame(() => stripAnsi(i.lastFrame() ?? ""), "model");
     i.unmount();
@@ -232,7 +235,7 @@ describe("home smoke", () => {
       { deltas: ["second answer"], finish: "stop", usage: { inputTokens: 200, outputTokens: 40 } },
       { deltas: ["third answer"], finish: "stop", usage: { inputTokens: 300, outputTokens: 50 } },
     ]);
-    const i = await mountApp({ intro: false, cwd: process.cwd(), home: tempHome(), provider, startInChat: true, skipOnboarding: true });
+    const i = await mountApp({ intro: false, cwd: tempProjectDir(), home: tempHome(), provider, startInChat: true, skipOnboarding: true });
     await sleep(30);
     i.stdin.write("one");
     await sleep(20);
@@ -273,7 +276,7 @@ describe("home smoke", () => {
     // skipOnboarding: this test is about the theme key, and the first-run
     // workflow offer would own the keystroke (it is dismissed here, like the
     // other App-level smoke tests).
-    const i = await mountApp({ intro: false, cwd: process.cwd(), home: tempHome(), provider, skipOnboarding: true });
+    const i = await mountApp({ intro: false, cwd: tempProjectDir(), home: tempHome(), provider, skipOnboarding: true });
     const frame = () => stripAnsi(i.lastFrame() ?? "");
     expect(frame()).toContain("Tokyo Night");
     // The frame can paint a beat before the tree's input handlers attach;

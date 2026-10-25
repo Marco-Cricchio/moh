@@ -118,3 +118,7 @@ already do.
 - **A persisted `replaceSection(name, fn)` API at setup** — rejected: it introduces state to
   revoke and a question to answer; a per-call return value leaves nothing behind and is
   inspectable by construction.
+
+## Amendment — ablation (2026-10-23)
+
+The decision above is unchanged. This amendment records the borrowed runtime's name and type after #1439 (S4.4, delivered by #1600). The field is `SessionConfig.borrowedRuntime` (it was `toolHooks`), typed as the whole `ExtensionRuntime`. A child therefore receives every runtime hook by type, not only the tool half: the `beforeModelCall` widening described above is a consequence of that type, not a separate surface change. The original text is kept as written.

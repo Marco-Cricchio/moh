@@ -12,6 +12,13 @@
         "typescript": "^7.0.2",
       },
     },
+    "packages/checks": {
+      "name": "@moh/checks",
+      "version": "0.1.0",
+      "dependencies": {
+        "@moh/extension": "workspace:*",
+      },
+    },
     "packages/cli": {
       "name": "@moh/cli",
       "version": "0.1.0",
@@ -67,6 +74,7 @@
       "name": "@moh/tui",
       "version": "0.1.0",
       "dependencies": {
+        "@moh/checks": "workspace:*",
         "@moh/core": "workspace:*",
         "@moh/jev-guard": "workspace:*",
         "@moh/team": "workspace:*",
@@ -100,6 +108,8 @@
     "@alcalzone/ansi-tokenize": ["@alcalzone/ansi-tokenize@0.2.5", "", { "dependencies": { "ansi-styles": "^6.2.1", "is-fullwidth-code-point": "^5.0.0" } }, "sha512-3NX/MpTdroi0aKz134A6RC2Gb2iXVECN4QaAXnvCIxxIm3C3AVB1mkUe8NaaiyvOpDfsrqWhYtj+Q6a62RrTsw=="],
 
     "@colors/colors": ["@colors/colors@1.5.0", "", {}, "sha512-ooWCrlZP11i8GImSjTHYHLkvFDP48nS4+204nGb1RiX/WXYHmJA2III9/e2DWVabCESdW7hBAEzHRqUn9OUVvQ=="],
+
+    "@moh/checks": ["@moh/checks@workspace:packages/checks"],
 
     "@moh/cli": ["@moh/cli@workspace:packages/cli"],
 

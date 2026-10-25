@@ -4,6 +4,11 @@ import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { App } from "../src/App";
+import { tempProjectDir, useFileCredentialStore, waitForCondition } from "./helpers";
+
+// #1504: no test here may read the login keychain (a synchronous `security`
+// spawn at mount) or the checkout's moh.json.
+useFileCredentialStore();
 
 /** #348 integration seam: App owns the shared opt-out and invokes the
  * core-owned skill discovery independently of both workflow gates. The
@@ -30,11 +35,11 @@ describe("App update polling (#348)", () => {
   test("discovers skills with workflow off and upstreamCheck false", async () => {
     const calls: string[] = [];
     globalThis.fetch = upstreamFetch(calls);
-    const i = render(<App intro={false} cwd={process.cwd()} home={homeWithConfig({
+    const i = render(<App intro={false} cwd={tempProjectDir()} home={homeWithConfig({
       updateCheck: true,
       workflow: { enabled: false, upstreamCheck: false },
     })} skipOnboarding env={{}} />);
-    await Bun.sleep(30);
+    await waitForCondition(() => calls.length > 0, () => "the skill-index request");
     expect(calls).toHaveLength(1);
     i.unmount();
   });
@@ -42,7 +47,7 @@ describe("App update polling (#348)", () => {
   test("the shared updateCheck opt-out suppresses skill-index traffic", async () => {
     const calls: string[] = [];
     globalThis.fetch = upstreamFetch(calls);
-    const i = render(<App intro={false} cwd={process.cwd()} home={homeWithConfig({
+    const i = render(<App intro={false} cwd={tempProjectDir()} home={homeWithConfig({
       updateCheck: false,
       workflow: { enabled: false, upstreamCheck: false },
     })} skipOnboarding env={{}} />);

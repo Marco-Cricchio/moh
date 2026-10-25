@@ -403,6 +403,41 @@ describe("sessionFromConfig loads the declared source (#834)", () => {
     );
   });
 
+  test("a contributed tool from a file extension loaded after the bind logs one tool_contributed (#1598)", async () => {
+    const { cwd, home, mohHome } = tempProject();
+    // A fresh assembly: the file registers after the session is bound (the
+    // normal CLI case), so the record cannot ride the bind-time flush.
+    const dir = join(mohHome, "extensions", "searcher");
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(
+      join(dir, "moh.extension.json"),
+      JSON.stringify({ name: "searcher", version: "1.0.0", entry: ["index.mjs"], capabilities: ["contribute-tool:search"] }),
+    );
+    writeFileSync(
+      join(dir, "index.mjs"),
+      `export default {
+  name: "searcher",
+  version: "1.0.0",
+  apiVersion: "1.15",
+  capabilities: ["contribute-tool:search"],
+  setup(ctx) {
+    ctx.registerTool({ name: "search", description: "searches", execute: () => "results" });
+  },
+};
+`,
+    );
+    await withSession(
+      assemble({ cwd, home, provider: turnOnEcho(), consent: { onExtensionConsent: () => true } }),
+      async (session) => {
+        await session.send("go");
+        expect(session.tools.search).toBeDefined();
+        expect(session.history().filter((e) => e.type === "tool_contributed")).toMatchObject([
+          { type: "tool_contributed", extension: "searcher", tool: "search" },
+        ]);
+      },
+    );
+  });
+
   test("a load that settled before the session existed still lands after session_start, in load order", async () => {
     const { mohHome } = tempProject();
     const first = writeModule(join(mohHome, "extensions", "a-first.mjs"), vetoExtension("first"));

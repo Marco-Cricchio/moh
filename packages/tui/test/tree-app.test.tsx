@@ -5,9 +5,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { MockProvider } from "@moh/core";
 import { App } from "../src/App";
-import { COMPOSER_READY, stripAnsi, waitForCondition, waitForFrame } from "./helpers";
+import { COMPOSER_READY, pressCommitted, pressSettled, sendPrompt, stripAnsi, waitForCondition, waitForFrame, waitText } from "./helpers";
 
-const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const dir = () => join(tmpdir(), `moh-tui-tree-app-${process.pid}-${Date.now()}`);
 
 /**
@@ -43,31 +42,27 @@ describe("/tree panel in the App (#581)", () => {
     // into the textarea (with a trailing space), the second enter sends
     // it (same flow the /fork test uses).
     const openTree = async () => {
+      // The live switch leaves the panel open: reopening is then a no-op.
+      if (frame().includes("Session tree")) return;
       await i.stdin.write("/tree");
-      await sleep(60);
-      await i.stdin.write("\r");
-      await sleep(60);
-      await i.stdin.write("\r");
+      await waitText(i, "/tree", "the /tree command echoed in the composer");
+      await pressCommitted(i, "\r", "the completion accepted into the composer");
+      await pressSettled(i, "\r");
       await waitForFrame(frame, "Session tree");
     };
     try {
       // Two turns on the main line.
-      await i.stdin.write("fix the auth redirect loop");
-      await sleep(60);
-      await i.stdin.write("\r");
+      await sendPrompt(i, "fix the auth redirect loop");
       await waitForCondition(() => frame().includes("first answer"), () => "first turn never finished");
-      await i.stdin.write("add integration tests");
-      await sleep(60);
-      await i.stdin.write("\r");
+      await sendPrompt(i, "add integration tests");
       await waitForCondition(() => frame().includes("second answer"), () => "second turn never finished");
 
       // Open the panel.
       await openTree();
 
       // Move up to the first turn's row and switch here.
-      await i.stdin.write("\x1b[A");
-      await sleep(60);
-      await i.stdin.write("\r");
+      await pressCommitted(i, "\x1b[A", "the cursor moved to the first turn");
+      await pressSettled(i, "\r");
       await waitForCondition(
         () => logText().includes("branch_switched"),
         () => `branch_switched never appended. Frame:\n${frame()}`,
@@ -75,13 +70,11 @@ describe("/tree panel in the App (#581)", () => {
 
       // r = branch from here: the panel closes, the sticky banner shows.
       await openTree();
-      await i.stdin.write("r");
+      await pressSettled(i, "r");
       await waitForCondition(() => frame().includes("branching from"), () => "sticky branch banner never appeared");
 
       // The next message starts the new branch (implicit split).
-      await i.stdin.write("retry with jwt middleware");
-      await sleep(60);
-      await i.stdin.write("\r");
+      await sendPrompt(i, "retry with jwt middleware");
       await waitForCondition(() => frame().includes("branch answer"), () => "branch turn never finished");
       // The branch turn's user_message landed in the log.
       expect(logText().includes("retry with jwt middleware")).toBe(true);

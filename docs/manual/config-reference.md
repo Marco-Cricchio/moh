@@ -43,7 +43,8 @@ moh reads two files:
   "mpm": { "enabled": true, "quota": { "maxFiles": 5000, "maxTotalBytes": 33554432 }, "exclude": ["legacy/**"] },
   "browser": { "enabled": true, "headless": true, "allowedHosts": ["192.168.1.1"] },
   "maxIterations": 50,
-  "hookTimeoutMs": 30000
+  "hookTimeoutMs": 30000,
+  "checks": [ { "name": "duplication", "run": "npx --yes jscpd@4.0.5 --silent --gitignore --threshold 3 .", "block": false, "timeoutMs": 120000 } ]
 }
 ```
 
@@ -199,6 +200,15 @@ All keys are optional. Notes:
   ceiling below 5000 makes every window loss an instant ceiling loss
   (the late-answer path never gets to run); keep it above 5 s unless
   you mean that.
+- `checks` — repo-declared check commands (ADR-0080): a check fails on a
+  non-zero exit, and moh never parses the tool's output. `block` (default
+  `false`) is report only; `block: true` asks for the failure to be
+  resolved before a change is called done. `timeoutMs` defaults to bash's
+  30 s. `moh init` proposes the repo's own tools, or pinned `jscpd` and
+  `lizard` commands. The bundled checks extension runs them after a turn
+  that changed files and reports in the footer (see Extensions → Bundled
+  extensions); a failing `block: true` check is handed to the model as a
+  correction turn, at most two in a row.
 
 ## ~/.moh/config
 

@@ -13,6 +13,9 @@ import { z } from "zod";
 import type { Tool } from "./types";
 import { BrowserSession, BrowserUnavailableError, OutOfRootError, inRootPath } from "./browser";
 
+/** #1508: how long a click / key press waits for a download event that lands after it returns. */
+const DOWNLOAD_EVENT_GRACE_MS = 500;
+
 const readTierSchema = z.discriminatedUnion("action", [
   z.object({ action: z.literal("navigate"), url: z.string().min(1) }),
   z.object({
@@ -223,11 +226,16 @@ export function browserTool(options: BrowserToolOptions): Tool<z.infer<typeof re
       // #777: stage any downloads this action produced (ask-gated;
       // without an ask seam nothing is ever written to disk). Staging
       // failures are visible in the result, never swallowed.
+      // #1508: only a click / key press can start a download; those get a
+      // short grace for an event that lands just after the action returns
+      // (once, then drain what is captured). Other actions never wait.
+      let eventWaitMs = args.action === "click" || args.action === "press_key" ? DOWNLOAD_EVENT_GRACE_MS : 0;
       const staged: string[] = [];
       const failed: string[] = [];
       for (;;) {
         try {
-          const path = await session.stageDownload({ ask: options.askDownload });
+          const path = await session.stageDownload({ ask: options.askDownload, eventWaitMs });
+          eventWaitMs = 0;
           if (!path) break;
           staged.push(path);
         } catch (e) {

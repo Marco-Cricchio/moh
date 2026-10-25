@@ -12,12 +12,18 @@ import { render } from "ink-testing-library";
 import { NotesModal } from "../src/NotesModal";
 import { newNote, readProjectNotes, sortNotes, writeProjectNotes } from "../src/notes";
 import { ThemeProvider, THEMES, DEFAULT_THEME } from "../src/themes";
-import { stripAnsi, waitForFrame } from "./helpers";
+import { pressSettled, stripAnsi, waitStep, waitText } from "./helpers";
 
-const waitFor = (instance: { lastFrame: () => string | undefined }, text: string) =>
-  waitForFrame(() => stripAnsi(instance.lastFrame() ?? ""), text);
-
-const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+/** Waits until the sidecar's notes satisfy `ok` (the write is async); names the step on timeout. */
+async function waitNotes(path: string, ok: (notes: Awaited<ReturnType<typeof readProjectNotes>>) => boolean, step: string) {
+  const deadline = Date.now() + 3_000;
+  let last = await readProjectNotes(path);
+  while (!ok(last) && Date.now() < deadline) {
+    await Bun.sleep(10);
+    last = await readProjectNotes(path);
+  }
+  if (!ok(last)) throw new Error(`stuck at step "${step}": notes ${JSON.stringify(last)}`);
+}
 
 async function tempPath(): Promise<string> {
   return join(await mkdtemp(join(tmpdir(), "moh-notes-")), "notes.jsonl");
@@ -76,19 +82,16 @@ describe("NotesModal", () => {
   test("empty project shows the empty hint; a writes and ctrl+s saves the first note", async () => {
     const path = await tempPath();
     const instance = mount(path);
-    await waitFor(instance, "no notes yet");
-    instance.stdin.write("a");
-    await sleep(30);
-    instance.stdin.write("hello");
-    await sleep(30);
-    instance.stdin.write("\x13"); // ctrl+s
-    await sleep(60);
+    await waitText(instance, "no notes yet", "the empty list painted");
+    await pressSettled(instance, "a");
+    await waitText(instance, "new note", "the editor opened");
+    await pressSettled(instance, "hello");
+    await waitText(instance, "hello", "the text echoed");
+    await pressSettled(instance, "\x13"); // ctrl+s
+    await waitText(instance, "· 1 ", "back on the list with one note");
     const frame = instance.lastFrame() ?? "";
     expect(frame).toContain("hello");
-    expect(frame).toContain("· 1 ");
-    const notes = await readProjectNotes(path);
-    expect(notes.length).toBe(1);
-    expect(notes[0]!.text).toBe("hello");
+    await waitNotes(path, (n) => n.length === 1 && n[0]!.text === "hello", "the first note persisted");
     instance.unmount();
   });
 
@@ -96,20 +99,16 @@ describe("NotesModal", () => {
     const path = await tempPath();
     await writeProjectNotes(path, [newNote("line1")]);
     const instance = mount(path);
-    await waitFor(instance, "line1");
-    instance.stdin.write("e"); // edit first note
-    await sleep(30);
-    instance.stdin.write("\r"); // enter = newline
-    await sleep(40);
-    instance.stdin.write("line2");
-    await sleep(30);
-    instance.stdin.write("\x1b"); // esc with changes → question
-    await sleep(30);
-    expect(instance.lastFrame() ?? "").toContain("unsaved changes");
-    instance.stdin.write("s"); // esc+s = save
-    await sleep(60);
-    const notes = await readProjectNotes(path);
-    expect(notes[0]!.text).toBe("line1\nline2");
+    await waitText(instance, "line1", "the list painted");
+    await pressSettled(instance, "e"); // edit first note
+    await waitText(instance, "edit note", "the editor opened");
+    await pressSettled(instance, "\r"); // enter = newline
+    await pressSettled(instance, "line2");
+    await waitText(instance, "line2", "the second line echoed");
+    await pressSettled(instance, "\x1b"); // esc with changes → question
+    await waitText(instance, "unsaved changes", "the save question");
+    await pressSettled(instance, "s"); // esc+s = save
+    await waitNotes(path, (n) => n[0]?.text === "line1\nline2", "the note saved with both lines");
     instance.unmount();
   });
 
@@ -117,15 +116,15 @@ describe("NotesModal", () => {
     const path = await tempPath();
     await writeProjectNotes(path, [newNote("orig")]);
     const instance = mount(path);
-    await waitFor(instance, "orig");
-    instance.stdin.write("e");
-    await sleep(30);
-    instance.stdin.write("x"); // make it dirty
-    await sleep(30);
-    instance.stdin.write("\x1b"); // esc → question
-    await sleep(20);
-    instance.stdin.write("d"); // discard
-    await sleep(40);
+    await waitText(instance, "orig", "the list painted");
+    await pressSettled(instance, "e");
+    await waitText(instance, "edit note", "the editor opened");
+    await pressSettled(instance, "x"); // make it dirty
+    await waitText(instance, "origx", "the edit echoed");
+    await pressSettled(instance, "\x1b"); // esc → question
+    await waitText(instance, "unsaved changes", "the save question");
+    await pressSettled(instance, "d"); // discard
+    await waitText(instance, "edit note", "the editor closed", { absent: true });
     expect(instance.lastFrame() ?? "").toContain("orig");
     const notes = await readProjectNotes(path);
     expect(notes[0]!.text).toBe("orig");
@@ -138,19 +137,13 @@ describe("NotesModal", () => {
     const b = newNote("second");
     await writeProjectNotes(path, [b, a]); // b newer → on top
     const instance = mount(path);
-    await waitFor(instance, "second");
-    instance.stdin.write("p"); // pin the selected (newest = second)
-    await sleep(60);
-    expect(instance.lastFrame() ?? "").toContain("📌");
-    const pinned = await readProjectNotes(path);
-    expect(pinned.find((n) => n.id === b.id)?.pinned).toBe(true);
-    instance.stdin.write("j"); // move down (to "first")
-    await sleep(30);
-    instance.stdin.write("d"); // delete it
-    await sleep(60);
-    const after = await readProjectNotes(path);
-    expect(after.length).toBe(1);
-    expect(after[0]!.id).toBe(b.id);
+    await waitText(instance, "second", "the list painted");
+    await pressSettled(instance, "p"); // pin the selected (newest = second)
+    await waitText(instance, "📌", "the pin marker");
+    await waitNotes(path, (n) => n.find((x) => x.id === b.id)?.pinned === true, "the pin persisted");
+    await pressSettled(instance, "j"); // move down (to "first")
+    await pressSettled(instance, "d"); // delete it
+    await waitNotes(path, (n) => n.length === 1 && n[0]!.id === b.id, "the note deleted");
     instance.unmount();
   });
 
@@ -158,19 +151,15 @@ describe("NotesModal", () => {
     const path = await tempPath();
     await writeProjectNotes(path, [newNote("helo")]);
     const instance = mount(path);
-    await waitFor(instance, "helo");
-    instance.stdin.write("e"); // edit
-    await sleep(30);
-    instance.stdin.write("\x1b[D"); // left
-    await sleep(20);
-    instance.stdin.write("\x1b[D"); // left
-    await sleep(20);
-    instance.stdin.write("l"); // insert between "hel" and "o"
-    await sleep(30);
-    instance.stdin.write("\x13"); // ctrl+s
-    await sleep(60);
-    const notes = await readProjectNotes(path);
-    expect(notes[0]!.text).toBe("hello");
+    await waitText(instance, "helo", "the list painted");
+    await pressSettled(instance, "e"); // edit
+    await waitText(instance, "edit note", "the editor opened");
+    await pressSettled(instance, "\x1b[D"); // left
+    await pressSettled(instance, "\x1b[D"); // left
+    await pressSettled(instance, "l"); // insert between "hel" and "o"
+    await waitText(instance, "hello", "the letter inserted at the cursor");
+    await pressSettled(instance, "\x13"); // ctrl+s
+    await waitNotes(path, (n) => n[0]?.text === "hello", "the note saved");
     instance.unmount();
   });
 
@@ -178,19 +167,15 @@ describe("NotesModal", () => {
     const path = await tempPath();
     await writeProjectNotes(path, [newNote("hello")]);
     const instance = mount(path);
-    await waitFor(instance, "hello");
-    instance.stdin.write("e");
-    await sleep(30);
-    instance.stdin.write("\x1b[D"); // left — cursor before "o"
-    await sleep(20);
-    instance.stdin.write("\x1b[D"); // left — cursor before "l"
-    await sleep(20);
-    instance.stdin.write("\x7f"); // backspace removes the first "l"
-    await sleep(30);
-    instance.stdin.write("\x13");
-    await sleep(60);
-    const notes = await readProjectNotes(path);
-    expect(notes[0]!.text).toBe("helo");
+    await waitText(instance, "hello", "the list painted");
+    await pressSettled(instance, "e");
+    await waitText(instance, "edit note", "the editor opened");
+    await pressSettled(instance, "\x1b[D"); // left — cursor before "o"
+    await pressSettled(instance, "\x1b[D"); // left — cursor before "l"
+    await pressSettled(instance, "\x7f"); // backspace removes the first "l"
+    await waitText(instance, "helo", "the grapheme removed");
+    await pressSettled(instance, "\x13");
+    await waitNotes(path, (n) => n[0]?.text === "helo", "the note saved");
     instance.unmount();
   });
 
@@ -199,9 +184,9 @@ describe("NotesModal", () => {
     const long = "a".repeat(120);
     await writeProjectNotes(path, [newNote(long)]);
     const instance = mount(path);
-    await waitFor(instance, "aaaa");
-    instance.stdin.write("e");
-    await sleep(30);
+    await waitText(instance, "aaaa", "the list painted");
+    await pressSettled(instance, "e");
+    await waitText(instance, "edit note", "the editor opened");
     const frame = stripAnsi(instance.lastFrame() ?? "");
     // No truncation marker and every character is painted on the wrapped
     // rows (the test viewport wraps 120 chars into 3 rows, so assert on
@@ -219,9 +204,9 @@ describe("NotesModal", () => {
       injected = text;
     };
     const instance = mount(path, () => {}, onInject);
-    await waitFor(instance, "inject me");
-    instance.stdin.write("i");
-    await sleep(30);
+    await waitText(instance, "inject me", "the list painted");
+    await pressSettled(instance, "i");
+    await waitStep(instance, () => injected !== null, "the note injected");
     expect(injected === "inject me" ? injected : "missing").toBe("inject me");
     instance.unmount();
   });
@@ -232,9 +217,9 @@ describe("NotesModal", () => {
     const instance = mount(path, () => {
       closed += 1;
     });
-    await waitFor(instance, "no notes yet");
-    instance.stdin.write("\x1b");
-    await sleep(30);
+    await waitText(instance, "no notes yet", "the empty list painted");
+    await pressSettled(instance, "\x1b");
+    await waitStep(instance, () => closed === 1, "the modal closed");
     expect(closed).toBe(1);
     instance.unmount();
   });

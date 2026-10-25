@@ -11,7 +11,7 @@ import { join } from "node:path";
 import { z } from "zod";
 import type { ExtensionDefinition, ExtensionHost, ExtensionSetupContext } from "@moh/extension";
 import { ExtensionRuntime } from "../src/extensions";
-import { createSession, MockProvider } from "../src";
+import { createSession, MockProvider, sessionFromConfig, type BundledExtensionSource } from "../src";
 import type { AgentEvent } from "../src/types";
 
 const dirs: string[] = [];
@@ -30,6 +30,7 @@ function project(): string {
   const root = tempDir("moh-port-root-");
   mkdirSync(join(root, "src"), { recursive: true });
   writeFileSync(join(root, "src", "a.ts"), "export const a = 1;\n");
+  writeFileSync(join(root, "src", "b.ts"), "export const b = 2;\n");
   return root;
 }
 
@@ -79,6 +80,8 @@ function echoTool(label: string) {
   };
 }
 
+const denyARule = { tool: "read", path: "src/a.ts", effect: "deny" as const, tier: "runtime" as const };
+
 function sessionOn(rt: ExtensionRuntime, root: string, extra: { label?: string; denyA?: boolean; provider?: MockProvider } = {}) {
   return createSession({
     provider: extra.provider ?? MockProvider.scripted([{ deltas: ["ok"], finish: "stop" }]),
@@ -88,13 +91,42 @@ function sessionOn(rt: ExtensionRuntime, root: string, extra: { label?: string; 
     permissions: {
       runtimeRules: [
         { tool: "echo", effect: "allow", tier: "runtime" },
-        ...(extra.denyA ? [{ tool: "read", path: "src/a.ts", effect: "deny" as const, tier: "runtime" as const }] : []),
+        ...(extra.denyA ? [denyARule] : []),
       ],
     },
   });
 }
 
 const types = (events: readonly AgentEvent[]) => events.map((e) => e.type);
+
+/** `sessionFromConfig` with one bundled `path:src/**` probe and a runtime
+ * deny on `src/a.ts`: the probe's setup runs during assembly, before the
+ * session constructor binds the runtime. */
+async function assembleBundled(root: string, home: string) {
+  const box: { host: ExtensionHost | null } = { host: null };
+  const source: BundledExtensionSource = {
+    name: "bundled-probe",
+    activate: () => ({
+      name: "bundled-probe",
+      version: "1",
+      apiVersion: "1.15",
+      capabilities: ["path:src/**"],
+      setup: (ctx: ExtensionSetupContext) => {
+        box.host = ctx.host as ExtensionHost;
+      },
+    }),
+  };
+  const result = sessionFromConfig({
+    cwd: root,
+    home,
+    config: { provider: "mock" },
+    bundledExtensions: [{ source, active: true }],
+    overrides: { permissions: { runtimeRules: [denyARule] } },
+  });
+  if ("error" in result) throw new Error(result.error.message);
+  await result.session.send("hi");
+  return { host: box.host!, session: result.session };
+}
 
 describe("requestTurn across the binding", () => {
   test("without a session, the request is refused with a visible extension_failed", async () => {
@@ -164,19 +196,47 @@ describe("the session's path deny", () => {
     }
   });
 
-  test("an extension set up before the session is bound keeps the deny answer it was built with (none)", async () => {
-    // Current behavior, pinned (not endorsed): the file host captures the
-    // deny answer when it is built, so a deny bound later never reaches it.
-    // Draft issue in the #1438 PR ("path deny captured at setup").
+  test("library order register() → createSession(): unbound, the grant alone answers; once bound, the deny beats the grant per call", async () => {
+    // #1597: the file host reads the deny answer at call time, so a host
+    // built before the bind (docs/extending/examples/run-extension.ts) still
+    // honours the session that binds later.
     const root = project();
     const rt = runtime(root);
     const ctx = await probe(rt, ["path:src/**"]);
+    const host = ctx.host as ExtensionHost;
+    expect(await host.readFile("src/a.ts")).toMatchObject({ ok: true });
     const session = sessionOn(rt, root, { denyA: true });
     try {
-      const result = await (ctx.host as ExtensionHost).readFile("src/a.ts");
-      expect(result.ok).toBe(true);
+      expect(await host.readFile("src/a.ts")).toMatchObject({ ok: false, reason: "denied" });
+      expect(await host.readFile("src/b.ts")).toMatchObject({ ok: true, content: "export const b = 2;\n" });
+      expect(session.history().filter((e) => e.type === "host_refused")).toMatchObject([{ op: "read", reason: "denied" }]);
     } finally {
       await session.dispose();
+    }
+  });
+
+  test("bundled-source order: setup runs during assembly, before the session exists, and the deny still applies", async () => {
+    const root = project();
+    const { host, session } = await assembleBundled(root, tempDir("moh-port-home-"));
+    try {
+      expect(await host.readFile("src/a.ts")).toMatchObject({ ok: false, reason: "denied" });
+      expect(await host.readFile("src/b.ts")).toMatchObject({ ok: true });
+    } finally {
+      await session.dispose();
+    }
+  });
+
+  test("a second assembly in one process: each assembly's host answers to its own session's deny", async () => {
+    const root = project();
+    const home = tempDir("moh-port-home-");
+    for (let round = 0; round < 2; round++) {
+      const { host, session } = await assembleBundled(root, home);
+      try {
+        expect(await host.readFile("src/a.ts")).toMatchObject({ ok: false, reason: "denied" });
+        expect(await host.readFile("src/b.ts")).toMatchObject({ ok: true });
+      } finally {
+        await session.dispose();
+      }
     }
   });
 });
@@ -212,9 +272,9 @@ describe("contributed tools across the binding", () => {
     }
   });
 
-  test("a registration made after the session is bound: the tool is applied, no tool_contributed is logged", async () => {
-    // Current behavior, pinned (not endorsed): only held registrations are
-    // logged at bind time. Draft issue in the #1438 PR.
+  test("a registration made after the session is bound: the tool is applied and logs exactly one tool_contributed", async () => {
+    // #1598: the record no longer depends on load timing — a file extension
+    // loaded in a fresh process registers after the bind, like this probe.
     const root = project();
     const rt = runtime(root);
     const session = sessionOn(rt, root);
@@ -222,7 +282,35 @@ describe("contributed tools across the binding", () => {
       await probe(rt, ["contribute-tool:search"], registerSearch);
       expect(session.tools.search).toBeDefined();
       await session.send("hi");
-      expect(types(session.history())).not.toContain("tool_contributed");
+      const contributed = session.history().filter((e) => e.type === "tool_contributed");
+      expect(contributed).toMatchObject([{ type: "tool_contributed", extension: "probe", tool: "search" }]);
+    } finally {
+      await session.dispose();
+    }
+  });
+
+  test("a held registration is logged once at bind, never again by a later registration", async () => {
+    const root = project();
+    const rt = runtime(root);
+    await probe(rt, ["contribute-tool:search"], registerSearch);
+    const session = sessionOn(rt, root);
+    try {
+      await rt.register({
+        name: "late",
+        version: "1",
+        apiVersion: "1.15",
+        capabilities: ["contribute-tool:other"],
+        setup: (ctx: ExtensionSetupContext) => {
+          ctx.registerTool?.({ name: "other", description: "other", execute: () => "x" });
+        },
+      } as ExtensionDefinition);
+      await rt.ready();
+      await session.send("hi");
+      const contributed = session.history().filter((e) => e.type === "tool_contributed");
+      expect(contributed).toMatchObject([
+        { extension: "probe", tool: "search" },
+        { extension: "late", tool: "other" },
+      ]);
     } finally {
       await session.dispose();
     }

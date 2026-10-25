@@ -106,7 +106,7 @@ contract instead of duplicating it; the loop guard itself stays internal.
 
 ## Amendment — 2026-09-10, #594 broad handoff discovery seam
 
-**Re-opened doors**: `discoverGistHandoffs` and the `GistHandoffOffer`/`DiscoverGistHandoffsOptions` types (`core/src/handoff-gist.ts`), consumed by the TUI cold-start wizard and CLI. The seam deliberately returns only a compact, typed offer list and fail-silently returns `[]`; authenticated secret-gist enumeration, tag validation, candidate fetches, pagination, and `gh` details remain internal. This lets each client choose its own offer UI without duplicating remote discovery or exposing raw artifacts at the package boundary.
+**Re-opened doors**: `discoverGistHandoffs` and the `GistHandoffOffer`/`DiscoverGistHandoffsOptions` types (`core/src/handoff-transport.ts`), consumed by the TUI cold-start wizard and CLI. The seam deliberately returns only a compact, typed offer list and fail-silently returns `[]`; authenticated secret-gist enumeration, tag validation, candidate fetches, pagination, and `gh` details remain internal. This lets each client choose its own offer UI without duplicating remote discovery or exposing raw artifacts at the package boundary.
 
 ## Amendment — 2026-09-07, #551 live model-catalog seam
 
@@ -418,3 +418,7 @@ capabilities `CONTEXT.md` presents to the user (#1379). #1380 keeps
 `concurrencyReport`, `quotaPressure` and `acceptedTaskFixture`. Names the
 earlier lots had already removed were not reintroduced by the type-closure
 rule (#1552).
+
+## Amendment — ablation (2026-10-23)
+
+The decision above is unchanged. This amendment updates the module reference for the #594 seam: `discoverGistHandoffs` and its types are defined in `packages/core/src/handoff-transport.ts`, which the handoff family split out of the former gist module (#1451, PR #1612). The seam's contract is unchanged. It adds no decision.

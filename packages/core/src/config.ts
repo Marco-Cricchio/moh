@@ -173,6 +173,22 @@ export const mohConfigSchema = z.object({
    * only "a list of model refs", never who consumes it.
    */
   routingPool: z.array(z.string().min(1)).optional(),
+  /**
+   * ADR-0080 (#1633): repo-declared check commands. A check fails on a
+   * non-zero exit — moh never parses a tool's output; `block` (default
+   * false = report only) asks for resolve-before-done. Core-owned shape:
+   * the core learns only "named commands", never who runs them.
+   */
+  checks: z
+    .array(
+      z.object({
+        name: z.string().min(1),
+        run: z.string().min(1),
+        block: z.boolean().optional(),
+        timeoutMs: z.number().int().min(1000).max(600000).optional(),
+      }),
+    )
+    .optional(),
   /** Per-turn tool-call iteration cap (#190). Default 50 (when absent);
    * the cap triggers a final no-tools wrap-up call instead of dropping the
    * turn. `0` is the #498 unlimited sentinel: no cap at all. Any integer

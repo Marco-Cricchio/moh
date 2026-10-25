@@ -70,7 +70,6 @@ packages/jev-guard/src/skills.ts SkillSuggestVerdict entry exported by the packa
 packages/jev-guard/src/typesafe.ts TYPESAFE_TIERS entry exported by the package entry @moh/jev-guard
 packages/jev-guard/src/typesafe.ts TypesafeConfig entry exported by the package entry @moh/jev-guard
 packages/jev-guard/src/typesafe.ts TypesafeTier entry exported by the package entry @moh/jev-guard
-packages/jev-guard/src/typesafe.ts removeTypesafeApiKey entry exported by the package entry @moh/jev-guard
 packages/jev-guard/src/typesafe.ts typesafeConfigSchema entry exported by the package entry @moh/jev-guard
 packages/jev-guard/src/use-cases.ts JEV_USE_CASE_ACTIONS entry exported by the package entry @moh/jev-guard
 packages/jev-guard/src/use-cases.ts JevRoutingHost entry exported by the package entry @moh/jev-guard

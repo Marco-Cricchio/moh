@@ -8,6 +8,7 @@
     "./bundled-extensions": "./src/bundled-extensions.ts"
   },
   "dependencies": {
+    "@moh/checks": "workspace:*",
     "@moh/core": "workspace:*",
     "@moh/jev-guard": "workspace:*",
     "@moh/team": "workspace:*",

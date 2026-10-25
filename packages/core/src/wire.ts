@@ -50,7 +50,8 @@ const WIRE_FOR_KIND: Record<string, WireApi> = {
 /** Wire for a builtin kind. Unknown kinds throw — a typo must fail
  * loudly, not silently fall back to chat-completions (fail-fast). */
 export function wireForKind(kind: string): WireApi {
-  const wire = WIRE_FOR_KIND[kind];
+  // Own entries only: "toString"/"__proto__" must not resolve through Object.prototype (#1570).
+  const wire = Object.hasOwn(WIRE_FOR_KIND, kind) ? WIRE_FOR_KIND[kind] : undefined;
   if (wire === undefined) {
     throw new Error(`provider kind "${kind}" has no wire mapping; it cannot use the default AI SDK factory`);
   }

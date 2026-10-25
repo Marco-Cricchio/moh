@@ -161,7 +161,7 @@ describe("retro-apply git dir (#1427 row 9)", () => {
     expect(existsSync(join(main, ".git", "hooks", "pre-commit"))).toBe(true);
   });
   // A missing root is unreachable here (no package.json → refused before
-  // the probe); the throwing shape is pinned by the git-absent child below.
+  // the probe); the git-absent fallback is pinned by the child below (#1614).
 });
 
 describe("bash re-run guard snapshot (#1427 rows 10–11)", () => {
@@ -299,7 +299,8 @@ describe("git absent from PATH (#1427, child process)", () => {
       identityAsync: out.identitySync,
       identitySync: out.identitySync,
       gitAnchor: {},
-      retroApply: { threw: true },
+      // #1614: was { threw: true } (#1427 characterization); a failed spawn now falls back to <root>/.git.
+      retroApply: { threw: false, ok: true, hookAtRootGit: true },
       bashRerunIntercepted: false,
       gitTool: { threw: true, exitCodeMessage: false },
       clone: { ok: false, reason: "failed", messageNonEmpty: true },

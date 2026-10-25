@@ -154,6 +154,7 @@ const CONFIG_PAGE_PINNED_KEYS = [
   "skillRouting",
   "browser",
   "maxIterations",
+  "checks",
 ];
 
 function renderConfigPage(): string {

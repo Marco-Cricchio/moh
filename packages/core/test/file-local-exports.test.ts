@@ -31,7 +31,7 @@ import {
 } from "./file-local-exports/scan";
 
 const ROOT = join(import.meta.dir, "..", "..", "..");
-const PACKAGES = ["cli", "core", "evals", "jev-guard", "team", "tui"];
+const PACKAGES = ["checks", "cli", "core", "evals", "jev-guard", "team", "tui"];
 
 describe("file-local export inventory", () => {
   // One G4 pass and one facts pass over the whole repo: about 10 s together.

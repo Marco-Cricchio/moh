@@ -18,12 +18,12 @@ commands:
   run      non-interactive session (see: moh run --help)
   mcp      manage MCP tool servers (see: moh mcp --help)
   extension  install/list/remove extension packages (see: moh extension --help)
-  init     scaffold agent docs (docs/agents/* + AGENTS.md)
+  init     scaffold agent docs (docs/agents/* + AGENTS.md) and propose moh.json checks
   provider manage provider endpoints and auth (see: moh provider --help)
   manual   read the user manual (see: moh manual --help)
   compact  compact a session's context in place (see: moh compact --help)
   mpm      project map diagnostics (see: moh mpm --help)
-  sessions session management (rename, delete, tree, analyze; see: moh sessions --help)
+  sessions session management (list, rename, delete, tree, analyze; see: moh sessions --help)
   trash    the session trash (list, restore; see: moh trash --help)
   lanes    parallel development lanes (see: moh lanes --help)
   usage    usage reports: models, tools, routes (see: moh usage --help)
@@ -283,18 +283,24 @@ disabled it.
 ## moh sessions
 
 ```
-usage: moh sessions rename <file|id> <name> [--cwd <dir>]
+usage: moh sessions list [--json] [--cwd <dir>]
+       moh sessions rename <file|id> <name> [--cwd <dir>]
        moh sessions delete <file|id> [--yes] [--cwd <dir>]
        moh sessions tree <file|id> [--cwd <dir>]
        moh sessions switch <file|id> <node|bookmark-name> [--cwd <dir>]
        moh sessions bookmark <file|id> <node> [name] [--cwd <dir>]
        moh sessions analyze <file|id> [--json] [--cwd <dir>]
 
+list prints this project's sessions newest first, one per line:
+<id>  <last updated, ISO 8601 UTC>  <title>. The id is accepted as
+<file|id> by every other subcommand. --json emits the same rows as a JSON
+array of {id, file, updatedAt, title}. An empty project prints nothing.
+
 Renames a session: the display name shows in the TUI home picker and
 overrides the derived first-message title. An empty name resets to the
 derived title. Display names never touch file names or slugs.
 
-  file|id   the session JSONL path, or a session id from \`moh run --list\`
+  file|id   the session JSONL path, or a session id from \`moh sessions list\`
   name      the new display name (empty string resets)
   --cwd     project root the session belongs to (default: process.cwd())
 

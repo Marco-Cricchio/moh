@@ -5,9 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { MockProvider } from "@moh/core";
 import { App } from "../src/App";
-import { COMPOSER_READY, stripAnsi } from "./helpers";
-
-const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+import { COMPOSER_READY, pressCommitted, pressSettled, stripAnsi, waitText } from "./helpers";
 
 /** #457: the user manual modal — opened from chat via /help, the
  * filterable index narrows by title/summary/body text, enter opens the
@@ -22,31 +20,27 @@ function renderChat() {
 
 const frameOf = (i: ReturnType<typeof renderChat>) => stripAnsi(i.lastFrame() ?? "");
 
-/** Polls until the frame contains `text` (or throws with the last frame). */
-async function waitFor(i: ReturnType<typeof renderChat>, text: string, tries = 20): Promise<string> {
-  for (let t = 0; t < tries; t++) {
-    const frame = frameOf(i);
-    if (frame.includes(text)) return frame;
-    await sleep(25);
-  }
-  throw new Error(`frame never contained "${text}":\n${frameOf(i)}`);
+/** Waits (state, not time) until the frame contains `text`, then returns it. */
+async function waitFor(i: ReturnType<typeof renderChat>, text: string): Promise<string> {
+  await waitText(i, text, `the frame shows ${JSON.stringify(text)}`);
+  return frameOf(i);
 }
 
-/** Opens the manual: type the command, a space dismisses the completion
- * popup (its enter-acceptance would otherwise run first), then Return. */
+/** Opens the manual: type the command once the composer is up, a space
+ * dismisses the completion popup (its enter-acceptance would otherwise run
+ * first), then Return once the index-bound handler is attached. */
 async function openManual(i: ReturnType<typeof renderChat>) {
+  await waitText(i, COMPOSER_READY, "the composer mounted");
   i.stdin.write("/help");
-  await sleep(60);
-  i.stdin.write(" ");
-  await sleep(60);
-  i.stdin.write("\r");
+  await waitText(i, "/help", "the command echoed in the composer");
+  await pressCommitted(i, " ", "the space dismissing the completion popup");
+  await pressSettled(i, "\r");
   await waitFor(i, "type to filter");
 }
 
 describe("manual modal (#457)", () => {
   test("the index lists every page id and title", async () => {
     const i = renderChat();
-    await sleep(50);
     await openManual(i);
     const frame = frameOf(i);
     for (const id of ["getting-started", "what-moh-offers", "sessions", "providers-and-models", "permissions", "mcp", "cli-reference", "config-reference", "commands-and-keys"]) {
@@ -57,22 +51,20 @@ describe("manual modal (#457)", () => {
 
   test("the filter narrows the index and enter opens the match", async () => {
     const i = renderChat();
-    await sleep(50);
     await openManual(i);
     for (const ch of "zero-config") i.stdin.write(ch); // body-text match narrows to config-reference
     const frame = await waitFor(i, "filter: zero-config");
     expect(frame).toContain("config-reference");
     expect(frame).not.toContain("getting-started");
-    i.stdin.write("\r"); // open the only match
+    await pressSettled(i, "\r"); // open the only match
     await waitFor(i, "Manual → Config reference");
     i.unmount();
   });
 
   test("renders page Markdown instead of displaying source markers", async () => {
     const i = renderChat();
-    await sleep(50);
     await openManual(i);
-    i.stdin.write("\r");
+    await pressSettled(i, "\r");
     const frame = await waitFor(i, "Manual → Getting started");
     expect(frame).toContain("moh is a coding agent");
     expect(frame).not.toContain("# Getting started");
@@ -83,9 +75,8 @@ describe("manual modal (#457)", () => {
 
   test("reserves rows for page chrome when a long page is scrolled", async () => {
     const i = renderChat();
-    await sleep(50);
     await openManual(i);
-    i.stdin.write("\r");
+    await pressSettled(i, "\r");
     await waitFor(i, "Manual → Getting started");
     for (let step = 0; step < 20; step++) i.stdin.write("\x1b[B");
     const frame = await waitFor(i, "↑");
@@ -96,14 +87,13 @@ describe("manual modal (#457)", () => {
 
   test("esc from a page returns to the index; a second esc closes", async () => {
     const i = renderChat();
-    await sleep(50);
     await openManual(i);
     expect(frameOf(i)).toContain("filter: …"); // index state
-    i.stdin.write("\r"); // open the selected page (getting-started, row 0)
+    await pressSettled(i, "\r"); // open the selected page (getting-started, row 0)
     await waitFor(i, "Manual → Getting started");
-    i.stdin.write("\x1b"); // esc → back to the index
+    await pressSettled(i, "\x1b"); // esc → back to the index
     await waitFor(i, "getting-started");
-    i.stdin.write("\x1b"); // esc → close
+    await pressSettled(i, "\x1b"); // esc → close
     await waitFor(i, COMPOSER_READY); // composer back
     expect(frameOf(i)).not.toContain("Manual →");
     i.unmount();
