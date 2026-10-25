@@ -116,6 +116,16 @@ reference records as `on`, so they keep the default and rely on the dead proxy
 alone. `tui-hermetic.test.ts` checks the spec that `tui.ts` runs (`specFor`)
 against literal values: the proxy keys, the loopback bypass and the opt-out.
 
+## B5 recorded exit code (#1524)
+
+The PTY harness ends every scenario with SIGINT, then SIGTERM, then SIGKILL
+if the child is still alive 2 s later, so a signal-killed child's status
+(`-15` or `-9`) depends only on how fast it shut down. `tui.ts` records both as
+`-15` (`recordedExitCode`). A clean `0`, a still-running `null` and any other
+status are recorded as they are, so a real change in how the TUI exits still
+shows. A B5 difference that is only `-15` → `-9` can no longer occur; the old
+"re-record that scenario" rule for it is retired.
+
 ## B7 — Manual smoke checklist
 
 Run after each phase with a real terminal and credentials:
