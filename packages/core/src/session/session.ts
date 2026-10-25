@@ -37,6 +37,7 @@ import { PermissionGate, type ToolHookChecker } from "./permission-gate";
 import { ToolRunner, type ToolResultHookChecker } from "./tool-runner";
 import { TurnQueue } from "./turn-queue";
 import { AgentLoop } from "./agent-loop";
+import { probeStage } from "../session-probe";
 import { SubagentHost, type SubagentSpawnRequester, type SubagentSpawnLimits } from "../subagents";
 import { replayMessages, replayWarnings } from "../session-store";
 import { MemoryRunner, MemoryStore, createMaintenanceExtractor } from "../memory";
@@ -290,6 +291,7 @@ export class AgentSession {
   #mpmRoot: string | null = null;
 
   constructor(config: SessionConfig) {
+    probeStage("ctor:start");
     this.#registry = config.registry?.freeze();
     this.#endpoints = config.endpoints ?? [];
     // #1032 (ADR-0049 door two): the endpoints' own declared windows —
@@ -327,6 +329,7 @@ export class AgentSession {
           )
         : config.provider;
     const maxIterations = resolveMaxIterations(config.maxIterations);
+    probeStage("ctor:provider");
     this.#tools = config.tools ?? {};
     this.#cwd = config.cwd ?? process.cwd();
     // #918: the `/mnt` fact is environment information, not a validation —
@@ -334,6 +337,7 @@ export class AgentSession {
     // (`sessionFromConfig`, `createSession`) passes through here, so no
     // client can forget to ask for it.
     this.#rootOnWindowsMount = isOnWindowsMount(this.#cwd);
+    probeStage("ctor:windows-mount");
     const perms = config.permissions ?? {};
     // #849: the mode is the session's live source of truth — construction
     // seeds it from the config (or the launch flag), and `setSessionMode`
@@ -423,6 +427,7 @@ export class AgentSession {
     // need zero configuration; hiding spawn behind the mere existence of an
     // `agents` key made subagents undiscoverable. moh.json `agents` now only
     // overrides presets/provider/concurrency.
+    probeStage("ctor:before-subagents");
     const subagents = config.subagents ?? {};
     if (config.subagents !== null) {
       const host = new SubagentHost({
@@ -508,6 +513,7 @@ export class AgentSession {
         });
       },
     });
+    probeStage("ctor:after-bind-session");
     this.#onDispose = config.onDispose;
     // Extension load results (including hot-reload outcomes) land in the log
     // — held until the session's own start chrome is in (#834). A load can
@@ -530,7 +536,9 @@ export class AgentSession {
     this.#startupDiagnostics = config.diagnostics ?? [];
     this.#startupNotes = config.notes ?? [];
     this.#extensions?.onStatusChange((extension, text) => this.#onExtensionStatus(extension, text));
+    probeStage("ctor:before-prompt-composer");
     this.#promptComposer = config.promptComposer ?? new PromptComposer({ projectDir: this.#cwd });
+    probeStage("ctor:after-prompt-composer");
     // #616: MPM orientation — opt-in via SessionConfig.mpm (a root the
     // projection maps). The service is supplied or constructed+loaded here;
     // failures degrade to no plans, never a session error.
@@ -581,10 +589,12 @@ export class AgentSession {
     }
     // Skills (#30): discovered from ~/.moh/skills + .moh/skills at creation;
     // an explicit config wins (tests, clients). No auto-triggering.
+    probeStage("ctor:before-skills");
     this.#firstParty = config.firstParty ?? "include";
     const discovered = discoverSkills({ mohHome: this.#mohHome, projectDir: this.#cwd, firstParty: this.#firstParty });
     this.#skills = config.skills ?? discovered.map((s) => ({ name: s.name, description: s.description, path: s.file }));
     this.#skillDirs = [...new Set(discovered.map((s) => s.dir))];
+    probeStage("ctor:after-skills");
     this.#messages = [];
     // Memory (#38): enabled by default when `memory` options are given;
     // `memory.enabled: false` means no store, no section, no subagent runs.
@@ -595,22 +605,24 @@ export class AgentSession {
         sessionId: this.#sessionId,
         intervalTurns: mem.intervalTurns,
         budgetTokens: mem.budgetTokens,
-        extractor: mem.extractor ?? createMaintenanceExtractor(this.#provider, this.#cwd),
+        extractor: mem.extractor ?? createMaintenanceExtractor(() => this.#provider, this.#cwd),
         append: (event) => this.#append(event),
         onUpdated: () => this.#assemblePrompt(),
       });
     }
     // Retro findings (ADR-0075, #1274): enabled by default; `retro.enabled:
     // false` means no store, no extraction, no digest.
+    probeStage("ctor:before-retro");
     const retro = config.retro;
     if (retro && (retro.enabled ?? true)) {
       this.#retro = new RetroStore(retro.dir ?? RetroStore.forProject(this.#cwd, this.#mohHome).dir);
       // ADR-0075 (#1275): the judgement pipeline's extractor — the batch
       // pass is triggered on threshold, never per session.
-      this.#retroJudgment = config.retroJudgment ?? createRetroJudgmentExtractor(this.#provider, this.#cwd);
+      this.#retroJudgment = config.retroJudgment ?? createRetroJudgmentExtractor(() => this.#provider, this.#cwd);
     }
     // Compaction (#466): on by default when the option is present
     // (from-config passes it unconditionally); `enabled: false` turns it off.
+    probeStage("ctor:before-compaction");
     const comp = config.compaction;
     // #766 (ADR-0051): which summarizer actually served — read back by
     // the runner at marker time so a mid-run fallback is stamped.
@@ -659,8 +671,8 @@ export class AgentSession {
         // with the LLM summarizer as the explicit over-budget fallback;
         // the strategy box feeds the marker's `summarizer` audit stamp.
         summarizer: comp.summarizer ?? (comp.summarizerStrategy === "deterministic"
-          ? createDeterministicSummarizer(createCompactionSummarizer(this.#provider, this.#cwd), strategyBox)
-          : createCompactionSummarizer(this.#provider, this.#cwd)),
+          ? createDeterministicSummarizer(createCompactionSummarizer(() => this.#provider, this.#cwd), strategyBox)
+          : createCompactionSummarizer(() => this.#provider, this.#cwd)),
         ...(comp.summarizerStrategy === "deterministic" && !comp.summarizer
           ? { summarizerName: () => strategyBox.name }
           : {}),
@@ -680,6 +692,7 @@ export class AgentSession {
     // Session handoff (#434): the raw artifact is maintained whenever the
     // option is present (from-config passes it unconditionally — purely
     // additive, zero behavioral change when transport is Not Set).
+    probeStage("ctor:before-handoff");
     if (config.handoff) {
       this.#handoff = new HandoffRunner({
         file: config.handoff.file ?? HandoffRunner.artifactFile(this.#cwd, this.#mohHome),
@@ -688,6 +701,7 @@ export class AgentSession {
         supersedes: config.handoff.supersedes,
       });
     }
+    probeStage("ctor:before-mcp");
     if (config.mcp) {
       // Startup validation: duplicate server names are a hard config error.
       McpRuntime.validate(config.mcp.servers);
@@ -720,6 +734,7 @@ export class AgentSession {
             }),
           )
       : undefined;
+    probeStage("ctor:before-loop");
     this.#loop = new AgentLoop({
       provider: () => this.#provider,
       maxIterations,
@@ -973,6 +988,7 @@ export class AgentSession {
     // Fire-and-forget: construction is sync, the session is not yet running.
     // The bundled-definition registration settles first (ADR-0032/ADR-0005):
     // `session_start` must never reach an extension whose setup is pending.
+    probeStage("ctor:before-extensions-ready");
     void this.#extensions?.ready().then(() => {
       // #834: loaded files are watched for hot-reload (state preserved); a
       // failed reload keeps the previous instance and is visible.
@@ -981,6 +997,7 @@ export class AgentSession {
     }).then((errors) => {
       for (const e of errors ?? []) this.#append(e);
     });
+    probeStage("ctor:end");
   }
 
   /**
@@ -1693,9 +1710,20 @@ export class AgentSession {
    * `#947` rule — a failed call's `{0,0}` is not a measurement), or
    * undefined when the log holds none. The switch guard's decision-time
    * fact: a switch applies from the next turn, so this is the context
-   * the target must hold. */
+   * the target must hold. A measurement older than the newest compaction
+   * marker describes a context that no longer exists — the rebuilt
+   * prompt is smaller — so it reads as none until the next call measures
+   * (the core never estimates tokens; an overflow there arms #947). */
   lastMeasuredTokens(): number | undefined {
-    return CompactionRunner.lastMeasuredCall(this.#eventLog.history())?.inputTokens;
+    const history = this.#eventLog.history();
+    const call = CompactionRunner.lastMeasuredCall(history);
+    if (!call) return undefined;
+    // Only a marker on the active path rebuilt the prompt (#578 d3).
+    const onPath = new Set(activePath(history));
+    for (let i = history.length - 1; i > call.index; i -= 1) {
+      if (history[i]!.type === "compaction" && onPath.has(history[i]!)) return undefined;
+    }
+    return call.inputTokens;
   }
 
   /** Tools registered on this session, including connected MCP tools. */

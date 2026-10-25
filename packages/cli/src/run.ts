@@ -20,6 +20,7 @@ import {
   HandoffRunner,
   enrichHandoffWithWayfinder,
   listSessionSummaries,
+  hasRecentSession,
   loadMohConfig,
   overridesFromFlags,
   publishHandoffAtExit,
@@ -353,9 +354,7 @@ export async function runCommand(options: RunOptions): Promise<number> {
     // Lazy-lane evidence: a project session modified in the last 10
     // minutes is a live sibling (another terminal/window) — cross-process,
     // no registry needed.
-    const recentSibling = listSessionSummaries(cwd, options.home).some(
-      (summary) => Date.now() - summary.mtimeMs < 10 * 60 * 1000,
-    );
+    const recentSibling = hasRecentSession(cwd, options.home);
     // ADR-0060 amendment 5: the lane installs its own dependencies, with
     // `lanes.setup` as the last word — read where `lanes.auto` is read.
     const setup = readLaneSetup(options.home);

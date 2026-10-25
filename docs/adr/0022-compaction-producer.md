@@ -55,6 +55,15 @@ Decisions closed in grilling (#462): automatic threshold trigger plus an explici
    catalog window: an unknown window (0) keeps the bare turn-count preference —
    a fabricated fallback must not legalize a cut.
 
+   **Second amendment (2026-10-25): default tail of 3 turns, one value for both
+   paths.** `DEFAULT_TAIL_TURNS` drops from 10 to 3. With 10 whole turns kept (up
+   to 25% of the window — 250k tokens on a 1M model) a compaction often freed
+   little, and a session under 11 turns could not compact at all with an unknown
+   window. The auto and the forced path keep sharing one rule and one default:
+   `/compact` is the same producer, never a more aggressive variant. Losing
+   verbatim turns is acceptable because the summary no longer loses the past
+   (§5, chunked fold). `compaction.tailTurns` still overrides it per project.
+
    **Accepted cost.** In the extreme case (a single turn larger than the window)
    even that turn's `user_message` lands in the summary. No written promise is
    broken — covered turns' user messages were already summarized — but it is a
@@ -74,6 +83,21 @@ Decisions closed in grilling (#462): automatic threshold trigger plus an explici
    session sharing the maintenance-extractor discipline (#339: no tools, no
    subagents) but with its own prompt: task state, never durable facts (those
    belong to Memory), chained on the previous summary.
+   **Amended (2026-10-25): the covered transcript is never truncated; long spans
+   are folded in chunks.** The original cap kept only the last 60k characters of
+   the rendered span, so the first compaction of a long session lost its oldest
+   turns — usually the goal — before the summarizer saw them. Now
+   `compactionTranscript` returns the whole span and the LLM summarizer splits it
+   (`chunkTranscript`) into chunks of ~60k characters, each cut on a line boundary
+   and preferably at a turn start; it folds them in order, each call receiving the
+   running summary as its "previous summary" (part *i* of *N*), so the last call
+   returns a summary of the whole span chained on the previous marker. At most 12
+   calls per compaction: past that the chunks grow instead of multiplying. Any
+   failing part fails the attempt (the runner's retry and §6 apply unchanged). The
+   summarizer runs on the model serving the session *now* — a `/model` switch
+   reaches it, as it reaches the memory and retro extractors. The deterministic
+   strategy (ADR-0051) reads facts, not the transcript; its LLM fallback folds the
+   same way.
 6. **Failure: fail-silent with a visible warning.** A failed compaction appends
    nothing and retries at the next turn boundary while still above threshold —
    with **backoff** when two consecutive attempts fail to get below threshold
@@ -101,6 +125,14 @@ Decisions closed in grilling (#462): automatic threshold trigger plus an explici
    truncated or mutated; after a marker the live prompt is rebuilt through the
    same replay path resume uses, and a fresh measurement — not the stale one — may
    re-trigger.
+   **Extended (2026-10-25): a measurement older than the newest marker on the
+   active path is no measurement.** It describes a context that no longer
+   exists, so the model-switch fit check (#948) and the routing chain read it as
+   absent (they abstain) and the TUI's context gauge empties, until the next call
+   measures the rebuilt context. The core still never estimates tokens: a switch
+   right after a compaction is judged by the provider, and an overflow there arms
+   §1's `context_length` path. Clients show a "compacting…" notice when a forced
+   run starts — the summary call can take seconds.
 
 ## Consequences
 

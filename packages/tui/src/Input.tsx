@@ -74,11 +74,6 @@ interface EditorSnapshot {
 }
 
 const HISTORY_LIMIT = 100;
-/** Cursor blink cadence (ms) — two phase steps per cycle, in sync with the
- * `visible` toggle so on/off each last BLINK_MS. Slightly slower than a
- * classic terminal (~530ms full cycle) per owner preference. */
-const BLINK_MS = 400;
-
 /** The composer's one notion of "empty" (#1009): the placeholder is rendered
  * exactly when this holds, and a ctrl+c on an empty draft stays an exit
  * press — so the render and the key handler must never drift apart. A
@@ -165,7 +160,7 @@ export function pasteAsPath(paste: string, isFile: (path: string) => boolean): s
 
 /**
  * Pi-like terminal editor: logical lines, visual wrapping, prompt history,
- * undo/redo, grapheme-aware navigation, bracketed paste, a blinking block
+ * undo/redo, grapheme-aware navigation, bracketed paste, a steady block
  * cursor, and a scrolling slash-command completion popup (arrows to move,
  * Tab to complete into the draft, Enter to run). Kill-ring behavior is
  * intentionally not included.
@@ -209,31 +204,8 @@ export function MultilineInput({
   const pasteRef = useRef({ inPaste: false, buffer: "" });
   const [scrollOffset, setScrollOffset] = useState(0);
   const [suggestionIndex, setSuggestionIndex] = useState(0);
-  const [cursorVisible, setCursorVisible] = useState(true);
   const previousSubmitSignal = useRef(submitSignal);
   const previousPrefill = useRef<string | undefined>(prefill);
-
-  // Blinking block cursor: visible/invisible alternate on a fixed cadence.
-  // Any keystroke (handled below through the ref) snaps the phase back to
-  // visible, like a terminal editor.
-  // #622: the blink pauses while disabled (a modal owns the input). Ink
-  // renders viewport-filling output through its fullscreen path — a full
-  // clear+repaint per frame — so even this slow toggle contributed frame
-  // churn behind an oversized ask_user box; a disabled composer shows a
-  // steady cursor.
-  const cursorVisibleRef = useRef(true);
-  useEffect(() => {
-    if (disabled) {
-      cursorVisibleRef.current = true;
-      setCursorVisible(true);
-      return;
-    }
-    const timer = setInterval(() => {
-      cursorVisibleRef.current = !cursorVisibleRef.current;
-      setCursorVisible(cursorVisibleRef.current);
-    }, BLINK_MS);
-    return () => clearInterval(timer);
-  }, [disabled]);
 
   const snapshot = (): EditorSnapshot => ({ lines: [...lines], line: cursorLine, column: cursorColumn });
   const setEditor = (next: EditorSnapshot) => {
@@ -245,10 +217,6 @@ export function MultilineInput({
   const record = () => {
     setUndo((stack) => [...stack.slice(-(HISTORY_LIMIT - 1)), snapshot()]);
     setRedo([]);
-  };
-  const wakeCursor = () => {
-    cursorVisibleRef.current = true;
-    setCursorVisible(true);
   };
 
   const wrapWidth = Math.max(10, viewport.columns - 8);
@@ -372,7 +340,7 @@ export function MultilineInput({
   }, [submitSignal]);
 
   // Stable keypress subscription: the handler closure is recreated every
-  // render (state reads, and the blink timer re-renders ~4×/s), and Ink's
+  // render (state reads), and Ink's
   // useInput re-subscribes its stdin listener whenever the callback identity
   // changes — a keystroke arriving inside that churn window would be dropped
   // for good. Routing through a ref keeps one subscription for the mount.
@@ -387,7 +355,6 @@ export function MultilineInput({
    * what Ink actually subscribes. */
   function handleKey(input: string, key: KeyHand) {
     if (disabled) return;
-    wakeCursor();
     if (key.escape) return;
     if (input === "?" && lines.join("") === "" && onAskCommands) return onAskCommands();
 
@@ -658,16 +625,16 @@ export function MultilineInput({
         {!isEmptyDraft(lines) && shown.map((item, index) => {
           const active = focused && index === visualLineIndexAtCursor();
           const column = active ? cursorColumn - item.start : -1;
-          const cursor = active && cursorVisible && !disabled;
+          const cursor = active && !disabled;
           return <Text key={`${item.logicalLine}:${item.start}:${index}`}>{active ? <><Text color={focused && !disabled ? theme.accent : theme.dim} bold>{column === 0 ? "› " : "  "}</Text>{column >= 0 ? <>{item.text.slice(0, column)}{cursor ? <Text inverse bold>{item.text[column] ?? " "}</Text> : <Text color={focused ? theme.accent : theme.dim}>{item.text[column] ?? " "}</Text>}{item.text.slice(column + 1)}</> : item.text}</> : <>{"  "}{item.text}</>}</Text>;
         })}
         {isEmptyDraft(lines) && (
           <Text>
             <Text color={focused && !disabled && !dimmed ? theme.accent : theme.dim} bold>› </Text>
-            {focused && !disabled && !dimmed && cursorVisible
+            {focused && !disabled && !dimmed
               ? <Text inverse color={theme.dim}>{placeholder?.[0] ?? " "}</Text>
               : null}
-            {placeholder ? <Text color={theme.dim}>{focused && !disabled && !dimmed && cursorVisible ? placeholder.slice(1) : placeholder}</Text> : null}
+            {placeholder ? <Text color={theme.dim}>{focused && !disabled && !dimmed ? placeholder.slice(1) : placeholder}</Text> : null}
           </Text>
         )}
       </Box>

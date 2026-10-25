@@ -58,7 +58,8 @@ a model we own — and we pay for it with a test rather than with an assumption.
    carries 170 of them today.
 5. **The gate is hermetic** (`TZ=UTC`; the suite already uses `bun:test`'s `setSystemTime`) and
    **the runtime is pinned** — CI installs `bun-version: latest` while a local checkout runs
-   1.2.19 and the runner reported 1.4.2.
+   1.2.19 and the runner reported 1.4.2. *(The runtime pin is superseded by ADR-0081: every
+   workflow and local checkout runs Bun `latest`.)*
 6. **No silent skips and no retry-until-green.** A guard that cannot hold is a failure, as
    #1045 established; the retry that exists today failed twice in a row on the same assertion.
 

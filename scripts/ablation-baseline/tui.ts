@@ -69,6 +69,19 @@ function startFakeServer(turns: Array<{ toolCall?: { name: string; args: unknown
   return { url: `http://127.0.0.1:${server.port}/v1`, stop: () => server.stop(true) };
 }
 
+/**
+ * #1524: the PTY harness ends every scenario with SIGINT, then SIGTERM, then
+ * (if the child is still alive 2 s later) SIGKILL, so a signal-killed child
+ * records -15 or -9 depending only on how fast it shut down. Both mean "the
+ * harness stopped it" (the harness itself accepts them as non-crashes), so
+ * they are recorded as the one canonical value, -15 (the reference's). A
+ * clean exit (0), a still-running child (null) and any other status stay as
+ * they are, so a real change in how the TUI exits remains visible.
+ */
+export function recordedExitCode(exitCode: number | null): number | null {
+  return exitCode === -9 ? -15 : exitCode;
+}
+
 export interface Scenario {
   name: string;
   spec: (ctx: { url: string }) => PtySpec;
@@ -89,10 +102,20 @@ export const scenarios: Scenario[] = [
       steps: [
         { send: B("\x1b") }, // end the intro (it settles at ~3.15s)
         { wait: 8.0, until: "enter select · s skip", untilFromBuffer: true },
-        { wait: 0.5 }, // settle: capture a repaint that finished
+        // #1537: the Home footer behind the modal is the last thing the
+        // startup paints. Gating on it (not a fixed settle) means the frame
+        // is complete and the keys below reach a Home whose handlers are
+        // attached; under load the fixed settle could snap the frame without
+        // its footer tail and quit into a Home that never saw the ctrl+c.
+        { wait: 8.0, until: "ctrl+c ×2 quit", untilOnScreen: true },
         { checkpoint: "onboarding" },
-        { wait: 0.3, send: B("\x03") },
-        { wait: 0.5, send: B("\x03") },
+        { wait: 0.1, send: B("\x03") },
+        // The first ctrl+c only arms; the second must land after the arm is
+        // visible, and the quit after it takes as long as the host takes. The
+        // harness SIGTERMs whatever is still alive when the last wait ends,
+        // which recorded -15 instead of the clean 0 (#1537).
+        { wait: 8.0, until: "press ctrl+c again to exit", untilOnScreen: true },
+        { wait: 4.0, send: B("\x03") },
       ],
       tail: 30,
     }),
@@ -413,6 +436,12 @@ async function main(): Promise<number> {
   }
   rmSync(outDir, { recursive: true, force: true });
   mkdirSync(join(outDir, "tui"), { recursive: true });
+  // #1538: the raw checkpoint frames, kept beside the recording (a sibling
+  // folder, so `compare.ts` over the recording is unaffected): a recurrence
+  // of an unexplained difference can then name what the normalizer saw.
+  const rawDir = `${outDir.replace(/\/+$/, "")}.raw`;
+  rmSync(rawDir, { recursive: true, force: true });
+  mkdirSync(join(rawDir, "tui"), { recursive: true });
 
   // One turn server per scenario kind, started lazily and kept alive for the
   // whole run (the harness's runPtyRaw is async, so the parent event loop
@@ -446,13 +475,16 @@ async function main(): Promise<number> {
         // and the screens under test never print absolute paths.
         const norm = new Normalizer({ home: meta.home ?? "/\u0000none", cwd: meta.cwd ?? "/\u0000none" });
         const frames: Record<string, string[]> = {};
+        const rawFrames: Record<string, string[]> = {};
         for (const [name, snap] of Object.entries(meta.checkpoints ?? {})) {
+          rawFrames[name] = snap.lines.map((l) => l.text);
           frames[name] = snap.lines.map((l) => norm.text(l.text, "display"));
         }
+        writeFileSync(join(rawDir, "tui", `${scenario.name}.json`), JSON.stringify({ home: meta.home, cwd: meta.cwd, frames: rawFrames }, null, 2) + "\n");
         const payload = {
           scenario: scenario.name,
           exited: meta.exited,
-          exitCode: meta.exitCode,
+          exitCode: recordedExitCode(meta.exitCode),
           frames,
         };
         writeFileSync(join(outDir, "tui", `${scenario.name}.json`), JSON.stringify(payload, null, 2) + "\n");

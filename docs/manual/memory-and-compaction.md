@@ -26,8 +26,11 @@ covered by it. The log stays integral forever — nothing is ever deleted.
 Compaction is automatic: when a turn's measured input crosses 80% of
 the active model's context window (or 180k tokens when the window is
 unknown), a background summarizer distills the covered past — task
-state, decisions, next steps — into a marker, keeping the last 10 turns
-verbatim. The next turn starts against the rebuilt context. A turn that
+state, decisions, next steps — into a marker, keeping the last 3 turns
+verbatim (`compaction.tailTurns` changes it). The summarizer reads the
+whole covered past: a long span is folded in parts of about 60k
+characters, cut at turn boundaries, each part refining the running
+summary — the oldest turns (usually the goal) are never truncated away. The next turn starts against the rebuilt context. A turn that
 ends with a provider `context_length` error arms the same producer
 directly — the provider's "does not fit" outranks the threshold — and
 the error names the escape hatches (`/compact`, `/models`).
@@ -65,10 +68,20 @@ which is how the next wording gets recognized.
 
 You can also force it:
 
-- `/compact` — in-session (TUI): compacts now, same producer.
+- `/compact` — in-session (TUI): compacts now, same producer and same
+  tail as the automatic trigger. A `compacting…` notice confirms the
+  start; the `context compacted` line follows when the summary lands.
 - `moh compact [--session <file>]` — from the shell: opens a closed
   session file, compacts it, and closes it again. Compacting never
   consumes the session: it is still suggested and resumable as usual.
+
+The summary is written by the model serving the session now — after a
+`/model` switch, the new one. Once a marker lands, the last measured
+input describes a context that no longer exists: the footer's context
+gauge empties and the model-switch fit check stops refusing on that old
+number, until the next turn measures the rebuilt context. moh never
+guesses a token count in between, so a switch right after `/compact` is
+judged by the provider on the next turn.
 
 With Jev active (see the [Jev page](jev.md)), compaction also consults
 the **cut guide**: sections of settled work — long tool output,

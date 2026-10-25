@@ -36,7 +36,7 @@ moh reads two files:
     "my-agent": { "name": "my-agent", "description": "...", "systemPrompt": "...", "allowedTools": ["bash"], "model": "...", "provider": "...", "maxIterations": 20, "context": "..." }
   },
   "memory": { "enabled": true, "intervalTurns": 5, "budgetTokens": 2000 },
-  "compaction": { "summarizer": "llm", "tailTurns": 10, "threshold": 0.8, "fallbackWindowTokens": 180000 },
+  "compaction": { "summarizer": "llm", "tailTurns": 3, "threshold": 0.8, "fallbackWindowTokens": 180000 },
   "handoff": { "transport": "gist", "onboarding": "dismissed" },
   "retro": { "enabled": true },
   "skillRouting": { "labels": { "my-label": { "command": "/implement", "priority": 1, "disabled": false, "suffix": "..." } } },
@@ -121,7 +121,7 @@ All keys are optional. Notes:
   machines; when the digest would exceed its size budget the run
   degrades to the LLM summarizer and the marker records it as
   `llm-fallback` — never a silent truncation). `tailTurns` (default
-  10), `threshold` (default 0.8) and `fallbackWindowTokens` (default
+  3), `threshold` (default 0.8) and `fallbackWindowTokens` (default
   180000) mirror the session options for the trigger and the verbatim
   tail.
 - `mpm` — per-project Moh Project Map override (ADR-0026): an explicit
