@@ -1,27 +1,27 @@
 {
   "schemaVersion": 1,
   "version": "0.65.4",
-  "generatedAt": "2026-10-25T04:58:44.761Z",
+  "generatedAt": "2026-10-25T05:07:06.076Z",
   "sources": [
     {
       "name": "models.dev",
       "url": "https://models.dev/api.json",
-      "fetchedAt": "2026-10-25T04:58:44.028Z"
+      "fetchedAt": "2026-10-25T05:07:05.671Z"
     },
     {
       "name": "openrouter",
       "url": "https://openrouter.ai/api/v1/models",
-      "fetchedAt": "2026-10-25T04:58:44.522Z"
+      "fetchedAt": "2026-10-25T05:07:05.915Z"
     }
   ],
   "totals": {
     "files": 25,
-    "rows": 536,
+    "rows": 534,
     "exact": 477,
     "baseModel": 17,
     "ambiguous": 5,
-    "absent": 37,
-    "rowsWithOverrides": 124
+    "absent": 35,
+    "rowsWithOverrides": 123
   },
   "files": [
     {
@@ -494,28 +494,28 @@
     },
     {
       "provider": "openrouter",
-      "rows": 342,
+      "rows": 340,
       "verdicts": {
         "exact": 315,
         "base-model": 1,
         "ambiguous": 0,
-        "absent": 26
+        "absent": 24
       },
       "coverage": {
+        "rows": 340,
+        "pricing": 317,
+        "contextWindow": 340,
+        "maxTokens": 337,
+        "reasoning": 261,
+        "input": 337
+      },
+      "previous": {
         "rows": 342,
         "pricing": 317,
         "contextWindow": 340,
         "maxTokens": 338,
         "reasoning": 261,
         "input": 337
-      },
-      "previous": {
-        "rows": 342,
-        "pricing": 319,
-        "contextWindow": 342,
-        "maxTokens": 339,
-        "reasoning": 261,
-        "input": 339
       }
     },
     {
@@ -700,8 +700,6 @@
     "openrouter/minimax/minimax-m3:free",
     "openrouter/nex-agi/nex-n2-mini",
     "openrouter/nex-agi/nex-n2-pro",
-    "openrouter/openai/gpt-3.5-turbo",
-    "openrouter/openai/gpt-3.5-turbo:batch",
     "openrouter/openai/gpt-4-turbo-preview",
     "openrouter/qwen/qwen3.5-9b:batch",
     "openrouter/qwen/qwen3.8-2.4t-a95b:batch",
@@ -922,193 +920,9 @@
   ],
   "contextWindowShrinks": [],
   "changes": {
-    "pricing": [
-      {
-        "provider": "opencode-go",
-        "id": "minimax-m2.5",
-        "from": {
-          "input": 0.27,
-          "output": 0.95,
-          "cacheRead": 0.03
-        },
-        "to": {
-          "input": 0.3,
-          "output": 1.2,
-          "cacheRead": 0.03
-        }
-      },
-      {
-        "provider": "openrouter",
-        "id": "deepseek/deepseek-v4-flash-0731",
-        "from": {
-          "input": 0.04444,
-          "output": 0.13332,
-          "cacheRead": 0.001414
-        },
-        "to": {
-          "input": 0.0422,
-          "output": 0.1694,
-          "cacheRead": 0.028
-        }
-      },
-      {
-        "provider": "openrouter",
-        "id": "deepseek/deepseek-v4-pro",
-        "from": {
-          "input": 0.78387,
-          "output": 1.56774,
-          "cacheRead": 0.065322
-        },
-        "to": {
-          "input": 0.2088,
-          "output": 0.4176,
-          "cacheRead": 0.0174
-        }
-      },
-      {
-        "provider": "openrouter",
-        "id": "minimax/minimax-m2.5",
-        "from": {
-          "input": 0.27,
-          "output": 0.95,
-          "cacheRead": 0.03
-        },
-        "to": {
-          "input": 0.3,
-          "output": 1.2,
-          "cacheRead": 0.03
-        }
-      },
-      {
-        "provider": "openrouter",
-        "id": "tencent/hy3",
-        "from": {
-          "input": 0.0825,
-          "output": 0.33,
-          "cacheRead": 0.020625
-        },
-        "to": {
-          "input": 0.132,
-          "output": 0.528,
-          "cacheRead": 0.033
-        }
-      },
-      {
-        "provider": "openrouter",
-        "id": "tencent/hy4-preview",
-        "from": {
-          "input": 0.7506,
-          "output": 2.2509,
-          "cacheRead": 0.0378
-        },
-        "to": {
-          "input": 0.834,
-          "output": 2.501,
-          "cacheRead": 0.042
-        }
-      },
-      {
-        "provider": "openrouter",
-        "id": "z-ai/glm-4.6v",
-        "from": {
-          "input": 0.3,
-          "output": 0.9,
-          "cacheRead": 0.055
-        },
-        "to": {
-          "input": 0.3,
-          "output": 0.9,
-          "cacheRead": 0.05
-        }
-      },
-      {
-        "provider": "openrouter",
-        "id": "~deepseek/deepseek-v4-flash-latest",
-        "from": {
-          "input": 0.0422,
-          "output": 0.1729,
-          "cacheRead": 0.0275
-        },
-        "to": {
-          "input": 0.0422,
-          "output": 0.1694,
-          "cacheRead": 0.028
-        }
-      },
-      {
-        "provider": "openrouter",
-        "id": "~moonshotai/kimi-latest",
-        "from": {
-          "input": 0.238,
-          "output": 24,
-          "cacheRead": 0.228
-        },
-        "to": {
-          "input": 0.19,
-          "output": 8.94,
-          "cacheRead": 0.19
-        }
-      },
-      {
-        "provider": "openrouter",
-        "id": "~z-ai/glm-flash-latest",
-        "from": {
-          "input": 0.0052,
-          "output": 0.1985,
-          "cacheRead": 0.0052
-        },
-        "to": {
-          "input": 0.0511,
-          "output": 0.0761,
-          "cacheRead": 0.03
-        }
-      },
-      {
-        "provider": "openrouter",
-        "id": "~z-ai/glm-latest",
-        "from": {
-          "input": 0.079,
-          "output": 1.4,
-          "cacheRead": 0.078
-        },
-        "to": {
-          "input": 0.0703,
-          "output": 4.3843,
-          "cacheRead": 0.0703
-        }
-      }
-    ],
+    "pricing": [],
     "contextWindow": [],
     "reasoning": []
   },
-  "issues": [
-    {
-      "level": "error",
-      "code": "context-window-lost",
-      "provider": "openrouter",
-      "id": "openai/gpt-3.5-turbo",
-      "message": "contextWindow 16385 → absent; declare it in the sidecar"
-    },
-    {
-      "level": "error",
-      "code": "pricing-coverage-drop",
-      "provider": "openrouter",
-      "id": "openai/gpt-3.5-turbo",
-      "message": "the row had a metered price and the build produced none"
-    },
-    {
-      "level": "error",
-      "code": "context-window-lost",
-      "provider": "openrouter",
-      "id": "openai/gpt-3.5-turbo:batch",
-      "message": "contextWindow 16385 → absent; declare it in the sidecar"
-    },
-    {
-      "level": "error",
-      "code": "pricing-coverage-drop",
-      "provider": "openrouter",
-      "id": "openai/gpt-3.5-turbo:batch",
-      "message": "the row had a metered price and the build produced none"
-    }
-  ]
+  "issues": []
 }

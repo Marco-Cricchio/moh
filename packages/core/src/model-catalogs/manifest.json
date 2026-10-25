@@ -1,17 +1,17 @@
 {
   "schemaVersion": 1,
   "version": "0.65.4",
-  "generatedAt": "2026-10-25T04:58:44.761Z",
+  "generatedAt": "2026-10-25T05:07:06.076Z",
   "sources": [
     {
       "name": "models.dev",
       "url": "https://models.dev/api.json",
-      "fetchedAt": "2026-10-25T04:58:44.028Z"
+      "fetchedAt": "2026-10-25T05:07:05.671Z"
     },
     {
       "name": "openrouter",
       "url": "https://openrouter.ai/api/v1/models",
-      "fetchedAt": "2026-10-25T04:58:44.522Z"
+      "fetchedAt": "2026-10-25T05:07:05.915Z"
     }
   ],
   "files": {
@@ -196,13 +196,13 @@
       }
     },
     "openrouter": {
-      "sha256": "65cb5d104d2fbacd07c2cadff6cca25f7a08be0f04483649955073ce4f6928bc",
-      "rows": 342,
+      "sha256": "364dba25914c6451ec46633348bace3fa6dcab923590086bff5aabd77bf30dff",
+      "rows": 340,
       "verdicts": {
         "exact": 315,
         "base-model": 1,
         "ambiguous": 0,
-        "absent": 26
+        "absent": 24
       }
     },
     "qwen": {
@@ -5329,13 +5329,6 @@
       ],
       "overrides": []
     },
-    "openrouter/openai/gpt-3.5-turbo": {
-      "provider": "openrouter",
-      "id": "openai/gpt-3.5-turbo",
-      "verdict": "absent",
-      "supplied": [],
-      "overrides": []
-    },
     "openrouter/openai/gpt-3.5-turbo-0613": {
       "provider": "openrouter",
       "id": "openai/gpt-3.5-turbo-0613",
@@ -5365,16 +5358,6 @@
         "input"
       ],
       "overrides": []
-    },
-    "openrouter/openai/gpt-3.5-turbo:batch": {
-      "provider": "openrouter",
-      "id": "openai/gpt-3.5-turbo:batch",
-      "verdict": "absent",
-      "supplied": [],
-      "overrides": [
-        "maxTokens",
-        "reasoning"
-      ]
     },
     "openrouter/openai/gpt-4": {
       "provider": "openrouter",

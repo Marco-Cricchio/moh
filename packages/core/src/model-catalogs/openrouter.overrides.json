@@ -2804,15 +2804,10 @@
       }
     },
     "openai/gpt-3.5-turbo": {
-      "author": "moh migration (#959)",
-      "date": "2026-09-24",
-      "reason": "labels and row identity are moh-owned (ADR-0046): never aggregator-supplied",
-      "api": "openai-completions",
-      "baseUrl": "https://openrouter.ai/api/v1",
-      "name": "OpenAI: GPT-3.5 Turbo",
-      "compat": {
-        "thinkingFormat": "openrouter"
-      }
+      "author": "moh (release v0.65.4)",
+      "date": "2026-10-25",
+      "reason": "OpenRouter retired the listing: the rebuild produces neither a window nor a rate (models.dev too) — dropped following the retirement, per #1630 precedent",
+      "retired": true
     },
     "openai/gpt-3.5-turbo-0613": {
       "author": "moh migration (#959)",
@@ -2837,17 +2832,10 @@
       }
     },
     "openai/gpt-3.5-turbo:batch": {
-      "author": "moh migration (#959)",
-      "date": "2026-09-24",
-      "reason": "labels and row identity are moh-owned (ADR-0046): never aggregator-supplied; field the aggregators cannot supply: carried from the previous catalog: maxTokens, reasoning",
-      "api": "openai-completions",
-      "baseUrl": "https://openrouter.ai/api/v1",
-      "name": "OpenAI: GPT-3.5 Turbo (batch)",
-      "compat": {
-        "thinkingFormat": "openrouter"
-      },
-      "maxTokens": 4096,
-      "reasoning": false
+      "author": "moh (release v0.65.4)",
+      "date": "2026-10-25",
+      "reason": "OpenRouter retired the base listing; the :batch variant has no independent identity — dropped with it",
+      "retired": true
     },
     "openai/gpt-4": {
       "author": "moh migration (#959)",
