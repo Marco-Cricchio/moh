@@ -15,6 +15,8 @@ useFileCredentialStore();
 
 const tempHome = () => { const h = mkdtempSync(join(tmpdir(), "moh-tui-smoke-")); grantTeamExtension(h); return h; };
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+/** Deadline for waits that cross a session build under a loaded full-tree run (#1686). */
+const LOADED_WAIT_MS = 10_000;
 
 /** #939: App prepares the project identity before mounting the tree that
  * owns stdin, so keystrokes written earlier land on nothing. Returns a
@@ -152,8 +154,12 @@ describe("home smoke", () => {
     // Poll each step: the settled Home paints a beat before its input
     // handlers attach, so a fixed sleep can drop the keystroke.
     await actUntilFrame(() => i.stdin.write("greet me"), frame, "start “greet me”");
-    await actUntilFrame(() => i.stdin.write("\r"), frame, COMPOSER_READY);
-    await waitForFrame(frame, "hello there");
+    await actUntilFrame(() => i.stdin.write("\r"), frame, COMPOSER_READY, { timeoutMs: LOADED_WAIT_MS });
+    // #1686: opening the chat builds a session and the reply streams after
+    // it, so under a loaded full-tree run the transcript can take longer than
+    // the 2 s default. The wait is on state — a generous deadline costs
+    // nothing when the frame arrives.
+    await waitForFrame(frame, "hello there", { timeoutMs: LOADED_WAIT_MS });
     expect(frame()).toContain("greet me");
     expect(frame()).toContain("hello there");
     i.unmount();
