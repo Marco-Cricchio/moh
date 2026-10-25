@@ -192,6 +192,31 @@ describe("deterministic extraction", () => {
     expect(findings.filter((f) => f.category === "missing-guardrail")).toHaveLength(0);
   });
 
+  const checksEvent = (...results: Array<{ name: string; outcome: string; block?: boolean }>) =>
+    ({ type: "extension_event", extension: "checks", name: "checks", payload: { results: results.map((r) => ({ block: false, tail: "", ...r })) } }) as AgentEvent;
+
+  test("structural drift: a declared check still failing at session end is the finding (#1633 slice 5)", () => {
+    const cwd = tempDir();
+    const events = [
+      toolCall("edit", { path: "a.ts" }),
+      checksEvent({ name: "duplication", outcome: "fail", block: true }, { name: "complexity", outcome: "pass" }),
+    ];
+    const findings = extractRetroFindings(events, { cwd, session: "s1" }).filter((f) => f.category === "structural-drift");
+    expect(findings.map((f) => f.signature)).toEqual([retroSignature("structural-drift", "check:duplication")]);
+    expect(findings[0]!.evidence).toContain("`duplication`");
+    expect(findings[0]!.confidence).toBeGreaterThan(0);
+  });
+
+  test("structural drift: only the last outcome of a check counts, and denied is not a failure", () => {
+    const cwd = tempDir();
+    const events = [
+      toolCall("edit", {}),
+      checksEvent({ name: "duplication", outcome: "fail" }, { name: "complexity", outcome: "denied" }),
+      checksEvent({ name: "duplication", outcome: "pass" }),
+    ];
+    expect(extractRetroFindings(events, { cwd, session: "s1" }).filter((f) => f.category === "structural-drift")).toHaveLength(0);
+  });
+
   test("a session that used no tools produces nothing", () => {
     const cwd = tempDir();
     repo(cwd, { scripts: true });
