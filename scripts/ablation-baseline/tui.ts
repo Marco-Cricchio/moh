@@ -69,6 +69,19 @@ function startFakeServer(turns: Array<{ toolCall?: { name: string; args: unknown
   return { url: `http://127.0.0.1:${server.port}/v1`, stop: () => server.stop(true) };
 }
 
+/**
+ * #1524: the PTY harness ends every scenario with SIGINT, then SIGTERM, then
+ * (if the child is still alive 2 s later) SIGKILL, so a signal-killed child
+ * records -15 or -9 depending only on how fast it shut down. Both mean "the
+ * harness stopped it" (the harness itself accepts them as non-crashes), so
+ * they are recorded as the one canonical value, -15 (the reference's). A
+ * clean exit (0), a still-running child (null) and any other status stay as
+ * they are, so a real change in how the TUI exits remains visible.
+ */
+export function recordedExitCode(exitCode: number | null): number | null {
+  return exitCode === -9 ? -15 : exitCode;
+}
+
 export interface Scenario {
   name: string;
   spec: (ctx: { url: string }) => PtySpec;
@@ -452,7 +465,7 @@ async function main(): Promise<number> {
         const payload = {
           scenario: scenario.name,
           exited: meta.exited,
-          exitCode: meta.exitCode,
+          exitCode: recordedExitCode(meta.exitCode),
           frames,
         };
         writeFileSync(join(outDir, "tui", `${scenario.name}.json`), JSON.stringify(payload, null, 2) + "\n");
