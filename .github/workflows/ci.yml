@@ -28,14 +28,14 @@
 # the tagged tree is the develop tree the PR checks already covered.
 name: ci
 
-# The test jobs run one exact Bun. `latest` made the gate a moving
-# target (#1061): the runner resolved 1.4.2 while a local checkout ran
-# 1.2.19, so "green on CI" and "green locally" were different claims.
-# Pinned to the version this suite was last verified green on; bumping it
-# is a deliberate change reviewed like any other, not a side effect of a
-# PR that happened to run that day.
+# Every workflow runs Bun `latest` (ADR-0081). The release builds the
+# shipped binary on `latest`, so the gate must test that runtime: the
+# earlier pin (ADR-0057, #1061) left CI on 1.4.2 while 0.65.4 shipped on
+# 1.4.4, and "green on CI" stopped describing the binary users run.
+# Local checkouts follow too (`bun upgrade`). A red that only a new Bun
+# explains is fixed forward, not pinned around.
 env:
-  BUN_VERSION: "1.4.2"
+  BUN_VERSION: latest
 
 on:
   pull_request:
