@@ -5,6 +5,8 @@
  * caught except in the two origin probes.
  */
 
+import { appendFileSync } from "node:fs";
+
 export interface GitResult {
   exitCode: number;
   stdout: string;
@@ -41,11 +43,66 @@ function spawnArgs(cwd: string | undefined, args: readonly string[], options: Gi
  * (git missing, a missing `cwd:` dir). */
 export function gitSync(cwd: string, args: readonly string[], options: GitOptions): GitResult {
   const { cmd, spawn } = spawnArgs(cwd, args, options);
+  const probe = process.env.MOH_GIT_PROBE;
+  if (probe) return probedSpawnSync(probe, cwd, args, cmd, spawn, options);
   const proc = Bun.spawnSync(cmd, spawn);
   return {
     exitCode: proc.exitCode,
     stdout: proc.stdout.toString(),
     stderr: options.stderr === "pipe" ? proc.stderr!.toString() : "",
+  };
+}
+
+/**
+ * #1679 diagnostic, off unless `MOH_GIT_PROBE=<file>` is set: the same
+ * `Bun.spawnSync` call, timed, with one JSON line appended per call (start,
+ * duration, the child's pid, exit code, whether the timeout fired, and the
+ * caller's frames when the call took over a second). The question it
+ * answers: does a slow call return only after its child is long gone (a
+ * `spawnSync` that does not return) or did git itself run that long? The
+ * probe never changes the result or throws.
+ */
+const SLOW_CALL_MS = 1000;
+function probedSpawnSync(
+  file: string,
+  cwd: string,
+  args: readonly string[],
+  cmd: string[],
+  spawn: ReturnType<typeof spawnArgs>["spawn"],
+  options: GitOptions,
+): GitResult {
+  const started = Date.now();
+  const t0 = performance.now();
+  let proc: ReturnType<typeof Bun.spawnSync> | undefined;
+  let threw: unknown;
+  try {
+    proc = Bun.spawnSync(cmd, spawn);
+  } catch (error) {
+    threw = error;
+  }
+  const ms = Math.round((performance.now() - t0) * 10) / 10;
+  try {
+    const line = {
+      at: new Date(started).toISOString(),
+      cwd,
+      args,
+      ms,
+      pid: proc?.pid ?? null,
+      exitCode: proc?.exitCode ?? null,
+      signal: proc?.signalCode ?? null,
+      timeoutMs: options.timeoutMs ?? null,
+      threw: threw === undefined ? null : String(threw),
+      ...(ms >= SLOW_CALL_MS ? { stack: (new Error().stack ?? "").split("\n").slice(2, 12).map((l) => l.trim()) } : {}),
+    };
+    appendFileSync(file, `${JSON.stringify(line)}\n`);
+  } catch {
+    // diagnostic only
+  }
+  if (threw !== undefined || !proc) throw threw;
+  return {
+    exitCode: proc.exitCode,
+    stdout: proc.stdout?.toString() ?? "",
+    stderr: options.stderr === "pipe" ? proc.stderr?.toString() ?? "" : "",
   };
 }
 
