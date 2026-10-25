@@ -20,6 +20,9 @@ interface GitOptions {
   stderr: "pipe" | "ignore";
   /** Forwarded to the spawn only when set; otherwise Bun's default. */
   stdin?: "ignore";
+  /** Forwarded (with SIGKILL) only when set: the child is killed after this
+   *  many ms and the call returns a null exit code. */
+  timeoutMs?: number;
 }
 
 function spawnArgs(cwd: string | undefined, args: readonly string[], options: GitOptions) {
@@ -29,6 +32,7 @@ function spawnArgs(cwd: string | undefined, args: readonly string[], options: Gi
     stdout: "pipe" as const,
     stderr: options.stderr,
     ...(options.stdin ? { stdin: options.stdin } : {}),
+    ...(options.timeoutMs !== undefined ? { timeout: options.timeoutMs, killSignal: "SIGKILL" as const } : {}),
   };
   return { cmd, spawn };
 }
@@ -65,12 +69,21 @@ export function git(cwd: string | undefined, args: readonly string[], options: G
   return Promise.all([new Response(proc.stdout).text(), proc.exited]).then(([stdout, exitCode]) => ({ exitCode, stdout, stderr: "" }));
 }
 
+/**
+ * Ceiling for the origin probes (#1679). `git remote get-url` answers in
+ * ~10 ms; a probe that has not returned after this long is killed and read
+ * as "no origin" instead of parking a synchronous `createSession` for 30 s+.
+ * The cause of the observed hang is not established (a Bun.spawnSync that
+ * never returns, or a git that blocks), so this bounds it rather than fixes it.
+ */
+const ORIGIN_PROBE_TIMEOUT_MS = 10_000;
+
 /** `git -C <cwd> remote get-url origin`: the trimmed URL, or null on a
- * nonzero exit or a spawn that throws (git missing). */
-export function originUrlSync(cwd: string, stderr: "pipe" | "ignore"): string | null {
+ * nonzero exit, a timeout, or a spawn that throws (git missing). */
+export function originUrlSync(cwd: string, stderr: "pipe" | "ignore", timeoutMs = ORIGIN_PROBE_TIMEOUT_MS): string | null {
   let res: GitResult;
   try {
-    res = gitSync(cwd, ["remote", "get-url", "origin"], { dir: "-C", stderr });
+    res = gitSync(cwd, ["remote", "get-url", "origin"], { dir: "-C", stderr, timeoutMs });
   } catch {
     return null;
   }
@@ -78,9 +91,9 @@ export function originUrlSync(cwd: string, stderr: "pipe" | "ignore"): string | 
 }
 
 /** Async twin of `originUrlSync` (stderr ignored). */
-export async function originUrl(cwd: string): Promise<string | null> {
+export async function originUrl(cwd: string, timeoutMs = ORIGIN_PROBE_TIMEOUT_MS): Promise<string | null> {
   try {
-    const res = await git(cwd, ["remote", "get-url", "origin"], { dir: "-C", stderr: "ignore" });
+    const res = await git(cwd, ["remote", "get-url", "origin"], { dir: "-C", stderr: "ignore", timeoutMs });
     return res.exitCode === 0 ? res.stdout.trim() : null;
   } catch {
     return null;
