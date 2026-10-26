@@ -15,12 +15,14 @@ moh provider add
 ```
 
 It asks whether you have an API key or a provider subscription (ChatGPT
-Plus/Pro, a personal Google account) and walks you through the rest.
-Subscription logins use your plan's OAuth flow — no key to copy, and
-your plan's usage is what gets billed. **Anthropic is API-key only**: the
-wizard no longer offers Claude Pro/Max subscription login, because
-Anthropic reserves that route for its own clients and it does not serve
-inference. An endpoint that still stores such a login is reported at
+Plus/Pro, GitHub Copilot, OpenRouter, xAI, Kimi) and walks you through the
+rest. Subscription logins use your plan's OAuth flow — no key to copy, and
+your plan's usage is what gets billed. **Anthropic and Google are
+API-key only**: the wizard no longer offers Claude Pro/Max or a personal
+Google account as a subscription login, because neither route serves
+inference any more (Anthropic reserves it for its own clients; Google's
+Code Assist tiers refuse third parties and point individuals at
+Antigravity). An endpoint that still stores such a login is reported at
 session start, and `moh provider logout <name>` drops its tokens.
 
 ## Your first session

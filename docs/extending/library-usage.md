@@ -68,9 +68,10 @@ validation, so a broken config leaves no orphan session file.
 
 **Subscription (OAuth) endpoints.** An endpoint profile may carry
 `auth: { kind: "subscription" }` (absent = api-key, the backward-compatible
-default). One exception, and only one: **anthropic**, whose subscription
-offer moh's onboarding withdrew (#1317, ADR-0010 amendment — the grant
-stays reachable through `moh provider login`, the offer does not). Such an
+default). Two kinds are exceptions: **anthropic** and **google**, whose
+subscription offers moh's onboarding withdrew (#1317 and #1720, ADR-0010
+amendments — the grant stays reachable through `moh provider login`, the
+offer does not; neither route serves inference). Such an
 endpoint still opens a session and records one visible
 `endpoint_auth_withdrawn` chrome event per open, on resume too: nothing is
 converted, deleted, disabled or called, and the reason names the remedy

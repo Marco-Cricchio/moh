@@ -84,16 +84,17 @@ describe("moh provider", () => {
       account: { email: "dev@example.test" },
       updatedAt: 1_700_000_000_000,
     };
-    // #1317: anthropic's subscription offer is withdrawn, so the CLI's
-    // subscription branch is exercised on a kind that still offers it.
-    const io = wizardIo(["google", "", "subscription", "gemini-3-pro"], token);
-    const r = await run(["add"], { cwd, home, io, subscriptionLogin: async () => token, tester: async () => ({ ok: true, modelId: "gemini-3-pro" }) });
+    // #1317/#1720: anthropic's and google's subscription offers are
+    // withdrawn, so the CLI's subscription branch is exercised on a kind
+    // that still offers it.
+    const io = wizardIo(["openai", "", "subscription", "gpt-6-sol"], token);
+    const r = await run(["add"], { cwd, home, io, subscriptionLogin: async () => token, tester: async () => ({ ok: true, modelId: "gpt-6-sol" }) });
     expect(r.code).toBe(0);
     const moh = JSON.parse(readFileSync(join(cwd, "moh.json"), "utf8"));
     expect(moh.endpoints[0].auth).toEqual({ kind: "subscription" });
-    expect(moh.provider).toBe("google/gemini-3-pro");
+    expect(moh.provider).toBe("openai/gpt-6-sol");
     const user = JSON.parse(readFileSync(join(home, ".moh", "config"), "utf8"));
-    expect(user.auth.tokens.google.accessToken).toBe("acc-xyz");
+    expect(user.auth.tokens.openai.accessToken).toBe("acc-xyz");
     // redaction: the success output never echoes token material
     expect(r.out).not.toContain("acc-xyz");
     expect(r.out).not.toContain("ref-xyz");

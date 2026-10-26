@@ -65,12 +65,18 @@ describe("isSubscriptionKind", () => {
   });
 });
 
-describe("offersSubscriptionAuth (#1317)", () => {
-  test("anthropic has a grant but is withheld; the other grant kinds are offered", () => {
+describe("offersSubscriptionAuth (#1317, #1720)", () => {
+  test("anthropic and google have a grant but are withheld; the other grant kinds are offered", () => {
     // The grant stays reachable (providerLogin below) — only the offer goes.
     expect(isSubscriptionKind("anthropic")).toBe(true);
+    expect(isSubscriptionKind("google")).toBe(true);
     expect(offersSubscriptionAuth("anthropic")).toBe(false);
-    for (const kind of ["openai", "google", "github-copilot", "openrouter", "kimi-coding", "xai"]) {
+    // #1720: Google's Code Assist tiers refuse third-party inference for
+    // consumer accounts (the bundle's free tier answers UNSUPPORTED_CLIENT,
+    // the standard tier needs a user-defined GCP project) — the grant
+    // cannot serve ask-free, so the wizard stops offering it.
+    expect(offersSubscriptionAuth("google")).toBe(false);
+    for (const kind of ["openai", "github-copilot", "openrouter", "kimi-coding", "xai"]) {
       expect(offersSubscriptionAuth(kind)).toBe(true);
     }
     expect(offersSubscriptionAuth("openai-compat")).toBe(false);
@@ -91,20 +97,23 @@ describe("offersSubscriptionAuth (#1317)", () => {
   });
 });
 
-describe("withdrawnSubscriptionReason (#1317)", () => {
-  test("names the endpoint and both halves of the remedy", () => {
-    const reason = withdrawnSubscriptionReason({ name: "claude", type: "anthropic", auth: { kind: "subscription" } });
-    expect(reason).toContain('"claude"');
-    expect(reason).toContain("no longer offers");
-    expect(reason).toContain("does not serve inference");
-    expect(reason).toContain("moh provider add");
-    // The logout command names the endpoint, not the kind.
-    expect(reason).toContain("moh provider logout claude");
+describe("withdrawnSubscriptionReason (#1317, #1720)", () => {
+  test("names the endpoint and both halves of the remedy, for every withheld kind", () => {
+    for (const [name, type] of [["claude", "anthropic"], ["g", "google"]] as const) {
+      const reason = withdrawnSubscriptionReason({ name, type, auth: { kind: "subscription" } });
+      expect(reason).toContain(`"${name}"`);
+      expect(reason).toContain("no longer offers");
+      expect(reason).toContain("does not serve inference");
+      expect(reason).toContain("moh provider add");
+      // The logout command names the endpoint, not the kind.
+      expect(reason).toContain(`moh provider logout ${name}`);
+    }
   });
 
   test("every other endpoint is silent", () => {
     expect(withdrawnSubscriptionReason({ name: "anthropic", type: "anthropic" })).toBeNull();
-    expect(withdrawnSubscriptionReason({ name: "mygoogle", type: "google", auth: { kind: "subscription" } })).toBeNull();
+    expect(withdrawnSubscriptionReason({ name: "mygoogle", type: "google" })).toBeNull();
+    expect(withdrawnSubscriptionReason({ name: "myopenai", type: "openai", auth: { kind: "subscription" } })).toBeNull();
     expect(withdrawnSubscriptionReason({ name: "odd", type: "openai-compat", auth: { kind: "subscription" } })).toBeNull();
   });
 });
