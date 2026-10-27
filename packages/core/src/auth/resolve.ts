@@ -51,13 +51,13 @@ export function openaiNativeAuthContext(token: AuthToken): EndpointAuthContext {
 /** Refresh when the access token expires within this window (Codex-style). */
 const REFRESH_WINDOW_MS = 5 * 60 * 1000;
 
-/** HTTP seam shared by all three provider refresh grants (test seam). */
-type TokenFetch = (
+/** HTTP seam shared by all provider refresh grants (test seam). */
+export type TokenFetch = (
   url: string,
   body: Record<string, unknown>,
 ) => Promise<{ status: number; json: Record<string, unknown> }>;
 
-interface CredentialResolveOptions {
+export interface CredentialResolveOptions {
   /** Auth store location. Default: `~/.moh/config` via the guardian. */
   configFile?: string;
   /** Clock, epoch ms. Default: `Date.now()`. */
@@ -114,6 +114,40 @@ export async function resolveEndpointCredential(
 function openaiCredentialFor(kind: string, token: AuthToken): string | EndpointAuthContext {
   if (kind === "openai" && token.grant?.minted === false) return openaiNativeAuthContext(token);
   if (kind === "github-copilot") return copilotAuthContext(token);
+  return token.accessToken;
+}
+
+/**
+ * The access token a *non-streaming* call needs — the live model listing
+ * (#551): the same store and the same proactive-refresh window as the
+ * stream path, but never throwing. A forced listing refresh is the one
+ * surface that runs while the endpoint may sit unused for days (the
+ * stream path refreshes on use), so reading the stored token as-is there
+ * made every listing 401 forever on an expired grant. Refresh failure
+ * degrades to the stored token: the listing call itself then fails its
+ * own way (a 401 status), never a thrown error. Returns `undefined`
+ * when the endpoint has no stored token.
+ */
+export async function freshAccessToken(
+  kind: string,
+  endpointName: string,
+  opts: CredentialResolveOptions = {},
+): Promise<string | undefined> {
+  const file = opts.configFile ?? userConfigFile();
+  const now = opts.now ?? Date.now();
+  const section = readAuthSection(file);
+  const token = section.tokens[endpointName];
+  if (!token) return undefined;
+  const exp = effectiveExpiry(token);
+  if (exp !== undefined && exp - now < REFRESH_WINDOW_MS) {
+    try {
+      const fresh = await refreshToken(kind, endpointName, token, section.overrides, opts);
+      saveTokens(file, endpointName, fresh);
+      return fresh.accessToken;
+    } catch {
+      return token.accessToken;
+    }
+  }
   return token.accessToken;
 }
 

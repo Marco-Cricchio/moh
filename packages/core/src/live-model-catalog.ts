@@ -52,6 +52,7 @@ import { OAUTH_BUILTIN_BASE_URLS } from "./wire";
 import { CHATGPT_CODEX_BASE_URL, CHATGPT_CODEX_ORIGINATOR } from "./auth/openai";
 import { ANTHROPIC_OAUTH_BETA } from "./auth/anthropic";
 import { readAuthSection, getStoredApiKey } from "./auth/store";
+import { freshAccessToken, type TokenFetch } from "./auth/resolve";
 import { readUserConfigFile, userConfigFile } from "./user-config";
 
 /** One model as the provider's listing exposes it. */
@@ -310,13 +311,28 @@ function listingBase(kind: string, endpointName: string, endpointBaseUrl: string
 
 /** The credential a listing call needs, read-only from the stores: the
  * profile's inline key, its env var, the wizard-stored api key, or —
- * for subscription endpoints — the stored access token *without* the
- * proactive refresh (a background picker fetch never mutates the auth
- * store; a stale token degrades to the static list, same as an error).
+ * for subscription endpoints — the stored access token. A *background*
+ * fetch (startup, a cache within its TTL) reads the token without the
+ * proactive refresh and never mutates the auth store (ADR-0045); a
+ * *forced* refresh (the picker's `r`, opening Settings) runs the refresh
+ * grant first through the same path a model call uses — an endpoint
+ * that is configured but not serving never runs the stream path, so
+ * without this its token expires and every listing 401s forever. A
+ * failed refresh degrades to the stored token, same as an error.
  * `subscription` marks a credential resolved from the token store: the
  * header shape differs (Bearer vs x-api-key for Anthropic). */
-function listingCredential(_kind: string, endpointName: string, inlineApiKey: string | undefined, configFile: string): { credential: string | undefined; subscription: boolean } {
+async function listingCredential(
+  kind: string,
+  endpointName: string,
+  inlineApiKey: string | undefined,
+  configFile: string,
+  opts: { credentialRefresh?: boolean; tokenFetch?: TokenFetch } = {},
+): Promise<{ credential: string | undefined; subscription: boolean }> {
   if (inlineApiKey) return { credential: inlineApiKey, subscription: false };
+  if (opts.credentialRefresh) {
+    const credential = await freshAccessToken(kind, endpointName, { configFile, fetchImpl: opts.tokenFetch });
+    if (credential) return { credential, subscription: true };
+  }
   const section = readAuthSection(configFile);
   const token = section.tokens[endpointName];
   if (token?.accessToken) return { credential: token.accessToken, subscription: true };
@@ -334,13 +350,16 @@ const MAX_PAGES = 5;
 export async function listProviderModels(
   kind: string,
   endpointName: string,
-  opts: { baseUrl?: string; apiKey?: string; configFile?: string; fetchImpl?: ListingFetch; signal?: AbortSignal; clientVersion?: string } = {},
+  opts: { baseUrl?: string; apiKey?: string; configFile?: string; fetchImpl?: ListingFetch; signal?: AbortSignal; clientVersion?: string; credentialRefresh?: boolean; tokenFetch?: TokenFetch } = {},
 ): Promise<LiveModelListing[]> {
   const contract = contractFor(kind);
   const base = listingBase(kind, endpointName, opts.baseUrl);
   if (!base || !contract) throw new Error(`no verified model listing contract for provider kind "${kind}"`);
   const clientVersion = opts.clientVersion ?? CODEX_LISTING_CLIENT_VERSION;
-  const credential = listingCredential(kind, endpointName, opts.apiKey, opts.configFile ?? userConfigFile());
+  const credential = await listingCredential(kind, endpointName, opts.apiKey, opts.configFile ?? userConfigFile(), {
+    credentialRefresh: opts.credentialRefresh,
+    tokenFetch: opts.tokenFetch,
+  });
   const templates = contract.urls?.(base, clientVersion) ?? [`${base}/models`];
   // Anthropic accepts OAuth access tokens only as `Authorization: Bearer`
   // — an x-api-key header carrying one is rejected with 401 ("invalid
@@ -573,8 +592,14 @@ interface FetchLiveCatalogsOptions {
   configFile?: string;
   cacheFile?: string;
   fetchImpl?: ListingFetch;
+  /** Token-endpoint seam for the credential refresh a forced listing
+   * may perform (test seam; the providers' own `fetch` by default). */
+  tokenFetch?: TokenFetch;
   now?: number;
-  /** Force a network refresh even when the cache is fresh. */
+  /** Force a network refresh even when the cache is fresh. A forced
+   * refresh is user-initiated (the picker's `r`, Settings): unlike the
+   * background startup fetch it may refresh and persist an expired
+   * subscription credential before listing (ADR-0045 amendment). */
   force?: boolean;
   /** Client version advertised to contracts that want one (Codex). */
   clientVersion?: string;
@@ -728,9 +753,11 @@ export async function fetchLiveCatalogs(
         const models = await listProviderModels(e.type, e.name, {
           baseUrl: e.baseUrl,
           apiKey: e.apiKey,
-          configFile: opts.configFile,
+          configFile: opts.configFile ?? userConfigFile(home),
           fetchImpl: opts.fetchImpl,
           clientVersion: opts.clientVersion,
+          credentialRefresh: opts.force === true,
+          tokenFetch: opts.tokenFetch,
         });
         return [e.name, { models, status: { kind: "fresh" } as LiveCatalogStatus, type: e.type, entry: { fetchedAt: now, models } }] as const;
       } catch (error) {

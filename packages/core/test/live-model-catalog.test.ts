@@ -397,6 +397,89 @@ describe("listProviderModels", () => {
     expect(headers.authorization).toBeUndefined();
   });
 
+  describe("credential refresh on a forced listing (ADR-0045 amendment)", () => {
+    const expiredToken = { accessToken: "expired-token", refreshToken: "r1", expiresAt: 1, updatedAt: 1 };
+
+    test("a forced listing refreshes an expired subscription token before listing and persists it", async () => {
+      const dir = mkdtempSync(join(tmpdir(), "moh-live-"));
+      try {
+        const { saveTokens, readAuthSection } = await import("../src/auth/store");
+        const mohHome = join(dir, ".moh");
+        const configFile = join(mohHome, "config");
+        saveTokens(configFile, "anthropic", expiredToken as never);
+        const listingHeaders: string[] = [];
+        const report = await fetchLiveCatalogs([{ name: "anthropic", type: "anthropic" }], {
+          mohHome,
+          configFile,
+          force: true,
+          fetchImpl: async (_url, h) => {
+            listingHeaders.push(String(h.Authorization ?? ""));
+            return { status: 200, json: { data: [{ id: "claude-opus-5-5" }] } };
+          },
+          tokenFetch: async () => ({ status: 200, json: { access_token: "fresh-token", token_type: "bearer", expires_in: 3600 } }),
+        });
+        expect(report.anthropic?.status.kind).toBe("fresh");
+        expect(listingHeaders).toEqual(["Bearer fresh-token"]);
+        expect(readAuthSection(configFile).tokens.anthropic?.accessToken).toBe("fresh-token");
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+      }
+    });
+
+    test("a background listing reads the stored token as-is: no refresh, no store mutation", async () => {
+      const dir = mkdtempSync(join(tmpdir(), "moh-live-"));
+      try {
+        const { saveTokens, readAuthSection } = await import("../src/auth/store");
+        const mohHome = join(dir, ".moh");
+        const configFile = join(mohHome, "config");
+        saveTokens(configFile, "anthropic", expiredToken as never);
+        const listingHeaders: string[] = [];
+        const report = await fetchLiveCatalogs([{ name: "anthropic", type: "anthropic" }], {
+          mohHome,
+          configFile,
+          fetchImpl: async (_url, h) => {
+            listingHeaders.push(String(h.Authorization ?? ""));
+            return { status: 401, json: {} };
+          },
+          tokenFetch: async () => {
+            throw new Error("background listing must not touch the token endpoint");
+          },
+        });
+        expect(report.anthropic?.status.kind).toBe("failed");
+        expect(listingHeaders).toEqual(["Bearer expired-token"]);
+        expect(readAuthSection(configFile).tokens.anthropic?.accessToken).toBe("expired-token");
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+      }
+    });
+
+    test("a failed token refresh degrades to the stored token instead of throwing", async () => {
+      const dir = mkdtempSync(join(tmpdir(), "moh-live-"));
+      try {
+        const { saveTokens, readAuthSection } = await import("../src/auth/store");
+        const mohHome = join(dir, ".moh");
+        const configFile = join(mohHome, "config");
+        saveTokens(configFile, "anthropic", expiredToken as never);
+        const listingHeaders: string[] = [];
+        const report = await fetchLiveCatalogs([{ name: "anthropic", type: "anthropic" }], {
+          mohHome,
+          configFile,
+          force: true,
+          fetchImpl: async (_url, h) => {
+            listingHeaders.push(String(h.Authorization ?? ""));
+            return { status: 401, json: {} };
+          },
+          tokenFetch: async () => ({ status: 400, json: { error: "invalid_grant" } }),
+        });
+        expect(report.anthropic?.status.kind).toBe("failed");
+        expect(listingHeaders).toEqual(["Bearer expired-token"]);
+        expect(readAuthSection(configFile).tokens.anthropic?.accessToken).toBe("expired-token");
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+      }
+    });
+  });
+
   test("google paginates via nextPageToken and filters generateContent", async () => {
     const pages = [
       { models: [{ name: "models/a", displayName: "A", inputTokenLimit: 1000, supportedGenerationMethods: ["generateContent"] }], nextPageToken: "T2" },
