@@ -57,7 +57,7 @@ export type TokenFetch = (
   body: Record<string, unknown>,
 ) => Promise<{ status: number; json: Record<string, unknown> }>;
 
-export interface CredentialResolveOptions {
+interface CredentialResolveOptions {
   /** Auth store location. Default: `~/.moh/config` via the guardian. */
   configFile?: string;
   /** Clock, epoch ms. Default: `Date.now()`. */
