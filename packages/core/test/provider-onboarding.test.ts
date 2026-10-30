@@ -337,13 +337,14 @@ describe("runProviderAdd (subscription branch)", () => {
   test("subscription choice skips the key prompt, logs in, marks auth kind, stores tokens", async () => {
     const authFile = `${import.meta.dir}/tmp-onboarding/config`;
     await Bun.write(authFile, "{}");
-    // #1317: anthropic's offer is withdrawn, so the live subscription
-    // flows are exercised on a kind that still offers the choice.
+    // #1317/#1720: anthropic's and google's offers are withdrawn, so the
+    // live subscription flows are exercised on a kind that still offers the
+    // choice.
     const io = ioWith([
-      "google",          // type
+      "openai",          // type
       "",                // name default
       "subscription",    // auth method
-      "gemini-3-pro",    // model: free-text fallback
+      "gpt-6-sol",       // model: free-text fallback
     ]);
     try {
       const profile = await runProviderAdd(io, okTest(), {
@@ -354,11 +355,11 @@ describe("runProviderAdd (subscription branch)", () => {
       expect("apiKey" in profile).toBe(false);
       // #156: the catalog list is shown; subscription never asks for a
       // base URL or key.
-      expect(io.said.join("\n")).toContain("Models available on google subscriptions:");
+      expect(io.said.join("\n")).toContain("Models available on openai subscriptions:");
       expect(io.said.join("\n")).not.toContain("Base URL");
       // tokens live in the user config auth section, never in the profile
       const saved = JSON.parse(readFileSync(authFile, "utf8"));
-      expect(saved.auth.tokens.google.accessToken).toBe("acc-xyz");
+      expect(saved.auth.tokens.openai.accessToken).toBe("acc-xyz");
     } finally {
       await Bun.file(authFile).delete();
     }
@@ -368,7 +369,7 @@ describe("runProviderAdd (subscription branch)", () => {
     const authFile = `${import.meta.dir}/tmp-onboarding/config-list`;
     await Bun.write(authFile, "{}");
     const io = ioWith([
-      "google",   // type
+      "openai",   // type
       "",         // name default
       "subscription",
       "2",        // model: second catalog entry
@@ -378,7 +379,7 @@ describe("runProviderAdd (subscription branch)", () => {
         authFile,
         subscriptionLogin: async () => fakeToken(),
       });
-      const second = subscriptionModelCatalog("google")[1]!;
+      const second = subscriptionModelCatalog("openai")[1]!;
       expect(profile.defaultModel).toBe(second.id);
     } finally {
       await Bun.file(authFile).delete();
@@ -388,13 +389,13 @@ describe("runProviderAdd (subscription branch)", () => {
   test("#156: out-of-range numbers are re-asked, then free text passes", async () => {
     const authFile = `${import.meta.dir}/tmp-onboarding/config-range`;
     await Bun.write(authFile, "{}");
-    const io = ioWith(["google", "", "subscription", "999", "gemini-3-pro"]);
+    const io = ioWith(["openai", "", "subscription", "999", "gpt-6-sol"]);
     try {
       const profile = await runProviderAdd(io, okTest(), {
         authFile,
         subscriptionLogin: async () => fakeToken(),
       });
-      expect(profile.defaultModel).toBe("gemini-3-pro");
+      expect(profile.defaultModel).toBe("gpt-6-sol");
       expect(io.said.join("\n")).toContain("enter a number between 1 and");
     } finally {
       await Bun.file(authFile).delete();
@@ -425,23 +426,28 @@ describe("runProviderAdd (subscription branch)", () => {
     expect(io.said.join("\n")).not.toContain("Auth method");
   });
 
-  test("#1317: anthropic never asks for an auth method — the api-key flow is the only one", async () => {
-    const io = ioWith(["anthropic", "", "", "", "claude-sonnet-4-5"]);
-    const profile = await runProviderAdd(io, okTest());
-    expect(profile.type).toBe("anthropic");
-    expect(profile.auth).toBeUndefined();
-    expect(profile.defaultModel).toBe("claude-sonnet-4-5");
-    const said = io.said.join("\n");
-    expect(said).not.toContain("Auth method");
-    expect(said).not.toContain("subscription");
-    // Straight to the key prompt, right after the name.
-    expect(io.said).toContain("API key (empty to use MOH_ENDPOINT_ANTHROPIC_API_KEY): ");
-  });
+  for (const [type, envVar, model] of [
+    ["anthropic", "MOH_ENDPOINT_ANTHROPIC_API_KEY", "claude-sonnet-4-5"],
+    ["google", "MOH_ENDPOINT_GOOGLE_API_KEY", "gemini-3-pro"],
+  ] as const) {
+    test(`#1317/#1720: ${type} never asks for an auth method — the api-key flow is the only one`, async () => {
+      const io = ioWith([type, "", "", "", model]);
+      const profile = await runProviderAdd(io, okTest());
+      expect(profile.type).toBe(type);
+      expect(profile.auth).toBeUndefined();
+      expect(profile.defaultModel).toBe(model);
+      const said = io.said.join("\n");
+      expect(said).not.toContain("Auth method");
+      expect(said).not.toContain("subscription");
+      // Straight to the key prompt, right after the name.
+      expect(io.said).toContain(`API key (empty to use ${envVar}): `);
+    });
+  }
 
   test("#1317: a kind whose subscription offer is live still gets the question", async () => {
     const authFile = `${import.meta.dir}/tmp-onboarding/config-offer`;
     await Bun.write(authFile, "{}");
-    const io = ioWith(["google", "", "subscription", "gemini-3-pro"]);
+    const io = ioWith(["openai", "", "subscription", "gpt-6-sol"]);
     try {
       const profile = await runProviderAdd(io, okTest(), {
         authFile,
@@ -455,7 +461,7 @@ describe("runProviderAdd (subscription branch)", () => {
   });
 
   test("declined ToS aborts the subscription branch", async () => {
-    const io = ioWith(["google", "", "subscription"]);
+    const io = ioWith(["openai", "", "subscription"]);
     await expect(
       runProviderAdd(io, okTest(), {
         subscriptionLogin: async () => { throw new Error("nope"); },
@@ -469,7 +475,7 @@ describe("runProviderAdd (subscription branch)", () => {
     await Bun.write(authFile, "{}");
     await Bun.write(configFile, "{}");
     // Abort after login: no model given → OnboardingAborted.
-    const io = ioWith(["google", "mygoogle", "subscription", ""]);
+    const io = ioWith(["openai", "myopenai", "subscription", ""]);
     try {
       await expect(
         runProviderAdd(io, okTest(), {
@@ -480,10 +486,10 @@ describe("runProviderAdd (subscription branch)", () => {
       ).rejects.toBeInstanceOf(OnboardingAborted);
       // Tokens AND endpoint profile both survive the abort.
       const saved = JSON.parse(readFileSync(authFile, "utf8"));
-      expect(saved.auth.tokens.mygoogle.accessToken).toBe("acc-xyz");
+      expect(saved.auth.tokens.myopenai.accessToken).toBe("acc-xyz");
       const config = JSON.parse(readFileSync(configFile, "utf8"));
       expect(config.endpoints).toEqual([
-        { name: "mygoogle", type: "google", auth: { kind: "subscription" } },
+        { name: "myopenai", type: "openai", auth: { kind: "subscription" } },
       ]);
     } finally {
       await Bun.file(authFile).delete();
@@ -572,6 +578,10 @@ describe("minimalConnectionTest (subscription)", () => {
   });
 
   test("google subscription sends the token as x-goog-api-key, matching the stream path", async () => {
+    // #1720: the wizard no longer offers this login (Google's Code Assist
+    // tiers refuse consumer accounts), but `moh provider login google` stays
+    // reachable — the probe keeps matching the stream path for an endpoint
+    // that reached the grant deliberately.
     const authFile = `${import.meta.dir}/tmp-onboarding/config`;
     await Bun.write(authFile, JSON.stringify({ auth: { tokens: { gemini: fakeToken() } } }));
     const profile: EndpointProfile = {

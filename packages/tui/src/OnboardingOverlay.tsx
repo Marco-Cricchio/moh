@@ -306,12 +306,12 @@ export function Onboarding({ cwd, home, env, tester = defaultTester(home), force
           const type = BUILTIN_PROVIDER_TYPES[phase.cursor]!;
           applyWizard({ name: type, type });
           if (type === "opencode") return applyPhase({ kind: "opencode-product", cursor: 0 });
-          // #1317: the auth-method step is only for kinds whose subscription
-          // grant the wizard offers — one predicate, shared with the CLI's
-          // `moh provider add` (core: auth/lifecycle). It never appears for
-          // openai-compat or the compat profiles (no grant, #149) and no
-          // longer for anthropic (withheld). Those kinds go straight to the
-          // api-key flow, byte-identical to before.
+          // #1317/#1720: the auth-method step is only for kinds whose
+          // subscription grant the wizard offers — one predicate, shared with
+          // the CLI's `moh provider add` (core: auth/lifecycle). It never
+          // appears for openai-compat or the compat profiles (no grant, #149)
+          // and no longer for anthropic and google (withheld). Those kinds go
+          // straight to the api-key flow, byte-identical to before.
           if (!offersSubscriptionAuth(type)) {
             setAuthKind("api-key");
             return applyPhase({ kind: "wizard-text", field: "model", value: providerProfile(type)?.defaultModel ?? "" });
@@ -521,7 +521,7 @@ export function Onboarding({ cwd, home, env, tester = defaultTester(home), force
         <>
           <Text>How does {wizard.type} authenticate?</Text>
           <Text> </Text>
-          {["api-key — inline key or env var", "subscription — OAuth login (Claude Pro/Max, ChatGPT, Google)"].map((row, i) => (
+          {["api-key — inline key or env var", "subscription — OAuth login with your provider plan"].map((row, i) => (
             <Text key={row} {...(i === phase.cursor ? selectionStyle(theme) : {})}>
               {` ${i === phase.cursor ? "\u203a" : " "} ${row}${i === phase.cursor ? " " : ""}`}
             </Text>

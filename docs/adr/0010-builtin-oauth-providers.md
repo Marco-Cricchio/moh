@@ -93,3 +93,49 @@ event per open (on resume too — the endpoint is still that way in the
 environment the session is resumed in), rendered as a warning in the TUI
 and as one stderr line under `moh run`, naming the remedy: add an API-key
 endpoint, and drop the stored tokens with `moh provider logout <name>`.
+
+## Amendment — 2026-10-26, #1720 Google's subscription choice leaves the wizard
+
+Google stays a subscription-capable kind, exactly like Anthropic after
+#1317: the grant (`loginGoogle`, loopback + manual paste), the refresh
+path, and `moh provider login|logout|status google` are untouched. What
+leaves is the **offer** — the `api-key | subscription` question the
+onboarding wizard (TUI and `moh provider add`) used to ask for google.
+
+**It does not work.** The wizard's mandatory connection test failed
+every time with `400 API_KEY_INVALID`, and a live probe of the owner's
+own grant (2026-10-26) shows the failure is Google's answer, not a
+request-shape slip:
+
+- the probe sent the OAuth access token as `x-goog-api-key` to
+  `generativelanguage.googleapis.com` (the api-key posture of
+  `runConnectionTest`), which is never a valid API key;
+- the same public endpoint refuses the token as `Authorization: Bearer`
+  too, `403 ACCESS_TOKEN_SCOPE_INSUFFICIENT` — the grant carries
+  `cloud-platform`, not the Generative Language scope;
+- the backend the grant is actually for, Code Assist at
+  `cloudcode-pa.googleapis.com/v1internal` (declared as
+  `GOOGLE_API_BASE_URL`, never wired into the provider adapter), answers
+  `v1internal:loadCodeAssist` with `currentTier: null`,
+  `allowedTiers: [standard-tier]` (which requires a user-defined cloud
+  project) and `ineligibleTiers: [{ reasonCode: "UNSUPPORTED_CLIENT",
+  reasonMessage: "… Gemini Code Assist for individuals … migrate to the
+  Antigravity suite of products: https://antigravity.google" }]`;
+  `v1internal:generateContent` without a project answers
+  `403 SUBSCRIPTION_REQUIRED` ("You do not have a valid license of this
+  product").
+
+So no consumer Google account can route inference through this grant as
+of that date, independently of moh: the shipped OAuth client and scope
+set match current gemini-cli, so re-login changes nothing. Implementing
+the Code Assist transport (onboarding calls, `{model, project, request}`
+bodies, SSE streaming) is therefore not worth building until a licensed
+cloud project makes it verifiable.
+
+The withdrawal needs no new mechanism: `google` joins the withheld set
+behind the same `offersSubscriptionAuth` predicate, both clients' wizards
+follow, and the remaining five grant kinds keep their choice. An endpoint
+that already stores a google subscription token keeps its configuration —
+nothing is converted, deleted, disabled, or called — and records the same
+`endpoint_auth_withdrawn` warning per open, whose remedy sentence (add an
+API-key endpoint, `moh provider logout <name>`) is kind-generic.

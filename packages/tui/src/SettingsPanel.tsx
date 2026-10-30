@@ -361,8 +361,11 @@ export function SettingsPanel({ cwd, home, config, onChange, modelLabel, onProvi
   const [remote, setRemote] = useState<Record<string, string[] | "error" | "loading">>({});
 
   // #551: the same live overlay /model uses, for catalog-backed
-  // endpoints. Fetched once per panel mount (cache-backed, never
-  // blocking); vendored entries still win on collision.
+  // endpoints. Fetched once per panel mount — forced, because opening
+  // Settings is an explicit user action: the list must be current, and a
+  // forced refresh is also what renews an expired subscription
+  // credential (cache-backed, never blocking); vendored entries still
+  // win on collision.
   const [liveCatalog, setLiveCatalog] = useState<Record<string, LiveModelListing[]>>({});
   /** ADR-0045: what the live overlay currently is (refreshed, cached,
    * stale, unavailable) — never a silent difference between the two. */
@@ -378,7 +381,7 @@ export function SettingsPanel({ cwd, home, config, onChange, modelLabel, onProvi
       subscription: e.auth?.kind === "subscription",
     }));
     if (endpoints.length > 0) {
-      fetchLiveCatalogs(endpoints)
+      fetchLiveCatalogs(endpoints, { force: true })
         .then((report) => {
           // ADR-0045: the same report the picker reads, overlaid on the
           // same vendored catalog — the panel states what the list is.
