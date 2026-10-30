@@ -19,7 +19,7 @@ import { OAUTH_BUILTIN_BASE_URLS, isOAuthBuiltinKind } from "./wire";
 import { catalogEntryFor, knownCompatEndpointMetadata, subscriptionModelCatalog } from "./model-catalog";
 import { tosWizardLine } from "./tos-cards";
 import { noteProviderTestFailure } from "./provider-test-trace";
-import { CHATGPT_CODEX_BASE_URL, CHATGPT_CODEX_ORIGINATOR } from "./auth/openai";
+import { CHATGPT_CODEX_BASE_URL, CHATGPT_CODEX_ORIGINATOR, OPENAI_API_BASE_URL } from "./auth/openai";
 
 /** Provider types usable with no custom code. */
 export const BUILTIN_PROVIDER_TYPES = [
@@ -576,7 +576,7 @@ async function runConnectionTest(
       return verdict(res, modelId);
     }
     if (profile.type === "openai" || profile.type === "openai-compat" || isOAuthBuiltinKind(profile.type) || isProviderProfile(profile.type)) {
-      const base = profile.baseUrl ?? providerProfile(profile.type)?.baseUrl ?? (isOAuthBuiltinKind(profile.type) ? OAUTH_BUILTIN_BASE_URLS[profile.type] : "https://api.openai.com/v1");
+      const base = profile.baseUrl ?? providerProfile(profile.type)?.baseUrl ?? (isOAuthBuiltinKind(profile.type) ? OAUTH_BUILTIN_BASE_URLS[profile.type] : OPENAI_API_BASE_URL);
       const res = await fetchImpl(joinBaseUrl(base, "/chat/completions"), {
         method: "POST",
         signal,

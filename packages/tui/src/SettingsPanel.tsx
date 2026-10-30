@@ -372,7 +372,14 @@ export function SettingsPanel({ cwd, home, config, onChange, modelLabel, onProvi
   const [liveCatalogNote, setLiveCatalogNote] = useState<string | null>(null);
   useEffect(() => {
     let live = true;
-    const endpoints = [...(moh.endpoints ?? [])].map((e) => ({ name: e.name, type: e.type, baseUrl: e.baseUrl, apiKey: e.apiKey }));
+    const endpoints = [...(moh.endpoints ?? [])].map((e) => ({
+      name: e.name,
+      type: e.type,
+      baseUrl: e.baseUrl,
+      apiKey: e.apiKey,
+      // #1723: the declared posture decides which backend lists the models.
+      subscription: e.auth?.kind === "subscription",
+    }));
     if (endpoints.length > 0) {
       fetchLiveCatalogs(endpoints, { force: true })
         .then((report) => {

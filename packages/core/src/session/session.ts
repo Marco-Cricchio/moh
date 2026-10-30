@@ -1204,7 +1204,12 @@ export class AgentSession {
       // the extension sees (#1599).
       const models: string[] = profile.type === "openai-compat"
         ? await listOpenAiCompatModels(profile.baseUrl!, profile.apiKey)
-        : (await listProviderModels(profile.type, profile.name, { ...(profile.baseUrl ? { baseUrl: profile.baseUrl } : {}), ...(profile.apiKey ? { apiKey: profile.apiKey } : {}) })).map((listing) => listing.id);
+        : (await listProviderModels(profile.type, profile.name, {
+            ...(profile.baseUrl ? { baseUrl: profile.baseUrl } : {}),
+            ...(profile.apiKey ? { apiKey: profile.apiKey } : {}),
+            // #1723: the declared posture decides which backend lists the models.
+            subscription: profile.auth?.kind === "subscription",
+          })).map((listing) => listing.id);
       return { ok: true as const, models };
     } catch (err) {
       return { ok: false as const, reason: "failed" as const, message: err instanceof Error ? err.message : String(err) };
