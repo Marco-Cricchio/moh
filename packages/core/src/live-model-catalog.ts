@@ -272,6 +272,8 @@ const OPENAI_API_KEY_CONTRACT: ListingContract = {
   parser: parseOpenAiData,
 };
 
+const missingContract = (kind: string) => `no verified model listing contract for provider kind "${kind}"`;
+
 /** The kind's own contract, posture-blind (used for "does this kind have a
  * listing route at all"). An endpoint that does not even have one fails
  * fast before any credential store is touched. */
@@ -283,9 +285,9 @@ function contractFor(kind: string): ListingContract | undefined {
  * for the kinds whose listing differs by auth posture. `subscription` says
  * the credential came from the token store — the only posture that reaches
  * the ChatGPT/Codex backend. */
-function listingContractFor(kind: string, subscription: boolean): ListingContract | undefined {
+function listingContractFor(kind: string, kindContract: ListingContract, subscription: boolean): ListingContract {
   if (kind === "openai" && !subscription) return OPENAI_API_KEY_CONTRACT;
-  return contractFor(kind);
+  return kindContract;
 }
 
 /** True when the kind has a shipped catalog worth augmenting. */
@@ -362,10 +364,14 @@ export async function listProviderModels(
   endpointName: string,
   opts: { baseUrl?: string; apiKey?: string; configFile?: string; fetchImpl?: ListingFetch; signal?: AbortSignal; clientVersion?: string } = {},
 ): Promise<LiveModelListing[]> {
+  // A kind with no verified route fails before any credential store is
+  // touched: static-by-design providers must not read the key store.
+  const kindContract = contractFor(kind);
+  if (!kindContract) throw new Error(missingContract(kind));
   const credential = listingCredential(kind, endpointName, opts.apiKey, opts.configFile ?? userConfigFile());
-  const contract = listingContractFor(kind, credential.subscription);
+  const contract = listingContractFor(kind, kindContract, credential.subscription);
   const base = listingBase(contract, kind, endpointName, opts.baseUrl);
-  if (!base || !contract) throw new Error(`no verified model listing contract for provider kind "${kind}"`);
+  if (!base) throw new Error(missingContract(kind));
   const clientVersion = opts.clientVersion ?? CODEX_LISTING_CLIENT_VERSION;
   const templates = contract.urls?.(base, clientVersion) ?? [`${base}/models`];
   // Anthropic accepts OAuth access tokens only as `Authorization: Bearer`
