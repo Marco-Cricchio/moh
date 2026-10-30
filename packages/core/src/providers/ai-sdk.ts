@@ -25,10 +25,15 @@ import type { RouteTarget } from "../route";
 import type { Message, StreamEvent, StreamOptions, ThinkingFormat, ThinkingLevel, ToolSpec } from "../types";
 import { endpointIdentity } from "../types";
 
+/** One call's thinking request: the provider options that carry it, plus
+ * the canonical level they express (absent when nothing resolved — the
+ * tools pin can send an effort for a call that selected no level). */
+type WireThinking = { providerOptions: Record<string, unknown>; effective?: ThinkingLevel };
+
 /** The OpenAI wires' request expression of one canonical level: `none`
  * disables reasoning. One fact, shared by the wire mapping and the
  * tools pin below (#1723). */
-function openAiEffort(level: ThinkingLevel): { providerOptions: Record<string, unknown>; effective: ThinkingLevel } {
+function openAiEffort(level: ThinkingLevel): WireThinking {
   return { providerOptions: { openai: { reasoningEffort: level === "off" ? "none" : level } }, effective: level };
 }
 
@@ -41,7 +46,7 @@ export function thinkingForWire(
   wire: WireApi,
   level: ThinkingLevel,
   format?: ThinkingFormat,
-): { providerOptions: Record<string, unknown>; effective: ThinkingLevel } | undefined {
+): WireThinking | undefined {
   // #256: declared formats map directly; they apply regardless of the
   // wire the model travels (that is their point — openai-compat backends
   // with non-OpenAI reasoning shapes).
@@ -96,8 +101,8 @@ function thinkingWithChatToolsPin(
   wire: WireApi,
   kind: string,
   hasTools: boolean,
-  thinking: { providerOptions: Record<string, unknown>; effective: ThinkingLevel } | undefined,
-): { providerOptions: Record<string, unknown>; effective?: ThinkingLevel } | undefined {
+  thinking: WireThinking | undefined,
+): WireThinking | undefined {
   if (wire !== "openai-chat" || kind !== "openai" || !hasTools) return thinking;
   const pinned = openAiEffort("off");
   // No resolved level: the effort still has to be sent, but there is no
@@ -209,6 +214,9 @@ export function languageModelFor(
         // compat flag) keeps the standard `reasoning_effort` field and
         // gains the `reasoning_content` re-injection.
         ...(openRouterDialect ? {} : { dialect: "openai-compat" }),
+        // #1723: OpenAI's own chat wire needs the disabled effort on the
+        // wire (see openAiEffort): everywhere else absence means off.
+        ...(target.endpoint.kind === "openai" ? { sendDisabledEffort: true } : {}),
       });
     }
     return openai.chat(target.modelId);
@@ -346,8 +354,7 @@ export function aiSdkStreamFor(
         const aiTools = toAiTools(tools);
         // #240/#256: the neutral thinking-level request, mapped per wire
         // or per config-declared format. Levels the wire/format cannot
-        // express are not sent (and not audited) — never remapped. #1723:
-        // OpenAI's own chat wire pins it when tools travel.
+        // express are not sent (and not audited) — never remapped.
         const thinking = thinkingWithChatToolsPin(
           wire,
           target.endpoint.kind,

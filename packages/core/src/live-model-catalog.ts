@@ -49,7 +49,7 @@ import { subscriptionModelCatalog } from "./model-catalog";
 import { providerProfile } from "./provider-profiles";
 import { PROVIDER_KINDS } from "./provider-kinds";
 import { OAUTH_BUILTIN_BASE_URLS } from "./wire";
-import { CHATGPT_CODEX_BASE_URL, CHATGPT_CODEX_ORIGINATOR } from "./auth/openai";
+import { CHATGPT_CODEX_BASE_URL, CHATGPT_CODEX_ORIGINATOR, OPENAI_API_BASE_URL } from "./auth/openai";
 import { ANTHROPIC_OAUTH_BETA } from "./auth/anthropic";
 import { readAuthSection, getStoredApiKey } from "./auth/store";
 import { readUserConfigFile, userConfigFile } from "./user-config";
@@ -181,11 +181,16 @@ export function parseModelsResponse(body: unknown): LiveModelListing[] | undefin
 
 /**
  * One provider's verified live-listing contract. Adding a provider is one
- * row here; the route is never guessed.
+ * row in the table below; the route is never guessed. The one exception is
+ * the `openai` kind, whose two backends list differently: its API-key
+ * posture has a second, named contract (`OPENAI_API_KEY_CONTRACT`) chosen
+ * by `listingContractFor`.
  */
 interface ListingContract {
-  /** Base URL when it is not the endpoint's own (Codex backend, OpenCode
-   * products — whose base is a property of the endpoint name). */
+  /** Base URL for a contract whose base is not the endpoint's own: a
+   * protocol constant (Codex backend), a product's base (OpenCode, whose
+   * base is a property of the endpoint name), or a backend's documented
+   * default an endpoint's own baseUrl overrides (api.openai.com). */
   base?: (endpointName: string) => string | undefined;
   parser: Parser;
   /** URL templates: the first is page 1, later ones continue it
@@ -268,7 +273,7 @@ for (const id of OPENAI_LISTING_PROFILES) CONTRACTS[id] = { parser: parseOpenAiD
  * "unrecognized model list shape", leaving the picker on the shipped rows.
  */
 const OPENAI_API_KEY_CONTRACT: ListingContract = {
-  base: () => "https://api.openai.com/v1",
+  base: () => OPENAI_API_BASE_URL,
   parser: parseOpenAiData,
 };
 
@@ -282,9 +287,8 @@ function contractFor(kind: string): ListingContract | undefined {
 }
 
 /** The contract one endpoint actually speaks: its kind's own row, except
- * for the kinds whose listing differs by auth posture. `subscription` says
- * the credential came from the token store — the only posture that reaches
- * the ChatGPT/Codex backend. */
+ * for the kinds whose listing differs by auth posture. `subscription` is
+ * the ChatGPT-grant posture — the only one that reaches the Codex backends. */
 function listingContractFor(kind: string, kindContract: ListingContract, subscription: boolean): ListingContract {
   if (kind === "openai" && !subscription) return OPENAI_API_KEY_CONTRACT;
   return kindContract;
@@ -324,11 +328,8 @@ export function hasLiveListingContract(type: string): boolean {
 /**
  * The base URL a listing call uses, most specific first: the endpoint's
  * own configured baseUrl (a proxy, a regional alternative), the
- * contract's protocol constant (Codex backend, OpenCode products,
- * Anthropic/Google/xAI/Copilot/Kimi), then the provider profile's
- * documented default (#726). The contract is chosen by auth posture on
- * the callers' side (#1723: an API-key `openai` endpoint lists
- * api.openai.com, not the Codex backend).
+ * contract's own base, then the provider profile's documented default
+ * (#726).
  */
 function listingBase(contract: ListingContract | undefined, kind: string, endpointName: string, endpointBaseUrl: string | undefined): string | undefined {
   if (!contract) return undefined;
@@ -362,14 +363,25 @@ const MAX_PAGES = 5;
 export async function listProviderModels(
   kind: string,
   endpointName: string,
-  opts: { baseUrl?: string; apiKey?: string; configFile?: string; fetchImpl?: ListingFetch; signal?: AbortSignal; clientVersion?: string } = {},
+  opts: {
+    baseUrl?: string;
+    apiKey?: string;
+    configFile?: string;
+    fetchImpl?: ListingFetch;
+    signal?: AbortSignal;
+    clientVersion?: string;
+    /** The endpoint's declared auth posture (`auth.kind`). Authoritative
+     * when the caller knows it; otherwise the credential's own origin is
+     * the only evidence available (#1723). */
+    subscription?: boolean;
+  } = {},
 ): Promise<LiveModelListing[]> {
   // A kind with no verified route fails before any credential store is
   // touched: static-by-design providers must not read the key store.
   const kindContract = contractFor(kind);
   if (!kindContract) throw new Error(missingContract(kind));
   const credential = listingCredential(kind, endpointName, opts.apiKey, opts.configFile ?? userConfigFile());
-  const contract = listingContractFor(kind, kindContract, credential.subscription);
+  const contract = listingContractFor(kind, kindContract, opts.subscription ?? credential.subscription);
   const base = listingBase(contract, kind, endpointName, opts.baseUrl);
   if (!base) throw new Error(missingContract(kind));
   const clientVersion = opts.clientVersion ?? CODEX_LISTING_CLIENT_VERSION;
@@ -721,7 +733,7 @@ export function reportNeedsNotice(report: LiveCatalogReport): boolean {
  * Never throws for a provider failure: the failure *is* the status.
  */
 export async function fetchLiveCatalogs(
-  endpoints: { name: string; type: string; baseUrl?: string; apiKey?: string }[],
+  endpoints: { name: string; type: string; baseUrl?: string; apiKey?: string; subscription?: boolean }[],
   opts: FetchLiveCatalogsOptions = {},
 ): Promise<LiveCatalogReport> {
   // The two helpers below speak user home (they append `.moh` themselves);
@@ -763,6 +775,7 @@ export async function fetchLiveCatalogs(
           configFile: opts.configFile,
           fetchImpl: opts.fetchImpl,
           clientVersion: opts.clientVersion,
+          ...(e.subscription !== undefined ? { subscription: e.subscription } : {}),
         });
         return [e.name, { models, status: { kind: "fresh" } as LiveCatalogStatus, type: e.type, entry: { fetchedAt: now, models } }] as const;
       } catch (error) {

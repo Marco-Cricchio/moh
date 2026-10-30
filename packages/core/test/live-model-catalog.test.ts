@@ -211,6 +211,42 @@ describe("fetchLiveCatalogs", () => {
     }
   });
 
+  // #1723: the reporter's path — an API-key OpenAI endpoint. It must list,
+  // and when the listing fails the shipped rows stay behind the picker.
+  test("an API-key openai endpoint lists api.openai.com and degrades to the shipped catalog on failure", async () => {
+    const dir = home();
+    try {
+      const urls: string[] = [];
+      const ok = await fetchLiveCatalogs([{ name: "openai", type: "openai", apiKey: "sk-test", subscription: false }], {
+        mohHome: join(dir, ".moh"),
+        fetchImpl: async (url) => {
+          urls.push(url);
+          return { status: 200, json: { data: [{ id: "gpt-6-luna", display_name: "GPT-6 Luna", context_length: 1_050_000 }] } };
+        },
+      });
+      expect(urls).toEqual(["https://api.openai.com/v1/models"]);
+      expect(ok.openai).toEqual({
+        models: [{ id: "gpt-6-luna", name: "GPT-6 Luna", contextWindow: 1_050_000 }],
+        status: { kind: "fresh" },
+        type: "openai",
+      });
+
+      const failed = await fetchLiveCatalogs([{ name: "openai", type: "openai", apiKey: "sk-test", subscription: false }], {
+        mohHome: join(dir, ".moh"),
+        force: true,
+        fetchImpl: async () => ({ status: 401, json: {} }),
+      });
+      // A failed refresh serves the last good listing (ADR-0045: stale beats
+      // nothing), and the shipped rows are behind it either way.
+      expect(failed.openai!.models.map((m) => m.id)).toEqual(["gpt-6-luna"]);
+      expect(failed.openai!.status.kind).toBe("stale");
+      expect(reportNeedsNotice(failed)).toBe(false);
+      expect(hasVendoredCatalog("openai")).toBe(true);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   test("fetches the audited contracts: a #726 profile and Z.ai, never baseten (#920)", async () => {
     const dir = home();
     try {
@@ -323,15 +359,15 @@ describe("cache round-trip", () => {
   });
 });
 
-/** #1723: the `openai` kind lists two ways, and the posture picks the
- * contract — a stored ChatGPT/Codex grant reaches the Codex backend, a
- * metered API key reaches api.openai.com. */
-async function withCodexGrant<T>(endpoint: string, run: (configFile: string) => Promise<T>): Promise<T> {
-  const dir = mkdtempSync(join(tmpdir(), "moh-codex-"));
+/** A config file holding one endpoint's stored grant — the subscription
+ * posture (#1723: the `openai` kind lists from a different backend when
+ * the endpoint authenticates with an API key instead). */
+async function withStoredToken<T>(endpoint: string, token: string, run: (configFile: string) => Promise<T>): Promise<T> {
+  const dir = mkdtempSync(join(tmpdir(), "moh-token-"));
   try {
     const { saveTokens } = await import("../src/auth/store");
     const configFile = join(dir, ".moh", "config");
-    saveTokens(configFile, endpoint, { accessToken: "test-token", updatedAt: 1 } as never);
+    saveTokens(configFile, endpoint, { accessToken: token, updatedAt: 1 } as never);
     return await run(configFile);
   } finally {
     rmSync(dir, { recursive: true, force: true });
@@ -342,7 +378,7 @@ describe("listProviderModels", () => {
   test("openai (Codex) sends originator + client_version and parses models[].slug", async () => {
     let seenUrl = "";
     let seenHeaders: Record<string, string> = {};
-    const out = await withCodexGrant("e", (configFile) =>
+    const out = await withStoredToken("e", "test-token", (configFile) =>
       listProviderModels("openai", "e", {
         configFile,
         clientVersion: "0.25.0",
@@ -398,6 +434,34 @@ describe("listProviderModels", () => {
     expect(seenUrl).toBe("https://proxy.example/v1/models");
   });
 
+  test("the declared posture outranks a leftover stored token (#1723)", async () => {
+    // An endpoint that once had a ChatGPT grant and later took an API key
+    // still has the old token on disk. The declaration decides the backend,
+    // so the listing does not go back to the Codex URL.
+    let seenUrl = "";
+    await withStoredToken("openai", "stale-grant", (configFile) =>
+      listProviderModels("openai", "openai", {
+        configFile,
+        subscription: false,
+        fetchImpl: async (url) => {
+          seenUrl = url;
+          return { status: 200, json: { data: [{ id: "gpt-6-luna" }] } };
+        },
+      }),
+    );
+    expect(seenUrl).toBe("https://api.openai.com/v1/models");
+  });
+
+  test("a failing API-key listing is a failure, not an empty catalog (#1723)", async () => {
+    // The picker keeps the shipped rows and the status carries the reason.
+    await expect(
+      listProviderModels("openai", "openai", {
+        apiKey: "sk-test",
+        fetchImpl: async () => ({ status: 500, json: {} }),
+      }),
+    ).rejects.toThrow("HTTP 500");
+  });
+
   test("anthropic paginates via has_more/after_id and reads display_name", async () => {
     const pages = [
       { data: [{ id: "m1", display_name: "M1" }], has_more: true, last_id: "m1" },
@@ -416,25 +480,19 @@ describe("listProviderModels", () => {
   });
 
   test("a subscription token rides Authorization: Bearer, never x-api-key (invalid x-api-key fix)", async () => {
-    const dir = mkdtempSync(join(tmpdir(), "moh-live-"));
-    try {
-      const { saveTokens } = await import("../src/auth/store");
-      const configFile = join(dir, ".moh", "config");
-      saveTokens(configFile, "anthropic", { accessToken: "oauth-token", updatedAt: 1 } as never);
-      let headers: Record<string, string> = {};
-      await listProviderModels("anthropic", "anthropic", {
+    let headers: Record<string, string> = {};
+    await withStoredToken("anthropic", "oauth-token", (configFile) =>
+      listProviderModels("anthropic", "anthropic", {
         configFile,
         fetchImpl: async (_url, h) => {
           headers = h;
           return { status: 200, json: { data: [{ id: "claude-opus-5-5" }] } };
         },
-      });
-      expect(headers.Authorization).toBe("Bearer oauth-token");
-      expect(headers["x-api-key"]).toBeUndefined();
-      expect(headers["anthropic-beta"]).toContain("oauth-2025-04-20");
-    } finally {
-      rmSync(dir, { recursive: true, force: true });
-    }
+      }),
+    );
+    expect(headers.Authorization).toBe("Bearer oauth-token");
+    expect(headers["x-api-key"]).toBeUndefined();
+    expect(headers["anthropic-beta"]).toContain("oauth-2025-04-20");
   });
 
   test("an inline api key keeps the x-api-key listing shape", async () => {
@@ -562,7 +620,7 @@ describe("listProviderModels", () => {
   test("a well-formed but empty list is a failure, not an empty catalog (#920)", async () => {
     // The Codex version gate and an account with no access both answer
     // `200 {models: []}`: serving nothing would silently wipe the picker.
-    expect(withCodexGrant("e", (configFile) => listProviderModels("openai", "e", { configFile, fetchImpl: async () => ({ status: 200, json: { models: [] } }) }))).rejects.toThrow("empty model list");
+    expect(withStoredToken("e", "test-token", (configFile) => listProviderModels("openai", "e", { configFile, fetchImpl: async () => ({ status: 200, json: { models: [] } }) }))).rejects.toThrow("empty model list");
     expect(listProviderModels("zai", "e", { fetchImpl: async () => ({ status: 200, json: { data: [] } }) })).rejects.toThrow("empty model list");
     // …while an empty *continuation* page still just ends the pagination.
     const pages = [{ data: [{ id: "m1" }], has_more: true }, { data: [], has_more: false }];
@@ -649,7 +707,7 @@ describe("listing-contract coverage (#920 audit)", () => {
     // client_version`: moh's version returns an empty list, and the old
     // `0.0.0` default hid the newest two models.
     let url = "";
-    await withCodexGrant("openai", (configFile) => listProviderModels("openai", "openai", {
+    await withStoredToken("openai", "test-token", (configFile) => listProviderModels("openai", "openai", {
       configFile,
       fetchImpl: async (u) => {
         url = u;
