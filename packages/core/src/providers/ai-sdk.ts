@@ -25,6 +25,13 @@ import type { RouteTarget } from "../route";
 import type { Message, StreamEvent, StreamOptions, ThinkingFormat, ThinkingLevel, ToolSpec } from "../types";
 import { endpointIdentity } from "../types";
 
+/** The OpenAI wires' request expression of one canonical level: `none`
+ * disables reasoning. One fact, shared by the wire mapping and the
+ * tools pin below (#1723). */
+function openAiEffort(level: ThinkingLevel): { providerOptions: Record<string, unknown>; effective: ThinkingLevel } {
+  return { providerOptions: { openai: { reasoningEffort: level === "off" ? "none" : level } }, effective: level };
+}
+
 /** #240/#256: the effective thinking level a wire can actually send.
  * A config-declared format (#256) overrides the wire-derived mapping —
  * the declaration is the user's explicit statement of what the backend
@@ -51,7 +58,7 @@ export function thinkingForWire(
     };
   }
   if (format === "openai-effort" || format === "openrouter-effort") {
-    return { providerOptions: { openai: { reasoningEffort: level === "off" ? "none" : level } }, effective: level };
+    return openAiEffort(level);
   }
   if (wire === "anthropic-messages") {
     // off = explicit disable; all five effort levels are native.
@@ -68,7 +75,34 @@ export function thinkingForWire(
     };
   }
   // openai-chat / openai-responses: reasoningEffort; "none" disables.
-  return { providerOptions: { openai: { reasoningEffort: level === "off" ? "none" : level } }, effective: level };
+  return openAiEffort(level);
+}
+
+/** #1723: OpenAI's own API refuses function tools on the chat/completions
+ * wire together with a non-none `reasoning_effort` — and refuses the pair
+ * for a reasoning-by-default model even when no effort is sent at all
+ * ("Function tools with reasoning_effort are not supported … use
+ * /v1/responses or set reasoning_effort to 'none'"). OpenAI's own chat
+ * wire therefore pins the effort to none whenever tools travel.
+ *
+ * Scoped twice, deliberately: only the `openai` kind — `openai-compat`,
+ * OpenRouter and OpenCode chat backends accept (and depend on) an effort
+ * with tools — and only the chat wire, since the responses wire carries
+ * reasoning together with tools. The pin is a downgrade to `off`, so the
+ * audit stays truthful: a call that resolved a level announces the level
+ * it actually ran with, and a call that resolved none announces none.
+ */
+function thinkingWithChatToolsPin(
+  wire: WireApi,
+  kind: string,
+  hasTools: boolean,
+  thinking: { providerOptions: Record<string, unknown>; effective: ThinkingLevel } | undefined,
+): { providerOptions: Record<string, unknown>; effective?: ThinkingLevel } | undefined {
+  if (wire !== "openai-chat" || kind !== "openai" || !hasTools) return thinking;
+  const pinned = openAiEffort("off");
+  // No resolved level: the effort still has to be sent, but there is no
+  // level to announce (absence, never a user choice moh invents).
+  return thinking ? pinned : { providerOptions: pinned.providerOptions };
 }
 
 /**
@@ -302,18 +336,24 @@ export function aiSdkStreamFor(
   // in this @ai-sdk/openai version takes no options, so it rides as a
   // providerOption. Harmless on api.openai.com (the codex clients send
   // it there too); scoped to the responses wire only.
-  const responsesStoreFalse =
-    (transport?.wire ?? target.wire ?? wireForKind(target.endpoint.kind)) === "openai-responses"
-      ? { providerOptions: { openai: { store: false } } }
-      : {};
+  const responsesStore =
+    (transport?.wire ?? target.wire ?? wireForKind(target.endpoint.kind)) === "openai-responses";
   return (messages, signal, tools, options) => {
     return {
       async *[Symbol.asyncIterator]() {
         const wire: WireApi = transport?.wire ?? target.wire ?? wireForKind(target.endpoint.kind);
+        const { system, messages: aiMessages } = toAiMessages(messages);
+        const aiTools = toAiTools(tools);
         // #240/#256: the neutral thinking-level request, mapped per wire
         // or per config-declared format. Levels the wire/format cannot
-        // express are not sent (and not audited) — never remapped.
-        const thinking = options?.thinking ? thinkingForWire(wire, options.thinking.level, target.thinkingFormat) : undefined;
+        // express are not sent (and not audited) — never remapped. #1723:
+        // OpenAI's own chat wire pins it when tools travel.
+        const thinking = thinkingWithChatToolsPin(
+          wire,
+          target.endpoint.kind,
+          aiTools !== undefined,
+          options?.thinking ? thinkingForWire(wire, options.thinking.level, target.thinkingFormat) : undefined,
+        );
         // Announce the RouteTarget serving this call (#83) — `endpoint/model`
         // as moh resolved it. Providers (not routes) announce: one
         // announcement per actual stream, including fallback restarts.
@@ -321,14 +361,19 @@ export function aiSdkStreamFor(
         yield {
           type: "model_call_start",
           model: `${target.endpoint.name}/${target.modelId}`,
-          ...(thinking ? { thinkingLevel: thinking.effective } : {}),
+          ...(thinking?.effective ? { thinkingLevel: thinking.effective } : {}),
           // #1099: sanitized endpoint identity and wire, stamped on every
           // announcement so each attempt records who served it.
           endpoint: endpointIdentity(target.endpoint.kind, transport?.baseUrl ?? target.endpoint.baseUrl),
           wire,
         };
-        const { system, messages: aiMessages } = toAiMessages(messages);
-        const aiTools = toAiTools(tools);
+        // One providerOptions object: the thinking request and the
+        // responses-wire `store: false` share the `openai` slice, so two
+        // separate spreads into streamText would silently drop one.
+        const providerOptions: Record<string, unknown> = { ...(thinking?.providerOptions ?? {}) };
+        if (responsesStore) {
+          providerOptions.openai = { ...((providerOptions.openai ?? {}) as Record<string, unknown>), store: false };
+        }
         const result = streamText({
           model,
           system: system ?? undefined,
@@ -344,8 +389,10 @@ export function aiSdkStreamFor(
           // fallback chain and the attempt telemetry.
           maxRetries: 0,
           ...(aiTools ? { tools: aiTools, toolChoice: "auto" as const, stopWhen: stepCountIs(1) } : {}),
-          ...(thinking ? { providerOptions: thinking.providerOptions as never } : {}),
-          ...responsesStoreFalse,
+          // One providerOptions object: the thinking request and the
+          // responses-wire `store: false` share the `openai` slice, so a
+          // second spread would silently drop one of them.
+          ...(Object.keys(providerOptions).length > 0 ? { providerOptions: providerOptions as never } : {}),
           onError: () => {}, // errors surface via fullStream error parts
         });
         for await (const part of result.fullStream) {
