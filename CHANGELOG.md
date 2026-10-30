@@ -5,7 +5,7 @@ All notable changes to moh are documented here. The format follows
 SemVer. Each release's GitHub Release description is extracted from the
 matching section here at tag time.
 
-## [Unreleased]
+## [0.66.1] - 2026-10-30
 
 ### Changed
 
@@ -21,6 +21,24 @@ matching section here at tag time.
   endpoint that still stores such a token opens normally with the
   `endpoint_auth_withdrawn` warning naming the remedy. ADR-0010 records
   the live evidence.
+
+### Fixed
+
+- **An OpenAI API-key endpoint works** (#1723): every prompt to a
+  reasoning model over the chat wire failed, because function tools
+  travelled with no `reasoning_effort`; the effort is now pinned before
+  the call. The API-key model listing also asked `api.openai.com` for the
+  Codex body shape, so the picker never showed the account's own models —
+  it now speaks the host's own shape, and OpenRouter's disabled effort is
+  never sent in its shape.
+- **A forced live-catalog refresh renews an expired credential** (#1722):
+  the token refresh ran only on the model-call path, so an endpoint
+  configured but not serving never refreshed — once expired, every
+  listing answered 401 and no user action fixed it short of a re-login.
+  The forced fetch (`r` in the picker, opening Settings) now resolves the
+  credential the same way a model call does and degrades to the stored
+  token instead of throwing; the background fetch still never mutates the
+  auth store.
 
 ## [0.66.0] - 2026-10-25
 
@@ -2855,7 +2873,8 @@ security audit, each fixed behind its own PR.
   passed; a regression test pins the resolved path under
   `<home>/.moh/projects`.
 
-[Unreleased]: https://github.com/Marco-Cricchio/moh/compare/v0.66.0...develop
+[Unreleased]: https://github.com/Marco-Cricchio/moh/compare/v0.66.1...develop
+[0.66.1]: https://github.com/Marco-Cricchio/moh/compare/v0.66.0...v0.66.1
 [0.66.0]: https://github.com/Marco-Cricchio/moh/compare/v0.65.4...v0.66.0
 [0.65.4]: https://github.com/Marco-Cricchio/moh/compare/v0.65.3...v0.65.4
 [0.65.3]: https://github.com/Marco-Cricchio/moh/compare/v0.65.2...v0.65.3
