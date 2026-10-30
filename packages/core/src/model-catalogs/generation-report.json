@@ -1,23 +1,23 @@
 {
   "schemaVersion": 1,
-  "version": "0.66.0",
-  "generatedAt": "2026-10-25T21:49:01.573Z",
+  "version": "0.66.1",
+  "generatedAt": "2026-10-30T12:15:06.528Z",
   "sources": [
     {
       "name": "models.dev",
       "url": "https://models.dev/api.json",
-      "fetchedAt": "2026-10-25T21:48:57.265Z"
+      "fetchedAt": "2026-10-30T12:15:06.179Z"
     },
     {
       "name": "openrouter",
       "url": "https://openrouter.ai/api/v1/models",
-      "fetchedAt": "2026-10-25T21:49:01.326Z"
+      "fetchedAt": "2026-10-30T12:15:06.387Z"
     }
   ],
   "totals": {
     "files": 25,
-    "rows": 534,
-    "exact": 477,
+    "rows": 524,
+    "exact": 467,
     "baseModel": 17,
     "ambiguous": 5,
     "absent": 35,
@@ -494,28 +494,28 @@
     },
     {
       "provider": "openrouter",
-      "rows": 340,
+      "rows": 330,
       "verdicts": {
-        "exact": 315,
+        "exact": 305,
         "base-model": 1,
         "ambiguous": 0,
         "absent": 24
       },
       "coverage": {
-        "rows": 340,
-        "pricing": 317,
-        "contextWindow": 340,
-        "maxTokens": 337,
-        "reasoning": 261,
-        "input": 337
+        "rows": 330,
+        "pricing": 308,
+        "contextWindow": 330,
+        "maxTokens": 326,
+        "reasoning": 252,
+        "input": 327
       },
       "previous": {
         "rows": 340,
-        "pricing": 317,
-        "contextWindow": 340,
-        "maxTokens": 337,
-        "reasoning": 261,
-        "input": 337
+        "pricing": 308,
+        "contextWindow": 330,
+        "maxTokens": 326,
+        "reasoning": 252,
+        "input": 327
       }
     },
     {
@@ -882,6 +882,12 @@
       "openRouter": 1048576
     },
     {
+      "provider": "openrouter",
+      "id": "meta-llama/llama-4-scout",
+      "modelsDev": 327680,
+      "openRouter": 1310720
+    },
+    {
       "provider": "xiaomi-mimo",
       "id": "mimo-v2.6-flash",
       "modelsDev": 1048576,
@@ -920,63 +926,7 @@
   ],
   "contextWindowShrinks": [],
   "changes": {
-    "pricing": [
-      {
-        "provider": "openrouter",
-        "id": "qwen/qwen3.6-27b",
-        "from": {
-          "input": 0.25,
-          "output": 2,
-          "cacheRead": 0.025
-        },
-        "to": {
-          "input": 0.32,
-          "output": 3.2
-        }
-      },
-      {
-        "provider": "openrouter",
-        "id": "tencent/hy3",
-        "from": {
-          "input": 0.132,
-          "output": 0.528,
-          "cacheRead": 0.033
-        },
-        "to": {
-          "input": 0.0825,
-          "output": 0.33,
-          "cacheRead": 0.020625
-        }
-      },
-      {
-        "provider": "openrouter",
-        "id": "tencent/hy4-preview",
-        "from": {
-          "input": 0.834,
-          "output": 2.501,
-          "cacheRead": 0.042
-        },
-        "to": {
-          "input": 0.7506,
-          "output": 2.2509,
-          "cacheRead": 0.0378
-        }
-      },
-      {
-        "provider": "openrouter",
-        "id": "~moonshotai/kimi-latest",
-        "from": {
-          "input": 0.214,
-          "output": 16,
-          "cacheRead": 0.204
-        },
-        "to": {
-          "input": 0.171,
-          "output": 8.5226,
-          "cacheRead": 0.17
-        }
-      }
-    ],
+    "pricing": [],
     "contextWindow": [],
     "reasoning": []
   },
