@@ -5,6 +5,23 @@ All notable changes to moh are documented here. The format follows
 SemVer. Each release's GitHub Release description is extracted from the
 matching section here at tag time.
 
+## [Unreleased]
+
+### Changed
+
+- **The onboarding wizard no longer offers a Google subscription login**
+  (#1720): picking `google` in `moh provider add` (CLI or TUI) goes
+  straight to the API-key flow, like anthropic. Google's Code Assist tiers
+  refuse third-party inference for a consumer account — its free tier
+  answers `UNSUPPORTED_CLIENT` and points individuals at Antigravity, its
+  standard tier needs a cloud project of your own — so the login could
+  never serve a turn, and the wizard's connection test only ever surfaced
+  `API key not valid`. The grant stays reachable (`moh provider login
+  google`, `logout`, `status` and token refresh are untouched), and an
+  endpoint that still stores such a token opens normally with the
+  `endpoint_auth_withdrawn` warning naming the remedy. ADR-0010 records
+  the live evidence.
+
 ## [0.66.0] - 2026-10-25
 
 ### Added
