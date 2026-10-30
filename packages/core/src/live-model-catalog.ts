@@ -258,9 +258,34 @@ const CONTRACTS: Record<string, ListingContract> = {
 };
 for (const id of OPENAI_LISTING_PROFILES) CONTRACTS[id] = { parser: parseOpenAiData };
 
-/** Own entries only: "toString"/"__proto__" are not provider kinds (#1570). */
+/**
+ * The `openai` kind is two backends behind one name (#1723): the
+ * ChatGPT/Codex one an OAuth grant reaches (`{models: [{slug}]}` under the
+ * Codex base, the row above), and api.openai.com, which a metered API key
+ * reaches and which answers the standard OpenAI-compatible
+ * `{data: [{id}]}` shape under its own `/v1`. Asking the API-key backend
+ * for the Codex shape is what made every API-key listing fail as
+ * "unrecognized model list shape", leaving the picker on the shipped rows.
+ */
+const OPENAI_API_KEY_CONTRACT: ListingContract = {
+  base: () => "https://api.openai.com/v1",
+  parser: parseOpenAiData,
+};
+
+/** The kind's own contract, posture-blind (used for "does this kind have a
+ * listing route at all"). An endpoint that does not even have one fails
+ * fast before any credential store is touched. */
 function contractFor(kind: string): ListingContract | undefined {
   return Object.hasOwn(CONTRACTS, kind) ? CONTRACTS[kind] : undefined;
+}
+
+/** The contract one endpoint actually speaks: its kind's own row, except
+ * for the kinds whose listing differs by auth posture. `subscription` says
+ * the credential came from the token store — the only posture that reaches
+ * the ChatGPT/Codex backend. */
+function listingContractFor(kind: string, subscription: boolean): ListingContract | undefined {
+  if (kind === "openai" && !subscription) return OPENAI_API_KEY_CONTRACT;
+  return contractFor(kind);
 }
 
 /** True when the kind has a shipped catalog worth augmenting. */
@@ -299,10 +324,11 @@ export function hasLiveListingContract(type: string): boolean {
  * own configured baseUrl (a proxy, a regional alternative), the
  * contract's protocol constant (Codex backend, OpenCode products,
  * Anthropic/Google/xAI/Copilot/Kimi), then the provider profile's
- * documented default (#726).
+ * documented default (#726). The contract is chosen by auth posture on
+ * the callers' side (#1723: an API-key `openai` endpoint lists
+ * api.openai.com, not the Codex backend).
  */
-function listingBase(kind: string, endpointName: string, endpointBaseUrl: string | undefined): string | undefined {
-  const contract = contractFor(kind);
+function listingBase(contract: ListingContract | undefined, kind: string, endpointName: string, endpointBaseUrl: string | undefined): string | undefined {
   if (!contract) return undefined;
   return endpointBaseUrl ?? contract.base?.(endpointName) ?? providerProfile(kind)?.baseUrl;
 }
@@ -336,11 +362,11 @@ export async function listProviderModels(
   endpointName: string,
   opts: { baseUrl?: string; apiKey?: string; configFile?: string; fetchImpl?: ListingFetch; signal?: AbortSignal; clientVersion?: string } = {},
 ): Promise<LiveModelListing[]> {
-  const contract = contractFor(kind);
-  const base = listingBase(kind, endpointName, opts.baseUrl);
+  const credential = listingCredential(kind, endpointName, opts.apiKey, opts.configFile ?? userConfigFile());
+  const contract = listingContractFor(kind, credential.subscription);
+  const base = listingBase(contract, kind, endpointName, opts.baseUrl);
   if (!base || !contract) throw new Error(`no verified model listing contract for provider kind "${kind}"`);
   const clientVersion = opts.clientVersion ?? CODEX_LISTING_CLIENT_VERSION;
-  const credential = listingCredential(kind, endpointName, opts.apiKey, opts.configFile ?? userConfigFile());
   const templates = contract.urls?.(base, clientVersion) ?? [`${base}/models`];
   // Anthropic accepts OAuth access tokens only as `Authorization: Bearer`
   // — an x-api-key header carrying one is rejected with 401 ("invalid

@@ -131,11 +131,12 @@ re-probe it until the cooldown expires.
   the background with the provider's own live model list (startup and
   picker open, cached in `~/.moh/live-models.json` with a 24h TTL; `r`
   in the picker forces a refresh), so newly released models appear
-  without waiting for a moh release: Anthropic, ChatGPT/Codex, Google,
-  GitHub Copilot, OpenRouter, xAI, OpenCode (Zen/Go), Kimi Code, Z.ai,
-  DeepSeek, Groq, Cerebras, NVIDIA NIM, Together, Fireworks, Hugging
-  Face, Mistral, Moonshot, MiniMax, Qwen, Xiaomi MiMo, Vercel AI
-  Gateway and Cloudflare AI Gateway. One provider has no such route and
+  without waiting for a moh release: Anthropic, OpenAI (both the
+  ChatGPT/Codex subscription backend and the api.openai.com API-key
+  one), Google, GitHub Copilot, OpenRouter, xAI, OpenCode (Zen/Go),
+  Kimi Code, Z.ai, DeepSeek, Groq, Cerebras, NVIDIA NIM, Together,
+  Fireworks, Hugging Face, Mistral, Moonshot, MiniMax, Qwen, Xiaomi
+  MiMo, Vercel AI Gateway and Cloudflare AI Gateway. One provider has no such route and
   stays static: **Baseten** — its catalog is updated with a moh release.
   A fetched-only model carries conservative metadata: no thinking levels
   and no vision, because capability data lives in the shipped catalog
@@ -202,7 +203,13 @@ Thinking-capable models accept a reasoning-effort level: `off`, `low`,
 catalog (or an explicit `capabilities.thinking` declaration for
 openai-compat endpoints); unsupported levels are shown as unavailable
 rather than silently remapped. The effective level sent is recorded in
-the session log.
+the session log. One wire narrows the choice instead of remapping it:
+OpenAI's own `/chat/completions` rejects tool calls alongside a
+reasoning effort, so on that wire a call that sends tools runs with the
+effort pinned to `off` whatever level is selected — the session log
+records the level the call actually sent. Models the catalog routes to
+`/responses` (and every other provider) keep reasoning together with
+tools.
 
 ## OpenCode usage
 
