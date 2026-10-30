@@ -129,3 +129,17 @@ defining module — the fetchers, cache read/write, TTL handling, the contract
 table and the merge stay internal, and core tests keep importing them directly.
 This seam remains fail-soft: it never throws for a provider failure, never
 mutates the auth store, and never blocks the picker.
+
+## Amendment — 2026-10-27, a forced refresh may renew the credential
+
+The "never mutates the auth store" rule above is narrowed to the background
+fetch it guarded. A **forced** refresh — the picker's `r`, opening Settings'
+model section — is a user-initiated action, not a background fetch: for a
+subscription endpoint whose stored access token is expired (or inside the
+refresh window) the listing now refreshes the grant through the same path a
+model call uses (`auth/resolve.ts`) and persists it before fetching. Reason:
+the stream path refreshes on use, so an endpoint that is configured but not
+serving never refreshed its token, and every listing 401'd forever — the
+picker's `r` could not succeed by construction. A failed refresh degrades to
+the stored token (the listing then reports `stale`/`failed` as before), and
+the background startup fetch keeps the passive posture unchanged.

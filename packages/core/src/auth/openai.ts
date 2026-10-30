@@ -71,6 +71,10 @@ export const CHATGPT_CODEX_ORIGINATOR = "codex_cli_rs";
 /** ChatGPT-mode backend used when subscription-authed (research §2). */
 export const CHATGPT_CODEX_BASE_URL = "https://chatgpt.com/backend-api/codex";
 
+/** OpenAI's metered API-key backend — the other backend the `openai` kind
+ * reaches, and the default when an endpoint declares no base URL. */
+export const OPENAI_API_BASE_URL = "https://api.openai.com/v1";
+
 interface OpenAiOAuthConfig {
   issuer: string;
   clientId: string;

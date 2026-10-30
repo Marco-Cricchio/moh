@@ -32,17 +32,19 @@ export function isSubscriptionKind(kind: string): kind is SubscriptionKind {
 }
 
 /**
- * #1317: the kinds whose subscription grant moh's onboarding **withholds**
- * from the wizard. Their grant stays reachable deliberately
+ * #1317/#1720: the kinds whose subscription grant moh's onboarding
+ * **withholds** from the wizard. Their grant stays reachable deliberately
  * (`moh provider login <kind>`, below) but is never offered: Anthropic
- * reserves subscription OAuth for Claude Code and its own clients, and the
- * route does not serve inference (ADR-0010 amendment). One list, one
- * predicate — both clients' wizards and the startup diagnostic read this.
+ * reserves subscription OAuth for Claude Code and its own clients, and
+ * Google's Code Assist tiers refuse third-party inference for consumer
+ * accounts — in both cases the route does not serve inference (ADR-0010
+ * amendments). One list, one predicate — both clients' wizards and the
+ * startup diagnostic read this.
  */
-const WITHHELD_SUBSCRIPTION_KINDS: readonly SubscriptionKind[] = ["anthropic"];
+const WITHHELD_SUBSCRIPTION_KINDS: readonly SubscriptionKind[] = ["anthropic", "google"];
 
 /** Whether the wizard offers the `api-key | subscription` choice for
- * `kind`: a grant exists *and* is not withheld (#1317). */
+ * `kind`: a grant exists *and* is not withheld (#1317, #1720). */
 export function offersSubscriptionAuth(kind: string): kind is SubscriptionKind {
   if (!isSubscriptionKind(kind)) return false;
   return !WITHHELD_SUBSCRIPTION_KINDS.includes(kind);

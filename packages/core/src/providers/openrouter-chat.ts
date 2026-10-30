@@ -132,6 +132,10 @@ class ReasoningExtractor extends TransformStream<Uint8Array, Uint8Array> {
 function rewriteRequestBody(body: string, effort: string | undefined, openRouterDialect: boolean, reasoningContent: readonly (readonly [number, string])[]): string {
   try {
     const json = JSON.parse(body) as Record<string, unknown> & { reasoning_effort?: unknown; messages?: Array<Record<string, unknown>> };
+    // The #873/#895 round-trip belongs to a backend that reasons. A
+    // disabled effort is still an effort on the wire, but asking for
+    // nothing back is not the same as asking for reasoning.
+    const reasoningEffort = effort === "none" ? undefined : effort;
     if (!openRouterDialect) {
       // openai-compat dialect: reasoning_effort is already the right
       // shape; only ensure it is present when a level was selected.
@@ -155,7 +159,7 @@ function rewriteRequestBody(body: string, effort: string | undefined, openRouter
       // empty string satisfies the strict upstream (verified live:
       // 4/55 failures without the field, 0/47 with `""`) and is ignored
       // by permissive ones. Only when thinking is actually on.
-      if (effort !== undefined) {
+      if (reasoningEffort !== undefined) {
         for (const message of messages) {
           if (message?.role === "assistant" && message.reasoning_content === undefined) {
             message.reasoning_content = "";
@@ -226,11 +230,18 @@ function reasoningContentFromPrompt(prompt: unknown): [number, string][] {
 /** The effort moh selected for this call: thinkingForWire maps the
  * neutral level to providerOptions.openai.reasoningEffort (off →
  * "none"); the wrapper reads it and translates it to OpenRouter's
- * shape at the wire, so the Core contract stays provider-neutral. */
-function effortFromProviderOptions(providerOptions: unknown): string | undefined {
+ * shape at the wire, so the Core contract stays provider-neutral.
+ *
+ * `"none"` (the canonical `off`) normally means "say nothing": these
+ * backends take the absence of a reasoning request as off, and OpenRouter
+ * has no off value at all. A backend that *requires* the field — OpenAI's
+ * own chat/completions, which refuses function tools without it (#1723) —
+ * asks for it by option (`sendDisabledEffort`). */
+function effortFromProviderOptions(providerOptions: unknown, sendDisabledEffort: boolean): string | undefined {
   const openai = (providerOptions as { openai?: { reasoningEffort?: unknown } } | undefined)?.openai;
   const effort = openai?.reasoningEffort;
-  if (typeof effort !== "string" || effort === "none" || effort === "") return undefined;
+  if (typeof effort !== "string" || effort === "") return undefined;
+  if (effort === "none" && !sendDisabledEffort) return undefined;
   return effort;
 }
 
@@ -359,6 +370,11 @@ interface OpenRouterChatModelOptions {
    * standard OpenAI-compatible `reasoning_effort` untouched. Streaming
    * extraction covers every dialect either way. */
   dialect?: "openrouter" | "openai-compat";
+  /** The backend requires the field even when reasoning is off: OpenAI's
+   * own chat/completions refuses function tools without
+   * `reasoning_effort: "none"` (#1723). Off by default — elsewhere the
+   * absence of a reasoning request is how off is said. */
+  sendDisabledEffort?: boolean;
 }
 
 /** Wraps the stock openai.chat model with the Chat Completions reasoning
@@ -388,7 +404,7 @@ export function openRouterChatModel(options: OpenRouterChatModelOptions): Langua
   // the effort translation, the stripped options, the inner model.
   const prepare = (callOptions: { providerOptions?: unknown; prompt?: unknown }) => {
     const buffer: ReasoningBuffer = { texts: [], details: [] };
-    const effort = effortFromProviderOptions(callOptions.providerOptions);
+    const effort = effortFromProviderOptions(callOptions.providerOptions, options.sendDisabledEffort === true);
     const stripped = stripReasoningEffort(callOptions.providerOptions);
     const reasoningContent = openRouterDialect ? [] : reasoningContentFromPrompt(callOptions.prompt);
     const inner = chatModel(patchedFetch(baseFetch, buffer, effort, openRouterDialect, reasoningContent)) as unknown as Record<string, unknown>;
