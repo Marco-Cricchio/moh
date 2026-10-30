@@ -560,19 +560,10 @@
       "maxTokens": 128000
     },
     "arcee-ai/trinity-large-thinking": {
-      "author": "moh migration (#959)",
-      "date": "2026-09-24",
-      "reason": "labels and row identity are moh-owned (ADR-0046): never aggregator-supplied",
-      "api": "openai-completions",
-      "baseUrl": "https://openrouter.ai/api/v1",
-      "name": "Arcee AI: Trinity Large Thinking",
-      "thinkingLevelMap": {
-        "off": null
-      },
-      "compat": {
-        "supportsDeveloperRole": false,
-        "thinkingFormat": "openrouter"
-      }
+      "author": "moh (release v0.66.1)",
+      "date": "2026-10-30",
+      "reason": "OpenRouter retired the listing: the rebuild produces neither a window nor a rate (models.dev too, checked 2026-10-30 against https://openrouter.ai/api/v1/models) — dropped following the retirement, per #1630 precedent",
+      "retired": true
     },
     "auto": {
       "author": "moh migration (#959)",
@@ -2716,25 +2707,10 @@
       }
     },
     "nvidia/nemotron-3-super-120b-a12b:free": {
-      "author": "moh migration (#959)",
-      "date": "2026-09-24",
-      "reason": "labels and row identity are moh-owned (ADR-0046): never aggregator-supplied",
-      "api": "openai-completions",
-      "baseUrl": "https://openrouter.ai/api/v1",
-      "name": "NVIDIA: Nemotron 3 Super (free)",
-      "thinkingLevelMap": {
-        "off": "none",
-        "minimal": null,
-        "low": "low",
-        "medium": "medium",
-        "high": null,
-        "xhigh": null,
-        "max": null
-      },
-      "compat": {
-        "supportsDeveloperRole": false,
-        "thinkingFormat": "openrouter"
-      }
+      "author": "moh (release v0.66.1)",
+      "date": "2026-10-30",
+      "reason": "OpenRouter retired the listing: the rebuild produces neither a window nor a rate (models.dev too, checked 2026-10-30 against https://openrouter.ai/api/v1/models) — dropped following the retirement, per #1630 precedent",
+      "retired": true
     },
     "nvidia/nemotron-3-ultra-550b-a55b": {
       "author": "moh migration (#959)",
@@ -2849,15 +2825,10 @@
       }
     },
     "openai/gpt-4-turbo": {
-      "author": "moh migration (#959)",
-      "date": "2026-09-24",
-      "reason": "labels and row identity are moh-owned (ADR-0046): never aggregator-supplied",
-      "api": "openai-completions",
-      "baseUrl": "https://openrouter.ai/api/v1",
-      "name": "OpenAI: GPT-4 Turbo",
-      "compat": {
-        "thinkingFormat": "openrouter"
-      }
+      "author": "moh (release v0.66.1)",
+      "date": "2026-10-30",
+      "reason": "OpenRouter retired the listing: the rebuild produces neither a window nor a rate (models.dev too, checked 2026-10-30 against https://openrouter.ai/api/v1/models) — dropped following the retirement, per #1630 precedent",
+      "retired": true
     },
     "openai/gpt-4-turbo-preview": {
       "author": "moh migration (#959)",
@@ -4061,15 +4032,10 @@
       }
     },
     "openai/o1": {
-      "author": "moh migration (#959)",
-      "date": "2026-09-24",
-      "reason": "labels and row identity are moh-owned (ADR-0046): never aggregator-supplied",
-      "api": "openai-completions",
-      "baseUrl": "https://openrouter.ai/api/v1",
-      "name": "OpenAI: o1",
-      "compat": {
-        "thinkingFormat": "openrouter"
-      }
+      "author": "moh (release v0.66.1)",
+      "date": "2026-10-30",
+      "reason": "OpenRouter retired the listing: the rebuild produces neither a window nor a rate (models.dev too, checked 2026-10-30 against https://openrouter.ai/api/v1/models) — dropped following the retirement, per #1630 precedent",
+      "retired": true
     },
     "openai/o3": {
       "author": "moh migration (#959)",
@@ -4083,35 +4049,16 @@
       }
     },
     "openai/o3-mini": {
-      "author": "moh migration (#959)",
-      "date": "2026-09-24",
-      "reason": "labels and row identity are moh-owned (ADR-0046): never aggregator-supplied",
-      "api": "openai-completions",
-      "baseUrl": "https://openrouter.ai/api/v1",
-      "name": "OpenAI: o3 Mini",
-      "compat": {
-        "thinkingFormat": "openrouter"
-      }
+      "author": "moh (release v0.66.1)",
+      "date": "2026-10-30",
+      "reason": "OpenRouter retired the listing: the rebuild produces neither a window nor a rate (models.dev too, checked 2026-10-30 against https://openrouter.ai/api/v1/models) — dropped following the retirement, per #1630 precedent",
+      "retired": true
     },
     "openai/o3-mini-high": {
-      "author": "moh migration (#959)",
-      "date": "2026-09-24",
-      "reason": "labels and row identity are moh-owned (ADR-0046): never aggregator-supplied",
-      "api": "openai-completions",
-      "baseUrl": "https://openrouter.ai/api/v1",
-      "name": "OpenAI: o3 Mini High",
-      "thinkingLevelMap": {
-        "off": null,
-        "minimal": null,
-        "low": null,
-        "medium": null,
-        "high": "high",
-        "xhigh": null,
-        "max": null
-      },
-      "compat": {
-        "thinkingFormat": "openrouter"
-      }
+      "author": "moh (release v0.66.1)",
+      "date": "2026-10-30",
+      "reason": "OpenRouter retired the listing: the rebuild produces neither a window nor a rate (models.dev too, checked 2026-10-30 against https://openrouter.ai/api/v1/models) — dropped following the retirement, per #1630 precedent",
+      "retired": true
     },
     "openai/o3-mini:batch": {
       "author": "moh migration (#959)",
@@ -4149,35 +4096,16 @@
       "maxTokens": 100000
     },
     "openai/o4-mini": {
-      "author": "moh migration (#959)",
-      "date": "2026-09-24",
-      "reason": "labels and row identity are moh-owned (ADR-0046): never aggregator-supplied",
-      "api": "openai-completions",
-      "baseUrl": "https://openrouter.ai/api/v1",
-      "name": "OpenAI: o4 Mini",
-      "compat": {
-        "thinkingFormat": "openrouter"
-      }
+      "author": "moh (release v0.66.1)",
+      "date": "2026-10-30",
+      "reason": "OpenRouter retired the listing: the rebuild produces neither a window nor a rate (models.dev too, checked 2026-10-30 against https://openrouter.ai/api/v1/models) — dropped following the retirement, per #1630 precedent",
+      "retired": true
     },
     "openai/o4-mini-high": {
-      "author": "moh migration (#959)",
-      "date": "2026-09-24",
-      "reason": "labels and row identity are moh-owned (ADR-0046): never aggregator-supplied",
-      "api": "openai-completions",
-      "baseUrl": "https://openrouter.ai/api/v1",
-      "name": "OpenAI: o4 Mini High",
-      "thinkingLevelMap": {
-        "off": null,
-        "minimal": null,
-        "low": null,
-        "medium": null,
-        "high": "high",
-        "xhigh": null,
-        "max": null
-      },
-      "compat": {
-        "thinkingFormat": "openrouter"
-      }
+      "author": "moh (release v0.66.1)",
+      "date": "2026-10-30",
+      "reason": "OpenRouter retired the listing: the rebuild produces neither a window nor a rate (models.dev too, checked 2026-10-30 against https://openrouter.ai/api/v1/models) — dropped following the retirement, per #1630 precedent",
+      "retired": true
     },
     "openai/o4-mini:batch": {
       "author": "moh migration (#959)",
@@ -4558,19 +4486,10 @@
       }
     },
     "qwen/qwen3-next-80b-a3b-thinking": {
-      "author": "moh migration (#959)",
-      "date": "2026-09-24",
-      "reason": "labels and row identity are moh-owned (ADR-0046): never aggregator-supplied",
-      "api": "openai-completions",
-      "baseUrl": "https://openrouter.ai/api/v1",
-      "name": "Qwen: Qwen3 Next 80B A3B Thinking",
-      "thinkingLevelMap": {
-        "off": null
-      },
-      "compat": {
-        "supportsDeveloperRole": false,
-        "thinkingFormat": "openrouter"
-      }
+      "author": "moh (release v0.66.1)",
+      "date": "2026-10-30",
+      "reason": "OpenRouter retired the listing: the rebuild produces neither a window nor a rate (models.dev too, checked 2026-10-30 against https://openrouter.ai/api/v1/models) — dropped following the retirement, per #1630 precedent",
+      "retired": true
     },
     "qwen/qwen3-vl-235b-a22b-instruct": {
       "author": "moh migration (#959)",
@@ -5360,16 +5279,10 @@
       }
     },
     "upstage/solar-pro-3": {
-      "author": "moh migration (#959)",
-      "date": "2026-09-24",
-      "reason": "labels and row identity are moh-owned (ADR-0046): never aggregator-supplied",
-      "api": "openai-completions",
-      "baseUrl": "https://openrouter.ai/api/v1",
-      "name": "Upstage: Solar Pro 3",
-      "compat": {
-        "supportsDeveloperRole": false,
-        "thinkingFormat": "openrouter"
-      }
+      "author": "moh (release v0.66.1)",
+      "date": "2026-10-30",
+      "reason": "OpenRouter retired the listing: the rebuild produces neither a window nor a rate (models.dev too, checked 2026-10-30 against https://openrouter.ai/api/v1/models) — dropped following the retirement, per #1630 precedent",
+      "retired": true
     },
     "upstage/solar-pro4": {
       "author": "moh migration (#959)",

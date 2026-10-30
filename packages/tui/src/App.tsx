@@ -472,7 +472,14 @@ function AppShell({
     (opts: { force?: boolean } = {}) => {
       const s = sessionRef.current;
       if (!s || liveBusyRef.current) return;
-      const targets = s.endpointProfiles.map((e) => ({ name: e.name, type: e.type, baseUrl: e.baseUrl, apiKey: e.apiKey }));
+      const targets = s.endpointProfiles.map((e) => ({
+        name: e.name,
+        type: e.type,
+        baseUrl: e.baseUrl,
+        apiKey: e.apiKey,
+        // #1723: the declared posture decides which backend lists the models.
+        subscription: e.auth?.kind === "subscription",
+      }));
       if (targets.length === 0) return;
       liveBusyRef.current = true;
       setLiveRefreshing(true);

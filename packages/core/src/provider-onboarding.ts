@@ -19,7 +19,7 @@ import { OAUTH_BUILTIN_BASE_URLS, isOAuthBuiltinKind } from "./wire";
 import { catalogEntryFor, knownCompatEndpointMetadata, subscriptionModelCatalog } from "./model-catalog";
 import { tosWizardLine } from "./tos-cards";
 import { noteProviderTestFailure } from "./provider-test-trace";
-import { CHATGPT_CODEX_BASE_URL, CHATGPT_CODEX_ORIGINATOR } from "./auth/openai";
+import { CHATGPT_CODEX_BASE_URL, CHATGPT_CODEX_ORIGINATOR, OPENAI_API_BASE_URL } from "./auth/openai";
 
 /** Provider types usable with no custom code. */
 export const BUILTIN_PROVIDER_TYPES = [
@@ -150,9 +150,9 @@ export interface ProviderAddOptions {
  * `api-key | subscription` first, then branch — the api-key questions are
  * unchanged; the subscription branch runs the per-provider login (ToS
  * first) and marks the profile `auth: { kind: "subscription" }` (no key
- * prompt). #1317: anthropic's grant is withheld from the wizard
- * (`offersSubscriptionAuth`) — it goes straight to the api-key path, while
- * `moh provider login anthropic` stays reachable. */
+ * prompt). #1317/#1720: anthropic's and google's grants are withheld from
+ * the wizard (`offersSubscriptionAuth`) — they go straight to the api-key
+ * path, while `moh provider login <kind>` stays reachable. */
 export async function runProviderAdd(
   io: OnboardingIo,
   tester: ConnectionTester = minimalConnectionTest,
@@ -173,9 +173,9 @@ export async function runProviderAdd(
   if (offersSubscriptionAuth(type)) {
     // Auth method is asked per capability: only kinds whose grant the
     // wizard offers see the question (openai-compat and the not-yet-granted
-    // new providers have none; #1317 withholds anthropic's) — the api-key
-    // path is unchanged. The new providers join isSubscriptionKind as their
-    // grant tickets land.
+    // new providers have none; #1317/#1720 withholds anthropic's and
+    // google's) — the api-key path is unchanged. The new providers join
+    // isSubscriptionKind as their grant tickets land.
     const answer = await askOneOf(io, "Auth method (api-key | subscription)", ["api-key", "subscription"]);
     authKind = answer as "api-key" | "subscription";
   }
@@ -576,7 +576,7 @@ async function runConnectionTest(
       return verdict(res, modelId);
     }
     if (profile.type === "openai" || profile.type === "openai-compat" || isOAuthBuiltinKind(profile.type) || isProviderProfile(profile.type)) {
-      const base = profile.baseUrl ?? providerProfile(profile.type)?.baseUrl ?? (isOAuthBuiltinKind(profile.type) ? OAUTH_BUILTIN_BASE_URLS[profile.type] : "https://api.openai.com/v1");
+      const base = profile.baseUrl ?? providerProfile(profile.type)?.baseUrl ?? (isOAuthBuiltinKind(profile.type) ? OAUTH_BUILTIN_BASE_URLS[profile.type] : OPENAI_API_BASE_URL);
       const res = await fetchImpl(joinBaseUrl(base, "/chat/completions"), {
         method: "POST",
         signal,

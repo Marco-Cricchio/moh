@@ -5,10 +5,10 @@
  * input, completion), tokens + endpoint stub persisted right after login,
  * model + connection test as usual, and no token/code material on screen.
  *
- * #1317: anthropic no longer sees the auth-method step at all, so the
- * flows here are driven on google — the live kind that behaves like it
- * (native OAuth, paste-code, shipped catalog) — and one case asserts
- * anthropic's path is the api-key one.
+ * #1317/#1720: neither anthropic nor google sees the auth-method step any
+ * more, so the flows here are driven on openai — the live kind that behaves
+ * like them (native OAuth, paste-code, shipped catalog) — and one case
+ * asserts both withheld kinds take the api-key path.
  */
 import { describe, expect, test } from "bun:test";
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -26,18 +26,16 @@ const tempHome = () => mkdtempSync(join(tmpdir(), "moh-sub-home-"));
 const tempCwd = () => mkdtempSync(join(tmpdir(), "moh-sub-"));
 const okTester = async () => ({ ok: true as const, modelId: "tested" });
 
-/** #1317: drives the wizard to a kind whose subscription offer is live —
- * google, three rows down the type list (anthropic, openai, google). The
- * per-row waits make a dropped keystroke visible instead of silently
+/** #1317/#1720: drives the wizard to a kind whose subscription offer is
+ * live — openai, one row down the type list (anthropic, openai). The
+ * per-row wait makes a dropped keystroke visible instead of silently
  * selecting the wrong kind. */
-const pickGoogle = async (i: ReturnType<typeof render>, frame: () => string): Promise<void> => {
+const pickOpenai = async (i: ReturnType<typeof render>, frame: () => string): Promise<void> => {
   await waitForFrame(frame, "Pick a provider type");
-  for (const type of ["openai", "google"]) {
-    i.stdin.write("\x1b[B");
-    await waitForFrame(frame, `› ${type}`);
-  }
+  i.stdin.write("\x1b[B");
+  await waitForFrame(frame, "› openai");
   i.stdin.write("\r");
-  await waitForFrame(frame, "How does google authenticate?");
+  await waitForFrame(frame, "How does openai authenticate?");
 };
 
 const TOKEN: AuthToken = { accessToken: "at-secret-value", refreshToken: "rt-secret-value", updatedAt: 1 };
@@ -65,22 +63,28 @@ const browserWaitingLogin = async (io: AuthorizationIo): Promise<AuthToken> => {
 
 
 describe("onboarding wizard — subscription branch (#149, #1317)", () => {
-  test("#1317: anthropic never shows the auth-method step; a live offer does; openai-compat never does", async () => {
-    // Anthropic has a grant but the wizard withholds the offer: selecting
-    // it lands straight on the api-key flow — never the ToS, login or
-    // subscription-model screens.
-    const i1 = render(<Onboarding cwd={tempCwd()} home={tempHome()} env={{}} tester={okTester} onDone={() => {}} />);
-    const frame1 = () => stripAnsi(i1.lastFrame() ?? "");
-    await waitForFrame(frame1, "Pick a provider type");
-    i1.stdin.write("\r"); // anthropic
-    await waitForFrame(frame1, "Default model");
-    expect(frame1()).not.toContain("authenticate?");
-    i1.unmount();
+  test("#1317/#1720: anthropic and google never show the auth-method step; a live offer does; openai-compat never does", async () => {
+    // Both kinds have a grant but the wizard withholds the offer: selecting
+    // either lands straight on the api-key flow — never the ToS, login or
+    // subscription-model screens. Rows: anthropic (0 downs), google (2).
+    for (const downs of [0, 2]) {
+      const i1 = render(<Onboarding cwd={tempCwd()} home={tempHome()} env={{}} tester={okTester} onDone={() => {}} />);
+      const frame1 = () => stripAnsi(i1.lastFrame() ?? "");
+      await waitForFrame(frame1, "Pick a provider type");
+      for (let n = 1; n <= downs; n++) {
+        i1.stdin.write("\x1b[B");
+        await waitForFrame(frame1, `\u203a ${n === 1 ? "openai" : "google"}`);
+      }
+      i1.stdin.write("\r");
+      await waitForFrame(frame1, "Default model");
+      expect(frame1()).not.toContain("authenticate?");
+      i1.unmount();
+    }
 
-    // A kind whose offer is live still asks (google: the flows below).
+    // A kind whose offer is live still asks (openai: the flows below).
     const i2 = render(<Onboarding cwd={tempCwd()} home={tempHome()} env={{}} tester={okTester} onDone={() => {}} />);
     const frame2 = () => stripAnsi(i2.lastFrame() ?? "");
-    await pickGoogle(i2, frame2);
+    await pickOpenai(i2, frame2);
     i2.unmount();
 
     const i3 = render(<Onboarding cwd={tempCwd()} home={tempHome()} env={{}} tester={okTester} onDone={() => {}} />);
@@ -121,7 +125,7 @@ describe("onboarding wizard — subscription branch (#149, #1317)", () => {
       />,
     );
     const frame = () => stripAnsi(i.lastFrame() ?? "");
-    await pickGoogle(i, frame);
+    await pickOpenai(i, frame);
     i.stdin.write("\x1b[B"); // down → subscription
     await waitForFrame(frame, "› subscription");
     i.stdin.write("\r");
@@ -154,7 +158,7 @@ describe("onboarding wizard — subscription branch (#149, #1317)", () => {
     // The catalog may have grown past the viewport (scrollable, "↓ N more"):
     // the manual row exists in the list but is not guaranteed visible.
     expect(modelFrame).toMatch(/enter a model id manually|↓ \d+ more/);
-    const first = subscriptionModelCatalog("google")[0]!;
+    const first = subscriptionModelCatalog("openai")[0]!;
     // The row carries name · id and is right-truncated at this width; the
     // name is the part the frame always shows.
     expect(modelFrame).toContain(first.name);
@@ -166,14 +170,14 @@ describe("onboarding wizard — subscription branch (#149, #1317)", () => {
       () => `onDone was not called; received: ${JSON.stringify(done)}`,
     );
 
-    expect(done).toEqual([`google/${first.id}`]);
+    expect(done).toEqual([`openai/${first.id}`]);
     expect(logins).toBe(1);
 
     // Tokens live in ~/.moh/config (never moh.json); endpoint completed.
     const user = readUserConfigFile(userFile);
-    expect(getStoredToken(userFile, "google")?.accessToken).toBe("at-secret-value");
-    expect((user.endpoints as { name: string }[] ?? []).find((e) => e.name === "google")).toMatchObject({
-      type: "google",
+    expect(getStoredToken(userFile, "openai")?.accessToken).toBe("at-secret-value");
+    expect((user.endpoints as { name: string }[] ?? []).find((e) => e.name === "openai")).toMatchObject({
+      type: "openai",
       auth: { kind: "subscription" },
       defaultModel: first.id,
     });
@@ -201,7 +205,7 @@ describe("onboarding wizard — subscription branch (#149, #1317)", () => {
         />,
       );
       const frame = () => stripAnsi(i.lastFrame() ?? "");
-      await pickGoogle(i, frame);
+      await pickOpenai(i, frame);
       i.stdin.write("\x1b[B\r");
       await waitForFrame(frame, "Terms of service");
       i.stdin.write("y");
@@ -236,7 +240,7 @@ describe("onboarding wizard — subscription branch (#149, #1317)", () => {
         />,
       );
       const frame = () => stripAnsi(i.lastFrame() ?? "");
-      await pickGoogle(i, frame);
+      await pickOpenai(i, frame);
       i.stdin.write("\x1b[B\r");
       await waitForFrame(frame, "Terms of service");
       i.stdin.write("y");
@@ -269,7 +273,7 @@ describe("onboarding wizard — subscription branch (#149, #1317)", () => {
         />,
       );
       const frame = () => stripAnsi(i.lastFrame() ?? "");
-      await pickGoogle(i, frame);
+      await pickOpenai(i, frame);
       i.stdin.write("\x1b[B\r");
       await waitForFrame(frame, "Terms of service");
       i.stdin.write("y");
@@ -301,7 +305,7 @@ describe("onboarding wizard — subscription branch (#149, #1317)", () => {
         />,
       );
       const frame = () => stripAnsi(i.lastFrame() ?? "");
-      await pickGoogle(i, frame);
+      await pickOpenai(i, frame);
       i.stdin.write("\x1b[B\r");
       await waitForFrame(frame, "Terms of service");
       i.stdin.write("y");
@@ -327,14 +331,14 @@ describe("onboarding wizard — subscription branch (#149, #1317)", () => {
         subscriptionLogin={async (io) => {
           // Stub + tokens must not exist before the login resolves (#150).
           const user = readUserConfigFile(userFile);
-          expect((user.endpoints as { name: string }[] ?? []).find((e) => e.name === "google")).toBeUndefined();
+          expect((user.endpoints as { name: string }[] ?? []).find((e) => e.name === "openai")).toBeUndefined();
           return scriptedLogin(io);
         }}
         onDone={() => {}}
       />,
     );
     const frame = () => stripAnsi(i.lastFrame() ?? "");
-    await pickGoogle(i, frame);
+    await pickOpenai(i, frame);
     i.stdin.write("\x1b[B");
     await waitForFrame(frame, "› subscription");
     i.stdin.write("\r");
@@ -349,8 +353,8 @@ describe("onboarding wizard — subscription branch (#149, #1317)", () => {
     // Right after login: stub + tokens are on disk even though the wizard
     // is still at the model prompt.
     const user = readUserConfigFile(userFile);
-    expect((user.endpoints as { name: string }[] ?? []).find((e) => e.name === "google")).toMatchObject({ auth: { kind: "subscription" } });
-    expect(getStoredToken(userFile, "google")).toBeDefined();
+    expect((user.endpoints as { name: string }[] ?? []).find((e) => e.name === "openai")).toMatchObject({ auth: { kind: "subscription" } });
+    expect(getStoredToken(userFile, "openai")).toBeDefined();
     expect(frame()).toContain("Pick your default model");
     i.unmount();
   });
@@ -369,7 +373,7 @@ describe("onboarding wizard — subscription branch (#149, #1317)", () => {
       />,
     );
     const frame = () => stripAnsi(i.lastFrame() ?? "");
-    await pickGoogle(i, frame);
+    await pickOpenai(i, frame);
     i.stdin.write("\x1b[B"); // subscription
     await waitForFrame(frame, "› subscription");
     i.stdin.write("\r");
@@ -393,14 +397,14 @@ describe("onboarding wizard — subscription branch (#149, #1317)", () => {
     i.stdin.write("\r"); // manual entry
     await waitForFrame(frame, "Default model");
     expect(frame()).toContain("Default model");
-    i.stdin.write("gemini-3-pro");
-    await waitForFrame(frame, "› gemini-3-pro");
+    i.stdin.write("gpt-6-sol");
+    await waitForFrame(frame, "› gpt-6-sol");
     i.stdin.write("\r");
     await waitForCondition(
       () => done.length > 0,
       () => `onDone was not called; received: ${JSON.stringify(done)}`,
     );
-    expect(done).toEqual(["google/gemini-3-pro"]);
+    expect(done).toEqual(["openai/gpt-6-sol"]);
     i.unmount();
   });
 
@@ -421,13 +425,13 @@ describe("onboarding wizard — subscription branch (#149, #1317)", () => {
       />,
     );
     const frame = () => stripAnsi(i.lastFrame() ?? "");
-    await pickGoogle(i, frame);
+    await pickOpenai(i, frame);
     i.stdin.write("\x1b[B"); // subscription
     await waitForFrame(frame, "› subscription");
     i.stdin.write("\r");
     await waitForFrame(frame, "Terms of service");
     i.stdin.write("n"); // decline
-    await waitForFrame(frame, "How does google authenticate?");
+    await waitForFrame(frame, "How does openai authenticate?");
     expect(logins).toBe(0);
     // Cursor remembers the declined choice; switching to api-key works.
     i.stdin.write("\x1b[A"); // up → api-key
@@ -455,7 +459,7 @@ describe("onboarding wizard — subscription branch (#149, #1317)", () => {
       />,
     );
     const frame = () => stripAnsi(i.lastFrame() ?? "");
-    await pickGoogle(i, frame);
+    await pickOpenai(i, frame);
     i.stdin.write("\x1b[B");
     await waitForFrame(frame, "› subscription");
     i.stdin.write("\r");

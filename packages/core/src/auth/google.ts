@@ -63,8 +63,11 @@ export const GOOGLE_SCOPES = [
   "https://www.googleapis.com/auth/userinfo.profile",
 ] as const;
 
-/** Code Assist internal API used when subscription-authed (research §3).
- * Wired into the provider adapter by #137. */
+/** Code Assist internal API the grant is meant for (research §3). Not
+ * wired into the provider adapter: its request bodies differ from the
+ * public wire, and Google's tiers refuse third-party inference for a
+ * consumer account anyway (#1720, ADR-0010 amendment). Captured here as
+ * the grant's documented backend, beside the other drift-prone values. */
 export const GOOGLE_API_BASE_URL = "https://cloudcode-pa.googleapis.com/v1internal";
 
 interface GoogleOAuthConfig {
