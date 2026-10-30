@@ -215,8 +215,9 @@ export function languageModelFor(
         // gains the `reasoning_content` re-injection.
         ...(openRouterDialect ? {} : { dialect: "openai-compat" }),
         // #1723: OpenAI's own chat wire needs the disabled effort on the
-        // wire (see openAiEffort): everywhere else absence means off.
-        ...(target.endpoint.kind === "openai" ? { sendDisabledEffort: true } : {}),
+        // wire (see openAiEffort): everywhere else absence means off. The
+        // standard field is where it is said — never OpenRouter's shape.
+        ...(target.endpoint.kind === "openai" && !openRouterDialect ? { sendDisabledEffort: true } : {}),
       });
     }
     return openai.chat(target.modelId);
