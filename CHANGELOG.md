@@ -16,6 +16,10 @@ matching section here at tag time.
 
 ### Fixed
 
+- Image reads and browser screenshots now reach OpenAI Chat Completions
+  backends as visual attachments instead of serialized JSON text. This fixes
+  the remaining `openai-compat` path in the v0.66.2 image fix (#1727).
+
 - Catalog generation refuses invalid or incomplete builds before replacing
   published artifacts and recovers interrupted publication (#1731).
 
