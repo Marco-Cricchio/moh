@@ -5,6 +5,26 @@ All notable changes to moh are documented here. The format follows
 SemVer. Each release's GitHub Release description is extracted from the
 matching section here at tag time.
 
+## [0.66.2] - 2026-11-11
+
+### Changed
+
+- **Refreshed the bundled model catalog** from its declared sources:
+  updated rates and context windows, explicitly accepted six upstream
+  context-window reductions, and retired eleven OpenRouter entries no
+  longer listed by the declared source rather than shipping incomplete
+  metadata.
+
+### Fixed
+
+- **Images can be analyzed without explicit file mentions** (#1727):
+  requests to analyze images in a folder can now use `glob` followed by
+  `read` to send the image bytes to the model. PNG, JPEG, WebP, and GIF
+  files up to 5 MB use the same multimodal result path as browser
+  screenshots, with read permissions and replay preserved. Models without
+  image input receive an explicit explanation that the pixels are not
+  visible to them.
+
 ## [0.66.1] - 2026-10-30
 
 ### Changed

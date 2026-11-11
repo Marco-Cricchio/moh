@@ -11,10 +11,11 @@
   },
   "rows": {
     "minimax-m2.5": {
-      "author": "moh migration (#959)",
-      "date": "2026-09-24",
-      "reason": "labels and row identity are moh-owned (ADR-0046): never aggregator-supplied",
-      "name": "MiniMax-M2.5"
+      "author": "moh release v0.66.2",
+      "date": "2026-11-11",
+      "reason": "labels and row identity are moh-owned (ADR-0046): never aggregator-supplied; accept the declared upstream context correction observed during the v0.66.2 rebuild: contextWindow 204800 → 200000",
+      "name": "MiniMax-M2.5",
+      "acceptContextShrink": true
     },
     "minimax-m2.7": {
       "author": "moh migration (#959)",
