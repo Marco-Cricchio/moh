@@ -7,6 +7,8 @@ matching section here at tag time.
 
 ## [Unreleased]
 
+## [0.66.3] - 2026-11-11
+
 ### Changed
 
 - Catalog PRs reproduce pinned source snapshots offline, while scheduled
