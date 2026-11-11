@@ -5,6 +5,13 @@ All notable changes to moh are documented here. The format follows
 SemVer. Each release's GitHub Release description is extracted from the
 matching section here at tag time.
 
+## [Unreleased]
+
+### Fixed
+
+- Catalog generation refuses invalid or incomplete builds before replacing
+  published artifacts and recovers interrupted publication (#1731).
+
 ## [0.66.2] - 2026-11-11
 
 ### Changed

@@ -32,7 +32,9 @@
  * Offline runs (tests, CI debugging): `--models-dev <file>` and
  * `--open-router <file>` read a local snapshot instead of fetching.
  */
-import { existsSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, readFileSync, readdirSync, renameSync, rmSync, unlinkSync } from "node:fs";
+import { writeFileAtomic, tempPidSuffix } from "../src/fs-atomic";
+import { createLockFile, ownerIsGone, parseLockOwner, readLockFile, releaseLockFile } from "../src/memory-lock";
 import { createHash } from "node:crypto";
 import { join } from "node:path";
 import {
@@ -58,7 +60,50 @@ import {
 
 const CATALOG_DIR = join(import.meta.dir, "../src/model-catalogs");
 const MANIFEST_FILE = join(CATALOG_DIR, "manifest.json");
-const REPORT_FILE = join(CATALOG_DIR, "generation-report.json");
+const STAGING_DIR = `${CATALOG_DIR}.staging`;
+const PREVIOUS_DIR = `${CATALOG_DIR}.previous`;
+const LOCK_FILE = `${CATALOG_DIR}.lock`;
+
+/** All CLI modes share the same lock so no check observes a publication
+ * halfway through its directory renames. Dead owners are recovered using
+ * the repository's process/boot identity, never a timeout. */
+function acquireCatalogLock(): void {
+  if (createLockFile(LOCK_FILE)) return;
+  const owner = parseLockOwner(readLockFile(LOCK_FILE));
+  if (!owner || !ownerIsGone(owner)) throw new Error(`catalog is locked: ${LOCK_FILE}`);
+  unlinkSync(LOCK_FILE);
+  if (!createLockFile(LOCK_FILE)) throw new Error(`catalog is locked: ${LOCK_FILE}`);
+}
+
+/** A crash before the second rename leaves the previous directory intact;
+ * a crash after it leaves the complete new directory intact. Recovery runs
+ * before reading any artifact, including for an offline version check. */
+function recoverCatalogPublication(): void {
+  if (existsSync(PREVIOUS_DIR)) {
+    if (!existsSync(CATALOG_DIR)) renameSync(PREVIOUS_DIR, CATALOG_DIR);
+    else rmSync(PREVIOUS_DIR, { recursive: true });
+  }
+  rmSync(STAGING_DIR, { recursive: true, force: true });
+}
+
+function publishCatalog(files: Record<string, string>): void {
+  // Sidecars and other committed inputs travel with the generated output.
+  // No published file is touched until every staging write succeeds.
+  cpSync(CATALOG_DIR, STAGING_DIR, { recursive: true, errorOnExist: true, force: false });
+  try {
+    for (const [name, content] of Object.entries(files)) writeFileAtomic(join(STAGING_DIR, name), content, { temp: tempPidSuffix });
+    renameSync(CATALOG_DIR, PREVIOUS_DIR);
+    try {
+      renameSync(STAGING_DIR, CATALOG_DIR);
+    } catch (error) {
+      renameSync(PREVIOUS_DIR, CATALOG_DIR);
+      throw error;
+    }
+    rmSync(PREVIOUS_DIR, { recursive: true });
+  } finally {
+    rmSync(STAGING_DIR, { recursive: true, force: true });
+  }
+}
 
 const MODELS_DEV_URL = "https://models.dev/api.json";
 const OPENROUTER_URL = "https://openrouter.ai/api/v1/models";
@@ -232,6 +277,7 @@ async function main(): Promise<number> {
   // --- one-off migration: committed catalogs → hand-maintained sidecars ---
   if (hasFlag("--migrate-overrides")) {
     let written = 0;
+    const migrationFiles: Record<string, string> = {};
     for (const provider of readdirSync(CATALOG_DIR).filter((name) => name.endsWith(".json")).map((name) => name.replace(/\.json$/, "")).sort()) {
       const previous = readCatalog(provider);
       if (!previous) continue;
@@ -253,7 +299,7 @@ async function main(): Promise<number> {
         snapshots,
         stamp: { author: "moh migration (#959)", date: new Date().toISOString().slice(0, 10) },
       });
-      writeFileSync(join(CATALOG_DIR, `${provider}.overrides.json`), serializeJson(overrides));
+      migrationFiles[`${provider}.overrides.json`] = serializeJson(overrides);
       written += 1;
       const byCode = new Map<string, number>();
       for (const note of notes) byCode.set(note.code, (byCode.get(note.code) ?? 0) + 1);
@@ -262,6 +308,7 @@ async function main(): Promise<number> {
           (byCode.size > 0 ? ` (${[...byCode].map(([code, count]) => `${code}=${count}`).join(", ")})` : ""),
       );
     }
+    publishCatalog(migrationFiles);
     console.log(`\nmigrated ${written} catalogs — review the sidecars, then run without --migrate-overrides`);
     return 0;
   }
@@ -368,13 +415,19 @@ async function main(): Promise<number> {
     return 0;
   }
 
+  // A missing sidecar is also a partial build, even when the remaining
+  // providers build successfully. Both write and check must refuse it.
+  for (const name of committedCatalogFiles()) {
+    if (!providers.includes(name.replace(/\.json$/, ""))) failures.push(`${name}: committed catalog without a sidecar`);
+  }
+  if (failures.length > 0) {
+    console.error(`generation failed — ${failures.length} failure(s); nothing was written:`);
+    for (const failure of failures) console.error(`  ${failure}`);
+    return 1;
+  }
+
   // --- check mode: rebuild and compare, never write ---
   if (hasFlag("--check")) {
-    if (failures.length > 0) {
-      console.error(`generation failed — ${failures.length} failure(s); nothing was written:`);
-      for (const failure of failures) console.error(`  ${failure}`);
-      return 1;
-    }
     const drift = collectDrift(catalogs, committedManifest);
     if (drift.length > 0) {
       console.error(`catalog drift — ${drift.length} file(s):`);
@@ -387,8 +440,9 @@ async function main(): Promise<number> {
 
   // --- write catalogs + manifest + report ---
   const hashes: Record<string, string> = {};
+  const files: Record<string, string> = {};
   for (const catalog of catalogs) {
-    writeFileSync(join(CATALOG_DIR, `${catalog.provider}.json`), catalog.json);
+    files[`${catalog.provider}.json`] = catalog.json;
     hashes[catalog.provider] = sha256(catalog.json);
   }
   const manifest = buildManifest({
@@ -398,7 +452,7 @@ async function main(): Promise<number> {
     catalogs,
     hashes,
   });
-  writeFileSync(MANIFEST_FILE, serializeJson(manifest));
+  files["manifest.json"] = serializeJson(manifest);
 
   const report = buildReport({
     version,
@@ -407,7 +461,8 @@ async function main(): Promise<number> {
     catalogs,
     previous: previousByProvider,
   });
-  writeFileSync(REPORT_FILE, serializeJson(report));
+  files["generation-report.json"] = serializeJson(report);
+  publishCatalog(files);
 
   const warnings = catalogs.flatMap((catalog) => catalog.issues.filter((issue) => issue.level === "warning"));
   console.log(`wrote ${catalogs.length} catalogs + manifest.json + generation-report.json (moh ${version})`);
@@ -424,4 +479,18 @@ async function main(): Promise<number> {
   return 0;
 }
 
-if (import.meta.main) process.exit(await main());
+if (import.meta.main) {
+  let code = 1;
+  let locked = false;
+  try {
+    acquireCatalogLock();
+    locked = true;
+    recoverCatalogPublication();
+    code = await main();
+  } catch (error) {
+    console.error(`catalog generation failed: ${error instanceof Error ? error.message : String(error)}`);
+  } finally {
+    if (locked) releaseLockFile(LOCK_FILE);
+  }
+  process.exit(code);
+}

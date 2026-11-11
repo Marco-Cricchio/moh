@@ -12,7 +12,9 @@
  *   be fetched at all.
  */
 import { describe, expect, test } from "bun:test";
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { createLockFile, releaseLockFile } from "../src/memory-lock";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import manifest from "../src/model-catalogs/manifest.json";
@@ -95,4 +97,128 @@ describe("#1005 release-time catalog freshness", () => {
     expect(both.code).toBe(2);
     expect(both.err).toContain("--check fails on drift and --freshness reports it");
   });
+});
+
+describe("catalog publication safety", () => {
+  // Copy the real CLI and its implementation to a temporary repository.
+  // The production path stays fixed relative to the script: no test-only
+  // output directory, filesystem mock, network, or modified checkout.
+  function fixture() {
+    const root = mkdtempSync(join(tmpdir(), "moh-catalog-publication-"));
+    const scripts = join(root, "scripts");
+    const src = join(root, "src");
+    const dir = join(src, "model-catalogs");
+    mkdirSync(scripts, { recursive: true });
+    mkdirSync(dir, { recursive: true });
+    for (const name of ["build-model-catalogs.ts", "model-catalog-build.ts"]) copyFileSync(join(import.meta.dir, "../scripts", name), join(scripts, name));
+    for (const name of ["memory-lock.ts", "fs-atomic.ts"]) copyFileSync(join(import.meta.dir, "../src", name), join(src, name));
+    const row = { id: "one", name: "One", api: "openai-completions", contextWindow: 100, cost: { input: 1, output: 2 } };
+    const overrides = { schemaVersion: 1, provider: "demo", source: { modelsDev: ["demo"] }, rows: { one: { author: "test", date: "2026-11-11", reason: "fixture", name: "One", api: "openai-completions" } } };
+    writeFileSync(join(dir, "demo.json"), JSON.stringify({ "openai-completions": { one: row } }));
+    writeFileSync(join(dir, "demo.overrides.json"), JSON.stringify(overrides));
+    writeFileSync(join(dir, "manifest.json"), JSON.stringify({ version: "1.0.0" }));
+    writeFileSync(join(dir, "generation-report.json"), "previous report\n");
+    const md = join(root, "models-dev.json");
+    const or = join(root, "open-router.json");
+    writeFileSync(md, JSON.stringify({ demo: { models: { one: { id: "one", limit: { context: 200 }, cost: { input: 2, output: 4 } } } } }));
+    writeFileSync(or, '{"data":[]}');
+    const run = (args: string[] = ["--version", "1.0.1"]) => Bun.spawnSync([process.execPath, join(scripts, "build-model-catalogs.ts"), ...args, "--models-dev", md, "--open-router", or], { stdout: "pipe", stderr: "pipe" });
+    const contents = () => Object.fromEntries(readdirSync(dir).filter(name => statSync(join(dir, name)).isFile()).sort().map(name => [name, readFileSync(join(dir, name), "utf8")]));
+    return { root, dir, md, or, run, contents };
+  }
+
+  for (const failure of ["missing-source", "invalid-json", "empty-source", "late-sidecar", "missing-sidecar", "staging-write"] as const) {
+    test(`${failure}: refuses the build and preserves every published byte`, () => {
+      const f = fixture();
+      try {
+        if (failure === "missing-source") rmSync(f.md);
+        if (failure === "invalid-json") writeFileSync(f.md, "{");
+        if (failure === "empty-source") writeFileSync(f.md, "{}");
+        if (failure === "late-sidecar") writeFileSync(join(f.dir, "zzz.overrides.json"), "{");
+        if (failure === "missing-sidecar") rmSync(join(f.dir, "demo.overrides.json"));
+        if (failure === "staging-write") {
+          rmSync(join(f.dir, "generation-report.json"));
+          mkdirSync(join(f.dir, "generation-report.json"));
+          writeFileSync(join(f.dir, "generation-report.json", "keep"), "previous");
+        }
+        const before = f.contents();
+        const result = f.run();
+        expect(result.exitCode).toBe(1);
+        expect(result.stderr.toString()).toContain("failed");
+        expect(f.contents()).toEqual(before);
+        if (failure === "staging-write") expect(readFileSync(join(f.dir, "generation-report.json", "keep"), "utf8")).toBe("previous");
+        expect(existsSync(`${f.dir}.previous`)).toBe(false);
+      } finally { rmSync(f.root, { recursive: true, force: true }); }
+    });
+  }
+
+  test("a late migration error cannot leave an earlier sidecar behind", () => {
+    const f = fixture();
+    try {
+      rmSync(join(f.dir, "demo.overrides.json"));
+      renameSync(join(f.dir, "demo.json"), join(f.dir, "anthropic.json"));
+      writeFileSync(join(f.dir, "zzz.json"), "{}");
+      const before = f.contents();
+      expect(f.run(["--migrate-overrides", "--version", "1.0.1"]).exitCode).toBe(1);
+      expect(f.contents()).toEqual(before);
+    } finally { rmSync(f.root, { recursive: true, force: true }); }
+  });
+
+  test("recovery keeps the complete new generation after the second rename", () => {
+    const f = fixture();
+    try {
+      mkdirSync(`${f.dir}.previous`);
+      writeFileSync(join(`${f.dir}.previous`, "manifest.json"), '{"version":"0.9.0"}');
+      const before = f.contents();
+      expect(f.run(["--verify-version", "1.0.0"]).exitCode).toBe(0);
+      expect(f.contents()).toEqual(before);
+      expect(existsSync(`${f.dir}.previous`)).toBe(false);
+    } finally { rmSync(f.root, { recursive: true, force: true }); }
+  });
+
+  test("publishes a complete generation whose files match its manifest", () => {
+    const f = fixture();
+    try {
+      const sidecar = readFileSync(join(f.dir, "demo.overrides.json"), "utf8");
+      const result = f.run();
+      expect(result.exitCode).toBe(0);
+      const m = JSON.parse(readFileSync(join(f.dir, "manifest.json"), "utf8"));
+      expect(m.version).toBe("1.0.1");
+      expect(m.files.demo.sha256).toBe(createHash("sha256").update(readFileSync(join(f.dir, "demo.json"))).digest("hex"));
+      expect(JSON.parse(readFileSync(join(f.dir, "generation-report.json"), "utf8")).issues).toEqual([]);
+      expect(readFileSync(join(f.dir, "demo.overrides.json"), "utf8")).toBe(sidecar);
+      expect(existsSync(`${f.dir}.previous`)).toBe(false);
+      expect(existsSync(`${f.dir}.staging`)).toBe(false);
+    } finally { rmSync(f.root, { recursive: true, force: true }); }
+  });
+
+  test("refuses a live generator's lock without touching its staging files", () => {
+    const f = fixture();
+    try {
+      expect(createLockFile(`${f.dir}.lock`)).toBe(true);
+      mkdirSync(`${f.dir}.staging`);
+      writeFileSync(join(`${f.dir}.staging`, "sentinel"), "busy");
+      const before = f.contents();
+      expect(f.run().exitCode).toBe(1);
+      expect(f.contents()).toEqual(before);
+      expect(readFileSync(join(`${f.dir}.staging`, "sentinel"), "utf8")).toBe("busy");
+    } finally { releaseLockFile(`${f.dir}.lock`); rmSync(f.root, { recursive: true, force: true }); }
+  });
+
+  test("recovers a process killed between directory renames before checking the version", () => {
+    const f = fixture();
+    try {
+      const before = f.contents();
+      renameSync(f.dir, `${f.dir}.previous`);
+      mkdirSync(`${f.dir}.staging`);
+      writeFileSync(join(`${f.dir}.staging`, "incomplete"), "partial");
+      // A process-boundary fixture: the lock's owner has really exited.
+      const lockScript = `import { createLockFile } from ${JSON.stringify(join(f.root, "src/memory-lock.ts"))}; createLockFile(${JSON.stringify(`${f.dir}.lock`)});`;
+      expect(Bun.spawnSync([process.execPath, "-e", lockScript]).exitCode).toBe(0);
+      expect(f.run(["--verify-version", "1.0.0"]).exitCode).toBe(0);
+      expect(f.contents()).toEqual(before);
+      expect(existsSync(`${f.dir}.previous`)).toBe(false);
+      expect(existsSync(`${f.dir}.staging`)).toBe(false);
+    } finally { rmSync(f.root, { recursive: true, force: true }); }
+  }, 15_000);
 });

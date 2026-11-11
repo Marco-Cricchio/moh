@@ -73,6 +73,10 @@ The order matters:
    and commit the catalog files. This is the only moment the catalog is written
    in a release cycle — no pipeline regenerates it (ADR-0046) — and the release
    PR is where a human reviews the prices the release ships.
+   Generation failures leave the published catalog unchanged. All catalog
+   commands serialize with an owner lock and recover interrupted publication
+   before reading files; rerun the command after a terminated generator.
+   Do not run a build while a catalog generation is publishing its directory.
 4. **Open the release PR to `develop`**, wait for green, merge.
 5. **Promote `develop` to `main`** (the production branch) at the merged commit.
 6. **Tag `vX.Y.Z`** there and push the tag.
