@@ -175,6 +175,17 @@ its own reasons — `rate-limited`, a spent quota — from one that failed
 transiently — `transient`, a 5xx or a network error that survived `fetch`'s
 single retry; anything else the server answered stays `http-status`.
 
+Tools supplied through `SessionConfig.tools` may return text or
+`{ output: string, image: { mime: string, base64: string } }` from `execute`
+(synchronously or asynchronously). The runner sends image bytes only when the
+serving model declares image input; otherwise it returns the label with a
+visible explanation that the pixels are not available to the model. Accepted
+images are stored in `tool_result.image` and restored on replay. Built-in
+`read` uses this path for PNG, JPEG, WebP, and GIF files up to 5 MB; browser
+screenshots use the same path. Direct callers of `Tool.execute` must narrow
+the result before using string methods. Extension-contributed tools keep
+their separate text-only contract.
+
 Each `model_call` also carries a per-attempt audit record (#1099): stable
 `callId`/`attemptId`/`turnId` correlation, `retryIndex` within the logical
 call and `chainIndex` on the serving chain, explicit start/end timestamps

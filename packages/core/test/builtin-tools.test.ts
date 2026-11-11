@@ -21,6 +21,7 @@ const tools = builtinTools();
 describe("built-in tools", () => {
   test("bash runs a command and captures output", async () => {
     const out = await tools.bash.execute({ command: "echo hello-tools" }, ctx);
+    if (typeof out !== "string") throw new Error("expected a text tool result");
     expect(out.trim()).toBe("hello-tools");
   });
 
@@ -89,6 +90,7 @@ describe("built-in tools", () => {
       Promise.resolve(tools.bash.execute({ command: "sleep 60 & echo hi" }, ctx)),
       3_000,
     );
+    if (typeof out !== "string") throw new Error("expected a text tool result");
     expect(out.trim()).toBe("hi");
   });
 
@@ -158,6 +160,7 @@ describe("built-in tools", () => {
     const out = await tools.grep.execute({ pattern: "TODO" }, ctx);
     expect(out).toContain("TODO fix");
     const none = await tools.grep.execute({ pattern: "zzzz" }, ctx);
+    if (typeof none !== "string") throw new Error("expected a text tool result");
     expect(none.trim()).toBe("");
   });
 
@@ -167,6 +170,7 @@ describe("built-in tools", () => {
     const out = await tools.grep.execute({ path: "src/a.ts", pattern: "TODO" }, ctx);
     expect(out).toContain("src/a.ts:2:// TODO fix");
     const none = await tools.grep.execute({ path: "src/a.ts", pattern: "zzzz" }, ctx);
+    if (typeof none !== "string") throw new Error("expected a text tool result");
     expect(none.trim()).toBe("");
   });
 
@@ -176,6 +180,7 @@ describe("built-in tools", () => {
     const out = await tools.glob.execute({ pattern: "src/a.ts" }, ctx);
     expect(out).toContain("a.ts");
     const miss = await tools.glob.execute({ pattern: "src/missing.ts" }, ctx);
+    if (typeof miss !== "string") throw new Error("expected a text tool result");
     expect(miss.trim()).toBe("");
   });
 
@@ -965,6 +970,7 @@ describe("bash re-run guard (#304)", () => {
     const out = await guardTools.bash.execute({ command: "make test" }, repoCtx);
     expect(out).toContain("(pass) one");
     expect(out).toMatch(/\[full output saved: .+\]/);
+    if (typeof out !== "string") throw new Error("expected a text tool result");
     const file = out.match(/\[full output saved: (.+)\]/)?.[1]!;
     expect(statSync(file).mode & 0o077).toBe(0);
     expect(statSync(join(file, "..")).mode & 0o777).toBe(0o700);
@@ -1103,5 +1109,41 @@ describe("run ledger pruning window (characterization, #1437)", () => {
     expect(existsSync(stale)).toBe(false);
     expect(existsSync(fresh)).toBe(true);
     expect(existsSync(other)).toBe(true);
+  });
+});
+
+describe("read images (#1727)", () => {
+  test.each([ ["png", "image/png"], ["JPG", "image/jpeg"], ["webp", "image/webp"], ["gif", "image/gif"] ])("preserves bytes for %s images without text truncation", async (ext, mime) => {
+    const dir = mkdtempSync(join(tmpdir(), "moh-read-image-"));
+    try {
+      const bytes = Buffer.alloc(100_000, 0x89);
+      const path = `picture.${ext}`;
+      writeFileSync(join(dir, path), bytes);
+      const result = await builtinTools().read.execute({ path }, { ...ctx, cwd: dir });
+      expect(result).toEqual({ output: `[image: ${path}]`, image: { mime, base64: bytes.toString("base64") } });
+    } finally { rmSync(dir, { recursive: true, force: true }); }
+  });
+
+  test("rejects oversized images and line ranges", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "moh-read-image-"));
+    try {
+      writeFileSync(join(dir, "large.png"), Buffer.alloc(5 * 1024 * 1024 + 1));
+      writeFileSync(join(dir, "small.png"), Buffer.from("image"));
+      const read = builtinTools().read;
+      const context = { ...ctx, cwd: dir };
+      await expect(read.execute({ path: "large.png" }, context)).rejects.toThrow("5MB attachment cap");
+      await expect(read.execute({ path: "small.png", offset: 1 }, context)).rejects.toThrow("do not support offset or limit");
+      await expect(read.execute({ path: "small.png", limit: 1 }, context)).rejects.toThrow("do not support offset or limit");
+    } finally { rmSync(dir, { recursive: true, force: true }); }
+  });
+
+  test("rejects an image symlink outside the project", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "moh-read-image-"));
+    try {
+      mkdirSync(join(dir, "project"));
+      writeFileSync(join(dir, "outside.png"), Buffer.from("image"));
+      symlinkSync(join(dir, "outside.png"), join(dir, "project", "link.png"));
+      await expect(builtinTools().read.execute({ path: "link.png" }, { ...ctx, cwd: join(dir, "project") })).rejects.toThrow();
+    } finally { rmSync(dir, { recursive: true, force: true }); }
   });
 });

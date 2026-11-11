@@ -94,6 +94,12 @@ oversized mentions produce a visible warning instead of silently disappearing.
 
 ## Image mentions and previews
 
+You can also ask moh to analyze images in a folder without mentioning each
+file: it can list the paths with `glob` and open them with `read`. Image reads
+support PNG, JPEG, WebP, and GIF up to 5 MB per file; line ranges do not apply.
+The serving model must support image input, otherwise the tool explains that
+it cannot see the pixels.
+
 Image paths can be mentioned in the same way. moh passes an image to a model
 only when the selected model is declared able to accept images; otherwise it
 keeps a visible text reference and explains why. Terminals with supported image
