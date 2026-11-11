@@ -1,3 +1,4 @@
+import { IMAGE_MENTION_CAP, IMAGE_MENTION_MIMES, mimeForPath } from "./mentions";
 import { z } from "zod";
 import type { AskUserAnswer, AskUserQuestion, AskUserSetResult, Tool } from "./types";
 import type { FilesystemScope } from "./permissions";
@@ -630,7 +631,7 @@ function covers(ranges: Array<[number, number]>, from: number, to: number): bool
  * nudges while a real edit re-serves in full. */
 const readTool = (ledger: Map<string, ServedRead>): Tool<z.infer<typeof readSchema>> => ({
   name: "read",
-  description: "Read a text file (optionally a line range) inside the project root or a skill directory.",
+  description: "Read a text file (optionally a line range) or view a PNG, JPEG, WebP, or GIF image inside the project root or a skill directory. To analyze images in a folder, list them with glob and read each image. Images are limited to 5 MB and require a model with image input.",
   inputSchema: readSchema,
   async execute(args, ctx) {
     const abs = inAnyRoot(args.path, [ctx.cwd, ...(ctx.skillDirs ?? [])], ctx.filesystemScope);
@@ -638,6 +639,16 @@ const readTool = (ledger: Map<string, ServedRead>): Tool<z.infer<typeof readSche
     if (st?.isDirectory()) throw new Error(`path is a directory, not a file: ${args.path} (open a file inside it, or grep it)`);
     if (st === null || !st.isFile()) throw new Error(`no such path: ${args.path}`);
     const file = Bun.file(abs);
+    const mime = mimeForPath(abs);
+    if (IMAGE_MENTION_MIMES.has(mime)) {
+      if (args.offset !== undefined || args.limit !== undefined) {
+        throw new Error("image reads do not support offset or limit; read the whole image");
+      }
+      if (file.size > IMAGE_MENTION_CAP) throw new Error("image exceeds the 5MB attachment cap and was not attached");
+      const bytes = Buffer.from(await file.arrayBuffer());
+      if (bytes.length > IMAGE_MENTION_CAP) throw new Error("image exceeds the 5MB attachment cap and was not attached");
+      return { output: `[image: ${args.path}]`, image: { mime, base64: bytes.toString("base64") } };
+    }
     const text = await file.text();
     const lines = text.split("\n");
     const from = args.offset ?? 1;

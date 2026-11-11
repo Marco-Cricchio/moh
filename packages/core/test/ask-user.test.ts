@@ -139,6 +139,7 @@ describe("ask_user tool (question set, ADR-0019 / #411)", () => {
       answers: [{ labels: ["SQLite"] }, { labels: ["Fly", "Hetzner"], other: "plus a staging env" }],
     }));
     const out = await tools.ask_user.execute(batch, ctx);
+    if (typeof out !== "string") throw new Error("expected a text tool result");
     expect(out.split("\n")).toEqual([
       "Which database should we target?: SQLite",
       "Where do we deploy?: Fly, Hetzner + Other: plus a staging env",

@@ -587,9 +587,9 @@ ctx.onToolResult(["fetch", "browser"], ({ name, output }) => {
   `external content withheld by <extension>: <reason>`, and the model can
   read it — tell it *why*, and it will explain the block to the user
   instead of fetching the same page again.
-- **Text results only.** A result carrying an image (a browser screenshot)
+- **Text results only.** A result carrying an image (a local image read or browser screenshot)
   is never offered: an image is not judgeable text, and withholding a
-  screenshot the model explicitly asked for would break the calling turn.
+  image the model explicitly asked for would break the calling turn.
 - **Every hook sees it, the first withhold wins** (deterministic by
   registration order) — unlike `onToolCall` and `beforeTurn`, where the
   *decision* is exclusive. A hook that throws, or one that returns a

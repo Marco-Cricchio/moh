@@ -10,7 +10,7 @@
  */
 import { isAbsolute, resolve } from "node:path";
 import { z } from "zod";
-import type { Tool } from "./types";
+import type { Tool, ToolOutput } from "./types";
 import { BrowserSession, BrowserUnavailableError, OutOfRootError, inRootPath } from "./browser";
 
 /** #1508: how long a click / key press waits for a download event that lands after it returns. */
@@ -78,36 +78,6 @@ interface BrowserToolOptions {
   askOutOfRoot?: (path: string) => Promise<boolean> | boolean;
 }
 
-/**
- * #778: the structured result a `screenshot` execute() resolves to. The
- * tool contract stays `Promise<string>` for every other action; the
- * runner recognizes this shape (branded) and promotes it to a typed
- * image part on the tool_result when the serving model declares image
- * input (#490 pipeline), else renders the visible chip + warning text.
- */
-interface ScreenshotToolResult {
-  __screenshot: true;
-  mime: string;
-  base64: string;
-  target: string;
-}
-
-/** Structural recognition — never a blind cast of arbitrary tool output. */
-export function isScreenshotToolResult(value: unknown): value is ScreenshotToolResult {
-  return (
-    typeof value === "object" && value !== null &&
-    (value as { __screenshot?: unknown }).__screenshot === true &&
-    typeof (value as { mime?: unknown }).mime === "string" &&
-    typeof (value as { base64?: unknown }).base64 === "string" &&
-    typeof (value as { target?: unknown }).target === "string"
-  );
-}
-
-/** #778: the visible chip when the model cannot receive images. */
-export function renderScreenshotChip(result: ScreenshotToolResult): string {
-  return `[screenshot: ${result.target}] image captured (${result.mime}, ${Math.round((result.base64.length * 3) / 4 / 1024)} KB) — the serving model does not support image input, so the pixels are not visible to it`;
-}
-
 export function browserTool(options: BrowserToolOptions): Tool<z.infer<typeof readTierSchema>> {
   // #775: the permission gate matches `browser:<action> <url-glob>` rules
   // against the page URL at action time; the args the gate sees are
@@ -166,7 +136,7 @@ export function browserTool(options: BrowserToolOptions): Tool<z.infer<typeof re
     async execute(args) {
       const { session } = options;
       const root = options.root ?? process.cwd();
-      const run = async (): Promise<string> => {
+      const run = async (): Promise<ToolOutput> => {
         switch (args.action) {
           case "navigate":
             return await session.navigate(args.url, options.allowedHosts);
@@ -207,13 +177,13 @@ export function browserTool(options: BrowserToolOptions): Tool<z.infer<typeof re
           // promotes to a typed image part (or the chip fallback).
           case "screenshot": {
             const shot = await session.screenshot(args.ref, args.fullPage === true);
-            return { __screenshot: true, mime: shot.mime, base64: shot.base64, target: shot.target } as unknown as string;
+            return { output: `[screenshot: ${shot.target}]`, image: { mime: shot.mime, base64: shot.base64 } };
           }
           case "eval_js":
             return await session.evalJs(args.expression);
         }
       };
-      let result: string;
+      let result: ToolOutput;
       try {
         result = await run();
       } catch (e) {
@@ -243,10 +213,10 @@ export function browserTool(options: BrowserToolOptions): Tool<z.infer<typeof re
           break; // a broken staging must not loop; report and stop
         }
       }
-      let out = result;
-      if (staged.length) out += `\n\n${staged.map((p) => `Download staged: ${p} (read it with the read tool)`).join("\n")}`;
-      if (failed.length) out += `\n\nDownload staging failed: ${failed.join("; ")}`;
-      return out;
+      let suffix = "";
+      if (staged.length) suffix += `\n\n${staged.map((p) => `Download staged: ${p} (read it with the read tool)`).join("\n")}`;
+      if (failed.length) suffix += `\n\nDownload staging failed: ${failed.join("; ")}`;
+      return typeof result === "string" ? result + suffix : { ...result, output: result.output + suffix };
     },
   };
 }

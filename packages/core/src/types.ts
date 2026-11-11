@@ -1017,6 +1017,12 @@ export interface ToolContext {
   askUser?: (set: AskUserQuestionSet) => Promise<AskUserSetResult> | AskUserSetResult;
 }
 
+/** Image bytes returned by a tool, persisted alongside its readable label. */
+export type ToolOutput = string | {
+  output: string;
+  image: { mime: string; base64: string };
+};
+
 /** The tool contract every built-in and extension tool implements. */
 export interface Tool<A = any> {
   name: string;
@@ -1038,7 +1044,7 @@ export interface Tool<A = any> {
    * live page URL and an element description). Absent = use the args.
    */
   gateArgs?: (args: A) => unknown;
-  execute(args: A, ctx: ToolContext): Promise<string> | string;
+  execute(args: A, ctx: ToolContext): Promise<ToolOutput> | ToolOutput;
 }
 
 /** A tool invocation requested by the model. */

@@ -21,7 +21,7 @@ import {
   verifyNavigable,
 } from "../src/browser";
 import { BROWSER_SETUP_HINT } from "../src/browser-toolchain";
-import { browserTool, isScreenshotToolResult } from "../src/browser-tool";
+import { browserTool } from "../src/browser-tool";
 import { builtinTools } from "../src/builtin-tools";
 
 const ctx = (cwd: string) => ({ signal: new AbortController().signal, cwd, onProgress: () => {} });
@@ -953,17 +953,17 @@ describe("#778: screenshot", () => {
     await s2.dispose();
   });
 
-  test("tool dispatch: image-capable runner gets the branded structured result path via the tool layer", async () => {
+  test("tool dispatch: image-capable runner gets the structured image result via the tool layer", async () => {
     const fake = fakePlaywright({ snapshot: () => "- main [ref=e1]" });
     (fake.page as any).screenshot = async () => Buffer.from("png");
     const session = new BrowserSession({ home: mkdtempSync(join(tmpdir(), "moh-browser-")), playwright: fake });
     await session.navigate("http://localhost:3000");
     const tool = browserTool({ session });
     const out = await tool.execute({ action: "screenshot" }, ctx("/tmp"));
-    expect(isScreenshotToolResult(out)).toBe(true);
-    if (isScreenshotToolResult(out)) {
-      expect(out.mime).toBe("image/png");
-      expect(out.target).toBe("viewport");
+    expect(typeof out).toBe("object");
+    if (typeof out !== "string") {
+      expect(out.image.mime).toBe("image/png");
+      expect(out.output).toBe("[screenshot: viewport]");
     }
     await session.dispose();
   });

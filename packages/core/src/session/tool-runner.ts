@@ -2,9 +2,6 @@ import type { AgentEvent, Message, ReasoningStreamEvent, Tool, ToolContext, Tool
 import { resolve, relative, sep } from "node:path";
 import { z } from "zod";
 import { splitCommandSegments, type FilesystemScope } from "../permissions";
-// #778: the screenshot brand lives next to the tool that produces it — a
-// type-only cycle would be fine, but the guard is a runtime function.
-import { isScreenshotToolResult, renderScreenshotChip } from "../browser-tool";
 import { CANCELLED_TOOL_OUTPUT } from "../types";
 import type { SessionConfig, PermissionAskContext } from "./config";
 
@@ -449,16 +446,13 @@ export class ToolRunner {
     };
     try {
       const output = await tool.execute(args, ctx);
-      // #778: a screenshot result is promoted to a typed image part when
-      // the serving model declares image input (#490 pipeline); the chip
-      // + warning text is the visible fallback otherwise. ToolOutcome
-      // gains the optional image either way — the event log's
-      // tool_result and the feedback parts both carry it.
-      if (isScreenshotToolResult(output)) {
+      // Both local image reads and browser screenshots use the same
+      // capability gate, event payload, and provider feedback path.
+      if (typeof output !== "string") {
         if (this.#imageCapable?.() === true) {
-          return { callId, ok: true, output: `[screenshot: ${output.target}]`, image: { mime: output.mime, base64: output.base64 } };
+          return { callId, ok: true, output: output.output, image: output.image };
         }
-        return { callId, ok: true, output: renderScreenshotChip(output) };
+        return { callId, ok: true, output: `${output.output} — the serving model does not support image input, so the pixels are not visible to it` };
       }
       return { callId, ok: true, output: String(output) };
     } catch (err) {

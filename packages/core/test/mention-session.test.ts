@@ -173,3 +173,61 @@ describe("image mentions (#490, vision note 4)", () => {
     }
   });
 });
+
+describe("image reads without mentions (#1727)", () => {
+  for (const mode of ["vision", "text-only", "denied"] as const) {
+    test(`${mode}: discovered images use tool feedback and survive replay`, async () => {
+      const dir = mkdtempSync(join(tmpdir(), "moh-image-read-"));
+      try {
+        const bytes = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aL1sAAAAASUVORK5CYII=", "base64");
+        writeFileSync(join(dir, "pixel.png"), bytes);
+        const requests: Message[][] = [];
+        let step = 0;
+        const provider: Provider = {
+          name: "capture",
+          async *stream(messages) {
+            requests.push(structuredClone(messages));
+            if (step < 2) {
+              const call = step++ === 0
+                ? { callId: "list", name: "glob", args: { pattern: "*.png" } }
+                : { callId: "view", name: "read", args: { path: "pixel.png" } };
+              yield { type: "tool_calls", calls: [call] };
+              yield { type: "finish", reason: "tool_calls" };
+            } else {
+              yield { type: "text_delta", text: "done" };
+              yield { type: "finish", reason: "stop" };
+            }
+          },
+        };
+        const { builtinTools } = await import("../src/builtin-tools");
+        const { replayMessages } = await import("../src/session-store");
+        const session = createSession({
+          provider, cwd: dir, tools: builtinTools(), images: { imageCapable: mode !== "text-only" },
+          ...(mode === "denied" ? { permissions: { runtimeRules: [{ tool: "read", path: "pixel.png", effect: "deny" as const, tier: "runtime" as const }] } } : {}),
+        });
+        expect((await session.send("Analyze all images in this folder")).status).toBe("done");
+        expect(requests).toHaveLength(3);
+        const event = session.history().find(e => e.type === "tool_result" && e.callId === "view");
+        if (event?.type !== "tool_result") throw new Error("missing read result");
+        const feedback = requests.at(-1)!.flatMap(m => m.parts).find(p => p.kind === "tool_result" && p.callId === "view");
+        const replayed = replayMessages(session.history()).flatMap(m => m.parts).find(p => p.kind === "tool_result" && p.callId === "view");
+        // Replay currently omits errorKind; compare the image and readable
+        // content contract, including denied results.
+        if (feedback?.kind !== "tool_result") throw new Error("missing feedback");
+        const { errorKind: _errorKind, ...content } = feedback;
+        expect(replayed).toEqual(content);
+        if (mode === "vision") {
+          expect(event.image).toEqual({ mime: "image/png", base64: bytes.toString("base64") });
+          expect(feedback).toMatchObject({ image: event.image, ok: true });
+        } else {
+          expect(event.image).toBeUndefined();
+          expect(JSON.stringify(requests)).not.toContain(bytes.toString("base64"));
+          if (mode === "denied") expect(event.ok).toBe(false);
+          else expect(event.output).toContain("pixels are not visible");
+        }
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+      }
+    });
+  }
+});

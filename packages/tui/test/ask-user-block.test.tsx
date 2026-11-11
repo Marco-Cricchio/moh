@@ -67,6 +67,7 @@ function askUserTool(seen: string[]): Record<string, Tool> {
       ...base.ask_user,
       execute: async (args: any, ctx: any) => {
         const out = await base.ask_user.execute(args, ctx);
+        if (typeof out !== "string") throw new Error("expected a text tool result");
         seen.push(out);
         return out;
       },
