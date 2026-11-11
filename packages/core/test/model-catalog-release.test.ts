@@ -1,19 +1,13 @@
 /**
- * #1005: the release-time half of the catalog pipeline. Two properties of
- * the generator's CLI, both offline through its documented local-snapshot
- * seam (`--models-dev` / `--open-router`) and neither touching the network
- * or writing a file:
- *
- * - the drift compare that exits non-zero stays reachable — the daily
- *   schedule and catalog PRs run it (`--check`);
- * - the tag-time job (`--freshness`) reports instead of judging, and no
- *   flavour of drift turns it red: what it can measure it states, what it
- *   cannot reads `--`, and the only failure left is a source that could not
- *   be fetched at all.
+ * Catalog CLI contracts (#1005, #1731, #1733): offline reproduction,
+ * independent PR-base guards, advisory live review and recoverable publication.
+ * Local snapshot fixtures and a fetch-denying preload keep tests offline.
  */
 import { describe, expect, test } from "bun:test";
 import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { gzipSync } from "node:zlib";
 import { createHash } from "node:crypto";
+import { execFileSync } from "node:child_process";
 import { createLockFile, releaseLockFile } from "../src/memory-lock";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -86,7 +80,7 @@ describe("#1005 release-time catalog freshness", () => {
     expect(out).not.toContain("0 price(s)");
   });
 
-  test("the drift compare keeps its non-zero exit for the scheduled and PR runs", () => {
+  test("the explicit-input drift compare keeps its non-zero exit", () => {
     const check = run(["--check"]);
     expect(check.code).toBe(1);
     expect(check.err).toContain("generation failed");
@@ -105,8 +99,8 @@ describe("catalog publication safety", () => {
   // output directory, filesystem mock, network, or modified checkout.
   function fixture() {
     const root = mkdtempSync(join(tmpdir(), "moh-catalog-publication-"));
-    const scripts = join(root, "scripts");
-    const src = join(root, "src");
+    const scripts = join(root, "packages/core/scripts");
+    const src = join(root, "packages/core/src");
     const dir = join(src, "model-catalogs");
     mkdirSync(scripts, { recursive: true });
     mkdirSync(dir, { recursive: true });
@@ -116,15 +110,17 @@ describe("catalog publication safety", () => {
     const overrides = { schemaVersion: 1, provider: "demo", source: { modelsDev: ["demo"] }, rows: { one: { author: "test", date: "2026-11-11", reason: "fixture", name: "One", api: "openai-completions" } } };
     writeFileSync(join(dir, "demo.json"), JSON.stringify({ "openai-completions": { one: row } }));
     writeFileSync(join(dir, "demo.overrides.json"), JSON.stringify(overrides));
-    writeFileSync(join(dir, "manifest.json"), JSON.stringify({ version: "1.0.0" }));
+    writeFileSync(join(dir, "manifest.json"), JSON.stringify({ version: "1.0.0", files: { demo: { sha256: createHash("sha256").update(readFileSync(join(dir, "demo.json"))).digest("hex") } } }));
     writeFileSync(join(dir, "generation-report.json"), "previous report\n");
     const md = join(root, "models-dev.json");
     const or = join(root, "open-router.json");
     writeFileSync(md, JSON.stringify({ demo: { models: { one: { id: "one", limit: { context: 200 }, cost: { input: 2, output: 4 } } } } }));
     writeFileSync(or, '{"data":[]}');
-    const run = (args: string[] = ["--version", "1.0.1"]) => Bun.spawnSync([process.execPath, join(scripts, "build-model-catalogs.ts"), ...args, "--models-dev", md, "--open-router", or], { stdout: "pipe", stderr: "pipe" });
+    const preload = join(root, "no-network.ts");
+    writeFileSync(preload, 'globalThis.fetch = async () => { throw new Error("network access forbidden by test"); };');
+    const run = (args: string[] = ["--version", "1.0.1"], withInputs = true) => Bun.spawnSync([process.execPath, "--preload", preload, join(scripts, "build-model-catalogs.ts"), ...args, ...(withInputs ? ["--models-dev", md, "--open-router", or] : [])], { stdout: "pipe", stderr: "pipe" });
     const contents = () => Object.fromEntries(readdirSync(dir).filter(name => statSync(join(dir, name)).isFile()).sort().map(name => [name, readFileSync(join(dir, name), "utf8")]));
-    return { root, dir, md, or, run, contents };
+    return { root, src, dir, md, or, run, contents };
   }
 
   for (const failure of ["missing-source", "invalid-json", "empty-source", "late-sidecar", "missing-sidecar", "staging-write"] as const) {
@@ -208,6 +204,86 @@ describe("catalog publication safety", () => {
     } finally { releaseLockFile(`${f.dir}.lock`); rmSync(f.root, { recursive: true, force: true }); }
   });
 
+  test("pinned verification reproduces all artifacts with fetch forbidden and raw inputs removed", () => {
+    const f = fixture();
+    try {
+      expect(f.run().exitCode).toBe(0);
+      rmSync(f.md); rmSync(f.or);
+      const before = f.contents();
+      const result = f.run(["--check"], false);
+      expect(result.stderr.toString()).toBe("");
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout.toString()).toContain("pinned inputs (offline)");
+      expect(f.contents()).toEqual(before);
+    } finally { rmSync(f.root, { recursive: true, force: true }); }
+  }, 15_000);
+
+  for (const target of ["snapshot", "snapshot-hash", "snapshot-digest", "catalog", "report", "manifest"] as const) {
+    test(`pinned verification rejects tampered ${target} without rewriting it`, () => {
+      const f = fixture();
+      try {
+        expect(f.run().exitCode).toBe(0);
+        const m = JSON.parse(readFileSync(join(f.dir, "manifest.json"), "utf8"));
+        if (target === "snapshot") writeFileSync(join(f.dir, "sources", `${m.sources[0].sha256}.json.gz`), "broken gzip");
+        if (target === "snapshot-hash") writeFileSync(join(f.dir, "sources", `${m.sources[0].sha256}.json.gz`), gzipSync(Buffer.from("{}")));
+        if (target === "snapshot-digest") {
+          delete m.sources[0].sha256;
+          writeFileSync(join(f.dir, "manifest.json"), JSON.stringify(m));
+        }
+        if (target === "catalog") writeFileSync(join(f.dir, "demo.json"), "{}");
+        if (target === "report") writeFileSync(join(f.dir, "generation-report.json"), "{}");
+        if (target === "manifest") {
+          m.rows = {};
+          writeFileSync(join(f.dir, "manifest.json"), JSON.stringify(m));
+        }
+        const before = f.contents();
+        const result = f.run(["--check"], false);
+        expect(result.exitCode).toBe(1);
+        if (target === "snapshot-hash") expect(result.stderr.toString()).toContain("snapshot hash mismatch");
+        if (target === "snapshot-digest") expect(result.stderr.toString()).toContain("missing or invalid pinned snapshot digest");
+        expect(f.contents()).toEqual(before);
+      } finally { rmSync(f.root, { recursive: true, force: true }); }
+    }, 15_000);
+  }
+
+  test("live review reports rejected guards and candidates without publishing", () => {
+    const f = fixture();
+    try {
+      writeFileSync(f.md, JSON.stringify({ demo: { models: { newcomer: { id: "newcomer" } } } }));
+      const before = f.contents();
+      const path = join(f.root, "review.json");
+      const result = f.run(["--freshness", "--report", path]);
+      expect(result.exitCode).toBe(0);
+      const report = JSON.parse(readFileSync(path, "utf8"));
+      expect(report.status).toBe("rejected");
+      expect(report.guardFailures.length).toBeGreaterThan(0);
+      expect(report.analysis.candidates).toContainEqual({ provider: "demo", source: "models.dev", namespace: "demo", id: "newcomer" });
+      expect(f.contents()).toEqual(before);
+    } finally { rmSync(f.root, { recursive: true, force: true }); }
+  }, 15_000);
+
+  test("PR base guards cannot be erased by rewriting the output and its manifest together", () => {
+    const f = fixture();
+    try {
+      const git = (...args: string[]) => execFileSync("git", args, { cwd: f.root, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
+      git("init"); git("config", "user.name", "Catalog Test"); git("config", "user.email", "catalog@example.invalid");
+      git("add", "."); git("commit", "-m", "baseline");
+      const base = git("rev-parse", "HEAD");
+      const sidecar = JSON.parse(readFileSync(join(f.dir, "demo.overrides.json"), "utf8"));
+      sidecar.rows = {};
+      writeFileSync(join(f.dir, "demo.overrides.json"), JSON.stringify(sidecar));
+      writeFileSync(join(f.dir, "demo.json"), "{}");
+      const m = JSON.parse(readFileSync(join(f.dir, "manifest.json"), "utf8"));
+      m.files.demo.sha256 = createHash("sha256").update("{}").digest("hex");
+      writeFileSync(join(f.dir, "manifest.json"), JSON.stringify(m));
+      expect(f.run().exitCode).toBe(0);
+      const result = f.run(["--check", "--baseline", base], false);
+      expect(result.exitCode).toBe(1);
+      expect(result.stderr.toString()).toContain("PR base:");
+      expect(result.stderr.toString()).toContain("does not declare");
+    } finally { rmSync(f.root, { recursive: true, force: true }); }
+  }, 15_000);
+
   test("an occupied reclamation marker is never removed by a contender", () => {
     const f = fixture();
     try {
@@ -234,7 +310,7 @@ describe("catalog publication safety", () => {
       mkdirSync(`${f.dir}.staging`);
       writeFileSync(join(`${f.dir}.staging`, "incomplete"), "partial");
       // A process-boundary fixture: the lock's owner has really exited.
-      const lockScript = `import { createLockFile } from ${JSON.stringify(join(f.root, "src/memory-lock.ts"))}; createLockFile(${JSON.stringify(`${f.dir}.lock`)});`;
+      const lockScript = `import { createLockFile } from ${JSON.stringify(join(f.src, "memory-lock.ts"))}; createLockFile(${JSON.stringify(`${f.dir}.lock`)});`;
       expect(Bun.spawnSync([process.execPath, "-e", lockScript]).exitCode).toBe(0);
       expect(f.run(["--verify-version", "1.0.0"]).exitCode).toBe(0);
       expect(f.contents()).toEqual(before);

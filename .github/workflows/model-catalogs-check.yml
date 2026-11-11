@@ -1,28 +1,4 @@
-# ADR-0046 (#959, amended by #1005): the model catalog is owned by moh and
-# generated from declared aggregators (models.dev primary, OpenRouter
-# hole-filling) plus a hand-maintained `<provider>.overrides.json` sidecar
-# per catalog.
-#
-# This job is the DRIFT COMPARE: it rebuilds the catalogs from the live
-# sources and compares them with the committed tree, exiting non-zero on
-# drift. It NEVER writes and NEVER regenerates — generation stays local and
-# human-invoked, because a rebuild is a data change that deserves review.
-#
-# It runs daily (drift shows up within hours, not weeks: measured windows of
-# ~4-5h on OpenRouter), on PRs touching the catalog or the generator, and on
-# manual dispatch. A red here means one of two things, both worth a look:
-#   - an upstream change since the catalogs were generated (a regeneration is
-#     due), or
-#   - a committed catalog edited by hand instead of through its sidecar.
-#
-# The release pipeline no longer runs this compare as a gate: at every tag it
-# reports freshness instead (`--freshness` in release.yml) — the committed
-# catalog's age, how many files moved, how many guard findings — and never
-# fails on drift. A red at the tag told nobody anything when three of four
-# tags were red by default (#1005).
-#
-# A source outage makes the generator exit non-zero with "generation failed";
-# that is "did not regenerate", never "regenerated with less".
+# ADR-0046: verify reviewed inputs separately from observing changing sources.
 name: model-catalogs-check
 
 on:
@@ -33,14 +9,29 @@ on:
       - "packages/core/scripts/model-catalog-build.ts"
       - ".github/workflows/model-catalogs-check.yml"
   schedule:
-    # Daily: the catalog is release-pinned, so staleness must be visible
-    # between releases rather than only when someone touches it, and the
-    # measured drift window is hours rather than weeks.
     - cron: "0 6 * * *"
   workflow_dispatch:
 
 jobs:
   check:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - run: bun install --frozen-lockfile
+      - name: Reproduce reviewed artifacts offline and guard changes against the PR base
+        env:
+          CATALOG_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: bun packages/core/scripts/build-model-catalogs.ts --check --baseline "$CATALOG_BASE_SHA"
+
+  monitor:
+    if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -49,5 +40,14 @@ jobs:
         with:
           bun-version: latest
       - run: bun install --frozen-lockfile
-      - name: Rebuild and compare (no write)
-        run: bun packages/core/scripts/build-model-catalogs.ts --check
+      - name: Report live source changes without rewriting the catalog
+        run: |
+          set -o pipefail
+          bun packages/core/scripts/build-model-catalogs.ts --freshness --report catalog-review.json | tee -a "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: catalog-source-review
+          path: catalog-review.json
+          if-no-files-found: warn
+          retention-days: 30
