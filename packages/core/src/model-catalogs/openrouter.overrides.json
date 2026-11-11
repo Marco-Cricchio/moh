@@ -1678,25 +1678,10 @@
       }
     },
     "inception/mercury-2": {
-      "author": "moh migration (#959)",
-      "date": "2026-09-24",
-      "reason": "labels and row identity are moh-owned (ADR-0046): never aggregator-supplied",
-      "api": "openai-completions",
-      "baseUrl": "https://openrouter.ai/api/v1",
-      "name": "Inception: Mercury 2",
-      "thinkingLevelMap": {
-        "off": null,
-        "minimal": null,
-        "low": "low",
-        "medium": "medium",
-        "high": "high",
-        "xhigh": null,
-        "max": null
-      },
-      "compat": {
-        "supportsDeveloperRole": false,
-        "thinkingFormat": "openrouter"
-      }
+      "author": "moh release v0.66.2",
+      "date": "2026-11-11",
+      "reason": "The declared aggregator no longer lists this model; rebuilding loses its context window or metered rate. Retire the row rather than ship incomplete capabilities or freeze stale values (ADR-0046, #1005).",
+      "retired": true
     },
     "inception/mercury-2.5-preview": {
       "author": "moh migration (#959)",
@@ -2055,51 +2040,27 @@
       }
     },
     "minimax/minimax-m1": {
-      "author": "moh migration (#959)",
-      "date": "2026-09-24",
-      "reason": "labels and row identity are moh-owned (ADR-0046): never aggregator-supplied",
-      "api": "openai-completions",
-      "baseUrl": "https://openrouter.ai/api/v1",
-      "name": "MiniMax: MiniMax M1",
-      "compat": {
-        "supportsDeveloperRole": false,
-        "thinkingFormat": "openrouter"
-      }
+      "author": "moh release v0.66.2",
+      "date": "2026-11-11",
+      "reason": "The declared aggregator no longer lists this model; rebuilding loses its context window or metered rate. Retire the row rather than ship incomplete capabilities or freeze stale values (ADR-0046, #1005).",
+      "retired": true
     },
     "minimax/minimax-m2": {
-      "author": "moh migration (#959)",
-      "date": "2026-09-24",
-      "reason": "labels and row identity are moh-owned (ADR-0046): never aggregator-supplied",
-      "api": "openai-completions",
-      "baseUrl": "https://openrouter.ai/api/v1",
-      "name": "MiniMax: MiniMax M2",
-      "thinkingLevelMap": {
-        "off": null
-      },
-      "compat": {
-        "supportsDeveloperRole": false,
-        "thinkingFormat": "openrouter"
-      }
+      "author": "moh release v0.66.2",
+      "date": "2026-11-11",
+      "reason": "The declared aggregator no longer lists this model; rebuilding loses its context window or metered rate. Retire the row rather than ship incomplete capabilities or freeze stale values (ADR-0046, #1005).",
+      "retired": true
     },
     "minimax/minimax-m2.1": {
-      "author": "moh migration (#959)",
-      "date": "2026-09-24",
-      "reason": "labels and row identity are moh-owned (ADR-0046): never aggregator-supplied",
-      "api": "openai-completions",
-      "baseUrl": "https://openrouter.ai/api/v1",
-      "name": "MiniMax: MiniMax M2.1",
-      "thinkingLevelMap": {
-        "off": null
-      },
-      "compat": {
-        "supportsDeveloperRole": false,
-        "thinkingFormat": "openrouter"
-      }
+      "author": "moh release v0.66.2",
+      "date": "2026-11-11",
+      "reason": "The declared aggregator no longer lists this model; rebuilding loses its context window or metered rate. Retire the row rather than ship incomplete capabilities or freeze stale values (ADR-0046, #1005).",
+      "retired": true
     },
     "minimax/minimax-m2.5": {
-      "author": "moh migration (#959)",
-      "date": "2026-09-24",
-      "reason": "labels and row identity are moh-owned (ADR-0046): never aggregator-supplied",
+      "author": "moh release v0.66.2",
+      "date": "2026-11-11",
+      "reason": "labels and row identity are moh-owned (ADR-0046): never aggregator-supplied; accept the declared upstream context correction observed during the v0.66.2 rebuild: contextWindow 204800 → 200000",
       "api": "openai-completions",
       "baseUrl": "https://openrouter.ai/api/v1",
       "name": "MiniMax: MiniMax M2.5",
@@ -2109,12 +2070,13 @@
       "compat": {
         "supportsDeveloperRole": false,
         "thinkingFormat": "openrouter"
-      }
+      },
+      "acceptContextShrink": true
     },
     "minimax/minimax-m2.7": {
-      "author": "moh migration (#959)",
-      "date": "2026-09-24",
-      "reason": "labels and row identity are moh-owned (ADR-0046): never aggregator-supplied",
+      "author": "moh release v0.66.2",
+      "date": "2026-11-11",
+      "reason": "labels and row identity are moh-owned (ADR-0046): never aggregator-supplied; accept the declared upstream context correction observed during the v0.66.2 rebuild: contextWindow 204800 → 196608",
       "api": "openai-completions",
       "baseUrl": "https://openrouter.ai/api/v1",
       "name": "MiniMax: MiniMax M2.7",
@@ -2124,7 +2086,8 @@
       "compat": {
         "supportsDeveloperRole": false,
         "thinkingFormat": "openrouter"
-      }
+      },
+      "acceptContextShrink": true
     },
     "minimax/minimax-m2.7:free": {
       "author": "moh migration (#959)",
@@ -2686,9 +2649,9 @@
       }
     },
     "nvidia/nemotron-3-super-120b-a12b": {
-      "author": "moh migration (#959)",
-      "date": "2026-09-24",
-      "reason": "labels and row identity are moh-owned (ADR-0046): never aggregator-supplied",
+      "author": "moh release v0.66.2",
+      "date": "2026-11-11",
+      "reason": "labels and row identity are moh-owned (ADR-0046): never aggregator-supplied; accept the declared upstream context correction observed during the v0.66.2 rebuild: contextWindow 1048576 → 262144",
       "api": "openai-completions",
       "baseUrl": "https://openrouter.ai/api/v1",
       "name": "NVIDIA: Nemotron 3 Super",
@@ -2704,7 +2667,8 @@
       "compat": {
         "supportsDeveloperRole": false,
         "thinkingFormat": "openrouter"
-      }
+      },
+      "acceptContextShrink": true
     },
     "nvidia/nemotron-3-super-120b-a12b:free": {
       "author": "moh (release v0.66.1)",
@@ -4169,52 +4133,28 @@
       }
     },
     "poolside/laguna-s-2.1": {
-      "author": "moh migration (#959)",
-      "date": "2026-09-24",
-      "reason": "labels and row identity are moh-owned (ADR-0046): never aggregator-supplied",
-      "api": "openai-completions",
-      "baseUrl": "https://openrouter.ai/api/v1",
-      "name": "Poolside: Laguna S 2.1",
-      "compat": {
-        "supportsDeveloperRole": false,
-        "thinkingFormat": "openrouter"
-      }
+      "author": "moh release v0.66.2",
+      "date": "2026-11-11",
+      "reason": "The declared aggregator no longer lists this model; rebuilding loses its context window or metered rate. Retire the row rather than ship incomplete capabilities or freeze stale values (ADR-0046, #1005).",
+      "retired": true
     },
     "poolside/laguna-s-2.1:free": {
-      "author": "moh migration (#959)",
-      "date": "2026-09-24",
-      "reason": "labels and row identity are moh-owned (ADR-0046): never aggregator-supplied",
-      "api": "openai-completions",
-      "baseUrl": "https://openrouter.ai/api/v1",
-      "name": "Poolside: Laguna S 2.1 (free)",
-      "compat": {
-        "supportsDeveloperRole": false,
-        "thinkingFormat": "openrouter"
-      }
+      "author": "moh release v0.66.2",
+      "date": "2026-11-11",
+      "reason": "The declared aggregator no longer lists this model; rebuilding loses its context window or metered rate. Retire the row rather than ship incomplete capabilities or freeze stale values (ADR-0046, #1005).",
+      "retired": true
     },
     "poolside/laguna-xs-2.1": {
-      "author": "moh migration (#959)",
-      "date": "2026-09-24",
-      "reason": "labels and row identity are moh-owned (ADR-0046): never aggregator-supplied",
-      "api": "openai-completions",
-      "baseUrl": "https://openrouter.ai/api/v1",
-      "name": "Poolside: Laguna XS 2.1",
-      "compat": {
-        "supportsDeveloperRole": false,
-        "thinkingFormat": "openrouter"
-      }
+      "author": "moh release v0.66.2",
+      "date": "2026-11-11",
+      "reason": "The declared aggregator no longer lists this model; rebuilding loses its context window or metered rate. Retire the row rather than ship incomplete capabilities or freeze stale values (ADR-0046, #1005).",
+      "retired": true
     },
     "poolside/laguna-xs-2.1:free": {
-      "author": "moh migration (#959)",
-      "date": "2026-09-24",
-      "reason": "labels and row identity are moh-owned (ADR-0046): never aggregator-supplied",
-      "api": "openai-completions",
-      "baseUrl": "https://openrouter.ai/api/v1",
-      "name": "Poolside: Laguna XS 2.1 (free)",
-      "compat": {
-        "supportsDeveloperRole": false,
-        "thinkingFormat": "openrouter"
-      }
+      "author": "moh release v0.66.2",
+      "date": "2026-11-11",
+      "reason": "The declared aggregator no longer lists this model; rebuilding loses its context window or metered rate. Retire the row rather than ship incomplete capabilities or freeze stale values (ADR-0046, #1005).",
+      "retired": true
     },
     "qwen/qwen-2.5-72b-instruct": {
       "author": "moh migration (#959)",
@@ -4229,16 +4169,10 @@
       }
     },
     "qwen/qwen-2.5-7b-instruct": {
-      "author": "moh migration (#959)",
-      "date": "2026-09-24",
-      "reason": "labels and row identity are moh-owned (ADR-0046): never aggregator-supplied",
-      "api": "openai-completions",
-      "baseUrl": "https://openrouter.ai/api/v1",
-      "name": "Qwen: Qwen2.5 7B Instruct",
-      "compat": {
-        "supportsDeveloperRole": false,
-        "thinkingFormat": "openrouter"
-      }
+      "author": "moh release v0.66.2",
+      "date": "2026-11-11",
+      "reason": "The declared aggregator no longer lists this model; rebuilding loses its context window or metered rate. Retire the row rather than ship incomplete capabilities or freeze stale values (ADR-0046, #1005).",
+      "retired": true
     },
     "qwen/qwen-plus": {
       "author": "moh migration (#959)",
@@ -5203,25 +5137,10 @@
       }
     },
     "thinkingmachines/inkling-small:free": {
-      "author": "moh migration (#959)",
-      "date": "2026-09-24",
-      "reason": "labels and row identity are moh-owned (ADR-0046): never aggregator-supplied",
-      "api": "openai-completions",
-      "baseUrl": "https://openrouter.ai/api/v1",
-      "name": "Thinking Machines: Inkling Small (free)",
-      "thinkingLevelMap": {
-        "off": "none",
-        "minimal": "minimal",
-        "low": "low",
-        "medium": "medium",
-        "high": "high",
-        "xhigh": null,
-        "max": "max"
-      },
-      "compat": {
-        "supportsDeveloperRole": false,
-        "thinkingFormat": "openrouter"
-      }
+      "author": "moh release v0.66.2",
+      "date": "2026-11-11",
+      "reason": "The declared aggregator no longer lists this model; rebuilding loses its context window or metered rate. Retire the row rather than ship incomplete capabilities or freeze stale values (ADR-0046, #1005).",
+      "retired": true
     },
     "thinkingmachines/inkling:batch": {
       "author": "moh migration (#959)",
@@ -5258,25 +5177,10 @@
       }
     },
     "thinkingmachines/inkling:free": {
-      "author": "moh migration (#959)",
-      "date": "2026-09-24",
-      "reason": "labels and row identity are moh-owned (ADR-0046): never aggregator-supplied",
-      "api": "openai-completions",
-      "baseUrl": "https://openrouter.ai/api/v1",
-      "name": "Thinking Machines: Inkling (free)",
-      "thinkingLevelMap": {
-        "off": "none",
-        "minimal": "minimal",
-        "low": "low",
-        "medium": "medium",
-        "high": "high",
-        "xhigh": null,
-        "max": "max"
-      },
-      "compat": {
-        "supportsDeveloperRole": false,
-        "thinkingFormat": "openrouter"
-      }
+      "author": "moh release v0.66.2",
+      "date": "2026-11-11",
+      "reason": "The declared aggregator no longer lists this model; rebuilding loses its context window or metered rate. Retire the row rather than ship incomplete capabilities or freeze stale values (ADR-0046, #1005).",
+      "retired": true
     },
     "upstage/solar-pro-3": {
       "author": "moh (release v0.66.1)",
@@ -5409,28 +5313,30 @@
       }
     },
     "xiaomi/mimo-v2.5": {
-      "author": "moh migration (#959)",
-      "date": "2026-09-24",
-      "reason": "labels and row identity are moh-owned (ADR-0046): never aggregator-supplied",
+      "author": "moh release v0.66.2",
+      "date": "2026-11-11",
+      "reason": "labels and row identity are moh-owned (ADR-0046): never aggregator-supplied; accept the declared upstream context correction observed during the v0.66.2 rebuild: contextWindow 1050000 → 1000000",
       "api": "openai-completions",
       "baseUrl": "https://openrouter.ai/api/v1",
       "name": "Xiaomi: MiMo-V2.5",
       "compat": {
         "supportsDeveloperRole": false,
         "thinkingFormat": "openrouter"
-      }
+      },
+      "acceptContextShrink": true
     },
     "xiaomi/mimo-v2.5-pro": {
-      "author": "moh migration (#959)",
-      "date": "2026-09-24",
-      "reason": "labels and row identity are moh-owned (ADR-0046): never aggregator-supplied",
+      "author": "moh release v0.66.2",
+      "date": "2026-11-11",
+      "reason": "labels and row identity are moh-owned (ADR-0046): never aggregator-supplied; accept the declared upstream context correction observed during the v0.66.2 rebuild: contextWindow 1050000 → 1024000",
       "api": "openai-completions",
       "baseUrl": "https://openrouter.ai/api/v1",
       "name": "Xiaomi: MiMo-V2.5-Pro",
       "compat": {
         "supportsDeveloperRole": false,
         "thinkingFormat": "openrouter"
-      }
+      },
+      "acceptContextShrink": true
     },
     "z-ai/glm-4.5": {
       "author": "moh migration (#959)",
