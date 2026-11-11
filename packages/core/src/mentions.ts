@@ -15,9 +15,9 @@ export const MENTION_TEXT_CAP = 200 * 1024;
 const MENTION_DIR_ENTRY_CAP = 5000;
 /** ~5MB cap for image attachments (vision note 4): above it the mention
  * is refused with a visible warning, never a turn error. */
-const IMAGE_MENTION_CAP = 5 * 1024 * 1024;
+export const IMAGE_MENTION_CAP = 5 * 1024 * 1024;
 /** Image formats promoted to image content blocks (vision note 4). */
-const IMAGE_MENTION_MIMES = new Set(["image/png", "image/jpeg", "image/webp", "image/gif"]);
+export const IMAGE_MENTION_MIMES = new Set(["image/png", "image/jpeg", "image/webp", "image/gif"]);
 
 /** One structured attachment on a `user_message` event (#488). */
 export type MentionAttachment =

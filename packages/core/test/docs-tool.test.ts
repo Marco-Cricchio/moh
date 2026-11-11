@@ -39,6 +39,7 @@ describe("moh_docs tool (#1194, ADR-0072)", () => {
     const out = await run({ op: "search", query: "overlay" });
     expect(out).toContain(`Matches for "overlay"`);
     // every excerpt row is prefixed with its page id
+    if (typeof out !== "string") throw new Error("expected a text tool result");
     for (const line of out.split("\n")) {
       if (line.startsWith("[")) expect(line).toMatch(/^\[[a-z-]+\] /);
     }

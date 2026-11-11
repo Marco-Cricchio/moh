@@ -339,7 +339,7 @@ describe("#778: browser screenshot image-part pipeline", () => {
     inputSchema: undefined,
     async execute() {
       return brand
-        ? { __screenshot: true, mime: "image/png", base64: "cG5nLWJ5dGVz", target: "viewport" } as unknown as string
+        ? { output: "[screenshot: viewport]", image: { mime: "image/png", base64: "cG5nLWJ5dGVz" } }
         : "fallback";
     },
   });

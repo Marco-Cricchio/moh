@@ -141,7 +141,7 @@ describe("onToolResult (ADR-0034)", () => {
       description: "screenshot",
       inputSchema: undefined,
       execute: () =>
-        ({ __screenshot: true, mime: "image/png", base64: "AAA", target: "https://x" }) as unknown as string,
+        ({ output: "[screenshot: https://x]", image: { mime: "image/png", base64: "AAA" } }),
     };
     const rt = await runtime((ctx) => {
       ctx.onToolResult([], () => {

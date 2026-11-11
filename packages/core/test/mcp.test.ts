@@ -60,6 +60,7 @@ describe("McpRuntime (stdio)", () => {
       );
       await runtime.ensureStarted();
       const output = await runtime.tools[`mcp__${name}__env`]!.execute({}, { signal: new AbortController().signal, cwd: process.cwd(), onProgress: () => {} });
+      if (typeof output !== "string") throw new Error("expected a text tool result");
       const env = JSON.parse(output) as Record<string, string>;
       expect(Object.keys(env).every((key) => expected.has(key))).toBe(true);
       expect(env.CUSTOM).toBe("present");

@@ -40,6 +40,7 @@ describe("read-only git tool (#1165)", () => {
     const out = await git.execute({ args: ["status", "--porcelain"] }, ctx);
     expect(out).toBe("");
     const head = await git.execute({ args: ["rev-parse", "HEAD"] }, ctx);
+    if (typeof head !== "string") throw new Error("expected a text tool result");
     expect(head.trim()).toMatch(/^[0-9a-f]{40}$/);
   });
 
@@ -93,6 +94,7 @@ describe("read-only git tool (#1165)", () => {
 
   test("allowed read-only config reads pass; config writes do not", async () => {
     const email = await git.execute({ args: ["config", "--get", "user.email"] }, ctx);
+    if (typeof email !== "string") throw new Error("expected a text tool result");
     expect(email.trim()).toBe("t@t");
     expect(() => git.execute({ args: ["config", "user.email", "x@x"] }, ctx)).toThrow(/read-only/i);
   });
@@ -136,6 +138,7 @@ describe("read-only git tool (#1165)", () => {
     const log = await git.execute({ args: ["log", "--oneline", "-5"] }, ctx);
     expect(log).toContain("init");
     const name = await git.execute({ args: ["config", "--get", "user.name"] }, ctx);
+    if (typeof name !== "string") throw new Error("expected a text tool result");
     expect(name.trim()).toBe("t");
   });
 
