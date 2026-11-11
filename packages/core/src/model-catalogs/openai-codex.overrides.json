@@ -85,7 +85,7 @@
     "gpt-5.5": {
       "author": "moh migration (#959)",
       "date": "2026-09-24",
-      "reason": "labels and row identity are moh-owned (ADR-0046): never aggregator-supplied; field the aggregators cannot supply: carried from the previous catalog: maxTokens; metered rate kept from the previous catalog: the aggregator record carries no usable rate for this row (zero-only, or no tiers where the row has tiered rates), so the metered entry stays hand-maintained; contextWindow corrected to 272000 \u2014 the endpoint's own listing (observed 2026-09-26, every listed Codex model carries context_window: 272000) contradicts the aggregators' 1,050,000 (ADR-0049 door two, #1032)",
+      "reason": "labels and row identity are moh-owned (ADR-0046): never aggregator-supplied; field the aggregators cannot supply: carried from the previous catalog: maxTokens; metered rate kept from the previous catalog: the aggregator record carries no usable rate for this row (zero-only, or no tiers where the row has tiered rates), so the metered entry stays hand-maintained; contextWindow corrected to 272000 — the endpoint's own listing (observed 2026-09-26, every listed Codex model carries context_window: 272000) contradicts the aggregators' 1,050,000 (ADR-0049 door two, #1032)",
       "name": "GPT-5.5",
       "thinkingLevelMap": {
         "xhigh": "xhigh",
@@ -111,13 +111,12 @@
           }
         ]
       },
-      "contextWindow": 272000,
-      "acceptContextShrink": true
+      "contextWindow": 272000
     },
     "gpt-5.6-luna": {
       "author": "moh migration (#959)",
       "date": "2026-09-24",
-      "reason": "labels and row identity are moh-owned (ADR-0046): never aggregator-supplied; field the aggregators cannot supply: carried from the previous catalog: maxTokens; metered rate kept from the previous catalog: the aggregator record carries no usable rate for this row (zero-only, or no tiers where the row has tiered rates), so the metered entry stays hand-maintained; contextWindow corrected to 272000 \u2014 the endpoint's own listing (observed 2026-09-26, every listed Codex model carries context_window: 272000) contradicts the aggregators' 1,050,000 (ADR-0049 door two, #1032)",
+      "reason": "labels and row identity are moh-owned (ADR-0046): never aggregator-supplied; field the aggregators cannot supply: carried from the previous catalog: maxTokens; metered rate kept from the previous catalog: the aggregator record carries no usable rate for this row (zero-only, or no tiers where the row has tiered rates), so the metered entry stays hand-maintained; contextWindow corrected to 272000 — the endpoint's own listing (observed 2026-09-26, every listed Codex model carries context_window: 272000) contradicts the aggregators' 1,050,000 (ADR-0049 door two, #1032)",
       "name": "GPT-5.6 Luna",
       "thinkingLevelMap": {
         "xhigh": "xhigh",
@@ -145,13 +144,12 @@
           }
         ]
       },
-      "contextWindow": 272000,
-      "acceptContextShrink": true
+      "contextWindow": 272000
     },
     "gpt-5.6-sol": {
       "author": "moh migration (#959)",
       "date": "2026-09-24",
-      "reason": "labels and row identity are moh-owned (ADR-0046): never aggregator-supplied; field the aggregators cannot supply: carried from the previous catalog: maxTokens; metered rate kept from the previous catalog: the aggregator record carries no usable rate for this row (zero-only, or no tiers where the row has tiered rates), so the metered entry stays hand-maintained; contextWindow corrected to 272000 \u2014 the endpoint's own listing (observed 2026-09-26, every listed Codex model carries context_window: 272000) contradicts the aggregators' 1,050,000 (ADR-0049 door two, #1032)",
+      "reason": "labels and row identity are moh-owned (ADR-0046): never aggregator-supplied; field the aggregators cannot supply: carried from the previous catalog: maxTokens; metered rate kept from the previous catalog: the aggregator record carries no usable rate for this row (zero-only, or no tiers where the row has tiered rates), so the metered entry stays hand-maintained; contextWindow corrected to 272000 — the endpoint's own listing (observed 2026-09-26, every listed Codex model carries context_window: 272000) contradicts the aggregators' 1,050,000 (ADR-0049 door two, #1032)",
       "name": "GPT-5.6 Sol",
       "thinkingLevelMap": {
         "xhigh": "xhigh",
@@ -179,13 +177,12 @@
           }
         ]
       },
-      "contextWindow": 272000,
-      "acceptContextShrink": true
+      "contextWindow": 272000
     },
     "gpt-5.6-terra": {
       "author": "moh migration (#959)",
       "date": "2026-09-24",
-      "reason": "labels and row identity are moh-owned (ADR-0046): never aggregator-supplied; field the aggregators cannot supply: carried from the previous catalog: maxTokens; metered rate kept from the previous catalog: the aggregator record carries no usable rate for this row (zero-only, or no tiers where the row has tiered rates), so the metered entry stays hand-maintained; contextWindow corrected to 272000 \u2014 the endpoint's own listing (observed 2026-09-26, every listed Codex model carries context_window: 272000) contradicts the aggregators' 1,050,000 (ADR-0049 door two, #1032)",
+      "reason": "labels and row identity are moh-owned (ADR-0046): never aggregator-supplied; field the aggregators cannot supply: carried from the previous catalog: maxTokens; metered rate kept from the previous catalog: the aggregator record carries no usable rate for this row (zero-only, or no tiers where the row has tiered rates), so the metered entry stays hand-maintained; contextWindow corrected to 272000 — the endpoint's own listing (observed 2026-09-26, every listed Codex model carries context_window: 272000) contradicts the aggregators' 1,050,000 (ADR-0049 door two, #1032)",
       "name": "GPT-5.6 Terra",
       "thinkingLevelMap": {
         "xhigh": "xhigh",
@@ -213,8 +210,7 @@
           }
         ]
       },
-      "contextWindow": 272000,
-      "acceptContextShrink": true
+      "contextWindow": 272000
     }
   }
 }

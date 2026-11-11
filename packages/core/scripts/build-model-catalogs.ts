@@ -19,22 +19,23 @@
  * tag — the release PR carries the regenerated catalog (ADR-0046 amendment,
  * #1005).
  *
- * `--check` rebuilds and compares, failing on drift: the daily schedule, PRs
- * touching the catalog, and manual dispatch. `--freshness` runs the same
- * compare and reports instead of failing — the release pipeline's job, which
- * states the committed catalog's age against the tagged commit and how far
- * upstream has moved, and never gates on drift — a rebuild the guards reject
- * reports less (age and drifted files, with the row-level counts as `--`)
- * instead of failing. `--verify-version` enforces the version contract
- * offline: the catalog a release ships must declare that release, because
- * `PRICING_SNAPSHOT.version` reads it.
+ * `--check` reproduces the committed snapshots offline, verifying their
+ * digests, catalog bytes, manifest and report. PR CI adds `--baseline <SHA>`
+ * to guard changes independently against the actual PR base.
+ * `--freshness [--report <file>]` observes live sources for daily/tag-time
+ * monitoring; drift is advisory and acquisition failure is an error.
+ * `--verify-version` enforces the release version contract offline.
  *
- * Offline runs (tests, CI debugging): `--models-dev <file>` and
- * `--open-router <file>` read a local snapshot instead of fetching.
+ * Explicit local inputs (tests, debugging, generation): pass both
+ * `--models-dev <file>` and `--open-router <file>` instead of fetching.
  */
-import { existsSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, unlinkSync, writeFileSync } from "node:fs";
+import { writeFileAtomic, tempPidSuffix } from "../src/fs-atomic";
+import { createLockFile, machineId, parseLockOwner, readLockFile, releaseLockFile } from "../src/memory-lock";
 import { createHash } from "node:crypto";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
+import { gzipSync, gunzipSync } from "node:zlib";
+import { execFileSync } from "node:child_process";
 import {
   buildCatalog,
   buildManifest,
@@ -58,7 +59,75 @@ import {
 
 const CATALOG_DIR = join(import.meta.dir, "../src/model-catalogs");
 const MANIFEST_FILE = join(CATALOG_DIR, "manifest.json");
-const REPORT_FILE = join(CATALOG_DIR, "generation-report.json");
+const STAGING_DIR = `${CATALOG_DIR}.staging`;
+const PREVIOUS_DIR = `${CATALOG_DIR}.previous`;
+const LOCK_FILE = `${CATALOG_DIR}.lock`;
+const RECLAIM_FILE = `${CATALOG_DIR}.reclaim`;
+
+/** All CLI modes share the same lock so no check observes a publication
+ * halfway through its directory renames. Only a confirmed dead PID on this
+ * machine is reclaimed; elapsed time or a foreign owner never grants access. */
+function acquireCatalogLock(): void {
+  if (createLockFile(LOCK_FILE)) return;
+  // Serialize dead-owner reclamation. Without this second exclusive claim,
+  // two reclaimers could both observe a dead owner and the slower one could
+  // unlink the faster one's new live lock. A killed reclaimer fails closed:
+  // its marker must be inspected/removed by the operator, never timed out.
+  if (!createLockFile(RECLAIM_FILE)) throw new Error(`catalog lock recovery is busy or interrupted; inspect ${RECLAIM_FILE}`);
+  try {
+    const owner = parseLockOwner(readLockFile(LOCK_FILE));
+    if (!owner || owner.machineId !== machineId()) throw new Error(`catalog lock owner cannot be verified: ${LOCK_FILE}`);
+    let dead = false;
+    try { process.kill(owner.pid, 0); }
+    catch (error) { dead = (error as NodeJS.ErrnoException).code === "ESRCH"; }
+    // In particular, do not treat the memory lock's cached uptime counter
+    // as boot identity: another process's larger uptime is not a reboot.
+    if (!dead) throw new Error(`catalog is locked: ${LOCK_FILE}`);
+    unlinkSync(LOCK_FILE);
+    if (!createLockFile(LOCK_FILE)) throw new Error(`catalog is locked: ${LOCK_FILE}`);
+  } finally {
+    releaseLockFile(RECLAIM_FILE);
+  }
+}
+
+/** A crash before the second rename leaves the previous directory intact;
+ * a crash after it leaves the complete new directory intact. Recovery runs
+ * before reading any artifact, including for an offline version check. */
+function recoverCatalogPublication(): void {
+  if (existsSync(PREVIOUS_DIR)) {
+    if (!existsSync(CATALOG_DIR)) renameSync(PREVIOUS_DIR, CATALOG_DIR);
+    else rmSync(PREVIOUS_DIR, { recursive: true });
+  }
+  rmSync(STAGING_DIR, { recursive: true, force: true });
+}
+
+function publishCatalog(files: Record<string, string | Buffer>): void {
+  // Sidecars and other committed inputs travel with the generated output.
+  // No published file is touched until every staging write succeeds.
+  cpSync(CATALOG_DIR, STAGING_DIR, { recursive: true, errorOnExist: true, force: false });
+  try {
+    if (Object.keys(files).some(name => name.startsWith("sources/"))) rmSync(join(STAGING_DIR, "sources"), { recursive: true, force: true });
+    for (const [name, content] of Object.entries(files)) {
+      const target = join(STAGING_DIR, name);
+      if (typeof content === "string") writeFileAtomic(target, content, { temp: tempPidSuffix });
+      else {
+        mkdirSync(dirname(target), { recursive: true });
+        // Content-addressed source blobs are new files in the private stage.
+        writeFileSync(target, content, { flag: "wx" });
+      }
+    }
+    renameSync(CATALOG_DIR, PREVIOUS_DIR);
+    try {
+      renameSync(STAGING_DIR, CATALOG_DIR);
+    } catch (error) {
+      renameSync(PREVIOUS_DIR, CATALOG_DIR);
+      throw error;
+    }
+    rmSync(PREVIOUS_DIR, { recursive: true });
+  } finally {
+    rmSync(STAGING_DIR, { recursive: true, force: true });
+  }
+}
 
 const MODELS_DEV_URL = "https://models.dev/api.json";
 const OPENROUTER_URL = "https://openrouter.ai/api/v1/models";
@@ -114,18 +183,62 @@ function hasFlag(flag: string): boolean {
 /** Reads a snapshot from a local path or fetches it, recording what was
  * used (the manifest and report name the source, its url and its fetch
  * date — a source outage must be visible, never silent). */
-async function loadSnapshot(name: string, url: string, override?: string): Promise<{ json: unknown; info: SourceSnapshotInfo }> {
-  const fetchedAt = new Date().toISOString();
-  // The recorded url is always the canonical source: a local snapshot
-  // (tests, offline debugging) must not make the manifest lie about where
-  // the committed data came from.
-  if (override !== undefined) {
-    if (!existsSync(override)) throw new Error(`${name}: ${override} does not exist`);
-    return { json: JSON.parse(readFileSync(override, "utf8")), info: { name, url, fetchedAt } };
+function snapshotBytes(digest: string | undefined): Buffer {
+  if (!digest || !/^[a-f0-9]{64}$/.test(digest)) throw new Error("missing or invalid pinned snapshot digest; regenerate the catalog");
+  const bytes = gunzipSync(readFileSync(join(CATALOG_DIR, "sources", `${digest}.json.gz`)));
+  if (sha256(bytes) !== digest) throw new Error(`snapshot hash mismatch: ${digest}`);
+  return bytes;
+}
+
+function parseSnapshot(name: string, bytes: Buffer): unknown {
+  const value: unknown = JSON.parse(bytes.toString("utf8"));
+  if (typeof value !== "object" || value === null || Array.isArray(value)) throw new Error(`${name}: expected a source object`);
+  if (name === "openrouter" && !("data" in value && Array.isArray(value.data))) throw new Error("openrouter: missing model list");
+  if (name === "models.dev") {
+    for (const [namespace, provider] of Object.entries(value)) {
+      if (typeof provider !== "object" || provider === null || !provider.models || typeof provider.models !== "object" || Array.isArray(provider.models)) throw new Error(`models.dev: invalid model list for ${namespace}`);
+    }
   }
-  const response = await fetch(url);
-  if (!response.ok) throw new Error(`${name}: ${url} answered ${response.status} ${response.statusText}`);
-  return { json: await response.json(), info: { name, url, fetchedAt } };
+  return value;
+}
+
+async function loadSnapshot(name: string, url: string, override: string | undefined, pinned: SourceSnapshotInfo | undefined, offline: boolean): Promise<{ json: unknown; bytes: Buffer; info: SourceSnapshotInfo }> {
+  if (offline && override === undefined) {
+    if (!pinned || pinned.url !== url) throw new Error(`no pinned ${name} input; regenerate the catalog`);
+    const bytes = snapshotBytes(pinned.sha256);
+    return { json: parseSnapshot(name, bytes), bytes, info: pinned };
+  }
+  let bytes: Buffer;
+  if (override !== undefined) bytes = readFileSync(override);
+  else {
+    const response = await fetch(url);
+    if (!response.ok) throw new Error(`${name}: ${url} answered ${response.status} ${response.statusText}`);
+    bytes = Buffer.from(await response.arrayBuffer());
+  }
+  return { json: parseSnapshot(name, bytes), bytes, info: { name, url, fetchedAt: new Date().toISOString(), sha256: sha256(bytes), acquisition: override === undefined ? "network" : "file" } };
+}
+
+/** Verify the published artifact bytes before using them as a baseline. */
+function verifyPublishedHashes(manifest: CommittedManifest | undefined): void {
+  for (const name of committedCatalogFiles()) {
+    const digest = manifest?.files?.[name.replace(/\.json$/, "")]?.sha256;
+    if (!digest || sha256(readFileSync(join(CATALOG_DIR, name))) !== digest) throw new Error(`${name}: published bytes do not match manifest.json`);
+  }
+}
+
+function gitBaseline(ref: string, providers: string[]): Record<string, CatalogFileJson> {
+  if (!/^[a-f0-9]{40}$/.test(ref)) throw new Error("--baseline must be a full Git commit SHA");
+  const root = execFileSync("git", ["rev-parse", "--show-toplevel"], { cwd: CATALOG_DIR, encoding: "utf8" }).trim();
+  const directory = "packages/core/src/model-catalogs";
+  const names = execFileSync("git", ["ls-tree", "--name-only", `${ref}:${directory}`], { cwd: root, encoding: "utf8" }).trim().split("\n");
+  const previous: Record<string, CatalogFileJson> = {};
+  for (const name of names) {
+    if (!name.endsWith(".json") || name.endsWith(".overrides.json") || ["manifest.json", "generation-report.json"].includes(name)) continue;
+    const provider = name.slice(0, -5);
+    if (!providers.includes(provider)) throw new Error(`base catalog ${name} has no sidecar in this change`);
+    previous[provider] = JSON.parse(execFileSync("git", ["show", `${ref}:${directory}/${name}`], { cwd: root, encoding: "utf8" }));
+  }
+  return previous;
 }
 
 function readCatalog(provider: string): CatalogFileJson | undefined {
@@ -143,7 +256,7 @@ function readOverrides(provider: string): CatalogOverrides | undefined {
   return parsed;
 }
 
-function sha256(value: string): string {
+function sha256(value: string | Buffer): string {
   return createHash("sha256").update(value).digest("hex");
 }
 
@@ -215,8 +328,11 @@ async function main(): Promise<number> {
     return 2;
   }
 
-  const modelsDev = await loadSnapshot("models.dev", MODELS_DEV_URL, argValue("--models-dev"));
-  const openRouter = await loadSnapshot("openrouter", OPENROUTER_URL, argValue("--open-router"));
+  if (argValue("--report") && !hasFlag("--freshness")) throw new Error("--report is only valid with --freshness");
+  if ((argValue("--models-dev") === undefined) !== (argValue("--open-router") === undefined)) throw new Error("pass both --models-dev and --open-router for explicit local inputs");
+  const offline = hasFlag("--check") && argValue("--models-dev") === undefined && argValue("--open-router") === undefined;
+  const modelsDev = await loadSnapshot("models.dev", MODELS_DEV_URL, argValue("--models-dev"), committedManifest?.sources?.find(source => source.name === "models.dev"), offline);
+  const openRouter = await loadSnapshot("openrouter", OPENROUTER_URL, argValue("--open-router"), committedManifest?.sources?.find(source => source.name === "openrouter"), offline);
   const snapshots: AggregatorSnapshots = {
     modelsDev: modelsDev.json as ModelsDevSnapshot,
     openRouter: openRouter.json as OpenRouterSnapshot,
@@ -232,6 +348,7 @@ async function main(): Promise<number> {
   // --- one-off migration: committed catalogs → hand-maintained sidecars ---
   if (hasFlag("--migrate-overrides")) {
     let written = 0;
+    const migrationFiles: Record<string, string> = {};
     for (const provider of readdirSync(CATALOG_DIR).filter((name) => name.endsWith(".json")).map((name) => name.replace(/\.json$/, "")).sort()) {
       const previous = readCatalog(provider);
       if (!previous) continue;
@@ -253,7 +370,7 @@ async function main(): Promise<number> {
         snapshots,
         stamp: { author: "moh migration (#959)", date: new Date().toISOString().slice(0, 10) },
       });
-      writeFileSync(join(CATALOG_DIR, `${provider}.overrides.json`), serializeJson(overrides));
+      migrationFiles[`${provider}.overrides.json`] = serializeJson(overrides);
       written += 1;
       const byCode = new Map<string, number>();
       for (const note of notes) byCode.set(note.code, (byCode.get(note.code) ?? 0) + 1);
@@ -262,9 +379,19 @@ async function main(): Promise<number> {
           (byCode.size > 0 ? ` (${[...byCode].map(([code, count]) => `${code}=${count}`).join(", ")})` : ""),
       );
     }
+    publishCatalog(migrationFiles);
     console.log(`\nmigrated ${written} catalogs — review the sidecars, then run without --migrate-overrides`);
     return 0;
   }
+
+  // Generation and pinned verification refuse a corrupted comparison base.
+  // Explicit fixture inputs and live diagnostics retain their read-only path.
+  if (offline || (!hasFlag("--check") && !hasFlag("--freshness"))) verifyPublishedHashes(committedManifest);
+  const pinnedPrevious: Record<string, CatalogFileJson> | undefined = offline
+    ? JSON.parse(snapshotBytes(committedManifest?.baselineSha256).toString("utf8")) : undefined;
+  const baseRef = argValue("--baseline");
+  if (baseRef && !hasFlag("--check")) throw new Error("--baseline is only valid with --check");
+  const reviewPrevious = baseRef ? gitBaseline(baseRef, providers) : undefined;
 
   // --- build ---
   const catalogs = [];
@@ -283,10 +410,14 @@ async function main(): Promise<number> {
         guardFailures.push(`${provider}: the sidecar declares no aggregator source`);
         continue;
       }
-      const previous = readCatalog(provider);
+      const previous = pinnedPrevious ? pinnedPrevious[provider] : readCatalog(provider);
       if (previous) previousByProvider[provider] = previous;
       const built = buildCatalog(overrides, snapshots, previous ? { previous } : {});
       catalogs.push(built);
+      if (reviewPrevious?.[provider]) {
+        const reviewed = buildCatalog(overrides, snapshots, { previous: reviewPrevious[provider] });
+        for (const issue of reviewed.issues) if (issue.level === "error") guardFailures.push(`PR base: ${provider}/${issue.id ?? ""}: ${issue.message}`);
+      }
       for (const issue of built.issues) {
         if (issue.level === "error") guardFailures.push(`${provider}${issue.id ? `/${issue.id}` : ""}: ${issue.code}: ${issue.message}`);
       }
@@ -333,6 +464,9 @@ async function main(): Promise<number> {
       rebuiltFiles: catalogs.length,
     });
     const rejected = guardFailures.length > 0;
+    const analysis = buildReport({ version, generatedAt: reference, sources, catalogs, previous: previousByProvider });
+    const reportPath = argValue("--report");
+    if (reportPath) writeFileAtomic(reportPath, serializeJson({ status: rejected ? "rejected" : "compared", freshness, analysis, guardFailures }), { temp: tempPidSuffix });
     const changes = rejected
       ? undefined
       : buildReport({
@@ -359,6 +493,9 @@ async function main(): Promise<number> {
             ],
       ),
     );
+    console.log(`source review: ${analysis.candidates.length} candidate listing(s), ${analysis.retiredReappeared.length} retired listing(s) reappeared; no rows are added or retired automatically`);
+    for (const candidate of analysis.candidates.slice(0, 20)) console.log(`  candidate: ${candidate.provider}/${candidate.id} (${candidate.source}:${candidate.namespace})`);
+    for (const id of analysis.retiredReappeared) console.log(`  retired listing reappeared: ${id}`);
     for (const failure of guardFailures) console.log(`  guard: ${failure}`);
     console.log(
       drift.length === 0 && guardFailures.length === 0
@@ -368,46 +505,52 @@ async function main(): Promise<number> {
     return 0;
   }
 
-  // --- check mode: rebuild and compare, never write ---
+  // A missing sidecar is also a partial build, even when the remaining
+  // providers build successfully. Both write and check must refuse it.
+  for (const name of committedCatalogFiles()) {
+    if (!providers.includes(name.replace(/\.json$/, ""))) failures.push(`${name}: committed catalog without a sidecar`);
+  }
+  if (failures.length > 0) {
+    console.error(`generation failed — ${failures.length} failure(s); nothing was written:`);
+    for (const failure of failures) console.error(`  ${failure}`);
+    return 1;
+  }
+
+  const hashes: Record<string, string> = {};
+  const files: Record<string, string | Buffer> = {};
+  for (const catalog of catalogs) {
+    files[`${catalog.provider}.json`] = catalog.json;
+    hashes[catalog.provider] = sha256(catalog.json);
+  }
+  const baselineBytes = Buffer.from(JSON.stringify(previousByProvider));
+  const baselineSha256 = sha256(baselineBytes);
+  const manifest = {
+    ...buildManifest({ version, generatedAt: offline ? committedManifest!.generatedAt! : new Date().toISOString(), sources, catalogs, hashes }),
+    baselineSha256,
+  };
+  const report = buildReport({ version, generatedAt: manifest.generatedAt, sources, catalogs, previous: previousByProvider });
+  files["manifest.json"] = serializeJson(manifest);
+  files["generation-report.json"] = serializeJson(report);
+
   if (hasFlag("--check")) {
-    if (failures.length > 0) {
-      console.error(`generation failed — ${failures.length} failure(s); nothing was written:`);
-      for (const failure of failures) console.error(`  ${failure}`);
-      return 1;
-    }
     const drift = collectDrift(catalogs, committedManifest);
+    if (offline) {
+      for (const name of ["manifest.json", "generation-report.json"]) {
+        if (readFileSync(join(CATALOG_DIR, name), "utf8") !== files[name]) drift.push({ file: name, message: "does not reproduce from pinned inputs" });
+      }
+    }
     if (drift.length > 0) {
       console.error(`catalog drift — ${drift.length} file(s):`);
       for (const entry of drift) console.error(`  ${entry.file}: ${entry.message}`);
       return 1;
     }
-    console.log(`catalogs match the rebuild from ${sources.map((source) => source.url).join(" + ")} (${catalogs.length} files)`);
+    console.log(`catalogs match the rebuild from ${offline ? "pinned inputs (offline)" : sources.map(source => source.url).join(" + ")} (${catalogs.length} files)`);
     return 0;
   }
 
-  // --- write catalogs + manifest + report ---
-  const hashes: Record<string, string> = {};
-  for (const catalog of catalogs) {
-    writeFileSync(join(CATALOG_DIR, `${catalog.provider}.json`), catalog.json);
-    hashes[catalog.provider] = sha256(catalog.json);
-  }
-  const manifest = buildManifest({
-    version,
-    generatedAt: new Date().toISOString(),
-    sources,
-    catalogs,
-    hashes,
-  });
-  writeFileSync(MANIFEST_FILE, serializeJson(manifest));
-
-  const report = buildReport({
-    version,
-    generatedAt: manifest.generatedAt,
-    sources,
-    catalogs,
-    previous: previousByProvider,
-  });
-  writeFileSync(REPORT_FILE, serializeJson(report));
+  for (const source of [modelsDev, openRouter]) files[`sources/${source.info.sha256}.json.gz`] = gzipSync(source.bytes);
+  files[`sources/${baselineSha256}.json.gz`] = gzipSync(baselineBytes);
+  publishCatalog(files);
 
   const warnings = catalogs.flatMap((catalog) => catalog.issues.filter((issue) => issue.level === "warning"));
   console.log(`wrote ${catalogs.length} catalogs + manifest.json + generation-report.json (moh ${version})`);
@@ -424,4 +567,18 @@ async function main(): Promise<number> {
   return 0;
 }
 
-if (import.meta.main) process.exit(await main());
+if (import.meta.main) {
+  let code = 1;
+  let locked = false;
+  try {
+    acquireCatalogLock();
+    locked = true;
+    recoverCatalogPublication();
+    code = await main();
+  } catch (error) {
+    console.error(`catalog generation failed: ${error instanceof Error ? error.message : String(error)}`);
+  } finally {
+    if (locked) releaseLockFile(LOCK_FILE);
+  }
+  process.exit(code);
+}

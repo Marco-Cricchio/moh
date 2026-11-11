@@ -5,6 +5,30 @@ All notable changes to moh are documented here. The format follows
 SemVer. Each release's GitHub Release description is extracted from the
 matching section here at tag time.
 
+## [Unreleased]
+
+## [0.66.3] - 2026-11-11
+
+### Changed
+
+- Catalog PRs reproduce pinned source snapshots offline, while scheduled
+  monitoring reports live source changes separately. Context reductions
+  require an exact reviewed transition; new retirements require evidence
+  and new or reappearing listings are reported for review (#1733).
+
+### Fixed
+
+- Startup logo gradients respect terminal color depth, preventing cyan/magenta
+  background bands on Terminal.app 2.14 across all themes while preserving
+  truecolor gradients on capable terminals (#1738).
+
+- Image reads and browser screenshots now reach OpenAI Chat Completions
+  backends as visual attachments instead of serialized JSON text. This fixes
+  the remaining `openai-compat` path in the v0.66.2 image fix (#1727).
+
+- Catalog generation refuses invalid or incomplete builds before replacing
+  published artifacts and recovers interrupted publication (#1731).
+
 ## [0.66.2] - 2026-11-11
 
 ### Changed

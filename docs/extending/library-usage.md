@@ -182,7 +182,10 @@ serving model declares image input; otherwise it returns the label with a
 visible explanation that the pixels are not available to the model. Accepted
 images are stored in `tool_result.image` and restored on replay. Built-in
 `read` uses this path for PNG, JPEG, WebP, and GIF files up to 5 MB; browser
-screenshots use the same path. Direct callers of `Tool.execute` must narrow
+screenshots use the same path. On the OpenAI Chat Completions wire, the
+adapter keeps textual tool results and sends their images in a following user
+message after the complete tool-result batch; the other wires retain native
+multimodal tool outputs. This projection does not alter stored events. Direct callers of `Tool.execute` must narrow
 the result before using string methods. Extension-contributed tools keep
 their separate text-only contract.
 

@@ -25,11 +25,12 @@ function mockModel(parts: StreamPart[], calls: any[]): LanguageModel {
   } as unknown as LanguageModel;
 }
 
-function harness(parts: StreamPart[]) {
+function harness(parts: StreamPart[], wire?: import("../src/wire").WireApi) {
   const calls: any[] = [];
   const target: RouteTarget = {
     endpoint: new Endpoint({ name: "t-openai", kind: "openai", apiKey: "k" }),
     modelId: "m",
+    ...(wire ? { wire } : {}),
   };
   const stream = aiSdkStreamFor(target, "k", undefined, mockModel(parts, calls));
   return {
@@ -171,35 +172,38 @@ describe("ai-sdk image parts (vision note 4 / #490)", () => {
 });
 
 describe("#778: screenshot pixels ride the tool-result", () => {
-  it("maps a tool_result image to a multimodal content output inside the tool-result", async () => {
-    const h = harness([finish("stop")]);
-    await h.run([
-      { role: "assistant", parts: [{ kind: "tool_call", callId: "call_s", name: "browser", args: { action: "screenshot" } }] },
-      {
-        role: "user",
-        parts: [{
-          kind: "tool_result",
-          callId: "call_s",
-          ok: true,
-          output: "[screenshot: viewport]",
-          image: { mime: "image/png", base64: "cG5n" },
-        }],
-      },
-    ]);
-    const toolMsg = h.calls[0]!.prompt.at(-1)!;
-    expect(toolMsg.role).toBe("tool");
-    expect(toolMsg.content[0]).toMatchObject({
-      type: "tool-result",
-      toolName: "browser",
-      output: {
-        type: "content",
-        value: [
-          { type: "text", text: "[screenshot: viewport]" },
-          { type: "file", data: { type: "data", data: "cG5n" }, mediaType: "image/png" },
-        ],
-      },
+  for (const wire of ["anthropic-messages", "openai-responses", "google"] as const) {
+    it(`${wire}: keeps native multimodal output inside the tool-result`, async () => {
+      const h = harness([finish("stop")], wire);
+      await h.run([
+        { role: "assistant", parts: [{ kind: "tool_call", callId: "call_s", name: "browser", args: { action: "screenshot" } }] },
+        {
+          role: "user",
+          parts: [{
+            kind: "tool_result",
+            callId: "call_s",
+            ok: true,
+            output: "[screenshot: viewport]",
+            image: { mime: "image/png", base64: "cG5n" },
+          }],
+        },
+      ]);
+      const toolMsg = h.calls[0]!.prompt.at(-1)!;
+      expect(toolMsg.role).toBe("tool");
+      expect(toolMsg.content[0]).toMatchObject({
+        type: "tool-result",
+        toolName: "browser",
+        output: {
+          type: "content",
+          value: [
+            { type: "text", text: "[screenshot: viewport]" },
+            { type: "file", data: { type: "data", data: "cG5n" }, mediaType: "image/png" },
+          ],
+        },
+      });
     });
-  });
+
+  }
 
   it("a tool_result without image keeps the plain text output", async () => {
     const h = harness([finish("stop")]);
@@ -357,4 +361,56 @@ describe("SDK retry layering (#1318)", () => {
     expect(thrown?.details).toEqual({ httpStatus: 429, retryAfterMs: 1_000 });
     expect(thrown?.message).not.toContain("Failed after");
   });
+});
+
+describe("#1727 image tool results on the actual Chat Completions wire", () => {
+  for (const reasoningWrapper of [false, true]) {
+    it(`${reasoningWrapper ? "reasoning-aware" : "standard"} compat sends pixels as user images after the complete tool batch`, async () => {
+      const bodies: any[] = [];
+      const server = Bun.serve({
+        hostname: "127.0.0.1", port: 0,
+        async fetch(request) {
+          bodies.push(await request.json());
+          return new Response(`data: ${JSON.stringify({ id: "reply", object: "chat.completion.chunk", created: 1, model: "vision", choices: [{ index: 0, delta: { role: "assistant", content: "seen" }, finish_reason: "stop" }] })}\n\ndata: [DONE]\n\n`, { headers: { "content-type": "text/event-stream" } });
+        },
+      });
+      try {
+        const stream = aiSdkStreamFor({
+          endpoint: new Endpoint({ name: "compat", kind: "openai", apiKey: "test" }),
+          modelId: "vision",
+          ...(reasoningWrapper ? { thinkingFormat: "openai-effort" as const } : {}),
+        }, "test", { baseUrl: `http://127.0.0.1:${server.port}/v1`, wire: "openai-chat" });
+        const messages: Message[] = [
+          { role: "user", parts: [{ kind: "text", text: "Analyze all images" }] },
+          { role: "assistant", parts: [
+            { kind: "tool_call", callId: "a", name: "read", args: { path: "a.png" } },
+            { kind: "tool_call", callId: "b", name: "browser", args: { action: "screenshot" } },
+            { kind: "tool_call", callId: "c", name: "read", args: { path: "notes.txt" } },
+          ] },
+          // Consecutive result messages must also preserve batch ordering.
+          { role: "user", parts: [{ kind: "tool_result", callId: "a", ok: true, output: "[image: a.png]", image: { mime: "image/png", base64: "QUJD" } }] },
+          { role: "user", parts: [
+            { kind: "tool_result", callId: "b", ok: true, output: "[screenshot]", image: { mime: "image/jpeg", base64: "REVG" } },
+            { kind: "tool_result", callId: "c", ok: true, output: "notes" },
+          ] },
+        ];
+        const saved = JSON.stringify(messages);
+        const events: StreamEvent[] = [];
+        for await (const event of stream(messages, new AbortController().signal)) events.push(event);
+        expect(events.some(e => e.type === "text_delta" && e.text === "seen")).toBe(true);
+        expect(bodies).toHaveLength(1);
+        const sent = bodies[0].messages;
+        expect(sent.map((m: any) => m.role)).toEqual(["user", "assistant", "tool", "tool", "tool", "user"]);
+        expect(sent.slice(2, 5).map((m: any) => [m.tool_call_id, m.content])).toEqual([["a", "[image: a.png]"], ["b", "[screenshot]"], ["c", "notes"]]);
+        const visual = sent.at(-1).content;
+        expect(visual.filter((p: any) => p.type === "image_url")).toEqual([
+          { type: "image_url", image_url: { url: "data:image/png;base64,QUJD" } },
+          { type: "image_url", image_url: { url: "data:image/jpeg;base64,REVG" } },
+        ]);
+        expect(visual[0].text).toContain("a");
+        expect(visual[2].text).toContain("b");
+        expect(JSON.stringify(messages)).toBe(saved);
+      } finally { await server.stop(true); }
+    });
+  }
 });

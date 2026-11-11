@@ -73,6 +73,12 @@ The order matters:
    and commit the catalog files. This is the only moment the catalog is written
    in a release cycle — no pipeline regenerates it (ADR-0046) — and the release
    PR is where a human reviews the prices the release ships.
+   Generation failures leave the published catalog unchanged. All catalog
+   commands serialize with an owner lock and recover interrupted publication
+   before reading files; rerun the command after a terminated generator.
+   If lock reclamation itself was interrupted, the error names the `.reclaim`
+   marker: verify its recorded owner has exited before removing that marker.
+   Do not run a build while a catalog generation is publishing its directory.
 4. **Open the release PR to `develop`**, wait for green, merge.
 5. **Promote `develop` to `main`** (the production branch) at the merged commit.
 6. **Tag `vX.Y.Z`** there and push the tag.
@@ -87,10 +93,43 @@ The order matters:
 8. **Verify the draft Release** — assets, checksums, notes matching the
    finalized changelog — and publish it.
 
-Between releases, the daily `model-catalogs-check` workflow is where catalog
-drift turns red; a red there means an upstream change is due to be regenerated
-(or a catalog was hand-edited instead of going through its sidecar), not that a
-release is blocked.
+Catalog PRs run `--check --baseline <PR-base-SHA>`: the check uses the
+committed, compressed source snapshots and their hashes, never live endpoints.
+It reproduces catalog bytes, manifest provenance, and the generation report;
+it also compares semantic changes against the PR base, independently of the
+baseline saved with the generation. `--check` alone is the same offline
+reproducibility check without that additional Git comparison. The release's
+version gate runs it too.
+
+Generation captures the exact source bytes and acquisition times in
+`model-catalogs/sources/`, alongside a content-addressed copy of the previous
+catalog used for the report. Commit the snapshot files with the generated
+catalog. Old snapshots are removed from the current directory on the next
+successful generation and remain available through Git history. Local input
+files (`--models-dev` / `--open-router`) are explicitly marked as file inputs;
+their acquisition time means when the pipeline read them, not an invented
+upstream publication date.
+
+Between releases, the daily `model-catalogs-check` monitor runs `--freshness`
+against live sources. Its summary and `catalog-source-review` artifact report
+changes, guard failures, candidate models, and retired listings that have
+reappeared. A source outage fails the measurement; ordinary upstream changes
+are review work, not a failure of a reproducible PR. No scheduled job commits
+changes or retires models. For the same report locally:
+
+```sh
+bun packages/core/scripts/build-model-catalogs.ts --freshness --report /tmp/catalog-review.json
+```
+
+A reduction is approved with `acceptContextShrink: { "from": 204800, "to":
+200000 }`, plus the sidecar's author/date/reason. That approval cannot accept a
+different transition. For a newly retired row, include `retirementEvidence`
+with a source URL and explain the provider/listing evidence in `reason`.
+Missing aggregator data alone is insufficient: retain the last valid
+catalog while investigating. Historical retired declarations remain
+recorded, and a reappearing listing is reported for review rather than silently
+restored. New source listings are candidates only; compatibility and thinking
+maps still require moh-owned declarations.
 
 ## Extending moh
 
