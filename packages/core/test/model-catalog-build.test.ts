@@ -291,7 +291,7 @@ describe("#959 guards", () => {
   test("a window the committed catalog had cannot disappear (#1004), with or without the shrink accepted", () => {
     // The aggregator record is gone: the build produces no window at all.
     const upstream = snapshots({ modelsDev: { demo: md({ "demo-1": { id: "demo-1", cost: { input: 1, output: 2 } } }) } });
-    const hatched = buildCatalog(sidecar({ rows: { "demo-1": row({ acceptContextShrink: true }) } }), upstream, { previous });
+    const hatched = buildCatalog(sidecar({ rows: { "demo-1": row({ acceptContextShrink: { from: 100, to: 50 } }) } }), upstream, { previous });
     const lost = hatched.issues.find((i) => i.code === "context-window-lost");
     expect(lost?.level).toBe("error");
     // The remedy is the declaration: the hatch has no number to accept.
@@ -305,7 +305,7 @@ describe("#959 guards", () => {
 
   test("the shrink escape hatch accepts a smaller number, and only a number (#1004)", () => {
     const upstream = snapshots({ modelsDev: { demo: md({ "demo-1": { id: "demo-1", cost: { input: 1, output: 2 }, limit: { context: 50 } } }) } });
-    const hatched = buildCatalog(sidecar({ rows: { "demo-1": row({ acceptContextShrink: true }) } }), upstream, { previous });
+    const hatched = buildCatalog(sidecar({ rows: { "demo-1": row({ acceptContextShrink: { from: 100, to: 50 } }) } }), upstream, { previous });
     expect(hatched.issues).toEqual([]);
     expect(hatched.file["openai-completions"]!["demo-1"]!.contextWindow).toBe(50);
   });
@@ -330,7 +330,7 @@ describe("#959 guards", () => {
   test("a retired row leaves the catalog, and only a declaration removes one (#1005)", () => {
     // The declaration is what authorizes the removal: with it, the row is
     // written nowhere and none of the presence guards fire against it.
-    const retired = buildCatalog(sidecar({ rows: { "demo-1": row({ retired: true }), "demo-2": row() } }), snapshots({}), { previous });
+    const retired = buildCatalog(sidecar({ rows: { "demo-1": row({ retired: true, retirementEvidence: "https://provider.example/retirements/demo-1" }), "demo-2": row() } }), snapshots({}), { previous });
     expect(retired.issues).toEqual([]);
     expect(retired.file["openai-completions"]!["demo-1"]).toBeUndefined();
     expect(retired.file["openai-completions"]!["demo-2"]).toBeDefined();
@@ -430,7 +430,7 @@ describe("#959 migration (committed catalog → sidecar)", () => {
       snapshots: snapshots({ modelsDev: { demo: md({ "demo-1": { id: "demo-1", limit: { context: 200000 } } }) } }),
       stamp,
     });
-    expect(overrides.rows["demo-1"]!.acceptContextShrink).toBe(true);
+    expect(overrides.rows["demo-1"]!.acceptContextShrink).toEqual({ from: 1000000, to: 200000 });
     expect(notes.map((n) => n.code)).toEqual(["context-shrink-accepted"]);
   });
 
@@ -475,8 +475,9 @@ describe("#959 manifest and report", () => {
 
   test("the report carries coverage deltas, absent ids and shrinks", () => {
     const built = buildCatalog(
-      sidecar({ rows: { "demo-1": row({ acceptContextShrink: true }), "demo-2": row() } }),
+      sidecar({ rows: { "demo-1": row({ acceptContextShrink: { from: 100, to: 50 } }), "demo-2": row() } }),
       snapshots({ modelsDev: { demo: md({ "demo-1": { id: "demo-1", cost: { input: 1, output: 2 }, limit: { context: 50 } } }) } }),
+      { previous: { "openai-completions": { "demo-1": { id: "demo-1", contextWindow: 100 } } } },
     );
     const report = buildReport({
       version: "0.50.0",
@@ -591,7 +592,7 @@ describe("#959 manifest and report", () => {
       sources: [],
       catalogs: [
         buildCatalog(
-          sidecar({ rows: { "demo-1": row({ acceptContextShrink: true }) } }),
+          sidecar({ rows: { "demo-1": row({ acceptContextShrink: { from: 100, to: 50 } }) } }),
           snapshots({ modelsDev: { demo: md({ "demo-1": { id: "demo-1", limit: { context: 50 } } }) } }),
           { previous: previous.demo },
         ),
@@ -612,5 +613,33 @@ describe("#959 manifest and report", () => {
         },
       }),
     ).toEqual({ rows: 3, pricing: 2, contextWindow: 0, maxTokens: 0, reasoning: 0, input: 0 });
+  });
+});
+
+describe("bounded catalog decisions (#1733)", () => {
+  const previous = { api: { model: { id: "model", contextWindow: 100, cost: { input: 1, output: 2 } } } };
+  const source = (context: number) => snapshots({ modelsDev: { demo: md({ model: { id: "model", limit: { context }, cost: { input: 1, output: 2 } } }) } });
+  test("an approved transition does not authorize a different reduction or baseline", () => {
+    const overrides = sidecar({ rows: { model: row({ acceptContextShrink: { from: 100, to: 50 } }) } });
+    expect(buildCatalog(overrides, source(50), { previous }).issues).toEqual([]);
+    expect(buildCatalog(overrides, source(40), { previous }).issues.some(i => i.code === "context-window-regression")).toBe(true);
+    expect(buildCatalog(overrides, source(50), { previous: { api: { model: { id: "model", contextWindow: 80 } } } }).issues.some(i => i.code === "context-window-regression")).toBe(true);
+  });
+  test("legacy permanent grants and invalid transitions are refused", () => {
+    for (const approval of [true, { from: 100, to: 0 }, { from: 100, to: 200 }]) {
+      expect(buildCatalog(sidecar({ rows: { model: row({ acceptContextShrink: approval }) } }), source(50), { previous }).issues.some(i => i.code === "invalid-context-approval")).toBe(true);
+    }
+  });
+  test("new retirement requires evidence even when the source disappears", () => {
+    const rejected = buildCatalog(sidecar({ rows: { model: row({ retired: true }) } }), snapshots({}), { previous });
+    expect(rejected.issues.some(i => i.code === "retirement-evidence-missing")).toBe(true);
+    const approved = buildCatalog(sidecar({ rows: { model: row({ retired: true, retirementEvidence: "https://provider.example/retirement" }) } }), snapshots({}), { previous });
+    expect(approved.issues).toEqual([]);
+  });
+  test("new and reappearing listings are review candidates, never automatic catalog edits", () => {
+    const built = buildCatalog(sidecar({ rows: { retired: row({ retired: true }) } }), snapshots({ modelsDev: { demo: md({ retired: { id: "retired" }, fresh: { id: "fresh" } }) } }));
+    expect(built.file).toEqual({});
+    expect(built.retiredReappeared).toEqual(["retired"]);
+    expect(built.candidates).toEqual([{ source: "models.dev", namespace: "demo", id: "fresh" }]);
   });
 });

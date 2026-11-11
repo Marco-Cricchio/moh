@@ -379,3 +379,46 @@ failures preserve all published bytes, a successful generation's hashes
 match the manifest, a live owner's staging is untouched, and interrupted
 publication is recovered before the offline version check. The live
 freshness report retains its advisory semantics.
+
+## Amendment (2026-11-11, #1733): reproducible inputs and bounded decisions
+
+A live rebuild is an observation of another moment. It cannot prove that a
+reviewed generation was correct: upstream data may change while its PR runs.
+The PR gate now reproduces **pinned inputs offline**; daily and tag-time
+monitoring retains the independent live observation. Generation remains
+explicit and local, and runtime pricing remains release-pinned.
+
+Each successful generation publishes three content-addressed gzip inputs
+with its artifacts: the exact bytes from each aggregator and the prior
+catalog map used for semantic guards and the report. The manifest records
+source SHA-256 digests, canonical URLs, acquisition times and whether bytes
+were acquired over the network or from an explicit local file. Source files
+are addressed by digest, never an arbitrary manifest-supplied path. Checking
+verifies their uncompressed hashes before parsing and rebuilds catalog bytes,
+manifest provenance and report with the recorded generation timestamp. The
+source directory holds only the current generation's inputs; Git preserves
+past generations. Failed acquisition/generation never replaces these inputs.
+
+PR CI also supplies its actual base commit through `--baseline <full-SHA>`.
+Those catalog rows are independently read from Git and guarded, so deleting
+or degrading current outputs and adjusting their hashes cannot erase the
+review baseline. The release version gate runs the offline check as well as
+checking the version. The daily monitor emits a structured report artifact
+and a bounded summary of new candidates, missing data and reappeared retired
+listings. It changes no files in the catalog and makes no lifecycle decisions.
+
+`acceptContextShrink` now names one `{ from, to }` transition. Positive safe
+integers and a decrease are mandatory; the guard must match both the prior
+and next values. Permanent boolean grants are rejected. Existing blanket
+grants are removed: their accepted values are already the committed baseline,
+and their historical decisions remain in Git. Explicit `contextWindow`
+overrides retain their existing precedence and audit trail.
+
+A new retirement of a published row needs a `retirementEvidence` source URL
+and the sidecar's author/date/reason. The reviewer must verify provider or
+listing evidence; an aggregator omission alone is not a service-discontinuation
+claim. Historical retirements are retained rather than retroactively
+inventing evidence. A source that lists a retired id again produces a review
+signal, never automatic restoration. Undeclared source ids are candidates,
+never automatic additions: moh-owned compatibility and thinking metadata
+must still be authored deliberately.

@@ -168,15 +168,17 @@ interface CatalogRowOverride {
    * frozen at the committed value. It accepts a number, never an absence —
    * a row whose aggregator record disappears must declare `contextWindow`
    * (ADR-0046 amendment, #1004). */
-  acceptContextShrink?: true;
-  /** The row is retired: the aggregator no longer lists it, so the build
-   * writes nothing for it and the row leaves the catalog — the committed
+  acceptContextShrink?: { from: number; to: number };
+  /** The row is explicitly retired with listing/provider evidence, so the
+   * build writes nothing for it and the row leaves the catalog — the committed
    * row is dropped, not frozen by hand. Retirement is a declaration, never a
    * deduction (a row that disappears from a snapshot is a guard finding,
    * not a silent removal), and the row keeps its audit trail here so the
    * decision that removed it stays readable next to the ones that added it
    * (ADR-0046 amendment, #1005). */
   retired?: true;
+  /** Evidence for a newly removed listing; absence alone is not retirement. */
+  retirementEvidence?: string;
 }
 
 /** `<provider>.overrides.json` — the whole hand-maintained region of one
@@ -240,12 +242,17 @@ export interface BuiltCatalog {
   shrinkAccepted: string[];
   /** Cross-source context differences, informational (ADR-0046 report). */
   crossSourceContextDiffs: Array<{ id: string; modelsDev: number; openRouter: number }>;
+  candidates: Array<{ source: string; namespace: string; id: string }>;
+  retiredReappeared: string[];
 }
 
 export interface SourceSnapshotInfo {
   name: string;
   url: string;
   fetchedAt: string;
+  /** Digest of the exact input bytes, stored with the reviewed generation. */
+  sha256?: string;
+  acquisition?: "network" | "file";
 }
 
 interface CatalogManifest {
@@ -532,6 +539,19 @@ export function buildCatalog(
   const verdicts: Record<string, number> = { exact: 0, "base-model": 0, ambiguous: 0, absent: 0 };
   const shrinkAccepted: string[] = [];
   const crossSourceContextDiffs: BuiltCatalog["crossSourceContextDiffs"] = [];
+  const candidates: BuiltCatalog["candidates"] = [];
+  const retiredReappeared: string[] = [];
+  for (const namespace of overrides.source.modelsDev ?? []) {
+    for (const id of Object.keys(snapshots.modelsDev[namespace]?.models ?? {})) {
+      if (!(id in overrides.rows)) candidates.push({ source: "models.dev", namespace, id });
+    }
+  }
+  for (const record of snapshots.openRouter.data ?? []) {
+    const id = record.id;
+    if (!id || id in overrides.rows) continue;
+    const namespace = (overrides.source.openRouter ?? []).find(vendor => id.startsWith(`${vendor}/`));
+    if (namespace && !(id.slice(namespace.length + 1) in overrides.rows)) candidates.push({ source: "openrouter", namespace, id });
+  }
 
   for (const [id, override] of Object.entries(overrides.rows)) {
     if (!id) {
@@ -542,7 +562,10 @@ export function buildCatalog(
     // is gone, so nothing is written for it. The declaration is what makes
     // the removal reviewable — a row that simply stops matching would be a
     // guard finding instead (ADR-0046 amendment, #1005).
-    if (override.retired === true) continue;
+    if (override.retired === true) {
+      if (findRecord(id, overrides.source, snapshots, issues, provider)) retiredReappeared.push(id);
+      continue;
+    }
     const match = findRecord(id, overrides.source, snapshots, issues, provider);
     const supplied = match ? suppliedFields(match.record, match.source) : { fields: {}, supplied: [] };
     // A row more than one declared source matches with different base rates
@@ -599,7 +622,10 @@ export function buildCatalog(
   }
 
   for (const [id, override] of Object.entries(overrides.rows)) {
-    if (override.acceptContextShrink === true) shrinkAccepted.push(id);
+    const approval = override.acceptContextShrink;
+    const before = options.previous ? findRow(options.previous, id)?.contextWindow : undefined;
+    const after = findRow(file, id)?.contextWindow;
+    if (approval && approval.from === before && approval.to === after) shrinkAccepted.push(id);
   }
 
   const built: BuiltCatalog = {
@@ -611,6 +637,8 @@ export function buildCatalog(
     issues,
     shrinkAccepted,
     crossSourceContextDiffs,
+    candidates,
+    retiredReappeared,
   };
   issues.push(...guardCatalog(overrides, built, options.previous));
   return built;
@@ -639,6 +667,12 @@ function guardCatalog(
     }
   }
 
+  for (const [id, row] of Object.entries(overrides.rows)) {
+    const approval = row.acceptContextShrink;
+    if (approval !== undefined && (typeof approval !== "object" || approval === null || !Number.isSafeInteger(approval.from) || !Number.isSafeInteger(approval.to) || approval.to <= 0 || approval.from <= approval.to)) {
+      error("invalid-context-approval", id, "acceptContextShrink must name one positive, decreasing { from, to } transition");
+    }
+  }
   if (!previous) return issues;
 
   for (const [api, models] of Object.entries(previous)) {
@@ -651,7 +685,12 @@ function guardCatalog(
       // A retired row is the one declaration that authorizes a removal: the
       // presence guards below all ask "did the build keep what was
       // committed?", and for a retired row the answer is meant to be no.
-      if (declared.retired === true) continue;
+      if (declared.retired === true) {
+        let evidence = false;
+        try { evidence = ["https:", "http:"].includes(new URL(declared.retirementEvidence ?? "").protocol); } catch { /* absent or invalid evidence */ }
+        if (!evidence) error("retirement-evidence-missing", id, "retiring a published row requires a retirementEvidence URL and an explanation in reason; an absent aggregator listing alone is not proof of retirement");
+        continue;
+      }
       const after = findRow(built.file, id);
       if (!after) {
         error("row-lost", id, `the row was not written by the build (committed api ${api})`);
@@ -671,7 +710,7 @@ function guardCatalog(
             id,
             `contextWindow ${before.contextWindow} → absent; declare it in the sidecar`,
           );
-        } else if (next < (before.contextWindow ?? 0) && declared.acceptContextShrink !== true) {
+        } else if (next < (before.contextWindow ?? 0) && !(declared.acceptContextShrink?.from === before.contextWindow && declared.acceptContextShrink?.to === next)) {
           error(
             "context-window-regression",
             id,
@@ -788,6 +827,8 @@ interface GenerationReport {
   /** Rows no declared source matched: hand-maintained, visible here and in
    * the sidecar's own `reason`. */
   absentIds: string[];
+  candidates: Array<{ provider: string; source: string; namespace: string; id: string }>;
+  retiredReappeared: string[];
   crossSourceContextDiffs: Array<{ provider: string; id: string; modelsDev: number; openRouter: number }>;
   contextWindowShrinks: Array<{ provider: string; id: string; from: number; to: number; declared: boolean }>;
   changes: {
@@ -811,6 +852,8 @@ export function buildReport(options: {
   const totals = { files: 0, rows: 0, exact: 0, baseModel: 0, ambiguous: 0, absent: 0, rowsWithOverrides: 0 };
   const files: GenerationReport["files"] = [];
   const absentIds: string[] = [];
+  const candidates: GenerationReport["candidates"] = [];
+  const retiredReappeared: string[] = [];
   const crossSourceContextDiffs: GenerationReport["crossSourceContextDiffs"] = [];
   const contextWindowShrinks: GenerationReport["contextWindowShrinks"] = [];
   const changes: GenerationReport["changes"] = { pricing: [], contextWindow: [], reasoning: [] };
@@ -830,6 +873,8 @@ export function buildReport(options: {
       crossSourceContextDiffs.push({ provider: catalog.provider, id: diff.id, modelsDev: diff.modelsDev, openRouter: diff.openRouter });
     }
     issues.push(...catalog.issues);
+    candidates.push(...catalog.candidates.map(candidate => ({ provider: catalog.provider, ...candidate })));
+    retiredReappeared.push(...catalog.retiredReappeared.map(id => `${catalog.provider}/${id}`));
 
     const before = options.previous[catalog.provider];
     files.push({
@@ -879,6 +924,8 @@ export function buildReport(options: {
     totals,
     files,
     absentIds,
+    candidates,
+    retiredReappeared,
     crossSourceContextDiffs,
     contextWindowShrinks,
     changes,
@@ -917,6 +964,8 @@ function samePricing(a: ModelPricing, b: ModelPricing): boolean {
 export interface CommittedManifest {
   version?: string;
   generatedAt?: string;
+  sources?: SourceSnapshotInfo[];
+  baselineSha256?: string;
   files?: Record<string, { sha256?: string }>;
 }
 
@@ -1128,7 +1177,7 @@ export function migrateOverrides(options: {
       // migration accepts explicitly (the guard would otherwise fail).
       const upstreamContext = supplied.fields.contextWindow;
       if ((before.contextWindow ?? 0) > 0 && upstreamContext !== undefined && upstreamContext < (before.contextWindow ?? 0)) {
-        override.acceptContextShrink = true;
+        override.acceptContextShrink = { from: before.contextWindow!, to: upstreamContext };
         notes.push({
           provider,
           id,

@@ -136,6 +136,8 @@ jobs:
           bun-version: latest
       - name: The catalog declares the release being tagged
         run: bun packages/core/scripts/build-model-catalogs.ts --verify-version "${GITHUB_REF_NAME#v}"
+      - name: Reproduce the exact reviewed catalog inputs offline
+        run: bun packages/core/scripts/build-model-catalogs.ts --check
 
   release:
     needs: [build, version-check]

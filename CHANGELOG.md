@@ -7,6 +7,13 @@ matching section here at tag time.
 
 ## [Unreleased]
 
+### Changed
+
+- Catalog PRs reproduce pinned source snapshots offline, while scheduled
+  monitoring reports live source changes separately. Context reductions
+  require an exact reviewed transition; new retirements require evidence
+  and new or reappearing listings are reported for review (#1733).
+
 ### Fixed
 
 - Catalog generation refuses invalid or incomplete builds before replacing
