@@ -231,3 +231,51 @@ describe("image reads without mentions (#1727)", () => {
     });
   }
 });
+
+test("#1727 generic image request delivers pixels over HTTP to compat, including replay", async () => {
+  const { aiSdkStreamFor } = await import("../src/providers/ai-sdk");
+  const { Endpoint } = await import("../src/route");
+  const { builtinTools } = await import("../src/builtin-tools");
+  const { replayMessages } = await import("../src/session-store");
+  const dir = mkdtempSync(join(tmpdir(), "moh-image-http-"));
+  const base64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aL1sAAAAASUVORK5CYII=";
+  writeFileSync(join(dir, "pixel.png"), Buffer.from(base64, "base64"));
+  const requests: any[] = [];
+  const server = Bun.serve({
+    hostname: "127.0.0.1", port: 0,
+    async fetch(request) {
+      requests.push(await request.json());
+      const call = requests.length === 1
+        ? { id: "list", name: "glob", args: { pattern: "*.png" } }
+        : requests.length === 2 ? { id: "view", name: "read", args: { path: "pixel.png" } } : undefined;
+      const delta = call
+        ? { tool_calls: [{ index: 0, id: call.id, type: "function", function: { name: call.name, arguments: JSON.stringify(call.args) } }] }
+        : { content: "done" };
+      return new Response(`data: ${JSON.stringify({ id: "reply", object: "chat.completion.chunk", created: 1, model: "default", choices: [{ index: 0, delta, finish_reason: call ? "tool_calls" : "stop" }] })}\n\ndata: [DONE]\n\n`, { headers: { "content-type": "text/event-stream" } });
+    },
+  });
+  try {
+    const provider: Provider = {
+      name: "compat/default",
+      stream: aiSdkStreamFor({ endpoint: new Endpoint({ name: "compat", kind: "openai", apiKey: "test" }), modelId: "default" }, "test", { baseUrl: `http://127.0.0.1:${server.port}/v1` }),
+    };
+    const session = createSession({
+      provider, cwd: dir, tools: builtinTools(),
+      endpoints: [{ name: "compat", type: "openai-compat", capabilities: { multimodal: true } }],
+    });
+    expect((await session.send("Analyze all images in this folder")).status).toBe("done");
+    expect(requests).toHaveLength(3);
+    const images = (body: any) => body.messages.filter((m: any) => m.role === "user" && Array.isArray(m.content)).flatMap((m: any) => m.content.filter((p: any) => p.type === "image_url"));
+    expect(images(requests[2])).toEqual([{ type: "image_url", image_url: { url: `data:image/png;base64,${base64}` } }]);
+    expect(requests[2].messages.find((m: any) => m.tool_call_id === "view").content).toBe("[image: pixel.png]");
+    const history = session.history();
+    expect(history.some(e => e.type === "tool_result" && e.callId === "view" && e.image?.base64 === base64)).toBe(true);
+    const replay = replayMessages(history);
+    for await (const _event of provider.stream(replay, new AbortController().signal)) { /* inspect the captured HTTP request below */ }
+    expect(images(requests[3])).toEqual(images(requests[2]));
+    expect(replay.flatMap(m => m.parts).filter(p => p.kind === "image")).toHaveLength(0);
+  } finally {
+    await server.stop(true);
+    rmSync(dir, { recursive: true, force: true });
+  }
+});

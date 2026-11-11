@@ -240,7 +240,7 @@ function normalizeToolArgs(input: unknown): unknown {
 }
 
 /** Maps moh messages to AI SDK: system messages become the `system` option. */
-function toAiMessages(messages: Message[]): { system: string | undefined; messages: Parameters<typeof streamText>[0]["messages"] } {
+function toAiMessages(messages: Message[], wire: WireApi): { system: string | undefined; messages: Parameters<typeof streamText>[0]["messages"] } {
   // Tool results carry only a callId; resolve the tool name (#46) from the
   // pending tool_call parts in the same conversation, falling back to callId.
   const toolNames = new Map<string, string>();
@@ -251,7 +251,8 @@ function toAiMessages(messages: Message[]): { system: string | undefined; messag
   }
   const out: Parameters<typeof streamText>[0]["messages"] = [];
   const systemParts: string[] = [];
-  for (const msg of messages) {
+  const chatImages: unknown[] = [];
+  for (const [index, msg] of messages.entries()) {
     if (msg.role === "system") {
       systemParts.push(msg.parts.map((p) => (p.kind === "text" ? p.text : "")).join(""));
       continue;
@@ -283,14 +284,21 @@ function toAiMessages(messages: Message[]): { system: string | undefined; messag
           ...(part.continuation ? { providerOptions: part.continuation } : {}),
         });
       } else if (part.kind === "tool_result") {
-        // #778: a screenshot rides INSIDE its tool-result as a standard
-        // multimodal `content` output (v5 shape) — never as a sibling
-        // part in the tool-role message, which providers drop.
+        // Chat Completions only carries text in tool messages: its SDK
+        // serializes multimodal outputs as JSON, leaving pixels invisible.
+        // Project images into a following user message on that wire only;
+        // native multimodal tool outputs stay intact on the other wires.
+        if (part.image && wire === "openai-chat") {
+          chatImages.push(
+            { type: "text", text: `Image from ${toolNames.get(part.callId) ?? part.callId} (${part.callId}): ${part.output}` },
+            { type: "file", mediaType: part.image.mime, data: part.image.base64 },
+          );
+        }
         content.push({
           type: "tool-result",
           toolCallId: part.callId,
           toolName: toolNames.get(part.callId) ?? part.callId,
-          output: part.image
+          output: part.image && wire !== "openai-chat"
             ? {
                 type: "content",
                 value: [
@@ -306,6 +314,13 @@ function toAiMessages(messages: Message[]): { system: string | undefined; messag
     // stores them in a user message (#46).
     const isToolMessage = msg.role === "user" && msg.parts.some((p) => p.kind === "tool_result");
     out.push({ role: isToolMessage ? "tool" : msg.role, content } as never);
+    // Callers can place parallel results in separate consecutive messages.
+    // Complete every result first: inserting a user message inside the
+    // tool batch would leave outstanding tool_call_ids on Chat backends.
+    const nextIsToolResult = messages[index + 1]?.parts.some(part => part.kind === "tool_result");
+    if (chatImages.length > 0 && !nextIsToolResult) {
+      out.push({ role: "user", content: chatImages.splice(0) } as never);
+    }
   }
   return { system: systemParts.length > 0 ? systemParts.join("\n\n") : undefined, messages: out };
 }
@@ -351,7 +366,7 @@ export function aiSdkStreamFor(
     return {
       async *[Symbol.asyncIterator]() {
         const wire: WireApi = transport?.wire ?? target.wire ?? wireForKind(target.endpoint.kind);
-        const { system, messages: aiMessages } = toAiMessages(messages);
+        const { system, messages: aiMessages } = toAiMessages(messages, wire);
         const aiTools = toAiTools(tools);
         // #240/#256: the neutral thinking-level request, mapped per wire
         // or per config-declared format. Levels the wire/format cannot
