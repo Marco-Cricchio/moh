@@ -1,14 +1,31 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { render } from "ink-testing-library";
+import { createRequire } from "node:module";
+import { ThemeProvider, THEMES } from "../src/themes";
 import { Home } from "../src/Home";
 import { Logo } from "../src/ui";
 import { LOGO_BANNER, SPLASH_BANNERS, pickSplashFont, type SplashFontName } from "../src/ui";
 import { LogoIntro } from "../src/LogoIntro";
 import { stripAnsi } from "./helpers";
-import { RAMP_PRESETS, lerpHex, pickRampPreset, rampLogoRows, rampText } from "../src/logo-ramp";
+import { RAMP_PRESETS, lerpHex, pickRampPreset, rampLogoRows, rampText, type RampPresetName } from "../src/logo-ramp";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+
+const inkChalk = createRequire(import.meta.resolve("ink"))("chalk").default as { level: 0 | 1 | 2 | 3 };
+let previousLevel: typeof inkChalk.level;
+let previousNoColor: string | undefined;
+beforeEach(() => {
+  previousLevel = inkChalk.level;
+  previousNoColor = process.env.NO_COLOR;
+  inkChalk.level = 3;
+  delete process.env.NO_COLOR;
+});
+afterEach(() => {
+  inkChalk.level = previousLevel;
+  if (previousNoColor === undefined) delete process.env.NO_COLOR;
+  else process.env.NO_COLOR = previousNoColor;
+});
 
 const isolatedHome = () => mkdtempSync(join(tmpdir(), "moh-tui-logo-ramp-"));
 
@@ -28,42 +45,28 @@ describe("intro={false} fast-path (#1304 regression)", () => {
 const escapes = (s: string): string[] => s.match(/\x1b\[38;2;\d+;\d+;\d+m/g) ?? [];
 
 describe("logo ramp (#1304)", () => {
-  test("rampText interpolates per character: first char from, last char to", () => {
-    const out = rampText("abc", "#000000", "#ffffff");
-    const m = out.match(/\x1b\[38;2;(\d+);(\d+);(\d+)m/g);
-    expect(m).not.toBeNull();
-    // First painted char carries the `from` color, last the `to` color.
-    expect(m![0]).toBe("\x1b[38;2;0;0;0m");
-    expect(m![m!.length - 1]).toBe("\x1b[38;2;255;255;255m");
+  test("rampText interpolates from the first to the last character without ANSI", () => {
+    expect(rampText("abc", "#000000", "#ffffff")).toEqual([
+      { text: "a", color: "#000000" },
+      { text: "b", color: "#808080" },
+      { text: "c", color: "#ffffff" },
+    ]);
+    expect(rampText("", "#000000", "#ffffff")).toEqual([]);
+    expect(rampText("x", "#000000", "#ffffff")).toEqual([{ text: "x", color: "#ffffff" }]);
   });
 
-  test("rampText leaves spaces unpainted and emits well-formed escapes", () => {
-    const out = rampText("a b", "#102030", "#102030");
-    // The space sits bare between two foreground resets: painted runs open
-    // with 38;2 and close with 39, the space is never inside one.
-    expect(out).toBe("\x1b[38;2;16;32;48ma\x1b[39m \x1b[38;2;16;32;48mb\x1b[39m");
-    for (const e of escapes(out)) expect(e).toMatch(/^(\x1b\[38;2;\d+;\d+;\d+m)$/);
-    // Every open is closed by a foreground reset.
-    expect((out.match(/\x1b\[39m/g) ?? []).length).toBe((out.match(/\x1b\[38;2;/g) ?? []).length);
+  test("rampText leaves spaces unpainted and groups adjacent equal colors", () => {
+    expect(rampText("ab cd", "#102030", "#102030")).toEqual([
+      { text: "ab", color: "#102030" }, { text: " " }, { text: "cd", color: "#102030" },
+    ]);
   });
 
   test("two-row continuity: tagline's last color equals version's first color", () => {
-    for (const preset of Object.keys(RAMP_PRESETS) as Array<keyof typeof RAMP_PRESETS>) {
+    for (const preset of Object.keys(RAMP_PRESETS) as RampPresetName[]) {
       const { tagline, version } = rampLogoRows("My Own Harness", "v1.42.0", preset);
-      const tagEnd = tagline.match(/\x1b\[38;2;(\d+;\d+;\d+)m[^\x1b]*\x1b\[39m$/);
-      const verStart = version!.match(/\x1b\[38;2;(\d+;\d+;\d+)m/);
-      expect(tagEnd).not.toBeNull();
-      expect(verStart).not.toBeNull();
-      expect(verStart![1]).toBe(tagEnd![1]);
-    }
-  });
-
-  test("rampText strips to bare text when NO_COLOR is set (#880)", () => {
-    process.env.NO_COLOR = "1";
-    try {
-      expect(rampText("My Own Harness", ...RAMP_PRESETS.atlas)).toBe("My Own Harness");
-    } finally {
-      delete process.env.NO_COLOR;
+      expect(tagline.at(-1)?.color).toBe(version![0]?.color);
+      expect(tagline.map(part => part.text).join("")).toBe("My Own Harness");
+      expect(version!.map(part => part.text).join("")).toBe("v1.42.0");
     }
   });
 
@@ -220,7 +223,7 @@ describe("LogoIntro splash (#1304)", () => {
     for (const row of rows) expect(frame).toContain(row);
     expect(frame).not.toContain(SPLASH_BANNERS.Ghost![0]!.trimEnd());
     // No ramp on the short-terminal intro (the tagline stays settled-only).
-    expect(escapes(frame)).toHaveLength(0);
+    expect(stripAnsi(frame)).not.toContain("My Own Harness");
     view.unmount();
   });
 
@@ -229,11 +232,40 @@ describe("LogoIntro splash (#1304)", () => {
     const settled = render(<Logo banner rampPreset="vice" />);
     // Both paint from the same preset: the intro's one-liner and the settled
     // tagline open with the same first-stop escape.
-    const introEsc = escapes(intro.lastFrame() ?? "")[0];
-    const settledEsc = escapes(settled.lastFrame() ?? "")[0];
+    const taglineEsc = (frame: string) => escapes(frame.split("\n").find(line => stripAnsi(line).includes("My Own Harness")) ?? "")[0];
+    const introEsc = taglineEsc(intro.lastFrame() ?? "");
+    const settledEsc = taglineEsc(settled.lastFrame() ?? "");
     expect(introEsc).toBe("\x1b[38;2;94;231;223m");
     expect(settledEsc).toBe(introEsc);
     intro.unmount();
     settled.unmount();
   });
+});
+
+
+describe("logo color capability on every theme", () => {
+  for (const level of [0, 1, 2, 3] as const) {
+    test(`level ${level}: settled and intro gradients use only supported color sequences`, () => {
+      inkChalk.level = level;
+      for (const theme of Object.values(THEMES)) {
+        for (const preset of Object.keys(RAMP_PRESETS) as RampPresetName[]) {
+          const views = [
+            render(<ThemeProvider value={theme}><Logo banner version="0.66.3" rampPreset={preset} /></ThemeProvider>),
+            render(<ThemeProvider value={theme}><LogoIntro banner onSkip={() => {}} splashFont="Small" rampPreset={preset} /></ThemeProvider>),
+          ];
+          try {
+            for (const view of views) {
+              const frame = view.lastFrame() ?? "";
+              expect(stripAnsi(frame)).toContain("My Own Harness");
+              if (level < 3) expect(frame, `${theme.label}/${preset}`).not.toMatch(/\x1b\[(?:38|48);2;/);
+              if (level < 2) expect(frame).not.toMatch(/\x1b\[(?:38|48);5;/);
+              if (level === 0) expect(frame).not.toMatch(/\x1b\[(?:3[0-7]|9[0-7])m/);
+              if (level === 2) expect(frame).toMatch(/\x1b\[38;5;/);
+              if (level === 3) expect(frame).toMatch(/\x1b\[38;2;/);
+            }
+          } finally { for (const view of views) view.unmount(); }
+        }
+      }
+    }, 15_000);
+  }
 });
