@@ -345,3 +345,37 @@ So the sidecar gains one clause:
 The clause is what keeps the guards publishable: without it, a crowd of
 retirements pins the drift compare red forever, and a signal that cannot go
 green is the "red by default" failure the rest of this amendment removes.
+
+## Amendment (2026-11-11, #1731): refuse before publishing
+
+The CLI collected generation guard errors but enforced them only in
+`--check`. Write mode could still replace the catalog and return success,
+contradicting the failure contract above and making its own rejected output
+the next run's comparison baseline. All write modes now prepare their entire
+output before publication. Guard errors, malformed inputs, missing sidecars,
+and build exceptions exit non-zero without replacing published artifacts.
+The one-off sidecar migration follows the same staging rule.
+
+Publication uses a sibling staging directory and retains the old catalog in
+`model-catalogs.previous` while installing the prepared directory. This is a
+recoverable two-rename transaction, not a claim that a directory exchange is
+atomic on every platform: if interrupted between renames, the next CLI command
+restores the old directory before reading it; after installation, it keeps
+the complete new generation and removes the backup. Ordinary build/read
+processes should not overlap publication. Every catalog CLI mode takes an
+exclusive owner lock using the existing lock-file helpers, so a
+check cannot race an active generator. Only a confirmed dead PID on the same
+machine permits recovery; an unreadable or foreign owner refuses rather than
+guessing. The memory lock's cached uptime counter is not used to infer a
+reboot: a later process naturally observes a larger uptime. A recycled PID
+may conservatively require manual lock inspection, never a live-lock steal. A second exclusive marker
+serializes stale-lock reclamation; if that short recovery itself is killed,
+the command refuses and names the marker for inspection. Remove it only
+after verifying its recorded owner is gone. Staging and transaction files
+are ignored by git.
+
+Tests execute the real CLI in temporary repositories with local snapshots:
+failures preserve all published bytes, a successful generation's hashes
+match the manifest, a live owner's staging is untouched, and interrupted
+publication is recovered before the offline version check. The live
+freshness report retains its advisory semantics.
