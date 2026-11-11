@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState } from "react";
 import { Box, Text, useInput, measureElement, type DOMElement } from "ink";
 import { useTheme } from "./themes";
 import { colorEnabled } from "./color";
-import { pickRampPreset, rampLogoRows, type RampPresetName } from "./logo-ramp";
+import { pickRampPreset, rampLogoRows, type RampPresetName, type RampSegment } from "./logo-ramp";
 
 import { dialogWidth, useViewport } from "./viewport";
 import { sanitizeForDisplay } from "@moh/core";
@@ -116,6 +116,12 @@ export function pickSplashFont(): SplashFontName {
   return names[Math.floor(Math.random() * names.length)]!;
 }
 
+/** Render gradient runs through Ink so the terminal determines color depth. */
+export function LogoRampRow({ parts }: { parts: RampSegment[] }) {
+  const enabled = colorEnabled();
+  return <Text>{parts.map((part, index) => <Text key={index} color={enabled ? part.color : undefined}>{part.text}</Text>)}</Text>;
+}
+
 /** moh logo (#292): the figlet-Slant banner with the "My Own Harness"
  * acronym and the version number on tall non-compact terminals; a one-liner
  * everywhere else. Acronym and version share the banner's centered column
@@ -143,11 +149,11 @@ export function Logo({
     <Box flexDirection="column" alignItems="center">
       <Text color={theme.accent}>{LOGO_BANNER.join("\n")}</Text>
       {colorEnabled() ? (
-        <Text>{rows.tagline}</Text>
+        <LogoRampRow parts={rows.tagline} />
       ) : (
         <Dim>My Own Harness</Dim>
       )}
-      {rows.version !== null ? (colorEnabled() ? <Text>{rows.version}</Text> : <Dim>{rows.version}</Dim>) : null}
+      {rows.version !== null ? (colorEnabled() ? <LogoRampRow parts={rows.version} /> : <Dim>{`v${version}`}</Dim>) : null}
     </Box>
   );
 }

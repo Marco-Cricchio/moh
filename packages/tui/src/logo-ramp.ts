@@ -8,12 +8,10 @@
  * and a runtime gradient library for two lines of chrome is a dep moh does
  * not need.
  *
- * #880: every color-opening escape comes from `fgTruecolor`, so a `NO_COLOR`
- * run emits bare text — the component layer renders the `Dim` treatment in
- * that case, never escapes.
+ * Colors remain structured until Ink renders them (#1738). Raw RGB escapes
+ * bypass terminal capability detection and corrupt older Terminal.app screens.
+ * Ink owns color-depth conversion; the component also honours NO_COLOR.
  */
-
-import { fgTruecolor } from "./color";
 
 /** The gradient-string palettes worth stealing (bench-verified stop
  * endpoints, #1304), as `[from, to]` hex pairs. */
@@ -52,40 +50,24 @@ export function lerpHex(a: string, b: string, t: number): string {
   );
 }
 
-/** Paints `text` from `from` to `to`, one truecolor escape per character
- * (spaces stay unpainted, resets close each painted run). With no color
- * capability the escapes vanish and the text comes back bare (#880). */
-export function rampText(text: string, from: string, to: string): string {
+export interface RampSegment {
+  text: string;
+  color?: string;
+}
+
+/** Interpolates colored text runs without emitting terminal escapes.
+ * Spaces stay unpainted; Ink chooses the supported color depth at render time. */
+export function rampText(text: string, from: string, to: string): RampSegment[] {
   const chars = [...text];
-  if (chars.length === 0) return "";
-  let out = "";
-  let open: string | null = null;
-  const colorAt = (i: number) =>
-    lerpHex(from, to, chars.length === 1 ? 1 : i / (chars.length - 1));
+  const segments: RampSegment[] = [];
   for (let i = 0; i < chars.length; i++) {
-    const c = chars[i]!;
-    if (c === " ") {
-      if (open !== null) {
-        out += "\x1b[39m";
-        open = null;
-      }
-      out += c;
-      continue;
-    }
-    const esc = fgTruecolor(colorAt(i));
-    if (esc === "") {
-      out += c;
-      continue;
-    }
-    if (esc !== open) {
-      if (open !== null) out += "\x1b[39m";
-      out += esc;
-      open = esc;
-    }
-    out += c;
+    const char = chars[i]!;
+    const color = char === " " ? undefined : lerpHex(from, to, chars.length === 1 ? 1 : i / (chars.length - 1));
+    const previous = segments.at(-1);
+    if (previous && previous.color === color) previous.text += char;
+    else segments.push({ text: char, ...(color ? { color } : {}) });
   }
-  if (open !== null) out += "\x1b[39m";
-  return out;
+  return segments;
 }
 
 /** The settled logo's two ramp rows from one preset: the tagline spans the
@@ -95,7 +77,7 @@ export function rampLogoRows(
   tagline: string,
   version: string | null,
   preset: RampPresetName,
-): { tagline: string; version: string | null } {
+): { tagline: RampSegment[]; version: RampSegment[] | null } {
   const [from, to] = RAMP_PRESETS[preset];
   const mid = lerpHex(from, to, 0.5);
   return {

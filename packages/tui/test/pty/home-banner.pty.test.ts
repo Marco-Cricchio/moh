@@ -1,4 +1,7 @@
 import { describe, expect, test } from "bun:test";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { join } from "node:path";
+import { tmpdir } from "node:os";
 import { hasPython, runPtyRaw } from "./pty-runner";
 
 /**
@@ -27,4 +30,36 @@ describe.skipIf(!hasPython)("home banner on a tall terminal (PTY)", () => {
     // …and no inline one-line logo on a tall terminal.
     expect(text).not.toContain("moh > — My Own Harness");
   }, 60_000);
+});
+
+
+describe.skipIf(!hasPython)("startup color capabilities (#1738)", () => {
+  for (const truecolor of [false, true]) {
+    test(`${truecolor ? "truecolor" : "Apple Terminal 256-color"}: startup and home input emit supported SGR only`, async () => {
+      const dir = mkdtempSync(join(tmpdir(), "moh-home-colors-"));
+      const rawDump = join(dir, "terminal.bin");
+      try {
+        const meta = await runPtyRaw({
+          cols: 100, rows: 40,
+          config: { onboarded: true, workflowOffered: true, mode: "vibe", theme: "amiga-workbench13" },
+          project: { provider: "mock" },
+          env: { TERM_PROGRAM: "Apple_Terminal", TERM_PROGRAM_VERSION: "455.1", COLORTERM: truecolor ? "truecolor" : "", FORCE_COLOR: "2", NO_COLOR: "" },
+          steps: [
+            { wait: 10, until: "New session", untilOnScreen: true },
+            { send: btoa("image.png") },
+            { wait: 5, until: "image.png", untilOnScreen: true },
+          ],
+          rawDump, tail: 40,
+        });
+        expect(meta.lines.map(line => line.text).join("\n")).toContain("image.png");
+        const bytes = readFileSync(rawDump, "utf8");
+        expect(bytes).toMatch(/\x1b\[38;/);
+        if (truecolor) expect(bytes).toMatch(/\x1b\[38;2;/);
+        else {
+          expect(bytes).not.toMatch(/\x1b\[(?:38|48);2;/);
+          expect(bytes).toMatch(/\x1b\[38;5;/);
+        }
+      } finally { rmSync(dir, { recursive: true, force: true }); }
+    }, 60_000);
+  }
 });

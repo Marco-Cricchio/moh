@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { Box, Text, useInput } from "ink";
-import { LOGO_BANNER, SPLASH_BANNERS, pickSplashFont, type SplashFontName } from "./ui";
+import { LogoRampRow, LOGO_BANNER, SPLASH_BANNERS, pickSplashFont, type SplashFontName } from "./ui";
 import { useTheme } from "./themes";
 import { pickRampPreset, rampLogoRows, type RampPresetName } from "./logo-ramp";
 /** The startup intro duration: snappy on purpose — long enough to read as
@@ -312,7 +312,7 @@ export function LogoIntro({
           {line}
         </Text>
       ))}
-      {bannerFits ? <Text>{tagline}</Text> : null}
+      {bannerFits ? <LogoRampRow parts={tagline} /> : null}
     </Box>
   );
 }
