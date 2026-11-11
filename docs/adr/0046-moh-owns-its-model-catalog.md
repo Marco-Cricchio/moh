@@ -363,9 +363,15 @@ atomic on every platform: if interrupted between renames, the next CLI command
 restores the old directory before reading it; after installation, it keeps
 the complete new generation and removes the backup. Ordinary build/read
 processes should not overlap publication. Every catalog CLI mode takes an
-exclusive owner lock using the existing process/boot identity helper, so a
-check cannot race an active generator. Dead owners permit recovery; an
-unreadable lock refuses rather than guessing. Staging and transaction files
+exclusive owner lock using the existing lock-file helpers, so a
+check cannot race an active generator. Only a confirmed dead PID on the same
+machine permits recovery; an unreadable or foreign owner refuses rather than
+guessing. The memory lock's cached uptime counter is not used to infer a
+reboot: a later process naturally observes a larger uptime. A recycled PID
+may conservatively require manual lock inspection, never a live-lock steal. A second exclusive marker
+serializes stale-lock reclamation; if that short recovery itself is killed,
+the command refuses and names the marker for inspection. Remove it only
+after verifying its recorded owner is gone. Staging and transaction files
 are ignored by git.
 
 Tests execute the real CLI in temporary repositories with local snapshots:

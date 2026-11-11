@@ -196,6 +196,9 @@ describe("catalog publication safety", () => {
     const f = fixture();
     try {
       expect(createLockFile(`${f.dir}.lock`)).toBe(true);
+      // A different cached uptime must never make a live PID reclaimable.
+      const lock = JSON.parse(readFileSync(`${f.dir}.lock`, "utf8"));
+      writeFileSync(`${f.dir}.lock`, JSON.stringify({ ...lock, boot: 0 }));
       mkdirSync(`${f.dir}.staging`);
       writeFileSync(join(`${f.dir}.staging`, "sentinel"), "busy");
       const before = f.contents();
@@ -203,6 +206,24 @@ describe("catalog publication safety", () => {
       expect(f.contents()).toEqual(before);
       expect(readFileSync(join(`${f.dir}.staging`, "sentinel"), "utf8")).toBe("busy");
     } finally { releaseLockFile(`${f.dir}.lock`); rmSync(f.root, { recursive: true, force: true }); }
+  });
+
+  test("an occupied reclamation marker is never removed by a contender", () => {
+    const f = fixture();
+    try {
+      expect(createLockFile(`${f.dir}.lock`)).toBe(true);
+      expect(createLockFile(`${f.dir}.reclaim`)).toBe(true);
+      const before = f.contents();
+      const result = f.run();
+      expect(result.exitCode).toBe(1);
+      expect(result.stderr.toString()).toContain("lock recovery is busy or interrupted");
+      expect(existsSync(`${f.dir}.reclaim`)).toBe(true);
+      expect(f.contents()).toEqual(before);
+    } finally {
+      releaseLockFile(`${f.dir}.lock`);
+      releaseLockFile(`${f.dir}.reclaim`);
+      rmSync(f.root, { recursive: true, force: true });
+    }
   });
 
   test("recovers a process killed between directory renames before checking the version", () => {

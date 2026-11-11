@@ -76,6 +76,8 @@ The order matters:
    Generation failures leave the published catalog unchanged. All catalog
    commands serialize with an owner lock and recover interrupted publication
    before reading files; rerun the command after a terminated generator.
+   If lock reclamation itself was interrupted, the error names the `.reclaim`
+   marker: verify its recorded owner has exited before removing that marker.
    Do not run a build while a catalog generation is publishing its directory.
 4. **Open the release PR to `develop`**, wait for green, merge.
 5. **Promote `develop` to `main`** (the production branch) at the merged commit.

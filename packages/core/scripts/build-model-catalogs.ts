@@ -34,7 +34,7 @@
  */
 import { cpSync, existsSync, readFileSync, readdirSync, renameSync, rmSync, unlinkSync } from "node:fs";
 import { writeFileAtomic, tempPidSuffix } from "../src/fs-atomic";
-import { createLockFile, ownerIsGone, parseLockOwner, readLockFile, releaseLockFile } from "../src/memory-lock";
+import { createLockFile, machineId, parseLockOwner, readLockFile, releaseLockFile } from "../src/memory-lock";
 import { createHash } from "node:crypto";
 import { join } from "node:path";
 import {
@@ -63,16 +63,32 @@ const MANIFEST_FILE = join(CATALOG_DIR, "manifest.json");
 const STAGING_DIR = `${CATALOG_DIR}.staging`;
 const PREVIOUS_DIR = `${CATALOG_DIR}.previous`;
 const LOCK_FILE = `${CATALOG_DIR}.lock`;
+const RECLAIM_FILE = `${CATALOG_DIR}.reclaim`;
 
 /** All CLI modes share the same lock so no check observes a publication
- * halfway through its directory renames. Dead owners are recovered using
- * the repository's process/boot identity, never a timeout. */
+ * halfway through its directory renames. Only a confirmed dead PID on this
+ * machine is reclaimed; elapsed time or a foreign owner never grants access. */
 function acquireCatalogLock(): void {
   if (createLockFile(LOCK_FILE)) return;
-  const owner = parseLockOwner(readLockFile(LOCK_FILE));
-  if (!owner || !ownerIsGone(owner)) throw new Error(`catalog is locked: ${LOCK_FILE}`);
-  unlinkSync(LOCK_FILE);
-  if (!createLockFile(LOCK_FILE)) throw new Error(`catalog is locked: ${LOCK_FILE}`);
+  // Serialize dead-owner reclamation. Without this second exclusive claim,
+  // two reclaimers could both observe a dead owner and the slower one could
+  // unlink the faster one's new live lock. A killed reclaimer fails closed:
+  // its marker must be inspected/removed by the operator, never timed out.
+  if (!createLockFile(RECLAIM_FILE)) throw new Error(`catalog lock recovery is busy or interrupted; inspect ${RECLAIM_FILE}`);
+  try {
+    const owner = parseLockOwner(readLockFile(LOCK_FILE));
+    if (!owner || owner.machineId !== machineId()) throw new Error(`catalog lock owner cannot be verified: ${LOCK_FILE}`);
+    let dead = false;
+    try { process.kill(owner.pid, 0); }
+    catch (error) { dead = (error as NodeJS.ErrnoException).code === "ESRCH"; }
+    // In particular, do not treat the memory lock's cached uptime counter
+    // as boot identity: another process's larger uptime is not a reboot.
+    if (!dead) throw new Error(`catalog is locked: ${LOCK_FILE}`);
+    unlinkSync(LOCK_FILE);
+    if (!createLockFile(LOCK_FILE)) throw new Error(`catalog is locked: ${LOCK_FILE}`);
+  } finally {
+    releaseLockFile(RECLAIM_FILE);
+  }
 }
 
 /** A crash before the second rename leaves the previous directory intact;

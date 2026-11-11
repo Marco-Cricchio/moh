@@ -29,6 +29,7 @@ __pycache__/
 .tmp-prompt-*/
 
 # Recoverable catalog publication; never commit transaction state.
+/packages/core/src/model-catalogs.reclaim
 /packages/core/src/model-catalogs.lock
 /packages/core/src/model-catalogs.staging/
 /packages/core/src/model-catalogs.previous/
