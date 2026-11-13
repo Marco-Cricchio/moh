@@ -1,12 +1,12 @@
 import { describe, expect, test } from "bun:test";
 import { render } from "ink-testing-library";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, rmSync } from "node:fs";
 import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { loadMohConfig } from "@moh/core";
 import { Onboarding } from "../src/OnboardingOverlay";
-import { stripAnsi, waitText } from "./helpers";
+import { pressSettled, stripAnsi, unmountSettled, waitStep, waitText } from "./helpers";
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const tempHome = () => mkdtempSync(join(tmpdir(), "moh-obt-home-"));
@@ -100,24 +100,41 @@ describe("onboarding overlay (issue #33)", () => {
     const cwd = tempCwd();
     const home = tempHome();
     const done: (string | null)[] = [];
-    let fails = 1;
-    const flaky = async () =>
-      fails-- > 0
-        ? { ok: false as const, error: "HTTP 503 overloaded" }
-        : { ok: true as const, modelId: "x" };
+    let attempts = 0;
+    let releaseFailure!: () => void;
+    const pendingFailure = new Promise<void>((resolve) => { releaseFailure = resolve; });
+    const flaky = async () => {
+      attempts += 1;
+      if (attempts === 1) {
+        await pendingFailure;
+        return { ok: false as const, error: "HTTP 503 overloaded" };
+      }
+      return { ok: true as const, modelId: "x" };
+    };
     const i = render(<Onboarding cwd={cwd} home={home} env={{ OPENAI_API_KEY: "k" }} tester={flaky} onDone={(ref) => done.push(ref)} />);
-    await sleep(30);
-    i.stdin.write("\r"); // confirm detection → test runs and fails
-    await sleep(100);
-    const frame = stripAnsi(i.lastFrame() ?? "");
-    expect(frame).toContain("Connection test failed");
-    expect(frame).toContain("HTTP 503 overloaded");
-    expect(frame).toContain("r retry · w wizard · s skip");
-    i.stdin.write("r");
-    await sleep(100);
-    expect(done).toEqual(["openai/gpt-5"]);
-    i.unmount();
-  });
+    try {
+      await waitText(i, "enter confirm", "credential detection committed");
+      await pressSettled(i, "\r");
+      // Hold the tester until this surface is observed: failure must be
+      // awaited, never inferred from time spent on the testing screen.
+      await waitText(i, "Testing connection", "first connection pending");
+      releaseFailure();
+      await waitText(i, "Connection test failed", "connection failure committed");
+      const frame = stripAnsi(i.lastFrame() ?? "");
+      expect(frame).toContain("HTTP 503 overloaded");
+      expect(frame).toContain("r retry · w wizard · s skip");
+      expect(done).toEqual([]);
+      await pressSettled(i, "r");
+      await waitStep(i, () => done.length === 1, "retry completes onboarding");
+      expect(done).toEqual(["openai/gpt-5"]);
+      expect(attempts).toBe(2);
+    } finally {
+      releaseFailure();
+      await unmountSettled(i);
+      rmSync(cwd, { recursive: true, force: true });
+      rmSync(home, { recursive: true, force: true });
+    }
+  }, 15000); // Four independently bounded state waits plus save/cleanup.
 
   test("failed connection test shows the full structured error across wrapped lines, no truncation (#1092)", async () => {
     const cwd = tempCwd();
