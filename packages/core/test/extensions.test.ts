@@ -678,6 +678,24 @@ describe("extension-deps installation (ADR-0070)", () => {
 });
 
 describe("hot-reload", () => {
+  test("missed native notifications still reload through consent and stop cleanly", async () => {
+    // Module mocking belongs to a separate process: other extension tests
+    // continue to exercise the real native notification path.
+    const child = Bun.spawn([process.execPath, join(import.meta.dir, "fixtures/extension-watch-probe.ts")], {
+      stdout: "pipe", stderr: "pipe",
+    });
+    try {
+      const [stdout, stderr, code] = await Promise.all([
+        new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited,
+      ]);
+      expect(code, stderr).toBe(0);
+      expect(JSON.parse(stdout)).toEqual({ watches: 1, asks: 3, version: "2.0.0", loads: 2 });
+    } finally {
+      child.kill();
+      await child.exited;
+    }
+  }, 15_000);
+
   async function waitForReload(step: string, ready: () => boolean): Promise<void> {
     const deadline = Date.now() + 3000;
     while (!ready() && Date.now() < deadline) await Bun.sleep(10);

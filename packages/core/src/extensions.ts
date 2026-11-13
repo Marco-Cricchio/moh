@@ -758,7 +758,7 @@ export class ExtensionRuntime {
   #subagentHost: SubagentHost | null = null;
   /** ADR-0032: subscribers of status publishes (extension name + text|null). */
   readonly #statusListeners = new Set<(extension: string, text: string | null) => void>();
-  readonly #watchers = new Map<string, FSWatcher>();
+  readonly #watchers = new Map<string, { native: FSWatcher; reconcile: ReturnType<typeof setInterval> }>();
   readonly #reloadTimers = new Map<string, ReturnType<typeof setTimeout>>();
   /**
    * ADR-0037: the consecutive-synthetic-turn counters, keyed by extension
@@ -1651,13 +1651,33 @@ export class ExtensionRuntime {
     for (const instance of this.#instances) {
       if (!instance.file || this.#watchers.has(instance.file)) continue;
       if (!existsSync(instance.file)) continue;
-      const watcher = watch(instance.file, () => this.#scheduleReload(instance.file!));
-      this.#watchers.set(instance.file, watcher);
+      const file = instance.file;
+      let observed = contentIdentity(file);
+      const native = watch(file, () => {
+        observed = contentIdentity(file);
+        this.#scheduleReload(file);
+      });
+      // Bun's native watcher can miss an edit made immediately after watch()
+      // returns. Seed synchronously, then reconcile content as well as events:
+      // yielding a turn (or watching the directory) does not close that gap.
+      // Record before scheduling so refused/held consent is not re-requested
+      // every tick. All execution still goes through the normal reload gate.
+      const reconcile = setInterval(() => {
+        const current = contentIdentity(file);
+        if (current === observed) return;
+        observed = current;
+        this.#scheduleReload(file);
+      }, 500);
+      reconcile.unref();
+      this.#watchers.set(file, { native, reconcile });
     }
   }
 
   stopWatch(): void {
-    for (const watcher of this.#watchers.values()) watcher.close();
+    for (const watcher of this.#watchers.values()) {
+      watcher.native.close();
+      clearInterval(watcher.reconcile);
+    }
     this.#watchers.clear();
     for (const t of this.#reloadTimers.values()) clearTimeout(t);
     this.#reloadTimers.clear();
