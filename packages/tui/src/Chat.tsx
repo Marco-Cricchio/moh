@@ -28,7 +28,7 @@ import { SubagentPanel } from "./SubagentPanel";
 import { AskUserBlock, askBlockMinRows, askUserBlockRows } from "./AskUserBlock";
 import type { AskUserGate } from "./ask-user-gate";
 import { useGitBranch } from "./git-branch";
-import { bangActiveTurnRefusal, parseBangCommand, type BangCommand } from "./bang-command";
+import { bangActiveTurnRefusal, parseBangCommand, stripBangEscape, type BangCommand } from "./bang-command";
 import type { SidebarTokens } from "./sidebar";
 
 
@@ -1299,7 +1299,7 @@ export function Chat({
             return;
           }
           onBranchFromDismiss?.();
-          void session.send(text);
+          void session.send(stripBangEscape(text));
         }}
       />
       {branchFrom && (

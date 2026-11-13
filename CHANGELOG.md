@@ -9,6 +9,9 @@ matching section here at tag time.
 
 ### Fixed
 
+- The chat composer consumes the escape in `\!` before sending a literal
+  leading `!` to the model, as documented (#1740).
+
 - Memory locks no longer reclaim a live same-machine owner based on differing
   process uptimes. Legacy lock metadata stays readable; dead owners remain
   recoverable and the existing foreign-machine policy is preserved (#1734).
