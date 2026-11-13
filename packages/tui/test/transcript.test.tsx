@@ -898,8 +898,18 @@ describe("#949: compaction_skipped", () => {
 
 describe("#1300 glyph colors and the bordered user block", () => {
 let previousColorLevel: typeof chalk.level;
-beforeEach(() => { previousColorLevel = chalk.level; chalk.level = 3; });
-afterEach(() => { chalk.level = previousColorLevel; });
+let previousNoColor: string | undefined;
+beforeEach(() => {
+  previousColorLevel = chalk.level;
+  previousNoColor = process.env.NO_COLOR;
+  delete process.env.NO_COLOR;
+  chalk.level = 3;
+});
+afterEach(() => {
+  chalk.level = previousColorLevel;
+  if (previousNoColor === undefined) delete process.env.NO_COLOR;
+  else process.env.NO_COLOR = previousNoColor;
+});
   test("a tool block's ✓ head and body glyphs render the fixed semantic colors on an off-hue theme (TRON)", () => {
     const block = projectTranscript([
       { type: "tool_call", callId: "g1", name: "bash", args: { command: "bun test" } },
