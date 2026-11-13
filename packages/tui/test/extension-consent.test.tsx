@@ -8,14 +8,14 @@
  */
 import { describe, expect, test } from "bun:test";
 import { render } from "ink-testing-library";
-import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { MockProvider } from "@moh/core";
 import { PermissionModal } from "../src/PermissionModal";
 import { PermissionGate, describePermissionRequest } from "../src/permission-gate";
 import { makeSession } from "../src/factory";
-import { grantTeamExtension, stripAnsi, unwrap, waitForCondition, waitForFrame } from "./helpers";
+import { grantTeamExtension, pressSettled, stripAnsi, unmountSettled, unwrap, waitStep, waitText } from "./helpers";
 
 const frameOf = (i: { lastFrame: () => string | undefined }) => stripAnsi(i.lastFrame() ?? "");
 
@@ -100,15 +100,23 @@ describe("extension enable consent (#834)", () => {
     const cwd = mkdtempSync(join(tmpdir(), "moh-ext-consent-cwd-"));
     const home = homeWithExtension(
       "guard",
-      `export default { name: "guard", version: "0.3.0", apiVersion: "1.0", setup() {} };`,
+      `import { writeFileSync } from "node:fs";
+       writeFileSync(new URL("./evaluated", import.meta.url), "ran");
+       export default { name: "guard", version: "0.3.0", apiVersion: "1.0", setup() {} };`,
     );
+    const marker = join(home, ".moh", "extensions", "evaluated");
+    const answers: string[] = [];
     const gate = new PermissionGate();
     const { session } = unwrap(
       makeSession({
         cwd,
         home,
         provider: MockProvider.scripted([{ deltas: ["ok"], finish: "stop" }]),
-        onPermissionRequest: gate.ask,
+        onPermissionRequest: async (tool, args, context) => {
+          const answer = await gate.ask(tool, args, context);
+          answers.push(answer);
+          return answer;
+        },
       }),
     );
     const i = render(<PermissionModal gate={gate} mode="dev" />);
@@ -116,7 +124,9 @@ describe("extension enable consent (#834)", () => {
       // #834 (security): the first-time ask comes before the import, so the
       // label names the *file* — the module has not run and has stated
       // nothing yet.
-      await waitForFrame(() => frameOf(i), "extension enable (guard.mjs)");
+      await waitText(i, "extension enable (guard.mjs)", "consent prompt committed");
+      expect(existsSync(marker)).toBe(false);
+      expect(answers).toEqual([]);
       const frame = frameOf(i);
       expect(frame).toContain("An extension wants to run in this session:");
       expect(frame).toContain("source: ");
@@ -128,15 +138,21 @@ describe("extension enable consent (#834)", () => {
       expect(frame).not.toContain("writes the session rule");
 
       // `a` is inert here: the question stays up until it is answered.
-      i.stdin.write("a");
-      await Bun.sleep(30);
+      const request = gate.current;
+      await pressSettled(i, "a");
+      expect(gate.current).toBe(request);
       expect(frameOf(i)).toContain("extension enable");
+      expect(answers).toEqual([]);
+      expect(existsSync(marker)).toBe(false);
 
-      i.stdin.write("y");
-      await waitForCondition(
-        () => session.history().some((e) => e.type === "extension_loaded" && (e as { name?: string }).name === "guard"),
-        () => "the extension to load after the consent",
+      await pressSettled(i, "y");
+      await waitStep(i, () => answers.length === 1, "yes reaches the consent callback");
+      expect(answers).toEqual(["yes"]);
+      await waitStep(i,
+        () => session.history().some((e) => e.type === "extension_loaded" && e.name === "guard"),
+        "approved extension import and setup complete",
       );
+      expect(existsSync(marker)).toBe(true);
       expect(
         session.history().find((e) => e.type === "extension_loaded" && (e as { name?: string }).name === "guard"),
       ).toMatchObject({
@@ -144,34 +160,54 @@ describe("extension enable consent (#834)", () => {
         version: "0.3.0",
       });
     } finally {
-      i.unmount();
-      await session.dispose();
+      gate.resolve("no");
+      try { await unmountSettled(i); }
+      finally {
+        try { await session.dispose(); }
+        finally {
+          rmSync(cwd, { recursive: true, force: true });
+          rmSync(home, { recursive: true, force: true });
+        }
+      }
     }
-  });
+  }, 10000); // Prompt, consent delivery and load each have their own deadline.
 
   test("declining loads nothing and says why", async () => {
     const cwd = mkdtempSync(join(tmpdir(), "moh-ext-consent-cwd-"));
     const home = homeWithExtension(
       "guard",
-      `export default { name: "guard", version: "0.3.0", apiVersion: "1.0", setup() {} };`,
+      `import { writeFileSync } from "node:fs";
+       writeFileSync(new URL("./evaluated", import.meta.url), "ran");
+       export default { name: "guard", version: "0.3.0", apiVersion: "1.0", setup() {} };`,
     );
+    const marker = join(home, ".moh", "extensions", "evaluated");
+    const answers: string[] = [];
     const gate = new PermissionGate();
     const { session } = unwrap(
       makeSession({
         cwd,
         home,
         provider: MockProvider.scripted([{ deltas: ["ok"], finish: "stop" }]),
-        onPermissionRequest: gate.ask,
+        onPermissionRequest: async (tool, args, context) => {
+          const answer = await gate.ask(tool, args, context);
+          answers.push(answer);
+          return answer;
+        },
       }),
     );
     const i = render(<PermissionModal gate={gate} mode="dev" />);
     try {
-      await waitForFrame(() => frameOf(i), "extension enable (guard.mjs)");
-      i.stdin.write("n");
-      await waitForCondition(
+      await waitText(i, "extension enable (guard.mjs)", "consent prompt committed");
+      expect(existsSync(marker)).toBe(false);
+      expect(answers).toEqual([]);
+      await pressSettled(i, "n");
+      await waitStep(i, () => answers.length === 1, "no reaches the consent callback");
+      expect(answers).toEqual(["no"]);
+      await waitStep(i,
         () => session.history().some((e) => e.type === "extension_failed"),
-        () => "the refused load to be recorded",
+        "declined extension load recorded",
       );
+      expect(existsSync(marker)).toBe(false);
       const failure = session.history().find((e) => e.type === "extension_failed") as { reason: string };
       expect(failure.reason).toBe("consent");
       // The pre-granted team extension is the only thing allowed to have
@@ -183,8 +219,15 @@ describe("extension enable consent (#834)", () => {
           .every((e) => (e as { name?: string }).name === "team"),
       ).toBe(true);
     } finally {
-      i.unmount();
-      await session.dispose();
+      gate.resolve("no");
+      try { await unmountSettled(i); }
+      finally {
+        try { await session.dispose(); }
+        finally {
+          rmSync(cwd, { recursive: true, force: true });
+          rmSync(home, { recursive: true, force: true });
+        }
+      }
     }
-  });
+  }, 10000); // Prompt, consent delivery and load each have their own deadline.
 });
