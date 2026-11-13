@@ -7,6 +7,14 @@ matching section here at tag time.
 
 ## [Unreleased]
 
+### Added
+
+- Composed teams can opt into direct peer messages with `peerMessaging: true`.
+  Messages stay within the group, wait for the recipient's next turn, and
+  retain sender/recipient attribution in the session log and transcript.
+  The additional extension consent, existing tool permissions, bounded
+  message budget and team stop keep the coordinator in control (#1743).
+
 ## [0.66.3] - 2026-11-11
 
 ### Changed

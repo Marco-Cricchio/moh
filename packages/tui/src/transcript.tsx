@@ -1244,6 +1244,9 @@ export function projectTranscript(events: ReadonlyArray<AgentEvent>, options: { 
         // keep their own spawn/result blocks; the stop itself needs no
         // transcript block.
         break;
+      case "subagent_message":
+        blocks.push({ key, kind: "chrome", glyph: "◈", type: `peer · ${event.sender} → ${event.recipient} · ${event.status}`, lines: event.message ? [event.message.replace(/\s+/g, " ").slice(0, 120)] : event.error ? [event.error] : [] });
+        break;
       case "subagent_steer":
         // ADR-0055 write-into-child (#1222): the steering record — the
         // member's own log holds the turn it produced; the write needs

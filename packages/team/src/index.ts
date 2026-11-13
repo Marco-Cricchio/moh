@@ -23,7 +23,7 @@
  * consented in-memory door — never the bundled one, which would skip the
  * enable question the envelope is named in.
  */
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { defineExtension, MOH_EXTENSION_API_VERSION, type ExtensionDefinition } from "@moh/extension";
@@ -94,6 +94,7 @@ const teamArgsSchema = z.object({
   work: z.string().min(1).optional(),
   compose: z.array(memberSpecSchema).min(1).optional(),
   brief: z.string().min(1).optional(),
+  peerMessaging: z.boolean().optional(),
 });
 
 /**
@@ -109,6 +110,7 @@ const teamArgsSchema = z.object({
  * `/lanes` — never a hard error at the end of the chain.
  */
 export interface TeamMember {
+  readonly peerGroup?: import("@moh/extension").ExtensionSpawnSpec["peerGroup"];
   readonly name: string;
   readonly role: "builder" | "reviewer";
   readonly scope?: string;
@@ -213,6 +215,7 @@ async function spawnMemberLaned(
   const buildSpec = (task: string) => ({
     name: m.name,
     task,
+    ...(m.peerGroup ? { peerGroup: m.peerGroup } : {}),
     systemPrompt: ROLE_PROMPTS[m.role],
     // The reviewer is read-only by scope: an empty scope list denies
     // write/edit through the permission spine.
@@ -319,7 +322,7 @@ export function createTeamExtension(): ExtensionDefinition {
     name: TEAM_NAME,
     version: TEAM_VERSION,
     apiVersion: MOH_EXTENSION_API_VERSION,
-    capabilities: ["spawn-subagent", "contribute-tool:team", "contribute-panels"],
+    capabilities: ["spawn-subagent", "peer-messaging", "contribute-tool:team", "contribute-panels"],
     setup: (ctx) => {
       // Ticket #1221 (slice 2b): the one-member team, end to end. The
       // model sees the `team` tool; when the user asks to work on
@@ -331,10 +334,9 @@ export function createTeamExtension(): ExtensionDefinition {
       // Ticket #1222 (slice 2c): steering — the lead relays a follow-up
       // message to a member it spawned (ADR-0055 write-into-child); the
       // member keeps its context and route, and the new turn's outcome
-      // returns to the lead. Star-shaped by construction: the API only
-      // reaches children this extension spawned, and the host excludes
-      // the contributed `team` tool from every child's toolset, so a
-      // member cannot address another member.
+      // returns to the lead. This API reaches only children the extension
+      // spawned. The host excludes the contributed `team` tool from
+      // children; opt-in peer groups get a separate bound tool (#1743).
       if (typeof ctx.registerTool !== "function" || typeof ctx.spawnSubagent !== "function" || typeof ctx.steerSubagent !== "function") {
         return; // enforcement by absence: no grant, no team (unreachable with the granted manifest)
       }
@@ -352,6 +354,7 @@ export function createTeamExtension(): ExtensionDefinition {
           "Delegate work to the team, compose it by complexity, or steer an existing member. " +
           "Spawn: pass `task` — spawns a builder member as a child session that works on the task and returns its result (the simple, one-member ask). " +
           "Compose: pass `compose` — a list of members (`role: builder|reviewer`, optional `name`, `scope` path glob, `lane` branchRef, `model` route, `task`) plus an optional `brief`; builders are scoped to disjoint paths, reviewers are read-only, members with a task are dispatched in parallel, and the roster then drives `work`. A member whose lane does not exist yet works un-laned: to give it isolation, create the lane yourself (bash: moh lanes group <group> && moh lanes start <group> <branch> — it asks for consent per the session mode) and re-dispatch the member. " +
+          "Peer messages: opt in with `peerMessaging: true` on `compose` (at least two members). Members get `team_message` for other started members of that composition only; messages queue after the current turn and are audited. Omit it to keep coordinator-only steering. Each composition starts a fresh group. " +
           "Plan: pass `plan` — decomposes the brief into bag tasks; then pass `work` (and optionally `member`) to run the team through the bag. " +
           "Steer: pass `member` + `message` — relays a follow-up instruction to that member's next turn (it keeps its context) and returns the new outcome. " +
           "Use when the user asks to work on something with the team, or to correct or redirect one of its members.",
@@ -359,15 +362,8 @@ export function createTeamExtension(): ExtensionDefinition {
         execute: async (args) => {
           const parsed = teamArgsSchema.safeParse(args);
           if (!parsed.success) return `team: refused — ${parsed.error.issues[0]?.message ?? "invalid arguments"}`;
-          const { task, member, message, plan, work, compose, brief } = parsed.data as {
-            task?: string;
-            member?: string;
-            message?: string;
-            plan?: { title: string; blockedBy?: string[] }[];
-            work?: string;
-            compose?: { role: "builder" | "reviewer"; name?: string; scope?: string; lane?: string; model?: string; task?: string }[];
-            brief?: string;
-          };
+          const { task, member, message, plan, work, compose, brief, peerMessaging } = parsed.data;
+          if (peerMessaging !== undefined && compose === undefined) return "team: refused — peerMessaging is set only on compose";
           // The bag and the composed roster survive hot-reloads in the
           // per-extension durable state; a fresh session starts empty.
           const state = ctx.state as { bag?: TaskBag; roster?: TeamMember[] };
@@ -387,6 +383,12 @@ export function createTeamExtension(): ExtensionDefinition {
             } catch (error) {
               return `team: refused — ${(error as Error).message}`;
             }
+            if (peerMessaging) {
+              if (roster.length < 2 || roster.length > 10 || roster.some((m) => m.name.length > 100)) return "team: refused — peer messaging requires 2–10 members with names at most 100 characters";
+              const peerGroup = { id: randomUUID(), members: roster.map((m) => m.name) };
+              roster = roster.map((m) => ({ ...m, peerGroup }));
+            }
+            members.clear(); // a new composition must never steer a previous group's seats
             state.roster = roster;
             ctx.appendEvent({
               name: TEAM_COMPOSED,
@@ -398,6 +400,7 @@ export function createTeamExtension(): ExtensionDefinition {
                   ...(m.lane !== undefined ? { lane: m.lane } : {}),
                   ...(m.model !== undefined ? { model: m.model } : {}),
                 })),
+                ...(roster[0]?.peerGroup ? { peerGroup: roster[0].peerGroup.id, peerMessaging: true } : {}),
                 dispatched: compose.filter((m) => m.task !== undefined).length,
               },
             });
@@ -605,10 +608,10 @@ export default createTeamExtension;
 export const teamBundledSource = {
   name: TEAM_NAME,
   manifest: {
-    capabilities: ["spawn-subagent", "contribute-tool:team", "contribute-panels"] as string[],
+    capabilities: ["spawn-subagent", "peer-messaging", "contribute-tool:team", "contribute-panels"] as string[],
     // ADR-0066: the NOT-do list rides the enable question.
     reasoning:
-      "The team extension coordinates child sessions as one team: up to 10 concurrent children, per-role path scopes, one stop for everything it started, and one live panel in the extensions rail (roster and member detail, read-only). It does not add peer messaging between members — steering flows through the team lead — and its children never spawn grandchildren.",
+      "The team extension coordinates child sessions as one team: up to 10 concurrent children, per-role path scopes, one stop for everything it started, and one live panel in the extensions rail (roster and member detail, read-only). Peer messaging is available only when explicitly enabled for a composition, stays within that group, and is recorded in the session log. Its children never spawn grandchildren.",
   },
   // ADR-0074: the enable consent names the envelope — the user grants it,
   // the stored answer remembers it. Shipping in the binary does not grant it.

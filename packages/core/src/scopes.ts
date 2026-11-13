@@ -633,6 +633,9 @@ export function scopeEffectSentence(capability: string): string | null {
   // ADR-0053/0055: the delegation slot's envelope is core-enforced (the
   // 10-children cap, no grandchildren), so the question can state it as a
   // fact, not a promise.
+  if (capability === "peer-messaging") {
+    return "may enable bounded peer messages within an explicitly composed child group, recorded in the session log";
+  }
   if (capability === "spawn-subagent") {
     return "may create up to 10 concurrent child sessions and steer or stop them";
   }
