@@ -9,6 +9,11 @@ matching section here at tag time.
 
 ### Fixed
 
+- Extension hot reload recovers edits missed by native filesystem watchers,
+  including changes made immediately after watching starts. Recovered edits
+  still require consent before import; refused edits keep the prior instance
+  (#1746).
+
 - The chat composer consumes the escape in `\!` before sending a literal
   leading `!` to the model, as documented (#1740).
 
