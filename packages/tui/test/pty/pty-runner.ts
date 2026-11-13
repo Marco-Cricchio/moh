@@ -105,23 +105,33 @@ export async function runPtyRaw(spec: PtySpec): Promise<PtyMeta> {
   // child TUI's fetch never reaches the handler (model_call_start, then an
   // infinite spinner; fake call count stays zero). Keeping the parent event
   // loop alive lets those cross-process requests progress.
-  const proc = Bun.spawn([python3, HARNESS, JSON.stringify({ ...spec, meta: true })], {
+  const proc = Bun.spawn([python3, HARNESS, JSON.stringify({ ...spec, meta: true, bunExecutable: process.execPath })], {
     stdout: "pipe",
     stderr: "pipe",
   });
   let timedOut = false;
-  const timer = setTimeout(() => { timedOut = true; proc.kill("SIGKILL"); }, spec.timeoutMs ?? 45_000);
-  const [stdout, stderr, exitCode] = await Promise.all([
-    new Response(proc.stdout).text(),
-    new Response(proc.stderr).text(),
-    proc.exited,
-  ]);
-  clearTimeout(timer);
-  if (timedOut) throw new Error(`pty harness timed out after ${spec.timeoutMs ?? 45_000}ms`);
-  if (exitCode !== 0) {
-    throw new Error(`pty harness failed (${exitCode}): ${stderr}`);
+  let hardStop: ReturnType<typeof setTimeout> | undefined;
+  const timer = setTimeout(() => {
+    timedOut = true;
+    proc.kill("SIGTERM");
+    // Give Python's finally a bounded chance to reap the actual CLI child.
+    hardStop = setTimeout(() => proc.kill("SIGKILL"), 3500);
+  }, spec.timeoutMs ?? 45_000);
+  try {
+    const [stdout, stderr, exitCode] = await Promise.all([
+      new Response(proc.stdout).text(),
+      new Response(proc.stderr).text(),
+      proc.exited,
+    ]);
+    if (timedOut) throw new Error(`pty harness timed out after ${spec.timeoutMs ?? 45_000}ms: ${stderr}`);
+    if (exitCode !== 0) throw new Error(`pty harness failed (${exitCode}): ${stderr}`);
+    return JSON.parse(stdout) as PtyMeta;
+  } finally {
+    clearTimeout(timer);
+    clearTimeout(hardStop);
+    proc.kill();
+    await proc.exited;
   }
-  return JSON.parse(stdout) as PtyMeta;
 }
 
 /** A session start with pinned settings: no onboarding/workflow overlays. */

@@ -492,6 +492,9 @@ def main() -> None:
                 env.pop(key, None)
             else:
                 env[key] = value
+    # A temporary HOME does not isolate macOS Keychain. These terminal tests
+    # must never block on or modify the developer's native credential store.
+    env["MOH_SECRET_STORE"] = "file"
 
     # The pty must be the child's CONTROLLING terminal (#236): bun on Linux
     # reads the window size from /dev/tty, not the stdout fd — without
@@ -503,8 +506,9 @@ def main() -> None:
         os.setsid()
         fcntl.ioctl(slave, termios.TIOCSCTTY, 0)
 
+    started = time.monotonic()
     proc = subprocess.Popen(
-        ["bun", CLI],
+        [spec.get("bunExecutable", "bun"), CLI],
         stdin=slave, stdout=slave, stderr=slave, cwd=cwd, env=env,
         preexec_fn=make_controlling,
     )
@@ -512,9 +516,13 @@ def main() -> None:
     buf = bytearray()
     screen = Screen(cols, rows)
 
+    def child_state() -> str:
+        return (f"child pid={proc.pid}, exit={proc.poll()}, bytes={len(buf)}, "
+                f"elapsed={time.monotonic() - started:.3f}s")
+
     def pump(seconds: float) -> None:
-        end = time.time() + seconds
-        while time.time() < end:
+        end = time.monotonic() + seconds
+        while time.monotonic() < end:
             ready, _, _ = select.select([master], [], [], 0.05)
             if ready:
                 try:
@@ -524,6 +532,18 @@ def main() -> None:
                 if chunk:
                     buf.extend(chunk)
                     screen.feed_bytes(chunk)
+
+    def pump_startup() -> None:
+        # Cold process/module startup has its own finite budget. Once bytes
+        # arrive, every original Home/interaction condition still has to pass.
+        # A fixed 2.5s pump used to spend that condition's budget on startup.
+        end = time.monotonic() + 20.0
+        while not buf and time.monotonic() < end:
+            if proc.poll() is not None:
+                raise RuntimeError(f"child exited before first PTY output: {child_state()}")
+            pump(min(0.05, max(0.0, end - time.monotonic())))
+        if not buf:
+            raise RuntimeError(f"startup expired before first PTY output: {child_state()}")
 
     def pump_until(seconds: float, needle: str, since: int, on_screen: bool = False,
                    entry_buffer: bool = False) -> bool:
@@ -559,7 +579,7 @@ def main() -> None:
             return any(needle in line for line in screen.lines()) \
                 or any(needle in line for line in screen.scrollback_view)
 
-        end = time.time() + seconds
+        end = time.monotonic() + seconds
         # #1045: the needle may already have been painted BEFORE the step
         # began (the boot pump paints the composer, and a flicker fix can
         # mean nothing repaints afterwards). Readiness asks "has the state
@@ -570,7 +590,7 @@ def main() -> None:
             # screen) means the state was reached before the step began.
             if buf.find(target) != -1 or visible():
                 return True
-        while time.time() < end:
+        while time.monotonic() < end:
             if buf.find(target, since) != -1:
                 pump(0.2)  # let the frame finish painting
                 return True
@@ -589,7 +609,7 @@ def main() -> None:
                         # False and letting the assertions run over a
                         # snapshot the step never reached.
                         raise RuntimeError(
-                            f"pty readiness wait: terminal closed while waiting for {needle!r}")
+                            f"pty readiness wait: terminal closed while waiting for {needle!r}; {child_state()}")
                     continue
                 if chunk:
                     buf.extend(chunk)
@@ -598,7 +618,7 @@ def main() -> None:
                     # EOF with the child gone: the terminal closed (macOS
                     # reports a closed master as b"" rather than OSError).
                     raise RuntimeError(
-                        f"pty readiness wait: terminal closed while waiting for {needle!r}")
+                        f"pty readiness wait: terminal closed while waiting for {needle!r}; {child_state()}")
                 # An empty read while the child lives is not evidence of
                 # anything; keep waiting (a raise here would kill runs on
                 # spurious wakeups).
@@ -612,7 +632,7 @@ def main() -> None:
         tail = bytes(buf[-2000:]).decode("utf-8", "replace")
         raise RuntimeError(
             f"pty readiness wait expired after {seconds}s: needle {needle!r} never appeared"
-            f"\n--- buffer tail ---\n{tail}")
+            f"; {child_state()}\n--- buffer tail ---\n{tail}")
 
     def send(b64: str) -> None:
         os.write(master, base64.b64decode(b64))
@@ -629,8 +649,14 @@ def main() -> None:
             })
         return {"lines": rendered, "scrollback": list(screen.scrollback_view)}
 
+    def parent_deadline(signum, frame):
+        # The TypeScript owner sends TERM before its hard-stop grace expires.
+        # Unwind through finally so the CLI is killed/reaped, not orphaned.
+        raise TimeoutError(f"pty parent deadline: {child_state()}")
+
+    signal.signal(signal.SIGTERM, parent_deadline)
     try:
-        pump(2.5)  # boot: onboarding appears
+        pump_startup()
         for step in spec.get("steps", []):
             if step.get("until"):
                 # Readiness steps are send-only-free by contract: a step that
@@ -700,6 +726,7 @@ def main() -> None:
                 proc.wait(timeout=1)
             except subprocess.TimeoutExpired:
                 pass
+        os.close(master)
     # Normal exits: the double-ctrl+c quit (0), an already-exited child
     # (None), or our own shutdown signals. -9 and -15 mean WE killed it
     # (runner budget or the shutdown path above), never a child crash.
