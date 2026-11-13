@@ -84,7 +84,7 @@ describe("@moh/extension contract", () => {
     // control channel, the post-tool inspection seam, `confirm.onResolved`,
     // the session identity on the beforeTurn context, and the compaction
     // hook's own window/signal.
-    expect(parseApiVersion(MOH_EXTENSION_API_VERSION)).toEqual({ major: 1, minor: 18 });
+    expect(parseApiVersion(MOH_EXTENSION_API_VERSION)).toEqual({ major: 1, minor: 19 });
     expect(parseApiVersion("banana")).toBeNull();
   });
 });
@@ -678,57 +678,105 @@ describe("extension-deps installation (ADR-0070)", () => {
 });
 
 describe("hot-reload", () => {
+  test("missed native notifications still reload through consent and stop cleanly", async () => {
+    // Module mocking belongs to a separate process: other extension tests
+    // continue to exercise the real native notification path.
+    const child = Bun.spawn([process.execPath, join(import.meta.dir, "fixtures/extension-watch-probe.ts")], {
+      stdout: "pipe", stderr: "pipe",
+    });
+    try {
+      const [stdout, stderr, code] = await Promise.all([
+        new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited,
+      ]);
+      expect(code, stderr).toBe(0);
+      expect(JSON.parse(stdout)).toEqual({ watches: 1, asks: 3, version: "2.0.0", loads: 2 });
+    } finally {
+      child.kill();
+      await child.exited;
+    }
+  }, 15_000);
+
+  async function waitForReload(step: string, ready: () => boolean): Promise<void> {
+    const deadline = Date.now() + 3000;
+    while (!ready() && Date.now() < deadline) await Bun.sleep(10);
+    expect(ready(), `reload stuck at: ${step}`).toBe(true);
+  }
+
   test("preserves ctx.state and re-registers hooks; a mismatched reload keeps the previous instance", async () => {
     const dir = tempDir();
     const file = join(dir, "ext.mjs");
-    writeExt(
-      file,
-      `export default { name: "hot", version: "1.0.0", apiVersion: "1.0",
+    const warnings: string[] = [];
+    const rt = runtime(dir, { onWarning: (message) => warnings.push(message) });
+    const source = (version: string, apiVersion = "1.0") => `
+      export default { name: "hot", version: ${JSON.stringify(version)}, apiVersion: ${JSON.stringify(apiVersion)},
         setup(ctx) { ctx.state.loads = ((ctx.state.loads ?? 0) + 1); ctx.onToolCall(() => ({ veto: true, reason: "v" + ctx.state.loads })); } };
-      `,
-    );
-    const rt = runtime(dir);
-    expect(await rt.registerFile(file)).toBe(true);
-    expect(rt.instances[0]!.state.loads).toBe(1);
+    `;
+    try {
+      writeExt(file, source("1.0.0"));
+      expect(await rt.registerFile(file)).toBe(true);
+      expect(rt.instances[0]!.state.loads).toBe(1);
+      rt.startWatch();
+      writeExt(file, source("1.1.0"));
+      await waitForReload("replacement setup", () => rt.instances[0]?.def.version === "1.1.0");
+      expect(rt.instances[0]!.state.loads).toBe(2);
+      expect(rt.instances[0]!.hooks.onToolCall.length).toBe(1);
 
-    rt.startWatch();
-    writeExt(
-      file,
-      `export default { name: "hot", version: "1.1.0", apiVersion: "1.0",
-        setup(ctx) { ctx.state.loads = ((ctx.state.loads ?? 0) + 1); ctx.onToolCall(() => ({ veto: true, reason: "v" + ctx.state.loads })); } };
-      `,
-    );
-    await Bun.sleep(400);
-    expect(rt.instances[0]!.def.version).toBe("1.1.0");
-    expect(rt.instances[0]!.state.loads).toBe(2); // preserved, incremented by the new setup
-    expect(rt.instances[0]!.hooks.onToolCall.length).toBe(1); // re-registered
+      writeExt(file, source("2.0.0", "2.0"));
+      await waitForReload("API mismatch refusal", () => warnings.some((message) => message.includes("reload refused")));
+      expect(rt.instances[0]!.def.version).toBe("1.1.0");
+      expect(rt.instances[0]!.state.loads).toBe(2);
+      expect(rt.instances[0]!.hooks.onToolCall.length).toBe(1);
+    } finally {
+      rt.stopWatch();
+      rmSync(dir, { recursive: true, force: true });
+      manifestEntries.delete(dir);
+    }
+  }, 8000);
 
-    // Major mismatch on reload: previous instance kept.
-    writeExt(
-      file,
-      `export default { name: "hot", version: "2.0.0", apiVersion: "2.0", setup() {} };
-      `,
-    );
-    await Bun.sleep(400);
-    expect(rt.instances[0]!.def.version).toBe("1.1.0");
-    rt.stopWatch();
-  });
-
-  test("modified file re-asks before replacement", async () => {
+  test("modified file re-asks before import; refusal preserves the approved instance", async () => {
     const dir = tempDir();
     const file = join(dir, "consented.mjs");
-    const source = (version: string) => `export default { name: "watch", version: ${JSON.stringify(version)}, apiVersion: "1.0", setup() {} };`;
-    writeExt(file, source("1.0.0"));
+    const marker = join(dir, "evaluated.txt");
+    const source = (version: string) => `
+      import { writeFileSync } from "node:fs";
+      writeFileSync(${JSON.stringify(marker)}, ${JSON.stringify(version)});
+      export default { name: "watch", version: ${JSON.stringify(version)}, apiVersion: "1.0", setup() {} };
+    `;
+    let approve!: (yes: boolean) => void;
+    const approval = new Promise<boolean>((resolve) => { approve = resolve; });
     let asks = 0;
-    const rt = new ExtensionRuntime({ mohHome: dir, consent: () => ++asks <= 2 });
-    expect(await rt.registerFile(file)).toBe(true);
-    rt.startWatch();
-    writeExt(file, source("2.0.0"));
-    await Bun.sleep(400);
-    expect(asks).toBe(2);
-    expect(rt.instances[0]!.def.version).toBe("2.0.0");
-    rt.stopWatch();
-  });
+    const warnings: string[] = [];
+    const rt = new ExtensionRuntime({
+      mohHome: dir,
+      consent: () => { asks += 1; return asks === 1 ? true : asks === 2 ? approval : false; },
+      onWarning: (message) => warnings.push(message),
+    });
+    try {
+      writeExt(file, source("1.0.0"));
+      expect(await rt.registerFile(file)).toBe(true);
+      rt.startWatch();
+      writeExt(file, source("2.0.0"));
+      await waitForReload("edited code consent", () => asks === 2);
+      // The consent is held open: observing the ask must precede import.
+      expect(rt.instances[0]!.def.version).toBe("1.0.0");
+      expect(readFileSync(marker, "utf8")).toBe("1.0.0");
+      approve(true);
+      await waitForReload("approved replacement", () => rt.instances[0]?.def.version === "2.0.0");
+      expect(asks).toBe(2);
+      expect(readFileSync(marker, "utf8")).toBe("2.0.0");
+
+      writeExt(file, source("3.0.0"));
+      await waitForReload("declined replacement", () => warnings.some((message) => message.includes("reload refused (consent)")));
+      expect(asks).toBe(3);
+      expect(rt.instances[0]!.def.version).toBe("2.0.0");
+      expect(readFileSync(marker, "utf8")).toBe("2.0.0");
+    } finally {
+      approve(false);
+      rt.stopWatch();
+      rmSync(dir, { recursive: true, force: true });
+      manifestEntries.delete(dir);
+    }
+  }, 12000);
 
   test("missing extension file on register: warning event, no instance", async () => {
     const rt = runtime(tempDir());

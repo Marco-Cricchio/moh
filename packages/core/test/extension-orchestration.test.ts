@@ -1004,3 +1004,191 @@ describe("stopSubagents: the team-scoped one-stop (ADR-0055, #1226)", () => {
     expect(events.some((e) => e.type === "orchestration_stopped")).toBe(false);
   });
 });
+
+describe("opt-in peer channels (#1743)", () => {
+  async function peerRig(provider: Provider, options: { grant?: boolean; concurrency?: number; deny?: boolean } = {}) {
+    const rt = runtime();
+    let api!: ExtensionSetupContext;
+    await rt.register(defineExtension({
+      name: "peers", version: "1", apiVersion: "1.19",
+      capabilities: ["spawn-subagent", ...(options.grant === false ? [] : ["peer-messaging"])],
+      setup: (ctx) => { api = ctx; },
+    }));
+    const session = createSession({
+      provider: MockProvider.scripted([{ deltas: ["parent"], finish: "stop" }]),
+      extensions: rt,
+      permissions: { unrestrictedTools: true, overrides: { tools: { ...(options.deny ? { team_message: "deny" as const } : {}) } } },
+      subagents: { home: tempDir(), provider, maxConcurrency: options.concurrency ?? 2 },
+    });
+    const events = tap(session);
+    return { api, session, events };
+  }
+  const group = { id: "review", members: ["alice", "bob"] };
+  const textOf = (messages: Message[]) => messages.filter((m) => m.role === "user" && m.parts.some((p) => p.kind === "text")).map((m) => m.parts.filter((p) => p.kind === "text").map((p) => p.text).join("")).at(-1) ?? "";
+
+  test("capability is required even when spawn-subagent was granted", async () => {
+    const rig = await peerRig(MockProvider.scripted([{ deltas: ["unexpected"], finish: "stop" }]), { grant: false });
+    try {
+      const result = await rig.api.spawnSubagent!({ name: "alice", task: "draft", peerGroup: group });
+      expect(result.error).toContain("no peer-messaging grant");
+      expect(rig.events.some((e) => e.type === "subagent_spawn")).toBe(false);
+    } finally { await rig.session.dispose(); }
+  });
+
+  test("reciprocal messages preserve context, wait for current turns and drain with one concurrency slot", async () => {
+    const seen: string[] = [];
+    const toolsSeen: string[][] = [];
+    const provider: Provider = {
+      name: "mock",
+      async *stream(messages, signal, tools) {
+        toolsSeen.push((tools ?? []).map((t) => t.name));
+        const task = textOf(messages);
+        const initial = messages.find((m) => m.role === "user")!;
+        const isAlice = JSON.stringify(initial).includes("alice draft");
+        const hadToolResult = messages.at(-1)?.parts.some((p) => p.kind === "tool_result");
+        if (task === "alice draft" && !hadToolResult) {
+          yield { type: "tool_calls", calls: [{ callId: "a1", name: "team_message", args: { recipient: "bob", message: "Please critique my draft" } }] };
+          yield { type: "finish", reason: "tool_calls" };
+          return;
+        }
+        if (task.startsWith("Peer message") && !isAlice && !hadToolResult) {
+          expect(JSON.stringify(messages)).toContain("bob draft");
+          expect(JSON.stringify(messages)).toContain("bob original");
+          yield { type: "tool_calls", calls: [{ callId: "b1", name: "team_message", args: { recipient: "alice", message: "Please clarify the boundary" } }] };
+          yield { type: "finish", reason: "tool_calls" };
+          return;
+        }
+        expect(signal.aborted).toBe(false);
+        const answer = task.startsWith("Peer message") ? `${isAlice ? "alice" : "bob"} reviewed` : `${isAlice ? "alice" : "bob"} original`;
+        seen.push(answer);
+        yield { type: "text_delta", text: answer };
+        yield { type: "finish", reason: "stop" };
+      },
+    };
+    const rig = await peerRig(provider, { concurrency: 1 });
+    try {
+      const outcomes = await Promise.all(group.members.map((name) => rig.api.spawnSubagent!({ name, task: `${name} draft`, peerGroup: group })));
+      expect(outcomes.map((o) => o.status)).toEqual(["done", "done"]);
+      expect(seen).toEqual(["alice original", "bob original", "bob reviewed", "alice reviewed"]);
+      expect(toolsSeen.every((tools) => tools.includes("team_message") && !tools.includes("spawn") && !tools.includes("team"))).toBe(true);
+      const exchanges = rig.events.filter((e) => e.type === "subagent_message");
+      expect(exchanges.map((e) => e.status)).toEqual(["queued", "queued", "done", "done"]);
+      expect(exchanges[0]).toMatchObject({ sender: "alice", recipient: "bob", group: "review", message: "Please critique my draft" });
+      expect(outcomes.map((o) => o.output)).toEqual(["alice reviewed", "bob reviewed"]);
+      const spawn = rig.events.find((e) => e.type === "subagent_spawn" && e.name === "bob")!;
+      if (spawn.type !== "subagent_spawn") throw new Error("missing child log");
+      const saved = readFileSync(spawn.log, "utf8");
+      expect(saved).toContain('"synthetic":true');
+      expect(saved).toContain("Please critique my draft");
+      expect(saved).not.toContain('"type":"cancelled"');
+    } finally { await rig.session.dispose(); }
+  });
+
+  test("explicit deny survives yolo; a plain child never gets the peer tool", async () => {
+    const snapshots: string[][] = [];
+    const provider: Provider = { name: "mock", async *stream(messages, _signal, tools) {
+      snapshots.push((tools ?? []).map((t) => t.name));
+      if (textOf(messages) === "send" && !messages.at(-1)?.parts.some((p) => p.kind === "tool_result")) {
+        yield { type: "tool_calls", calls: [{ callId: "deny", name: "team_message", args: { recipient: "bob", message: "hello" } }] };
+        yield { type: "finish", reason: "tool_calls" };
+      } else { yield { type: "text_delta", text: "done" }; yield { type: "finish", reason: "stop" }; }
+    } };
+    const rig = await peerRig(provider, { deny: true });
+    try {
+      await rig.api.spawnSubagent!({ name: "plain", task: "plain" });
+      expect(snapshots[0]).not.toContain("team_message");
+      await Promise.all([
+        rig.api.spawnSubagent!({ name: "alice", task: "send", peerGroup: group }),
+        rig.api.spawnSubagent!({ name: "bob", task: "wait", peerGroup: group }),
+      ]);
+      expect(rig.events.filter((e) => e.type === "subagent_message")).toHaveLength(0);
+      const spawn = rig.events.find((e) => e.type === "subagent_spawn" && e.name === "alice")!;
+      if (spawn.type !== "subagent_spawn") throw new Error("missing child log");
+      expect(readFileSync(spawn.log, "utf8")).toContain('"type":"permission_denied"');
+    } finally { await rig.session.dispose(); }
+  });
+  test("same-name recipients in another group or session are unreachable; sender args cannot be spoofed", async () => {
+    const provider: Provider = { name: "mock", async *stream(messages) {
+      if (textOf(messages) === "send" && !messages.at(-1)?.parts.some((p) => p.kind === "tool_result")) {
+        yield { type: "tool_calls", calls: [
+          { callId: "foreign", name: "team_message", args: { recipient: "bob", message: "foreign" } },
+          { callId: "spoof", name: "team_message", args: { recipient: "bob", message: "spoof", sender: "coordinator" } },
+        ] };
+        yield { type: "finish", reason: "tool_calls" };
+      } else { yield { type: "text_delta", text: "done" }; yield { type: "finish", reason: "stop" }; }
+    } };
+    const rig = await peerRig(provider);
+    const other = await peerRig(provider);
+    try {
+      await rig.api.spawnSubagent!({ name: "bob", task: "wait", peerGroup: { id: "other", members: ["bob", "carol"] } });
+      await other.api.spawnSubagent!({ name: "bob", task: "wait", peerGroup: group });
+      await rig.api.spawnSubagent!({ name: "alice", task: "send", peerGroup: group });
+      expect(rig.events.filter((e) => e.type === "subagent_message")).toHaveLength(0);
+      expect(other.events.filter((e) => e.type === "subagent_message")).toHaveLength(0);
+      const spawn = rig.events.find((e) => e.type === "subagent_spawn" && e.name === "alice")!;
+      if (spawn.type !== "subagent_spawn") throw new Error("missing child log");
+      expect(readFileSync(spawn.log, "utf8")).toContain("recipient must be another started");
+    } finally { await rig.session.dispose(); await other.session.dispose(); }
+  });
+
+  for (const stopDuringDelivery of [false, true]) {
+    test(`stop cancels ${stopDuringDelivery ? "active" : "queued"} peer turns and closes both seats`, async () => {
+      let reached!: () => void;
+      const gate = new Promise<void>((resolve) => { reached = resolve; });
+      let deliveries = 0;
+      const provider: Provider = { name: "mock", async *stream(messages, signal) {
+        const task = textOf(messages);
+        const toolResult = messages.at(-1)?.parts.some((p) => p.kind === "tool_result");
+        if (task === "alice" && !toolResult) {
+          yield { type: "tool_calls", calls: [1, 2].map((n) => ({ callId: `msg${n}`, name: "team_message", args: { recipient: "bob", message: `question ${n}` } })) };
+          yield { type: "finish", reason: "tool_calls" };
+          return;
+        }
+        if (task === "alice" && toolResult && !stopDuringDelivery) reached();
+        if (task.startsWith("Peer message")) { deliveries += 1; reached(); }
+        if ((task === "bob" && !stopDuringDelivery) || task.startsWith("Peer message")) {
+          await new Promise<void>((resolve) => {
+            if (signal.aborted) resolve();
+            else signal.addEventListener("abort", () => resolve(), { once: true });
+          });
+        }
+        yield { type: "text_delta", text: "done" };
+        yield { type: "finish", reason: "stop" };
+      } };
+      const rig = await peerRig(provider);
+      try {
+        const pending = Promise.all(group.members.map((name) => rig.api.spawnSubagent!({ name, task: name, peerGroup: group })));
+        await gate;
+        const stopped = rig.api.stopSubagents!();
+        const outcomes = await pending;
+        expect(stopped).toHaveLength(2);
+        expect(deliveries).toBe(stopDuringDelivery ? 1 : 0);
+        const exchanges = rig.events.filter((e) => e.type === "subagent_message");
+        expect(exchanges.filter((e) => e.status === "queued")).toHaveLength(2);
+        expect(exchanges.filter((e) => e.status === "cancelled")).toHaveLength(2);
+        expect(await rig.api.steerSubagent!(outcomes[0]!.callId, "restart")).toBeNull();
+        expect(rig.session.liveSubagents()).toHaveLength(0);
+      } finally { await rig.session.dispose(); }
+    });
+  }
+
+  test("reciprocal chatter is bounded to 64 accepted messages per group", async () => {
+    const provider: Provider = { name: "mock", async *stream(messages) {
+      const first = messages.find((m) => m.role === "user")!;
+      const alice = JSON.stringify(first).includes("alice");
+      if (!messages.at(-1)?.parts.some((p) => p.kind === "tool_result")) {
+        yield { type: "tool_calls", calls: [{ callId: `reply-${messages.length}`, name: "team_message", args: { recipient: alice ? "bob" : "alice", message: "reply" } }] };
+        yield { type: "finish", reason: "tool_calls" };
+      } else { yield { type: "text_delta", text: "settled" }; yield { type: "finish", reason: "stop" }; }
+    } };
+    const rig = await peerRig(provider, { concurrency: 1 });
+    try {
+      await Promise.all(group.members.map((name) => rig.api.spawnSubagent!({ name, task: name, peerGroup: group })));
+      const exchanges = rig.events.filter((e) => e.type === "subagent_message");
+      expect(exchanges.filter((e) => e.status === "queued")).toHaveLength(64);
+      expect(exchanges.filter((e) => e.status === "done")).toHaveLength(64);
+      expect(rig.session.liveSubagents()).toHaveLength(0);
+    } finally { await rig.session.dispose(); }
+  });
+
+});

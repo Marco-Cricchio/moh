@@ -174,8 +174,8 @@ started. `ctx.subagentActivity(callId)` reads the bounded child-tail
 activity of a child the extension spawned; a session it did not spawn
 does not exist for it. `ctx.steerSubagent(callId, message)` (#1222)
 writes a follow-up message into a child it spawned — the member's next
-turn, context and route kept; the same ownership rule applies, so
-members can never address each other, and the write is recorded as
+turn, context and route kept; the same ownership rule applies to this
+coordinator-only API, and the write is recorded as
 `subagent_steer` chrome in the parent's log. The spawn spec also takes
 `pathScopes` (#1224) — project-root globs that restrict the child's
 writes through the permission spine (a logged `permission_denied`, even
@@ -208,6 +208,21 @@ in every case, something you are asked before anything runs.
   opens a member's detail where typing composes a steering message,
   `x` in the roster stops everything the team spawned — lanes and
   worktrees survive). Members also appear in the ordinary subagent chips.
+  Peer messaging is **off by default**. Ask the coordinator to compose the
+  team with `peerMessaging: true` to let members call
+  `team_message({ recipient: "reviewer-1", message: "Please critique this finding" })`.
+  Only other started members of that composition are reachable; plain
+  subagents and other groups or sessions are excluded. Messages wait for
+  the recipient's current turn and keep its context. The sender gets a queue
+  receipt immediately; the team call waits for accepted exchanges to settle.
+  The transcript shows compact sender/recipient/status lines; the event log
+  retains full payloads and child logs retain the resulting turns. Peer text
+  is untrusted input and cannot change permissions. Explicit denials and
+  extension vetoes still apply, and children cannot spawn grandchildren.
+  Each group accepts at most 64 messages of at most 8000 characters; a fresh
+  composition starts a new group. Stop cancels active and queued peer work.
+  The additional `peer-messaging` capability changes the enable consent, so
+  an older stored grant must be renewed before this extension loads.
   A headless run with no prior grant mounts nothing: it neither asks nor
   fails — the team is simply absent from that session.
 - **Checks** (ADR-0080) — runs the project's declared `checks` (see

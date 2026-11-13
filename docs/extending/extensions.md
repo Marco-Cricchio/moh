@@ -205,8 +205,7 @@ added slots are highlighted.
   slot, apiVersion 1.16, ADR-0055 #1222): the message becomes the
   member's next turn, keeping its full context and its own route. Same
   ownership rule as `subagentActivity` — a callId you did not spawn
-  resolves to `null`, so members can never write into each other
-  (star-shaped by construction) — and steering from inside a child's
+  resolves to `null`; this API remains coordinator-only, and steering from inside a child's
   dispatch is refused like spawning. The write is recorded as
   `subagent_steer` chrome in the parent's log, so replay reconstructs
   who wrote what into whom. Contributed tools are excluded from every
@@ -803,8 +802,8 @@ the model judges the ask's complexity and composes accordingly:
   dispatched in parallel; the rest wait for the bag.
 - **`plan` / `work`** — the coordination: `plan` decomposes a brief into
   bag tasks; `work` runs the roster through the shared task bag
-  round-robin. The bag is the star-shaped seam — members claim tasks,
-  they never message each other; every claim, completion and composition
+  round-robin. The coordinator assigns bag tasks; opt-in peer channels are
+  independent of task claims. Every claim, completion and composition
   lands in the log as chrome (`team_task_created` / `team_task_claimed` /
   `team_task_completed` / `team_composed` / `team_member_done` /
   `team_member_steer`), so a replayed session reconstructs the whole
@@ -854,14 +853,20 @@ A third-party orchestrator needs no more than `team` uses:
    events.
 
 What moh deliberately does *not* grant an orchestrator: reading or
-resuming a session it did not spawn, grandchildren, peer-to-peer member
-messaging (the rejected mailbox model — an injection surface), and any
+resuming a session it did not spawn, grandchildren, cross-group peer
+messaging, and any
 write path outside the `pathScopes` the consented spawn carries.
+
+Peer messaging is an explicit exception to the original star-only model
+(ADR-0083, #1743), gated by the additional `peer-messaging` capability and
+`ExtensionSpawnSpec.peerGroup`. See the [extension-writer manual](../manual/extension-writers.md#peer-channels-apiversion-119)
+for group membership, bounded delivery, permissions, auditing and lifecycle.
+The bundled team tool opts in per `compose` with `peerMessaging: true`.
 
 ## Versioning policy
 
 - The host speaks `MOH_EXTENSION_API_VERSION` (`"major.minor"`); the
-  current version is **1.18** (1.1 added `ask` and the two observation
+  current version is **1.19** (1.1 added `ask` and the two observation
   seams; 1.2 added `beforeTurn`; 1.3 added the `extension_control`
   command channel; 1.4 added `onToolResult`, `confirm.onResolved` and
   `onCompaction`; 1.5 added `setPromptNote`; 1.6 added `requestTurn`;
@@ -890,6 +895,7 @@ write path outside the `pathScopes` the consented spawn carries.
   added `ctx.stopSubagents` — the team-scoped one-stop under
   `spawn-subagent`: the extension aborts only the children it spawned
   and one `orchestration_stopped` event names it, #1226, ADR-0055.
+  1.19 adds `peerGroup` under the separate `peer-messaging` grant (#1743, ADR-0083).
 - **Additive-only within a major**: new hooks and context fields may be
   added; existing ones never change meaning or disappear. Deprecated APIs
   survive one full major.

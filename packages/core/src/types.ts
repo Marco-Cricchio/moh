@@ -865,6 +865,11 @@ type AgentEventBase =
    * into the parent's chrome.
    */
   | { type: "subagent_steer"; callId: string; extension: string; messageChars: number }
+  /** Host-attributed peer exchange; full payload only on enqueue. Chrome
+   * stays out of the coordinator's model context; child logs keep the turn. */
+  | { type: "subagent_message"; messageId: string; extension: string; group: string;
+      sender: string; recipient: string; senderCallId: string; recipientCallId?: string;
+      status: "queued" | "done" | "error" | "cancelled"; message?: string; error?: string }
   /** Subagent finished; usage tokens accumulated by the child, where exposed. */
   | {
       type: "subagent_result";

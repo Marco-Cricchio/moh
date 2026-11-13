@@ -4,6 +4,8 @@ Status: accepted · Date: 2026-10-06
 Related: ADR-0031 (restrict-only), ADR-0053 (spawn-subagent capability), ADR-0055 (orchestration capability), ADR-0060 (lanes), ADR-0062 (panel UI), ADR-0037 (`requestTurn`)
 Reference: `docs/vision/agent-teams-comparison.md`; layout prototypes `prototype/rail-right-multi.tsx` (adopted), `prototype/rail-multi-extension.tsx` (rejected), `prototype/team-view-rail.tsx`.
 
+Peer-channel amendment: [ADR-0083](0083-opt-in-team-peer-messaging.md) supersedes the star-only restriction for explicitly consented, bounded groups (#1743).
+
 ## Context
 
 The Claude Code agent-teams comparison (`docs/vision/agent-teams-comparison.md`) left the

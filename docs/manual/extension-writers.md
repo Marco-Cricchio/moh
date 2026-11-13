@@ -10,7 +10,7 @@ program, that is the library-user door in the repository's `docs/extending/`
 chapters.
 
 This page is version-matched to your binary: the signatures here describe
-the `@moh/extension` this build ships (apiVersion **1.18** at the time of
+the `@moh/extension` this build ships (apiVersion **1.19** at the time of
 writing — check `moh extension --help` or your version's manual).
 
 ## A minimal extension that runs
@@ -79,6 +79,7 @@ runtime knows:
 | Slot | What a yes grants (the consent's sentence) |
 | --- | --- |
 | `observe`, `veto`, `ask` | the base hooks: watch the loop and restrict tool calls |
+| `peer-messaging` | opt-in, bounded peer channels within an explicitly composed child group; every exchange is logged |
 | `spawn-subagent` | "may create up to 10 concurrent child sessions and steer or stop them" |
 | `contribute-commands` | contribute slash commands the user can run like native ones |
 | `contribute-panels` | one panel in the extensions rail (max 4 visible across all extensions) |
@@ -206,3 +207,27 @@ The full contract — every type, every refusal reason, the orchestration
 walkthrough and the design ADRs — lives in the repository's
 `docs/extending/` chapters; this page is the bundled companion, and a new
 moh release updates it together with the contract itself.
+
+### Peer channels (apiVersion 1.19)
+
+With both `spawn-subagent` and `peer-messaging` granted, a spawn may set
+`peerGroup: { id, members }`. Use a fresh id per composition, the same ordered
+list of 2–10 unique names for all its children, and an explicit `name` from
+that list on each spawn. Names and group ids are at most 100 characters.
+The host injects `team_message` only into these children (and only when an
+explicit `allowedTools` list includes it). The sender is host-bound; the
+model supplies only `recipient` and `message`. Recipients must have a spawn
+already requested in the same host, extension and group. Messages to members
+not started yet are refused; start members together for peer deliberation.
+
+The tool uses the normal permission and veto path. It queues a synthetic
+turn after the recipient's current work, without interrupting it; tool calls
+return a receipt immediately, avoiding reciprocal waits. Spawn/steer calls
+wait for accepted peer exchanges to settle before returning the member's
+latest answer. Delivery uses the host's concurrency limit and existing child
+context/route. The host records `subagent_message` enqueue and outcome events;
+full text lives in the enqueue event and the child's synthetic user message.
+The fixed per-group budget is 64 messages, each at most 8000 characters.
+Stop and disposal cancel queued and active deliveries and revoke the seats.
+Groups are live-session state: replay preserves the audit trail but does not
+restart delivery. The coordinator must compose a new group after resume.
