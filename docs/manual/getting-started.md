@@ -44,6 +44,11 @@ a running turn:
   version on the left (`MoH - vX.Y.Z`), the session name (only after a
   rename with ctrl+r) and the session id on the right.
 
+In chat, `!cmd` runs a shell command and `!!cmd` also sends its output to
+the model, through the usual permission rules. To send a prompt beginning
+with a literal `!`, type `\!` instead: the escape backslash is consumed
+before the prompt reaches the model.
+
 ## Where your data lives
 
 moh keeps everything user-side:
