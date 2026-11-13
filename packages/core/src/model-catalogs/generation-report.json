@@ -1,28 +1,28 @@
 {
   "schemaVersion": 1,
-  "version": "0.67.0",
-  "generatedAt": "2026-11-13T21:19:26.782Z",
+  "version": "0.67.1",
+  "generatedAt": "2026-11-13T21:33:27.955Z",
   "sources": [
     {
       "name": "models.dev",
       "url": "https://models.dev/api.json",
-      "fetchedAt": "2026-11-13T21:19:26.725Z",
-      "sha256": "f55606113b377c543af6c9da092fcd59c73828f9ef7cd0e57d3a48a6ea8c45de",
-      "acquisition": "file"
+      "fetchedAt": "2026-11-13T21:33:27.772Z",
+      "sha256": "93ab34e493c95707ff418dcf771f1eb814c956a0fe8edb98777f62b499ff65a2",
+      "acquisition": "network"
     },
     {
       "name": "openrouter",
       "url": "https://openrouter.ai/api/v1/models",
-      "fetchedAt": "2026-11-13T21:19:26.733Z",
-      "sha256": "367f739ef7f354ab71678fabf456ad91b172b074ec9249a32cfcb2085ed604f6",
-      "acquisition": "file"
+      "fetchedAt": "2026-11-13T21:33:27.897Z",
+      "sha256": "3b0bc028e5014e2b214301a0853a73d9be7e0ba79b77bfd921eb649bab23bb97",
+      "acquisition": "network"
     }
   ],
   "totals": {
     "files": 25,
-    "rows": 513,
-    "exact": 460,
-    "baseModel": 17,
+    "rows": 510,
+    "exact": 458,
+    "baseModel": 16,
     "ambiguous": 5,
     "absent": 31,
     "rowsWithOverrides": 123
@@ -354,7 +354,7 @@
         "pricing": 1,
         "contextWindow": 1,
         "maxTokens": 1,
-        "reasoning": 0,
+        "reasoning": 1,
         "input": 1
       },
       "previous": {
@@ -446,20 +446,20 @@
     },
     {
       "provider": "opencode-go",
-      "rows": 26,
+      "rows": 25,
       "verdicts": {
         "exact": 20,
-        "base-model": 6,
+        "base-model": 5,
         "ambiguous": 0,
         "absent": 0
       },
       "coverage": {
-        "rows": 26,
-        "pricing": 26,
-        "contextWindow": 26,
+        "rows": 25,
+        "pricing": 25,
+        "contextWindow": 25,
         "maxTokens": 20,
-        "reasoning": 26,
-        "input": 26
+        "reasoning": 25,
+        "input": 25
       },
       "previous": {
         "rows": 26,
@@ -498,20 +498,20 @@
     },
     {
       "provider": "openrouter",
-      "rows": 319,
+      "rows": 317,
       "verdicts": {
-        "exact": 298,
+        "exact": 296,
         "base-model": 1,
         "ambiguous": 0,
         "absent": 20
       },
       "coverage": {
-        "rows": 319,
-        "pricing": 301,
-        "contextWindow": 319,
-        "maxTokens": 315,
-        "reasoning": 242,
-        "input": 316
+        "rows": 317,
+        "pricing": 300,
+        "contextWindow": 317,
+        "maxTokens": 313,
+        "reasoning": 240,
+        "input": 314
       },
       "previous": {
         "rows": 319,
@@ -717,7 +717,7 @@
       "provider": "anthropic",
       "source": "models.dev",
       "namespace": "anthropic",
-      "id": "claude-fable-5-2"
+      "id": "claude-opus-5-5"
     },
     {
       "provider": "anthropic",
@@ -729,49 +729,25 @@
       "provider": "anthropic",
       "source": "models.dev",
       "namespace": "anthropic",
-      "id": "claude-haiku-5-5"
+      "id": "claude-fable-5-2"
     },
     {
       "provider": "anthropic",
       "source": "models.dev",
       "namespace": "anthropic",
-      "id": "claude-opus-5-5"
-    },
-    {
-      "provider": "baseten",
-      "source": "models.dev",
-      "namespace": "baseten",
-      "id": "zai-org/GLM-5.3-Fast"
-    },
-    {
-      "provider": "baseten",
-      "source": "models.dev",
-      "namespace": "baseten",
-      "id": "zai-org/GLM-5.3-Flash"
-    },
-    {
-      "provider": "baseten",
-      "source": "models.dev",
-      "namespace": "baseten",
-      "id": "zai-org/GLM-5.2-Fast"
-    },
-    {
-      "provider": "baseten",
-      "source": "models.dev",
-      "namespace": "baseten",
-      "id": "zai-org/GLM-5.2"
-    },
-    {
-      "provider": "baseten",
-      "source": "models.dev",
-      "namespace": "baseten",
-      "id": "zai-org/GLM-5.3"
+      "id": "claude-haiku-5-5"
     },
     {
       "provider": "baseten",
       "source": "models.dev",
       "namespace": "baseten",
       "id": "openai/gpt-oss-120b"
+    },
+    {
+      "provider": "baseten",
+      "source": "models.dev",
+      "namespace": "baseten",
+      "id": "nvidia/NVIDIA-Nemotron-3-Ultra-550B-A55B"
     },
     {
       "provider": "baseten",
@@ -789,31 +765,37 @@
       "provider": "baseten",
       "source": "models.dev",
       "namespace": "baseten",
+      "id": "zai-org/GLM-5.3-Fast"
+    },
+    {
+      "provider": "baseten",
+      "source": "models.dev",
+      "namespace": "baseten",
+      "id": "zai-org/GLM-5.2-Fast"
+    },
+    {
+      "provider": "baseten",
+      "source": "models.dev",
+      "namespace": "baseten",
+      "id": "zai-org/GLM-5.3"
+    },
+    {
+      "provider": "baseten",
+      "source": "models.dev",
+      "namespace": "baseten",
+      "id": "zai-org/GLM-5.3-Flash"
+    },
+    {
+      "provider": "baseten",
+      "source": "models.dev",
+      "namespace": "baseten",
+      "id": "zai-org/GLM-5.2"
+    },
+    {
+      "provider": "baseten",
+      "source": "models.dev",
+      "namespace": "baseten",
       "id": "deepseek-ai/DeepSeek-V4-Pro-0813"
-    },
-    {
-      "provider": "baseten",
-      "source": "models.dev",
-      "namespace": "baseten",
-      "id": "deepseek-ai/DeepSeek-V4.1-Flash-1017-Fast"
-    },
-    {
-      "provider": "baseten",
-      "source": "models.dev",
-      "namespace": "baseten",
-      "id": "deepseek-ai/DeepSeek-V4-Flash-0731"
-    },
-    {
-      "provider": "baseten",
-      "source": "models.dev",
-      "namespace": "baseten",
-      "id": "deepseek-ai/DeepSeek-V4.1-Flash"
-    },
-    {
-      "provider": "baseten",
-      "source": "models.dev",
-      "namespace": "baseten",
-      "id": "deepseek-ai/DeepSeek-V4.1-Flash-Fast"
     },
     {
       "provider": "baseten",
@@ -825,13 +807,25 @@
       "provider": "baseten",
       "source": "models.dev",
       "namespace": "baseten",
-      "id": "nvidia/NVIDIA-Nemotron-3-Ultra-550B-A55B"
+      "id": "deepseek-ai/DeepSeek-V4.1-Flash"
     },
     {
-      "provider": "cerebras",
+      "provider": "baseten",
       "source": "models.dev",
-      "namespace": "cerebras",
-      "id": "gpt-oss-120b"
+      "namespace": "baseten",
+      "id": "deepseek-ai/DeepSeek-V4-Flash-0731"
+    },
+    {
+      "provider": "baseten",
+      "source": "models.dev",
+      "namespace": "baseten",
+      "id": "deepseek-ai/DeepSeek-V4.1-Flash-1017-Fast"
+    },
+    {
+      "provider": "baseten",
+      "source": "models.dev",
+      "namespace": "baseten",
+      "id": "deepseek-ai/DeepSeek-V4.1-Flash-Fast"
     },
     {
       "provider": "cerebras",
@@ -840,148 +834,16 @@
       "id": "qwen-3.8-27b"
     },
     {
-      "provider": "cloudflare-ai-gateway",
+      "provider": "cerebras",
       "source": "models.dev",
-      "namespace": "cloudflare-ai-gateway",
-      "id": "anthropic/claude-fable-5.2"
+      "namespace": "cerebras",
+      "id": "gpt-oss-120b"
     },
     {
       "provider": "cloudflare-ai-gateway",
       "source": "models.dev",
       "namespace": "cloudflare-ai-gateway",
-      "id": "anthropic/claude-opus-5.5"
-    },
-    {
-      "provider": "cloudflare-ai-gateway",
-      "source": "models.dev",
-      "namespace": "cloudflare-ai-gateway",
-      "id": "anthropic/claude-opus-4.5"
-    },
-    {
-      "provider": "cloudflare-ai-gateway",
-      "source": "models.dev",
-      "namespace": "cloudflare-ai-gateway",
-      "id": "anthropic/claude-opus-4.8"
-    },
-    {
-      "provider": "cloudflare-ai-gateway",
-      "source": "models.dev",
-      "namespace": "cloudflare-ai-gateway",
-      "id": "anthropic/claude-sonnet-5"
-    },
-    {
-      "provider": "cloudflare-ai-gateway",
-      "source": "models.dev",
-      "namespace": "cloudflare-ai-gateway",
-      "id": "anthropic/claude-fable-5.1"
-    },
-    {
-      "provider": "cloudflare-ai-gateway",
-      "source": "models.dev",
-      "namespace": "cloudflare-ai-gateway",
-      "id": "anthropic/claude-sonnet-4.5"
-    },
-    {
-      "provider": "cloudflare-ai-gateway",
-      "source": "models.dev",
-      "namespace": "cloudflare-ai-gateway",
-      "id": "anthropic/claude-opus-4.6"
-    },
-    {
-      "provider": "cloudflare-ai-gateway",
-      "source": "models.dev",
-      "namespace": "cloudflare-ai-gateway",
-      "id": "anthropic/claude-sonnet-5.5"
-    },
-    {
-      "provider": "cloudflare-ai-gateway",
-      "source": "models.dev",
-      "namespace": "cloudflare-ai-gateway",
-      "id": "anthropic/claude-haiku-5.5"
-    },
-    {
-      "provider": "cloudflare-ai-gateway",
-      "source": "models.dev",
-      "namespace": "cloudflare-ai-gateway",
-      "id": "anthropic/claude-haiku-4.5"
-    },
-    {
-      "provider": "cloudflare-ai-gateway",
-      "source": "models.dev",
-      "namespace": "cloudflare-ai-gateway",
-      "id": "anthropic/claude-opus-5"
-    },
-    {
-      "provider": "cloudflare-ai-gateway",
-      "source": "models.dev",
-      "namespace": "cloudflare-ai-gateway",
-      "id": "anthropic/claude-sonnet-4.6"
-    },
-    {
-      "provider": "cloudflare-ai-gateway",
-      "source": "models.dev",
-      "namespace": "cloudflare-ai-gateway",
-      "id": "anthropic/claude-opus-4.7"
-    },
-    {
-      "provider": "cloudflare-ai-gateway",
-      "source": "models.dev",
-      "namespace": "cloudflare-ai-gateway",
-      "id": "anthropic/claude-fable-5"
-    },
-    {
-      "provider": "cloudflare-ai-gateway",
-      "source": "models.dev",
-      "namespace": "cloudflare-ai-gateway",
-      "id": "openai/gpt-4o-mini"
-    },
-    {
-      "provider": "cloudflare-ai-gateway",
-      "source": "models.dev",
-      "namespace": "cloudflare-ai-gateway",
-      "id": "openai/gpt-5.1"
-    },
-    {
-      "provider": "cloudflare-ai-gateway",
-      "source": "models.dev",
-      "namespace": "cloudflare-ai-gateway",
-      "id": "openai/gpt-5-nano"
-    },
-    {
-      "provider": "cloudflare-ai-gateway",
-      "source": "models.dev",
-      "namespace": "cloudflare-ai-gateway",
-      "id": "openai/gpt-6.1-sol"
-    },
-    {
-      "provider": "cloudflare-ai-gateway",
-      "source": "models.dev",
-      "namespace": "cloudflare-ai-gateway",
-      "id": "openai/gpt-6-sol"
-    },
-    {
-      "provider": "cloudflare-ai-gateway",
-      "source": "models.dev",
-      "namespace": "cloudflare-ai-gateway",
-      "id": "openai/gpt-4.1-nano"
-    },
-    {
-      "provider": "cloudflare-ai-gateway",
-      "source": "models.dev",
-      "namespace": "cloudflare-ai-gateway",
-      "id": "openai/gpt-6-luna"
-    },
-    {
-      "provider": "cloudflare-ai-gateway",
-      "source": "models.dev",
-      "namespace": "cloudflare-ai-gateway",
-      "id": "openai/gpt-5.5"
-    },
-    {
-      "provider": "cloudflare-ai-gateway",
-      "source": "models.dev",
-      "namespace": "cloudflare-ai-gateway",
-      "id": "openai/gpt-4o"
+      "id": "openai/gpt-5.5-pro"
     },
     {
       "provider": "cloudflare-ai-gateway",
@@ -999,61 +861,13 @@
       "provider": "cloudflare-ai-gateway",
       "source": "models.dev",
       "namespace": "cloudflare-ai-gateway",
-      "id": "openai/gpt-5.6-sol"
+      "id": "openai/gpt-6-luna"
     },
     {
       "provider": "cloudflare-ai-gateway",
       "source": "models.dev",
       "namespace": "cloudflare-ai-gateway",
-      "id": "openai/gpt-5.5-pro"
-    },
-    {
-      "provider": "cloudflare-ai-gateway",
-      "source": "models.dev",
-      "namespace": "cloudflare-ai-gateway",
-      "id": "openai/gpt-6.1-terra"
-    },
-    {
-      "provider": "cloudflare-ai-gateway",
-      "source": "models.dev",
-      "namespace": "cloudflare-ai-gateway",
-      "id": "openai/o3"
-    },
-    {
-      "provider": "cloudflare-ai-gateway",
-      "source": "models.dev",
-      "namespace": "cloudflare-ai-gateway",
-      "id": "openai/gpt-5"
-    },
-    {
-      "provider": "cloudflare-ai-gateway",
-      "source": "models.dev",
-      "namespace": "cloudflare-ai-gateway",
-      "id": "openai/o3-mini"
-    },
-    {
-      "provider": "cloudflare-ai-gateway",
-      "source": "models.dev",
-      "namespace": "cloudflare-ai-gateway",
-      "id": "openai/gpt-6-astra"
-    },
-    {
-      "provider": "cloudflare-ai-gateway",
-      "source": "models.dev",
-      "namespace": "cloudflare-ai-gateway",
-      "id": "openai/gpt-5.4-pro"
-    },
-    {
-      "provider": "cloudflare-ai-gateway",
-      "source": "models.dev",
-      "namespace": "cloudflare-ai-gateway",
-      "id": "openai/gpt-5.4-mini"
-    },
-    {
-      "provider": "cloudflare-ai-gateway",
-      "source": "models.dev",
-      "namespace": "cloudflare-ai-gateway",
-      "id": "openai/gpt-5.4-nano"
+      "id": "openai/gpt-6-sol"
     },
     {
       "provider": "cloudflare-ai-gateway",
@@ -1065,7 +879,61 @@
       "provider": "cloudflare-ai-gateway",
       "source": "models.dev",
       "namespace": "cloudflare-ai-gateway",
-      "id": "openai/gpt-5.6-terra"
+      "id": "openai/o3-mini"
+    },
+    {
+      "provider": "cloudflare-ai-gateway",
+      "source": "models.dev",
+      "namespace": "cloudflare-ai-gateway",
+      "id": "openai/gpt-5.5"
+    },
+    {
+      "provider": "cloudflare-ai-gateway",
+      "source": "models.dev",
+      "namespace": "cloudflare-ai-gateway",
+      "id": "openai/gpt-5-nano"
+    },
+    {
+      "provider": "cloudflare-ai-gateway",
+      "source": "models.dev",
+      "namespace": "cloudflare-ai-gateway",
+      "id": "openai/gpt-6.1-terra"
+    },
+    {
+      "provider": "cloudflare-ai-gateway",
+      "source": "models.dev",
+      "namespace": "cloudflare-ai-gateway",
+      "id": "openai/gpt-5.4-mini"
+    },
+    {
+      "provider": "cloudflare-ai-gateway",
+      "source": "models.dev",
+      "namespace": "cloudflare-ai-gateway",
+      "id": "openai/gpt-6.1-sol"
+    },
+    {
+      "provider": "cloudflare-ai-gateway",
+      "source": "models.dev",
+      "namespace": "cloudflare-ai-gateway",
+      "id": "openai/gpt-5.1"
+    },
+    {
+      "provider": "cloudflare-ai-gateway",
+      "source": "models.dev",
+      "namespace": "cloudflare-ai-gateway",
+      "id": "openai/gpt-4.1-nano"
+    },
+    {
+      "provider": "cloudflare-ai-gateway",
+      "source": "models.dev",
+      "namespace": "cloudflare-ai-gateway",
+      "id": "openai/gpt-5.6-sol"
+    },
+    {
+      "provider": "cloudflare-ai-gateway",
+      "source": "models.dev",
+      "namespace": "cloudflare-ai-gateway",
+      "id": "openai/gpt-5.4-pro"
     },
     {
       "provider": "cloudflare-ai-gateway",
@@ -1077,25 +945,55 @@
       "provider": "cloudflare-ai-gateway",
       "source": "models.dev",
       "namespace": "cloudflare-ai-gateway",
-      "id": "openai/o4-mini"
-    },
-    {
-      "provider": "cloudflare-ai-gateway",
-      "source": "models.dev",
-      "namespace": "cloudflare-ai-gateway",
       "id": "openai/gpt-4.1"
     },
     {
       "provider": "cloudflare-ai-gateway",
       "source": "models.dev",
       "namespace": "cloudflare-ai-gateway",
-      "id": "moonshotai/kimi-k3"
+      "id": "openai/gpt-4o-mini"
     },
     {
       "provider": "cloudflare-ai-gateway",
       "source": "models.dev",
       "namespace": "cloudflare-ai-gateway",
-      "id": "unbiased/pareto"
+      "id": "openai/gpt-5.4-nano"
+    },
+    {
+      "provider": "cloudflare-ai-gateway",
+      "source": "models.dev",
+      "namespace": "cloudflare-ai-gateway",
+      "id": "openai/gpt-5.6-terra"
+    },
+    {
+      "provider": "cloudflare-ai-gateway",
+      "source": "models.dev",
+      "namespace": "cloudflare-ai-gateway",
+      "id": "openai/gpt-5"
+    },
+    {
+      "provider": "cloudflare-ai-gateway",
+      "source": "models.dev",
+      "namespace": "cloudflare-ai-gateway",
+      "id": "openai/o3"
+    },
+    {
+      "provider": "cloudflare-ai-gateway",
+      "source": "models.dev",
+      "namespace": "cloudflare-ai-gateway",
+      "id": "openai/gpt-4o"
+    },
+    {
+      "provider": "cloudflare-ai-gateway",
+      "source": "models.dev",
+      "namespace": "cloudflare-ai-gateway",
+      "id": "openai/gpt-6-astra"
+    },
+    {
+      "provider": "cloudflare-ai-gateway",
+      "source": "models.dev",
+      "namespace": "cloudflare-ai-gateway",
+      "id": "openai/o4-mini"
     },
     {
       "provider": "cloudflare-ai-gateway",
@@ -1113,13 +1011,49 @@
       "provider": "cloudflare-ai-gateway",
       "source": "models.dev",
       "namespace": "cloudflare-ai-gateway",
-      "id": "google/gemini-2.5-flash"
+      "id": "moonshotai/kimi-k3"
     },
     {
       "provider": "cloudflare-ai-gateway",
       "source": "models.dev",
       "namespace": "cloudflare-ai-gateway",
-      "id": "google/gemini-3.5-flash-lite"
+      "id": "unbiased/pareto"
+    },
+    {
+      "provider": "cloudflare-ai-gateway",
+      "source": "models.dev",
+      "namespace": "cloudflare-ai-gateway",
+      "id": "meta/muse-spark-1.2"
+    },
+    {
+      "provider": "cloudflare-ai-gateway",
+      "source": "models.dev",
+      "namespace": "cloudflare-ai-gateway",
+      "id": "meta/muse-ember-1.0"
+    },
+    {
+      "provider": "cloudflare-ai-gateway",
+      "source": "models.dev",
+      "namespace": "cloudflare-ai-gateway",
+      "id": "meta/muse-spark-1.3"
+    },
+    {
+      "provider": "cloudflare-ai-gateway",
+      "source": "models.dev",
+      "namespace": "cloudflare-ai-gateway",
+      "id": "meta/muse-spark-1.1"
+    },
+    {
+      "provider": "cloudflare-ai-gateway",
+      "source": "models.dev",
+      "namespace": "cloudflare-ai-gateway",
+      "id": "meta/muse-spark-open"
+    },
+    {
+      "provider": "cloudflare-ai-gateway",
+      "source": "models.dev",
+      "namespace": "cloudflare-ai-gateway",
+      "id": "meta/muse-wonder-1.0"
     },
     {
       "provider": "cloudflare-ai-gateway",
@@ -1131,7 +1065,55 @@
       "provider": "cloudflare-ai-gateway",
       "source": "models.dev",
       "namespace": "cloudflare-ai-gateway",
+      "id": "google/gemini-3.8-flash"
+    },
+    {
+      "provider": "cloudflare-ai-gateway",
+      "source": "models.dev",
+      "namespace": "cloudflare-ai-gateway",
+      "id": "google/gemini-3.5-flash-lite"
+    },
+    {
+      "provider": "cloudflare-ai-gateway",
+      "source": "models.dev",
+      "namespace": "cloudflare-ai-gateway",
+      "id": "google/gemini-3.6-flash"
+    },
+    {
+      "provider": "cloudflare-ai-gateway",
+      "source": "models.dev",
+      "namespace": "cloudflare-ai-gateway",
       "id": "google/gemini-3.1-flash-lite"
+    },
+    {
+      "provider": "cloudflare-ai-gateway",
+      "source": "models.dev",
+      "namespace": "cloudflare-ai-gateway",
+      "id": "google/gemini-2.5-flash-lite"
+    },
+    {
+      "provider": "cloudflare-ai-gateway",
+      "source": "models.dev",
+      "namespace": "cloudflare-ai-gateway",
+      "id": "google/gemini-4-carbon"
+    },
+    {
+      "provider": "cloudflare-ai-gateway",
+      "source": "models.dev",
+      "namespace": "cloudflare-ai-gateway",
+      "id": "google/gemini-2.5-flash"
+    },
+    {
+      "provider": "cloudflare-ai-gateway",
+      "source": "models.dev",
+      "namespace": "cloudflare-ai-gateway",
+      "id": "google/gemini-3.5-flash"
+    },
+    {
+      "provider": "cloudflare-ai-gateway",
+      "source": "models.dev",
+      "namespace": "cloudflare-ai-gateway",
+      "id": "google/gemini-3.1-pro"
     },
     {
       "provider": "cloudflare-ai-gateway",
@@ -1155,37 +1137,91 @@
       "provider": "cloudflare-ai-gateway",
       "source": "models.dev",
       "namespace": "cloudflare-ai-gateway",
-      "id": "google/gemini-3.6-flash"
+      "id": "anthropic/claude-fable-5"
     },
     {
       "provider": "cloudflare-ai-gateway",
       "source": "models.dev",
       "namespace": "cloudflare-ai-gateway",
-      "id": "google/gemini-3.8-flash"
+      "id": "anthropic/claude-opus-4.5"
     },
     {
       "provider": "cloudflare-ai-gateway",
       "source": "models.dev",
       "namespace": "cloudflare-ai-gateway",
-      "id": "google/gemini-3.1-pro"
+      "id": "anthropic/claude-sonnet-4.6"
     },
     {
       "provider": "cloudflare-ai-gateway",
       "source": "models.dev",
       "namespace": "cloudflare-ai-gateway",
-      "id": "google/gemini-3.5-flash"
+      "id": "anthropic/claude-opus-4.8"
     },
     {
       "provider": "cloudflare-ai-gateway",
       "source": "models.dev",
       "namespace": "cloudflare-ai-gateway",
-      "id": "google/gemini-2.5-flash-lite"
+      "id": "anthropic/claude-haiku-4.5"
     },
     {
       "provider": "cloudflare-ai-gateway",
       "source": "models.dev",
       "namespace": "cloudflare-ai-gateway",
-      "id": "fireworks/ember-1"
+      "id": "anthropic/claude-opus-5.5"
+    },
+    {
+      "provider": "cloudflare-ai-gateway",
+      "source": "models.dev",
+      "namespace": "cloudflare-ai-gateway",
+      "id": "anthropic/claude-sonnet-5.5"
+    },
+    {
+      "provider": "cloudflare-ai-gateway",
+      "source": "models.dev",
+      "namespace": "cloudflare-ai-gateway",
+      "id": "anthropic/claude-fable-5.2"
+    },
+    {
+      "provider": "cloudflare-ai-gateway",
+      "source": "models.dev",
+      "namespace": "cloudflare-ai-gateway",
+      "id": "anthropic/claude-sonnet-5"
+    },
+    {
+      "provider": "cloudflare-ai-gateway",
+      "source": "models.dev",
+      "namespace": "cloudflare-ai-gateway",
+      "id": "anthropic/claude-sonnet-4.5"
+    },
+    {
+      "provider": "cloudflare-ai-gateway",
+      "source": "models.dev",
+      "namespace": "cloudflare-ai-gateway",
+      "id": "anthropic/claude-opus-5"
+    },
+    {
+      "provider": "cloudflare-ai-gateway",
+      "source": "models.dev",
+      "namespace": "cloudflare-ai-gateway",
+      "id": "anthropic/claude-haiku-5.5"
+    },
+    {
+      "provider": "cloudflare-ai-gateway",
+      "source": "models.dev",
+      "namespace": "cloudflare-ai-gateway",
+      "id": "anthropic/claude-opus-4.6"
+    },
+    {
+      "provider": "cloudflare-ai-gateway",
+      "source": "models.dev",
+      "namespace": "cloudflare-ai-gateway",
+      "id": "anthropic/claude-opus-4.7"
+    },
+    {
+      "provider": "cloudflare-ai-gateway",
+      "source": "models.dev",
+      "namespace": "cloudflare-ai-gateway",
+      "id": "anthropic/claude-fable-5.1"
     },
     {
       "provider": "cloudflare-ai-gateway",
@@ -1197,7 +1233,7 @@
       "provider": "cloudflare-ai-gateway",
       "source": "models.dev",
       "namespace": "cloudflare-ai-gateway",
-      "id": "xai/grok-4.5"
+      "id": "fireworks/ember-1"
     },
     {
       "provider": "cloudflare-ai-gateway",
@@ -1209,7 +1245,7 @@
       "provider": "cloudflare-ai-gateway",
       "source": "models.dev",
       "namespace": "cloudflare-ai-gateway",
-      "id": "xai/grok-4.6"
+      "id": "xai/grok-4.7"
     },
     {
       "provider": "cloudflare-ai-gateway",
@@ -1221,31 +1257,19 @@
       "provider": "cloudflare-ai-gateway",
       "source": "models.dev",
       "namespace": "cloudflare-ai-gateway",
+      "id": "xai/grok-4.6"
+    },
+    {
+      "provider": "cloudflare-ai-gateway",
+      "source": "models.dev",
+      "namespace": "cloudflare-ai-gateway",
       "id": "xai/grok-4.3"
     },
     {
       "provider": "cloudflare-ai-gateway",
       "source": "models.dev",
       "namespace": "cloudflare-ai-gateway",
-      "id": "xai/grok-4.7"
-    },
-    {
-      "provider": "cloudflare-ai-gateway",
-      "source": "models.dev",
-      "namespace": "cloudflare-ai-gateway",
-      "id": "alibaba/qwen3.5-397b-a17b"
-    },
-    {
-      "provider": "cloudflare-ai-gateway",
-      "source": "models.dev",
-      "namespace": "cloudflare-ai-gateway",
-      "id": "alibaba/qwen3.7-max"
-    },
-    {
-      "provider": "cloudflare-ai-gateway",
-      "source": "models.dev",
-      "namespace": "cloudflare-ai-gateway",
-      "id": "alibaba/qwen3.7-plus"
+      "id": "xai/grok-4.5"
     },
     {
       "provider": "cloudflare-ai-gateway",
@@ -1257,49 +1281,25 @@
       "provider": "cloudflare-ai-gateway",
       "source": "models.dev",
       "namespace": "cloudflare-ai-gateway",
+      "id": "alibaba/qwen3.5-397b-a17b"
+    },
+    {
+      "provider": "cloudflare-ai-gateway",
+      "source": "models.dev",
+      "namespace": "cloudflare-ai-gateway",
+      "id": "alibaba/qwen3.7-plus"
+    },
+    {
+      "provider": "cloudflare-ai-gateway",
+      "source": "models.dev",
+      "namespace": "cloudflare-ai-gateway",
+      "id": "alibaba/qwen3.7-max"
+    },
+    {
+      "provider": "cloudflare-ai-gateway",
+      "source": "models.dev",
+      "namespace": "cloudflare-ai-gateway",
       "id": "alibaba/qwen3-max"
-    },
-    {
-      "provider": "cloudflare-ai-gateway",
-      "source": "models.dev",
-      "namespace": "cloudflare-ai-gateway",
-      "id": "meta/muse-spark-open"
-    },
-    {
-      "provider": "cloudflare-ai-gateway",
-      "source": "models.dev",
-      "namespace": "cloudflare-ai-gateway",
-      "id": "meta/muse-spark-1.1"
-    },
-    {
-      "provider": "cloudflare-ai-gateway",
-      "source": "models.dev",
-      "namespace": "cloudflare-ai-gateway",
-      "id": "meta/muse-spark-1.2"
-    },
-    {
-      "provider": "cloudflare-ai-gateway",
-      "source": "models.dev",
-      "namespace": "cloudflare-ai-gateway",
-      "id": "meta/muse-spark-1.3"
-    },
-    {
-      "provider": "cloudflare-ai-gateway",
-      "source": "models.dev",
-      "namespace": "cloudflare-ai-gateway",
-      "id": "meta/muse-ember-1.0"
-    },
-    {
-      "provider": "cloudflare-ai-gateway",
-      "source": "models.dev",
-      "namespace": "cloudflare-ai-gateway",
-      "id": "meta/muse-wonder-1.0"
-    },
-    {
-      "provider": "deepseek",
-      "source": "models.dev",
-      "namespace": "deepseek",
-      "id": "deepseek-v4-pro"
     },
     {
       "provider": "deepseek",
@@ -1311,13 +1311,19 @@
       "provider": "deepseek",
       "source": "models.dev",
       "namespace": "deepseek",
-      "id": "deepseek-flash"
+      "id": "deepseek-v4-flash"
     },
     {
       "provider": "deepseek",
       "source": "models.dev",
       "namespace": "deepseek",
-      "id": "deepseek-v4-flash"
+      "id": "deepseek-v4-pro"
+    },
+    {
+      "provider": "deepseek",
+      "source": "models.dev",
+      "namespace": "deepseek",
+      "id": "deepseek-flash"
     },
     {
       "provider": "deepseek",
@@ -1419,37 +1425,73 @@
       "provider": "fireworks",
       "source": "models.dev",
       "namespace": "fireworks-ai",
-      "id": "accounts/fireworks/routers/deepseek-v4p1-flash-spot"
+      "id": "accounts/fireworks/models/deepseek-v4p1-flash"
     },
     {
       "provider": "fireworks",
       "source": "models.dev",
       "namespace": "fireworks-ai",
-      "id": "accounts/fireworks/routers/minimax-latest"
+      "id": "accounts/fireworks/models/kimi-k3p1-pro"
     },
     {
       "provider": "fireworks",
       "source": "models.dev",
       "namespace": "fireworks-ai",
-      "id": "accounts/fireworks/routers/deepseek-v4p1-flash-1017-spot"
+      "id": "accounts/fireworks/models/ember-1"
     },
     {
       "provider": "fireworks",
       "source": "models.dev",
       "namespace": "fireworks-ai",
-      "id": "accounts/fireworks/routers/glm-latest"
+      "id": "accounts/fireworks/models/qwen3p8-max"
     },
     {
       "provider": "fireworks",
       "source": "models.dev",
       "namespace": "fireworks-ai",
-      "id": "accounts/fireworks/routers/glm-5p3-spot"
+      "id": "accounts/fireworks/models/qwen3p8-2p4t-a95b"
     },
     {
       "provider": "fireworks",
       "source": "models.dev",
       "namespace": "fireworks-ai",
-      "id": "accounts/fireworks/routers/glm-5p3-fast"
+      "id": "accounts/fireworks/models/minimax-m3"
+    },
+    {
+      "provider": "fireworks",
+      "source": "models.dev",
+      "namespace": "fireworks-ai",
+      "id": "accounts/fireworks/models/glm-5p3"
+    },
+    {
+      "provider": "fireworks",
+      "source": "models.dev",
+      "namespace": "fireworks-ai",
+      "id": "accounts/fireworks/models/deepseek-v4p1-flash-1017"
+    },
+    {
+      "provider": "fireworks",
+      "source": "models.dev",
+      "namespace": "fireworks-ai",
+      "id": "accounts/fireworks/models/glm-5p3-flash"
+    },
+    {
+      "provider": "fireworks",
+      "source": "models.dev",
+      "namespace": "fireworks-ai",
+      "id": "accounts/fireworks/models/kimi-k3"
+    },
+    {
+      "provider": "fireworks",
+      "source": "models.dev",
+      "namespace": "fireworks-ai",
+      "id": "accounts/fireworks/models/muse-spark-open"
+    },
+    {
+      "provider": "fireworks",
+      "source": "models.dev",
+      "namespace": "fireworks-ai",
+      "id": "accounts/fireworks/models/minimax-m3p1-flash"
     },
     {
       "provider": "fireworks",
@@ -1461,13 +1503,61 @@
       "provider": "fireworks",
       "source": "models.dev",
       "namespace": "fireworks-ai",
-      "id": "accounts/fireworks/routers/kimi-fast-latest"
+      "id": "accounts/fireworks/routers/deepseek-flash-latest"
     },
     {
       "provider": "fireworks",
       "source": "models.dev",
       "namespace": "fireworks-ai",
-      "id": "accounts/fireworks/routers/deepseek-v4p1-flash-1017-ultrafast"
+      "id": "accounts/fireworks/routers/deepseek-v4p1-flash-1017-spot"
+    },
+    {
+      "provider": "fireworks",
+      "source": "models.dev",
+      "namespace": "fireworks-ai",
+      "id": "accounts/fireworks/routers/minimax-latest"
+    },
+    {
+      "provider": "fireworks",
+      "source": "models.dev",
+      "namespace": "fireworks-ai",
+      "id": "accounts/fireworks/routers/glm-latest"
+    },
+    {
+      "provider": "fireworks",
+      "source": "models.dev",
+      "namespace": "fireworks-ai",
+      "id": "accounts/fireworks/routers/glm-flash-latest"
+    },
+    {
+      "provider": "fireworks",
+      "source": "models.dev",
+      "namespace": "fireworks-ai",
+      "id": "accounts/fireworks/routers/glm-5p3-spot"
+    },
+    {
+      "provider": "fireworks",
+      "source": "models.dev",
+      "namespace": "fireworks-ai",
+      "id": "accounts/fireworks/routers/kimi-k3-fast"
+    },
+    {
+      "provider": "fireworks",
+      "source": "models.dev",
+      "namespace": "fireworks-ai",
+      "id": "accounts/fireworks/routers/glm-5p3-fast"
+    },
+    {
+      "provider": "fireworks",
+      "source": "models.dev",
+      "namespace": "fireworks-ai",
+      "id": "accounts/fireworks/routers/deepseek-v4p1-flash-spot"
+    },
+    {
+      "provider": "fireworks",
+      "source": "models.dev",
+      "namespace": "fireworks-ai",
+      "id": "accounts/fireworks/routers/kimi-latest"
     },
     {
       "provider": "fireworks",
@@ -1485,121 +1575,19 @@
       "provider": "fireworks",
       "source": "models.dev",
       "namespace": "fireworks-ai",
-      "id": "accounts/fireworks/routers/glm-flash-latest"
+      "id": "accounts/fireworks/routers/kimi-fast-latest"
     },
     {
       "provider": "fireworks",
       "source": "models.dev",
       "namespace": "fireworks-ai",
-      "id": "accounts/fireworks/routers/deepseek-flash-latest"
-    },
-    {
-      "provider": "fireworks",
-      "source": "models.dev",
-      "namespace": "fireworks-ai",
-      "id": "accounts/fireworks/routers/kimi-k3-fast"
-    },
-    {
-      "provider": "fireworks",
-      "source": "models.dev",
-      "namespace": "fireworks-ai",
-      "id": "accounts/fireworks/routers/kimi-latest"
-    },
-    {
-      "provider": "fireworks",
-      "source": "models.dev",
-      "namespace": "fireworks-ai",
-      "id": "accounts/fireworks/models/muse-spark-open"
-    },
-    {
-      "provider": "fireworks",
-      "source": "models.dev",
-      "namespace": "fireworks-ai",
-      "id": "accounts/fireworks/models/glm-5p3"
-    },
-    {
-      "provider": "fireworks",
-      "source": "models.dev",
-      "namespace": "fireworks-ai",
-      "id": "accounts/fireworks/models/kimi-k3"
-    },
-    {
-      "provider": "fireworks",
-      "source": "models.dev",
-      "namespace": "fireworks-ai",
-      "id": "accounts/fireworks/models/minimax-m3p1-flash"
-    },
-    {
-      "provider": "fireworks",
-      "source": "models.dev",
-      "namespace": "fireworks-ai",
-      "id": "accounts/fireworks/models/deepseek-v4p1-flash-1017"
-    },
-    {
-      "provider": "fireworks",
-      "source": "models.dev",
-      "namespace": "fireworks-ai",
-      "id": "accounts/fireworks/models/qwen3p8-2p4t-a95b"
-    },
-    {
-      "provider": "fireworks",
-      "source": "models.dev",
-      "namespace": "fireworks-ai",
-      "id": "accounts/fireworks/models/deepseek-v4p1-flash"
-    },
-    {
-      "provider": "fireworks",
-      "source": "models.dev",
-      "namespace": "fireworks-ai",
-      "id": "accounts/fireworks/models/ember-1"
-    },
-    {
-      "provider": "fireworks",
-      "source": "models.dev",
-      "namespace": "fireworks-ai",
-      "id": "accounts/fireworks/models/minimax-m3"
-    },
-    {
-      "provider": "fireworks",
-      "source": "models.dev",
-      "namespace": "fireworks-ai",
-      "id": "accounts/fireworks/models/qwen3p8-max"
-    },
-    {
-      "provider": "fireworks",
-      "source": "models.dev",
-      "namespace": "fireworks-ai",
-      "id": "accounts/fireworks/models/glm-5p3-flash"
-    },
-    {
-      "provider": "fireworks",
-      "source": "models.dev",
-      "namespace": "fireworks-ai",
-      "id": "accounts/fireworks/models/kimi-k3p1-pro"
+      "id": "accounts/fireworks/routers/deepseek-v4p1-flash-1017-ultrafast"
     },
     {
       "provider": "github-copilot",
       "source": "models.dev",
       "namespace": "github-copilot",
-      "id": "claude-fable-5.2"
-    },
-    {
-      "provider": "github-copilot",
-      "source": "models.dev",
-      "namespace": "github-copilot",
-      "id": "claude-opus-5.5"
-    },
-    {
-      "provider": "github-copilot",
-      "source": "models.dev",
-      "namespace": "github-copilot",
-      "id": "gpt-6.1-sol"
-    },
-    {
-      "provider": "github-copilot",
-      "source": "models.dev",
-      "namespace": "github-copilot",
-      "id": "gpt-6-sol"
+      "id": "grok-4.7"
     },
     {
       "provider": "github-copilot",
@@ -1611,13 +1599,49 @@
       "provider": "github-copilot",
       "source": "models.dev",
       "namespace": "github-copilot",
-      "id": "gemini-4-carbon"
+      "id": "gpt-6-sol"
+    },
+    {
+      "provider": "github-copilot",
+      "source": "models.dev",
+      "namespace": "github-copilot",
+      "id": "claude-opus-5.5"
+    },
+    {
+      "provider": "github-copilot",
+      "source": "models.dev",
+      "namespace": "github-copilot",
+      "id": "claude-sonnet-5.5"
     },
     {
       "provider": "github-copilot",
       "source": "models.dev",
       "namespace": "github-copilot",
       "id": "gpt-6.1-terra"
+    },
+    {
+      "provider": "github-copilot",
+      "source": "models.dev",
+      "namespace": "github-copilot",
+      "id": "claude-fable-5.2"
+    },
+    {
+      "provider": "github-copilot",
+      "source": "models.dev",
+      "namespace": "github-copilot",
+      "id": "gpt-6.1-sol"
+    },
+    {
+      "provider": "github-copilot",
+      "source": "models.dev",
+      "namespace": "github-copilot",
+      "id": "gemini-4-carbon"
+    },
+    {
+      "provider": "github-copilot",
+      "source": "models.dev",
+      "namespace": "github-copilot",
+      "id": "claude-haiku-5.5"
     },
     {
       "provider": "github-copilot",
@@ -1632,88 +1656,10 @@
       "id": "gpt-6-astra"
     },
     {
-      "provider": "github-copilot",
-      "source": "models.dev",
-      "namespace": "github-copilot",
-      "id": "claude-sonnet-5.5"
-    },
-    {
-      "provider": "github-copilot",
-      "source": "models.dev",
-      "namespace": "github-copilot",
-      "id": "claude-haiku-5.5"
-    },
-    {
-      "provider": "github-copilot",
-      "source": "models.dev",
-      "namespace": "github-copilot",
-      "id": "grok-4.7"
-    },
-    {
       "provider": "google",
       "source": "models.dev",
       "namespace": "google",
-      "id": "gemini-2.5-flash-preview-tts"
-    },
-    {
-      "provider": "google",
-      "source": "models.dev",
-      "namespace": "google",
-      "id": "gemini-embedding-2"
-    },
-    {
-      "provider": "google",
-      "source": "models.dev",
-      "namespace": "google",
-      "id": "gemini-3.5-live-translate-preview"
-    },
-    {
-      "provider": "google",
-      "source": "models.dev",
-      "namespace": "google",
-      "id": "gemini-3-pro-image"
-    },
-    {
-      "provider": "google",
-      "source": "models.dev",
-      "namespace": "google",
-      "id": "gemini-omni-flash-preview"
-    },
-    {
-      "provider": "google",
-      "source": "models.dev",
-      "namespace": "google",
-      "id": "gemini-4-carbon"
-    },
-    {
-      "provider": "google",
-      "source": "models.dev",
-      "namespace": "google",
-      "id": "gemini-2.5-pro-preview-tts"
-    },
-    {
-      "provider": "google",
-      "source": "models.dev",
-      "namespace": "google",
-      "id": "gemini-3.1-flash-image"
-    },
-    {
-      "provider": "google",
-      "source": "models.dev",
-      "namespace": "google",
-      "id": "gemini-embedding-001"
-    },
-    {
-      "provider": "google",
-      "source": "models.dev",
-      "namespace": "google",
-      "id": "gemini-2.5-flash-image"
-    },
-    {
-      "provider": "google",
-      "source": "models.dev",
-      "namespace": "google",
-      "id": "gemini-3.1-flash-tts-preview"
+      "id": "lyria-3-clip-preview"
     },
     {
       "provider": "google",
@@ -1725,19 +1671,79 @@
       "provider": "google",
       "source": "models.dev",
       "namespace": "google",
-      "id": "gemini-4-argon"
+      "id": "gemini-3-pro-image"
     },
     {
       "provider": "google",
       "source": "models.dev",
       "namespace": "google",
-      "id": "lyria-3-clip-preview"
+      "id": "gemini-embedding-001"
+    },
+    {
+      "provider": "google",
+      "source": "models.dev",
+      "namespace": "google",
+      "id": "gemini-4-hydrogen"
+    },
+    {
+      "provider": "google",
+      "source": "models.dev",
+      "namespace": "google",
+      "id": "gemini-3.1-flash-image"
+    },
+    {
+      "provider": "google",
+      "source": "models.dev",
+      "namespace": "google",
+      "id": "gemini-4-carbon"
+    },
+    {
+      "provider": "google",
+      "source": "models.dev",
+      "namespace": "google",
+      "id": "gemini-3.1-flash-tts-preview"
+    },
+    {
+      "provider": "google",
+      "source": "models.dev",
+      "namespace": "google",
+      "id": "gemini-2.5-flash-image"
     },
     {
       "provider": "google",
       "source": "models.dev",
       "namespace": "google",
       "id": "gemini-pro-latest"
+    },
+    {
+      "provider": "google",
+      "source": "models.dev",
+      "namespace": "google",
+      "id": "gemini-4-argon"
+    },
+    {
+      "provider": "google",
+      "source": "models.dev",
+      "namespace": "google",
+      "id": "gemini-embedding-2"
+    },
+    {
+      "provider": "google",
+      "source": "models.dev",
+      "namespace": "google",
+      "id": "gemini-2.5-pro-preview-tts"
+    },
+    {
+      "provider": "google",
+      "source": "models.dev",
+      "namespace": "google",
+      "id": "gemini-2.5-flash-preview-tts"
+    },
+    {
+      "provider": "google",
+      "source": "models.dev",
+      "namespace": "google",
+      "id": "gemini-3.5-live-translate-preview"
     },
     {
       "provider": "groq",
@@ -1749,7 +1755,7 @@
       "provider": "groq",
       "source": "models.dev",
       "namespace": "groq",
-      "id": "llama-3.1-8b-instant"
+      "id": "allam-2-7b"
     },
     {
       "provider": "groq",
@@ -1761,7 +1767,13 @@
       "provider": "groq",
       "source": "models.dev",
       "namespace": "groq",
-      "id": "allam-2-7b"
+      "id": "llama-3.1-8b-instant"
+    },
+    {
+      "provider": "groq",
+      "source": "models.dev",
+      "namespace": "groq",
+      "id": "openai/gpt-oss-safeguard-20b"
     },
     {
       "provider": "groq",
@@ -1779,7 +1791,25 @@
       "provider": "groq",
       "source": "models.dev",
       "namespace": "groq",
-      "id": "openai/gpt-oss-safeguard-20b"
+      "id": "meta-llama/llama-prompt-guard-2-22m"
+    },
+    {
+      "provider": "groq",
+      "source": "models.dev",
+      "namespace": "groq",
+      "id": "meta-llama/llama-prompt-guard-2-86m"
+    },
+    {
+      "provider": "groq",
+      "source": "models.dev",
+      "namespace": "groq",
+      "id": "qwen/qwen3.6-27b"
+    },
+    {
+      "provider": "groq",
+      "source": "models.dev",
+      "namespace": "groq",
+      "id": "qwen/qwen3.8-27b"
     },
     {
       "provider": "groq",
@@ -1794,144 +1824,6 @@
       "id": "canopylabs/orpheus-arabic-saudi"
     },
     {
-      "provider": "groq",
-      "source": "models.dev",
-      "namespace": "groq",
-      "id": "meta-llama/llama-prompt-guard-2-86m"
-    },
-    {
-      "provider": "groq",
-      "source": "models.dev",
-      "namespace": "groq",
-      "id": "meta-llama/llama-prompt-guard-2-22m"
-    },
-    {
-      "provider": "groq",
-      "source": "models.dev",
-      "namespace": "groq",
-      "id": "qwen/qwen3.8-27b"
-    },
-    {
-      "provider": "groq",
-      "source": "models.dev",
-      "namespace": "groq",
-      "id": "qwen/qwen3.6-27b"
-    },
-    {
-      "provider": "huggingface",
-      "source": "models.dev",
-      "namespace": "huggingface",
-      "id": "zai-org/GLM-4.6V-Flash"
-    },
-    {
-      "provider": "huggingface",
-      "source": "models.dev",
-      "namespace": "huggingface",
-      "id": "zai-org/GLM-4.7-Flash"
-    },
-    {
-      "provider": "huggingface",
-      "source": "models.dev",
-      "namespace": "huggingface",
-      "id": "zai-org/GLM-5"
-    },
-    {
-      "provider": "huggingface",
-      "source": "models.dev",
-      "namespace": "huggingface",
-      "id": "zai-org/GLM-4.5V"
-    },
-    {
-      "provider": "huggingface",
-      "source": "models.dev",
-      "namespace": "huggingface",
-      "id": "zai-org/AutoGLM-Phone-9B-Multilingual"
-    },
-    {
-      "provider": "huggingface",
-      "source": "models.dev",
-      "namespace": "huggingface",
-      "id": "zai-org/GLM-5.1"
-    },
-    {
-      "provider": "huggingface",
-      "source": "models.dev",
-      "namespace": "huggingface",
-      "id": "zai-org/GLM-4.5-Air"
-    },
-    {
-      "provider": "huggingface",
-      "source": "models.dev",
-      "namespace": "huggingface",
-      "id": "zai-org/GLM-5.3-Flash"
-    },
-    {
-      "provider": "huggingface",
-      "source": "models.dev",
-      "namespace": "huggingface",
-      "id": "zai-org/GLM-4.7"
-    },
-    {
-      "provider": "huggingface",
-      "source": "models.dev",
-      "namespace": "huggingface",
-      "id": "zai-org/GLM-5.2"
-    },
-    {
-      "provider": "huggingface",
-      "source": "models.dev",
-      "namespace": "huggingface",
-      "id": "zai-org/GLM-4.6"
-    },
-    {
-      "provider": "huggingface",
-      "source": "models.dev",
-      "namespace": "huggingface",
-      "id": "zai-org/GLM-5.3"
-    },
-    {
-      "provider": "huggingface",
-      "source": "models.dev",
-      "namespace": "huggingface",
-      "id": "MiniMaxAI/MiniMax-M3.1-Flash"
-    },
-    {
-      "provider": "huggingface",
-      "source": "models.dev",
-      "namespace": "huggingface",
-      "id": "MiniMaxAI/MiniMax-M1-80k"
-    },
-    {
-      "provider": "huggingface",
-      "source": "models.dev",
-      "namespace": "huggingface",
-      "id": "MiniMaxAI/MiniMax-M2.5"
-    },
-    {
-      "provider": "huggingface",
-      "source": "models.dev",
-      "namespace": "huggingface",
-      "id": "MiniMaxAI/MiniMax-M2"
-    },
-    {
-      "provider": "huggingface",
-      "source": "models.dev",
-      "namespace": "huggingface",
-      "id": "MiniMaxAI/MiniMax-M2.7"
-    },
-    {
-      "provider": "huggingface",
-      "source": "models.dev",
-      "namespace": "huggingface",
-      "id": "MiniMaxAI/MiniMax-M2.1"
-    },
-    {
-      "provider": "huggingface",
-      "source": "models.dev",
-      "namespace": "huggingface",
-      "id": "MiniMaxAI/MiniMax-M3"
-    },
-    {
       "provider": "huggingface",
       "source": "models.dev",
       "namespace": "huggingface",
@@ -1947,25 +1839,13 @@
       "provider": "huggingface",
       "source": "models.dev",
       "namespace": "huggingface",
-      "id": "tencent/Hy4-preview"
+      "id": "XiaomiMiMo/MiMo-V2.5"
     },
     {
       "provider": "huggingface",
       "source": "models.dev",
       "namespace": "huggingface",
-      "id": "tencent/Hy3"
-    },
-    {
-      "provider": "huggingface",
-      "source": "models.dev",
-      "namespace": "huggingface",
-      "id": "thinkingmachines/Inkling"
-    },
-    {
-      "provider": "huggingface",
-      "source": "models.dev",
-      "namespace": "huggingface",
-      "id": "thinkingmachines/Inkling-Small"
+      "id": "XiaomiMiMo/MiMo-V2.5-Pro"
     },
     {
       "provider": "huggingface",
@@ -1977,19 +1857,13 @@
       "provider": "huggingface",
       "source": "models.dev",
       "namespace": "huggingface",
-      "id": "moonshotai/Kimi-K2.7-Code"
-    },
-    {
-      "provider": "huggingface",
-      "source": "models.dev",
-      "namespace": "huggingface",
       "id": "moonshotai/Kimi-K2.5"
     },
     {
       "provider": "huggingface",
       "source": "models.dev",
       "namespace": "huggingface",
-      "id": "moonshotai/Kimi-K2-Instruct"
+      "id": "moonshotai/Kimi-K3"
     },
     {
       "provider": "huggingface",
@@ -2007,7 +1881,139 @@
       "provider": "huggingface",
       "source": "models.dev",
       "namespace": "huggingface",
-      "id": "moonshotai/Kimi-K3"
+      "id": "moonshotai/Kimi-K2-Instruct"
+    },
+    {
+      "provider": "huggingface",
+      "source": "models.dev",
+      "namespace": "huggingface",
+      "id": "moonshotai/Kimi-K2.7-Code"
+    },
+    {
+      "provider": "huggingface",
+      "source": "models.dev",
+      "namespace": "huggingface",
+      "id": "MiniMaxAI/MiniMax-M2.5"
+    },
+    {
+      "provider": "huggingface",
+      "source": "models.dev",
+      "namespace": "huggingface",
+      "id": "MiniMaxAI/MiniMax-M3"
+    },
+    {
+      "provider": "huggingface",
+      "source": "models.dev",
+      "namespace": "huggingface",
+      "id": "MiniMaxAI/MiniMax-M2"
+    },
+    {
+      "provider": "huggingface",
+      "source": "models.dev",
+      "namespace": "huggingface",
+      "id": "MiniMaxAI/MiniMax-M1-80k"
+    },
+    {
+      "provider": "huggingface",
+      "source": "models.dev",
+      "namespace": "huggingface",
+      "id": "MiniMaxAI/MiniMax-M2.1"
+    },
+    {
+      "provider": "huggingface",
+      "source": "models.dev",
+      "namespace": "huggingface",
+      "id": "MiniMaxAI/MiniMax-M3.1-Flash"
+    },
+    {
+      "provider": "huggingface",
+      "source": "models.dev",
+      "namespace": "huggingface",
+      "id": "MiniMaxAI/MiniMax-M2.7"
+    },
+    {
+      "provider": "huggingface",
+      "source": "models.dev",
+      "namespace": "huggingface",
+      "id": "zai-org/GLM-4.5-Air"
+    },
+    {
+      "provider": "huggingface",
+      "source": "models.dev",
+      "namespace": "huggingface",
+      "id": "zai-org/GLM-4.7"
+    },
+    {
+      "provider": "huggingface",
+      "source": "models.dev",
+      "namespace": "huggingface",
+      "id": "zai-org/GLM-4.6"
+    },
+    {
+      "provider": "huggingface",
+      "source": "models.dev",
+      "namespace": "huggingface",
+      "id": "zai-org/AutoGLM-Phone-9B-Multilingual"
+    },
+    {
+      "provider": "huggingface",
+      "source": "models.dev",
+      "namespace": "huggingface",
+      "id": "zai-org/GLM-4.6V-Flash"
+    },
+    {
+      "provider": "huggingface",
+      "source": "models.dev",
+      "namespace": "huggingface",
+      "id": "zai-org/GLM-4.5V"
+    },
+    {
+      "provider": "huggingface",
+      "source": "models.dev",
+      "namespace": "huggingface",
+      "id": "zai-org/GLM-5.1"
+    },
+    {
+      "provider": "huggingface",
+      "source": "models.dev",
+      "namespace": "huggingface",
+      "id": "zai-org/GLM-5.3"
+    },
+    {
+      "provider": "huggingface",
+      "source": "models.dev",
+      "namespace": "huggingface",
+      "id": "zai-org/GLM-4.7-Flash"
+    },
+    {
+      "provider": "huggingface",
+      "source": "models.dev",
+      "namespace": "huggingface",
+      "id": "zai-org/GLM-5.3-Flash"
+    },
+    {
+      "provider": "huggingface",
+      "source": "models.dev",
+      "namespace": "huggingface",
+      "id": "zai-org/GLM-5"
+    },
+    {
+      "provider": "huggingface",
+      "source": "models.dev",
+      "namespace": "huggingface",
+      "id": "zai-org/GLM-5.2"
+    },
+    {
+      "provider": "huggingface",
+      "source": "models.dev",
+      "namespace": "huggingface",
+      "id": "tencent/Hy4-preview"
+    },
+    {
+      "provider": "huggingface",
+      "source": "models.dev",
+      "namespace": "huggingface",
+      "id": "tencent/Hy3"
     },
     {
       "provider": "huggingface",
@@ -2025,91 +2031,13 @@
       "provider": "huggingface",
       "source": "models.dev",
       "namespace": "huggingface",
-      "id": "deepseek-ai/DeepSeek-V3-0324"
+      "id": "stepfun-ai/Step-3.5-Flash"
     },
     {
       "provider": "huggingface",
       "source": "models.dev",
       "namespace": "huggingface",
-      "id": "deepseek-ai/DeepSeek-V4-Pro-0813"
-    },
-    {
-      "provider": "huggingface",
-      "source": "models.dev",
-      "namespace": "huggingface",
-      "id": "deepseek-ai/DeepSeek-V3.2"
-    },
-    {
-      "provider": "huggingface",
-      "source": "models.dev",
-      "namespace": "huggingface",
-      "id": "deepseek-ai/DeepSeek-V3"
-    },
-    {
-      "provider": "huggingface",
-      "source": "models.dev",
-      "namespace": "huggingface",
-      "id": "deepseek-ai/DeepSeek-V4-Flash-0731"
-    },
-    {
-      "provider": "huggingface",
-      "source": "models.dev",
-      "namespace": "huggingface",
-      "id": "deepseek-ai/DeepSeek-V3.1"
-    },
-    {
-      "provider": "huggingface",
-      "source": "models.dev",
-      "namespace": "huggingface",
-      "id": "deepseek-ai/DeepSeek-V4.1-Flash"
-    },
-    {
-      "provider": "huggingface",
-      "source": "models.dev",
-      "namespace": "huggingface",
-      "id": "deepseek-ai/DeepSeek-R1"
-    },
-    {
-      "provider": "huggingface",
-      "source": "models.dev",
-      "namespace": "huggingface",
-      "id": "deepseek-ai/DeepSeek-V4-Flash"
-    },
-    {
-      "provider": "huggingface",
-      "source": "models.dev",
-      "namespace": "huggingface",
-      "id": "deepseek-ai/DeepSeek-V4-Flash-Vision-Exp"
-    },
-    {
-      "provider": "huggingface",
-      "source": "models.dev",
-      "namespace": "huggingface",
-      "id": "deepseek-ai/DeepSeek-V4-Pro"
-    },
-    {
-      "provider": "huggingface",
-      "source": "models.dev",
-      "namespace": "huggingface",
-      "id": "deepseek-ai/DeepSeek-V4.1-Flash-1017"
-    },
-    {
-      "provider": "huggingface",
-      "source": "models.dev",
-      "namespace": "huggingface",
-      "id": "deepseek-ai/DeepSeek-R1-0528"
-    },
-    {
-      "provider": "huggingface",
-      "source": "models.dev",
-      "namespace": "huggingface",
-      "id": "Qwen/Qwen3-Coder-480B-A35B-Instruct"
-    },
-    {
-      "provider": "huggingface",
-      "source": "models.dev",
-      "namespace": "huggingface",
-      "id": "Qwen/Qwen3.5-397B-A17B"
+      "id": "stepfun-ai/Step-3.7-Flash"
     },
     {
       "provider": "huggingface",
@@ -2121,19 +2049,31 @@
       "provider": "huggingface",
       "source": "models.dev",
       "namespace": "huggingface",
+      "id": "Qwen/Qwen3-Embedding-4B"
+    },
+    {
+      "provider": "huggingface",
+      "source": "models.dev",
+      "namespace": "huggingface",
       "id": "Qwen/Qwen3-235B-A22B-Thinking-2507"
     },
     {
       "provider": "huggingface",
       "source": "models.dev",
       "namespace": "huggingface",
-      "id": "Qwen/Qwen3.5-9B"
+      "id": "Qwen/Qwen3-VL-235B-A22B-Thinking"
     },
     {
       "provider": "huggingface",
       "source": "models.dev",
       "namespace": "huggingface",
-      "id": "Qwen/Qwen3-32B"
+      "id": "Qwen/Qwen3-8B"
+    },
+    {
+      "provider": "huggingface",
+      "source": "models.dev",
+      "namespace": "huggingface",
+      "id": "Qwen/Qwen3-Next-80B-A3B-Instruct"
     },
     {
       "provider": "huggingface",
@@ -2151,19 +2091,43 @@
       "provider": "huggingface",
       "source": "models.dev",
       "namespace": "huggingface",
-      "id": "Qwen/Qwen3-VL-235B-A22B-Thinking"
+      "id": "Qwen/Qwen3.6-35B-A3B"
     },
     {
       "provider": "huggingface",
       "source": "models.dev",
       "namespace": "huggingface",
-      "id": "Qwen/Qwen3-VL-30B-A3B-Instruct"
+      "id": "Qwen/Qwen3-32B"
     },
     {
       "provider": "huggingface",
       "source": "models.dev",
       "namespace": "huggingface",
-      "id": "Qwen/Qwen3-Embedding-4B"
+      "id": "Qwen/Qwen3.5-122B-A10B"
+    },
+    {
+      "provider": "huggingface",
+      "source": "models.dev",
+      "namespace": "huggingface",
+      "id": "Qwen/Qwen3-Coder-480B-A35B-Instruct"
+    },
+    {
+      "provider": "huggingface",
+      "source": "models.dev",
+      "namespace": "huggingface",
+      "id": "Qwen/Qwen3.5-9B"
+    },
+    {
+      "provider": "huggingface",
+      "source": "models.dev",
+      "namespace": "huggingface",
+      "id": "Qwen/Qwen3-235B-A22B"
+    },
+    {
+      "provider": "huggingface",
+      "source": "models.dev",
+      "namespace": "huggingface",
+      "id": "Qwen/Qwen3.5-397B-A17B"
     },
     {
       "provider": "huggingface",
@@ -2181,31 +2145,7 @@
       "provider": "huggingface",
       "source": "models.dev",
       "namespace": "huggingface",
-      "id": "Qwen/Qwen3-235B-A22B-Instruct-2507"
-    },
-    {
-      "provider": "huggingface",
-      "source": "models.dev",
-      "namespace": "huggingface",
-      "id": "Qwen/Qwen3-Coder-30B-A3B-Instruct"
-    },
-    {
-      "provider": "huggingface",
-      "source": "models.dev",
-      "namespace": "huggingface",
-      "id": "Qwen/Qwen3-Coder-Next"
-    },
-    {
-      "provider": "huggingface",
-      "source": "models.dev",
-      "namespace": "huggingface",
-      "id": "Qwen/Qwen3-Next-80B-A3B-Instruct"
-    },
-    {
-      "provider": "huggingface",
-      "source": "models.dev",
-      "namespace": "huggingface",
-      "id": "Qwen/Qwen3-30B-A3B"
+      "id": "Qwen/Qwen3-VL-30B-A3B-Instruct"
     },
     {
       "provider": "huggingface",
@@ -2217,7 +2157,25 @@
       "provider": "huggingface",
       "source": "models.dev",
       "namespace": "huggingface",
-      "id": "Qwen/Qwen3-235B-A22B"
+      "id": "Qwen/Qwen2.5-Coder-32B-Instruct"
+    },
+    {
+      "provider": "huggingface",
+      "source": "models.dev",
+      "namespace": "huggingface",
+      "id": "Qwen/Qwen3-30B-A3B"
+    },
+    {
+      "provider": "huggingface",
+      "source": "models.dev",
+      "namespace": "huggingface",
+      "id": "Qwen/Qwen3-235B-A22B-Instruct-2507"
+    },
+    {
+      "provider": "huggingface",
+      "source": "models.dev",
+      "namespace": "huggingface",
+      "id": "Qwen/Qwen3-Coder-Next"
     },
     {
       "provider": "huggingface",
@@ -2229,25 +2187,25 @@
       "provider": "huggingface",
       "source": "models.dev",
       "namespace": "huggingface",
-      "id": "Qwen/Qwen3-8B"
+      "id": "Qwen/Qwen3-Coder-30B-A3B-Instruct"
     },
     {
       "provider": "huggingface",
       "source": "models.dev",
       "namespace": "huggingface",
-      "id": "Qwen/Qwen3.6-35B-A3B"
+      "id": "google/gemma-4-31B-it"
     },
     {
       "provider": "huggingface",
       "source": "models.dev",
       "namespace": "huggingface",
-      "id": "Qwen/Qwen2.5-Coder-32B-Instruct"
+      "id": "google/gemma-4-26B-A4B-it"
     },
     {
       "provider": "huggingface",
       "source": "models.dev",
       "namespace": "huggingface",
-      "id": "Qwen/Qwen3.5-122B-A10B"
+      "id": "google/gemma-3-27b-it"
     },
     {
       "provider": "huggingface",
@@ -2265,43 +2223,91 @@
       "provider": "huggingface",
       "source": "models.dev",
       "namespace": "huggingface",
-      "id": "google/gemma-3-27b-it"
+      "id": "thinkingmachines/Inkling"
     },
     {
       "provider": "huggingface",
       "source": "models.dev",
       "namespace": "huggingface",
-      "id": "google/gemma-4-26B-A4B-it"
+      "id": "thinkingmachines/Inkling-Small"
     },
     {
       "provider": "huggingface",
       "source": "models.dev",
       "namespace": "huggingface",
-      "id": "google/gemma-4-31B-it"
+      "id": "deepseek-ai/DeepSeek-V4-Pro-0813"
     },
     {
       "provider": "huggingface",
       "source": "models.dev",
       "namespace": "huggingface",
-      "id": "XiaomiMiMo/MiMo-V2.5-Pro"
+      "id": "deepseek-ai/DeepSeek-V4.1-Flash-1017"
     },
     {
       "provider": "huggingface",
       "source": "models.dev",
       "namespace": "huggingface",
-      "id": "XiaomiMiMo/MiMo-V2.5"
+      "id": "deepseek-ai/DeepSeek-V4-Flash"
     },
     {
       "provider": "huggingface",
       "source": "models.dev",
       "namespace": "huggingface",
-      "id": "stepfun-ai/Step-3.5-Flash"
+      "id": "deepseek-ai/DeepSeek-V4.1-Flash"
     },
     {
       "provider": "huggingface",
       "source": "models.dev",
       "namespace": "huggingface",
-      "id": "stepfun-ai/Step-3.7-Flash"
+      "id": "deepseek-ai/DeepSeek-V4-Flash-0731"
+    },
+    {
+      "provider": "huggingface",
+      "source": "models.dev",
+      "namespace": "huggingface",
+      "id": "deepseek-ai/DeepSeek-V4-Pro"
+    },
+    {
+      "provider": "huggingface",
+      "source": "models.dev",
+      "namespace": "huggingface",
+      "id": "deepseek-ai/DeepSeek-V3-0324"
+    },
+    {
+      "provider": "huggingface",
+      "source": "models.dev",
+      "namespace": "huggingface",
+      "id": "deepseek-ai/DeepSeek-V4-Flash-Vision-Exp"
+    },
+    {
+      "provider": "huggingface",
+      "source": "models.dev",
+      "namespace": "huggingface",
+      "id": "deepseek-ai/DeepSeek-R1-0528"
+    },
+    {
+      "provider": "huggingface",
+      "source": "models.dev",
+      "namespace": "huggingface",
+      "id": "deepseek-ai/DeepSeek-R1"
+    },
+    {
+      "provider": "huggingface",
+      "source": "models.dev",
+      "namespace": "huggingface",
+      "id": "deepseek-ai/DeepSeek-V3"
+    },
+    {
+      "provider": "huggingface",
+      "source": "models.dev",
+      "namespace": "huggingface",
+      "id": "deepseek-ai/DeepSeek-V3.2"
+    },
+    {
+      "provider": "huggingface",
+      "source": "models.dev",
+      "namespace": "huggingface",
+      "id": "deepseek-ai/DeepSeek-V3.1"
     },
     {
       "provider": "kimi-coding",
@@ -2331,7 +2337,13 @@
       "provider": "minimax",
       "source": "models.dev",
       "namespace": "minimax",
-      "id": "MiniMax-M3.1-Flash"
+      "id": "MiniMax-M2.5"
+    },
+    {
+      "provider": "minimax",
+      "source": "models.dev",
+      "namespace": "minimax",
+      "id": "MiniMax-M3"
     },
     {
       "provider": "minimax",
@@ -2343,25 +2355,13 @@
       "provider": "minimax",
       "source": "models.dev",
       "namespace": "minimax",
-      "id": "MiniMax-M2.5-highspeed"
-    },
-    {
-      "provider": "minimax",
-      "source": "models.dev",
-      "namespace": "minimax",
-      "id": "MiniMax-M2.5"
-    },
-    {
-      "provider": "minimax",
-      "source": "models.dev",
-      "namespace": "minimax",
       "id": "MiniMax-M2"
     },
     {
       "provider": "minimax",
       "source": "models.dev",
       "namespace": "minimax",
-      "id": "MiniMax-M2.7"
+      "id": "MiniMax-M2.5-highspeed"
     },
     {
       "provider": "minimax",
@@ -2373,13 +2373,25 @@
       "provider": "minimax",
       "source": "models.dev",
       "namespace": "minimax",
-      "id": "MiniMax-M3"
+      "id": "MiniMax-M3.1-Flash"
+    },
+    {
+      "provider": "minimax",
+      "source": "models.dev",
+      "namespace": "minimax",
+      "id": "MiniMax-M2.7"
     },
     {
       "provider": "minimax",
       "source": "models.dev",
       "namespace": "minimax-cn",
-      "id": "MiniMax-M3.1-Flash"
+      "id": "MiniMax-M2.5"
+    },
+    {
+      "provider": "minimax",
+      "source": "models.dev",
+      "namespace": "minimax-cn",
+      "id": "MiniMax-M3"
     },
     {
       "provider": "minimax",
@@ -2391,25 +2403,13 @@
       "provider": "minimax",
       "source": "models.dev",
       "namespace": "minimax-cn",
-      "id": "MiniMax-M2.5-highspeed"
-    },
-    {
-      "provider": "minimax",
-      "source": "models.dev",
-      "namespace": "minimax-cn",
-      "id": "MiniMax-M2.5"
-    },
-    {
-      "provider": "minimax",
-      "source": "models.dev",
-      "namespace": "minimax-cn",
       "id": "MiniMax-M2"
     },
     {
       "provider": "minimax",
       "source": "models.dev",
       "namespace": "minimax-cn",
-      "id": "MiniMax-M2.7"
+      "id": "MiniMax-M2.5-highspeed"
     },
     {
       "provider": "minimax",
@@ -2421,61 +2421,13 @@
       "provider": "minimax",
       "source": "models.dev",
       "namespace": "minimax-cn",
-      "id": "MiniMax-M3"
+      "id": "MiniMax-M3.1-Flash"
     },
     {
-      "provider": "mistral",
+      "provider": "minimax",
       "source": "models.dev",
-      "namespace": "mistral",
-      "id": "devstral-latest"
-    },
-    {
-      "provider": "mistral",
-      "source": "models.dev",
-      "namespace": "mistral",
-      "id": "codestral-2508"
-    },
-    {
-      "provider": "mistral",
-      "source": "models.dev",
-      "namespace": "mistral",
-      "id": "mistral-medium-latest"
-    },
-    {
-      "provider": "mistral",
-      "source": "models.dev",
-      "namespace": "mistral",
-      "id": "mistral-small-latest"
-    },
-    {
-      "provider": "mistral",
-      "source": "models.dev",
-      "namespace": "mistral",
-      "id": "mistral-medium-2508"
-    },
-    {
-      "provider": "mistral",
-      "source": "models.dev",
-      "namespace": "mistral",
-      "id": "voxtral-mini-tts-latest"
-    },
-    {
-      "provider": "mistral",
-      "source": "models.dev",
-      "namespace": "mistral",
-      "id": "mistral-large-4"
-    },
-    {
-      "provider": "mistral",
-      "source": "models.dev",
-      "namespace": "mistral",
-      "id": "open-mistral-nemo"
-    },
-    {
-      "provider": "mistral",
-      "source": "models.dev",
-      "namespace": "mistral",
-      "id": "mistral-large-2512"
+      "namespace": "minimax-cn",
+      "id": "MiniMax-M2.7"
     },
     {
       "provider": "mistral",
@@ -2487,85 +2439,7 @@
       "provider": "mistral",
       "source": "models.dev",
       "namespace": "mistral",
-      "id": "zai-glm-5-3-flash"
-    },
-    {
-      "provider": "mistral",
-      "source": "models.dev",
-      "namespace": "mistral",
-      "id": "glm-5-2"
-    },
-    {
-      "provider": "mistral",
-      "source": "models.dev",
-      "namespace": "mistral",
-      "id": "pixtral-12b"
-    },
-    {
-      "provider": "mistral",
-      "source": "models.dev",
-      "namespace": "mistral",
-      "id": "voxtral-mini-latest"
-    },
-    {
-      "provider": "mistral",
-      "source": "models.dev",
-      "namespace": "mistral",
-      "id": "labs-leanstral-1-5-1"
-    },
-    {
-      "provider": "mistral",
-      "source": "models.dev",
-      "namespace": "mistral",
-      "id": "devstral-medium-latest"
-    },
-    {
-      "provider": "mistral",
-      "source": "models.dev",
-      "namespace": "mistral",
-      "id": "devstral-2512"
-    },
-    {
-      "provider": "mistral",
-      "source": "models.dev",
-      "namespace": "mistral",
-      "id": "ministral-8b-latest"
-    },
-    {
-      "provider": "mistral",
-      "source": "models.dev",
-      "namespace": "mistral",
-      "id": "mistral-medium-2505"
-    },
-    {
-      "provider": "mistral",
-      "source": "models.dev",
-      "namespace": "mistral",
-      "id": "labs-devstral-small-2512"
-    },
-    {
-      "provider": "mistral",
-      "source": "models.dev",
-      "namespace": "mistral",
-      "id": "ministral-14b-2512"
-    },
-    {
-      "provider": "mistral",
-      "source": "models.dev",
-      "namespace": "mistral",
-      "id": "ministral-3b-latest"
-    },
-    {
-      "provider": "mistral",
-      "source": "models.dev",
-      "namespace": "mistral",
-      "id": "zai-glm-5-3"
-    },
-    {
-      "provider": "mistral",
-      "source": "models.dev",
-      "namespace": "mistral",
-      "id": "voxtral-small-2507"
+      "id": "mistral-medium-2508"
     },
     {
       "provider": "mistral",
@@ -2577,19 +2451,31 @@
       "provider": "mistral",
       "source": "models.dev",
       "namespace": "mistral",
-      "id": "mistral-small-2603"
-    },
-    {
-      "provider": "mistral",
-      "source": "models.dev",
-      "namespace": "mistral",
-      "id": "mistral-large-4-0-8"
-    },
-    {
-      "provider": "mistral",
-      "source": "models.dev",
-      "namespace": "mistral",
       "id": "ministral-8b-2512"
+    },
+    {
+      "provider": "mistral",
+      "source": "models.dev",
+      "namespace": "mistral",
+      "id": "deepseek-v4-1-flash-1017"
+    },
+    {
+      "provider": "mistral",
+      "source": "models.dev",
+      "namespace": "mistral",
+      "id": "zai-glm-5-3"
+    },
+    {
+      "provider": "mistral",
+      "source": "models.dev",
+      "namespace": "mistral",
+      "id": "voxtral-mini-tts-latest"
+    },
+    {
+      "provider": "mistral",
+      "source": "models.dev",
+      "namespace": "mistral",
+      "id": "labs-devstral-small-2512"
     },
     {
       "provider": "mistral",
@@ -2601,7 +2487,109 @@
       "provider": "mistral",
       "source": "models.dev",
       "namespace": "mistral",
+      "id": "voxtral-mini-latest"
+    },
+    {
+      "provider": "mistral",
+      "source": "models.dev",
+      "namespace": "mistral",
+      "id": "pixtral-12b"
+    },
+    {
+      "provider": "mistral",
+      "source": "models.dev",
+      "namespace": "mistral",
+      "id": "devstral-medium-latest"
+    },
+    {
+      "provider": "mistral",
+      "source": "models.dev",
+      "namespace": "mistral",
+      "id": "mistral-small-2603"
+    },
+    {
+      "provider": "mistral",
+      "source": "models.dev",
+      "namespace": "mistral",
+      "id": "codestral-2508"
+    },
+    {
+      "provider": "mistral",
+      "source": "models.dev",
+      "namespace": "mistral",
+      "id": "devstral-latest"
+    },
+    {
+      "provider": "mistral",
+      "source": "models.dev",
+      "namespace": "mistral",
+      "id": "mistral-large-2512"
+    },
+    {
+      "provider": "mistral",
+      "source": "models.dev",
+      "namespace": "mistral",
+      "id": "voxtral-small-2507"
+    },
+    {
+      "provider": "mistral",
+      "source": "models.dev",
+      "namespace": "mistral",
+      "id": "zai-glm-5-3-flash"
+    },
+    {
+      "provider": "mistral",
+      "source": "models.dev",
+      "namespace": "mistral",
+      "id": "ministral-14b-2512"
+    },
+    {
+      "provider": "mistral",
+      "source": "models.dev",
+      "namespace": "mistral",
+      "id": "glm-5-2"
+    },
+    {
+      "provider": "mistral",
+      "source": "models.dev",
+      "namespace": "mistral",
+      "id": "mistral-medium-2505"
+    },
+    {
+      "provider": "mistral",
+      "source": "models.dev",
+      "namespace": "mistral",
+      "id": "devstral-2512"
+    },
+    {
+      "provider": "mistral",
+      "source": "models.dev",
+      "namespace": "mistral",
       "id": "mistral-small-2506"
+    },
+    {
+      "provider": "mistral",
+      "source": "models.dev",
+      "namespace": "mistral",
+      "id": "open-mistral-nemo"
+    },
+    {
+      "provider": "mistral",
+      "source": "models.dev",
+      "namespace": "mistral",
+      "id": "mistral-large-4"
+    },
+    {
+      "provider": "mistral",
+      "source": "models.dev",
+      "namespace": "mistral",
+      "id": "mistral-small-latest"
+    },
+    {
+      "provider": "mistral",
+      "source": "models.dev",
+      "namespace": "mistral",
+      "id": "mistral-large-4-0-8"
     },
     {
       "provider": "mistral",
@@ -2619,13 +2607,25 @@
       "provider": "mistral",
       "source": "models.dev",
       "namespace": "mistral",
-      "id": "deepseek-v4-1-flash-1017"
+      "id": "voxtral-small-latest"
     },
     {
       "provider": "mistral",
       "source": "models.dev",
       "namespace": "mistral",
-      "id": "voxtral-small-latest"
+      "id": "labs-leanstral-1-5-1"
+    },
+    {
+      "provider": "mistral",
+      "source": "models.dev",
+      "namespace": "mistral",
+      "id": "ministral-8b-latest"
+    },
+    {
+      "provider": "mistral",
+      "source": "models.dev",
+      "namespace": "mistral",
+      "id": "ministral-3b-latest"
     },
     {
       "provider": "mistral",
@@ -2634,6 +2634,18 @@
       "id": "codestral-latest"
     },
     {
+      "provider": "mistral",
+      "source": "models.dev",
+      "namespace": "mistral",
+      "id": "mistral-medium-latest"
+    },
+    {
+      "provider": "moonshot",
+      "source": "models.dev",
+      "namespace": "moonshotai",
+      "id": "kimi-k2.7-code-highspeed"
+    },
+    {
       "provider": "moonshot",
       "source": "models.dev",
       "namespace": "moonshotai",
@@ -2655,19 +2667,19 @@
       "provider": "moonshot",
       "source": "models.dev",
       "namespace": "moonshotai",
+      "id": "kimi-k2.6"
+    },
+    {
+      "provider": "moonshot",
+      "source": "models.dev",
+      "namespace": "moonshotai",
       "id": "kimi-k3"
     },
     {
       "provider": "moonshot",
       "source": "models.dev",
-      "namespace": "moonshotai",
+      "namespace": "moonshotai-cn",
       "id": "kimi-k2.7-code-highspeed"
-    },
-    {
-      "provider": "moonshot",
-      "source": "models.dev",
-      "namespace": "moonshotai",
-      "id": "kimi-k2.6"
     },
     {
       "provider": "moonshot",
@@ -2691,43 +2703,13 @@
       "provider": "moonshot",
       "source": "models.dev",
       "namespace": "moonshotai-cn",
-      "id": "kimi-k3"
-    },
-    {
-      "provider": "moonshot",
-      "source": "models.dev",
-      "namespace": "moonshotai-cn",
-      "id": "kimi-k2.7-code-highspeed"
-    },
-    {
-      "provider": "moonshot",
-      "source": "models.dev",
-      "namespace": "moonshotai-cn",
       "id": "kimi-k2.6"
     },
     {
-      "provider": "nvidia-nim",
+      "provider": "moonshot",
       "source": "models.dev",
-      "namespace": "nvidia",
-      "id": "minimaxai/minimax-m3.1-flash"
-    },
-    {
-      "provider": "nvidia-nim",
-      "source": "models.dev",
-      "namespace": "nvidia",
-      "id": "mistralai/mistral-7b-instruct-v0.3"
-    },
-    {
-      "provider": "nvidia-nim",
-      "source": "models.dev",
-      "namespace": "nvidia",
-      "id": "mistralai/magistral-small-2506"
-    },
-    {
-      "provider": "nvidia-nim",
-      "source": "models.dev",
-      "namespace": "nvidia",
-      "id": "mistralai/mistral-medium-3-instruct"
+      "namespace": "moonshotai-cn",
+      "id": "kimi-k3"
     },
     {
       "provider": "nvidia-nim",
@@ -2745,13 +2727,169 @@
       "provider": "nvidia-nim",
       "source": "models.dev",
       "namespace": "nvidia",
-      "id": "moonshotai/kimi-k3"
+      "id": "nvidia/synthetic-video-detector"
+    },
+    {
+      "provider": "nvidia-nim",
+      "source": "models.dev",
+      "namespace": "nvidia",
+      "id": "nvidia/nemotron-3.5-lightning-30b-a3b"
+    },
+    {
+      "provider": "nvidia-nim",
+      "source": "models.dev",
+      "namespace": "nvidia",
+      "id": "nvidia/nemotron-3-ultra-550b-a55b"
+    },
+    {
+      "provider": "nvidia-nim",
+      "source": "models.dev",
+      "namespace": "nvidia",
+      "id": "nvidia/bevformer"
+    },
+    {
+      "provider": "nvidia-nim",
+      "source": "models.dev",
+      "namespace": "nvidia",
+      "id": "nvidia/studiovoice"
+    },
+    {
+      "provider": "nvidia-nim",
+      "source": "models.dev",
+      "namespace": "nvidia",
+      "id": "nvidia/llama-3.1-nemotron-ultra-253b-v1"
+    },
+    {
+      "provider": "nvidia-nim",
+      "source": "models.dev",
+      "namespace": "nvidia",
+      "id": "nvidia/usdvalidate"
+    },
+    {
+      "provider": "nvidia-nim",
+      "source": "models.dev",
+      "namespace": "nvidia",
+      "id": "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning"
+    },
+    {
+      "provider": "nvidia-nim",
+      "source": "models.dev",
+      "namespace": "nvidia",
+      "id": "nvidia/sparsedrive"
+    },
+    {
+      "provider": "nvidia-nim",
+      "source": "models.dev",
+      "namespace": "nvidia",
+      "id": "nvidia/streampetr"
+    },
+    {
+      "provider": "nvidia-nim",
+      "source": "models.dev",
+      "namespace": "nvidia",
+      "id": "nvidia/cosmos-reason2-8b"
+    },
+    {
+      "provider": "nvidia-nim",
+      "source": "models.dev",
+      "namespace": "nvidia",
+      "id": "nvidia/llama-nemotron-rerank-vl-1b-v2"
+    },
+    {
+      "provider": "nvidia-nim",
+      "source": "models.dev",
+      "namespace": "nvidia",
+      "id": "nvidia/llama-3.1-nemotron-safety-guard-8b-v3"
+    },
+    {
+      "provider": "nvidia-nim",
+      "source": "models.dev",
+      "namespace": "nvidia",
+      "id": "nvidia/llama-nemotron-embed-vl-1b-v2"
+    },
+    {
+      "provider": "nvidia-nim",
+      "source": "models.dev",
+      "namespace": "nvidia",
+      "id": "nvidia/active-speaker-detection"
+    },
+    {
+      "provider": "nvidia-nim",
+      "source": "models.dev",
+      "namespace": "nvidia",
+      "id": "nvidia/nemotron-3.5-content-safety"
+    },
+    {
+      "provider": "nvidia-nim",
+      "source": "models.dev",
+      "namespace": "nvidia",
+      "id": "nvidia/magpie-tts-zeroshot"
+    },
+    {
+      "provider": "nvidia-nim",
+      "source": "models.dev",
+      "namespace": "nvidia",
+      "id": "nvidia/cosmos-transfer2_5-2b"
+    },
+    {
+      "provider": "nvidia-nim",
+      "source": "models.dev",
+      "namespace": "nvidia",
+      "id": "nvidia/usdcode"
+    },
+    {
+      "provider": "nvidia-nim",
+      "source": "models.dev",
+      "namespace": "nvidia",
+      "id": "nvidia/riva-translate-4b-instruct-v1.1"
+    },
+    {
+      "provider": "nvidia-nim",
+      "source": "models.dev",
+      "namespace": "nvidia",
+      "id": "nvidia/nemotron-voicechat"
+    },
+    {
+      "provider": "nvidia-nim",
+      "source": "models.dev",
+      "namespace": "nvidia",
+      "id": "nvidia/rerank-qa-mistral-4b"
+    },
+    {
+      "provider": "nvidia-nim",
+      "source": "models.dev",
+      "namespace": "nvidia",
+      "id": "nvidia/nemotron-3.5-super-vl-120b-a12b"
+    },
+    {
+      "provider": "nvidia-nim",
+      "source": "models.dev",
+      "namespace": "nvidia",
+      "id": "nvidia/llama-3.1-nemotron-70b-instruct"
+    },
+    {
+      "provider": "nvidia-nim",
+      "source": "models.dev",
+      "namespace": "nvidia",
+      "id": "minimaxai/minimax-m3.1-flash"
     },
     {
       "provider": "nvidia-nim",
       "source": "models.dev",
       "namespace": "nvidia",
       "id": "moonshotai/kimi-k2.6"
+    },
+    {
+      "provider": "nvidia-nim",
+      "source": "models.dev",
+      "namespace": "nvidia",
+      "id": "moonshotai/kimi-k3"
+    },
+    {
+      "provider": "nvidia-nim",
+      "source": "models.dev",
+      "namespace": "nvidia",
+      "id": "black-forest-labs/flux_1-schnell"
     },
     {
       "provider": "nvidia-nim",
@@ -2769,43 +2907,79 @@
       "provider": "nvidia-nim",
       "source": "models.dev",
       "namespace": "nvidia",
-      "id": "black-forest-labs/flux_1-schnell"
-    },
-    {
-      "provider": "nvidia-nim",
-      "source": "models.dev",
-      "namespace": "nvidia",
       "id": "black-forest-labs/flux.1-dev"
     },
     {
       "provider": "nvidia-nim",
       "source": "models.dev",
       "namespace": "nvidia",
-      "id": "deepseek-ai/deepseek-v4.1-flash"
+      "id": "meta/llama-guard-4-12b"
     },
     {
       "provider": "nvidia-nim",
       "source": "models.dev",
       "namespace": "nvidia",
-      "id": "z-ai/glm-5.3-flash"
+      "id": "meta/llama-3.2-11b-vision-instruct"
     },
     {
       "provider": "nvidia-nim",
       "source": "models.dev",
       "namespace": "nvidia",
-      "id": "z-ai/glm-5.3"
+      "id": "meta/muse-glimmer-30b"
     },
     {
       "provider": "nvidia-nim",
       "source": "models.dev",
       "namespace": "nvidia",
-      "id": "google/gemma-3-4b-it"
+      "id": "meta/llama-3.2-90b-vision-instruct"
+    },
+    {
+      "provider": "nvidia-nim",
+      "source": "models.dev",
+      "namespace": "nvidia",
+      "id": "qwen/qwen-image-edit"
+    },
+    {
+      "provider": "nvidia-nim",
+      "source": "models.dev",
+      "namespace": "nvidia",
+      "id": "qwen/qwen-image"
+    },
+    {
+      "provider": "nvidia-nim",
+      "source": "models.dev",
+      "namespace": "nvidia",
+      "id": "stepfun-ai/step-5-preview"
+    },
+    {
+      "provider": "nvidia-nim",
+      "source": "models.dev",
+      "namespace": "nvidia",
+      "id": "mistralai/magistral-small-2506"
+    },
+    {
+      "provider": "nvidia-nim",
+      "source": "models.dev",
+      "namespace": "nvidia",
+      "id": "mistralai/mistral-7b-instruct-v0.3"
+    },
+    {
+      "provider": "nvidia-nim",
+      "source": "models.dev",
+      "namespace": "nvidia",
+      "id": "mistralai/mistral-medium-3-instruct"
     },
     {
       "provider": "nvidia-nim",
       "source": "models.dev",
       "namespace": "nvidia",
       "id": "google/google-paligemma"
+    },
+    {
+      "provider": "nvidia-nim",
+      "source": "models.dev",
+      "namespace": "nvidia",
+      "id": "google/gemma-3-4b-it"
     },
     {
       "provider": "nvidia-nim",
@@ -2829,193 +3003,25 @@
       "provider": "nvidia-nim",
       "source": "models.dev",
       "namespace": "nvidia",
-      "id": "stepfun-ai/step-5-preview"
-    },
-    {
-      "provider": "nvidia-nim",
-      "source": "models.dev",
-      "namespace": "nvidia",
-      "id": "nvidia/llama-3.1-nemotron-70b-instruct"
-    },
-    {
-      "provider": "nvidia-nim",
-      "source": "models.dev",
-      "namespace": "nvidia",
-      "id": "nvidia/nemotron-voicechat"
-    },
-    {
-      "provider": "nvidia-nim",
-      "source": "models.dev",
-      "namespace": "nvidia",
-      "id": "nvidia/llama-nemotron-rerank-vl-1b-v2"
-    },
-    {
-      "provider": "nvidia-nim",
-      "source": "models.dev",
-      "namespace": "nvidia",
-      "id": "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning"
-    },
-    {
-      "provider": "nvidia-nim",
-      "source": "models.dev",
-      "namespace": "nvidia",
-      "id": "nvidia/usdvalidate"
-    },
-    {
-      "provider": "nvidia-nim",
-      "source": "models.dev",
-      "namespace": "nvidia",
-      "id": "nvidia/nemotron-3-ultra-550b-a55b"
-    },
-    {
-      "provider": "nvidia-nim",
-      "source": "models.dev",
-      "namespace": "nvidia",
-      "id": "nvidia/streampetr"
-    },
-    {
-      "provider": "nvidia-nim",
-      "source": "models.dev",
-      "namespace": "nvidia",
-      "id": "nvidia/cosmos-transfer2_5-2b"
-    },
-    {
-      "provider": "nvidia-nim",
-      "source": "models.dev",
-      "namespace": "nvidia",
-      "id": "nvidia/cosmos-reason2-8b"
-    },
-    {
-      "provider": "nvidia-nim",
-      "source": "models.dev",
-      "namespace": "nvidia",
-      "id": "nvidia/llama-3.1-nemotron-safety-guard-8b-v3"
-    },
-    {
-      "provider": "nvidia-nim",
-      "source": "models.dev",
-      "namespace": "nvidia",
-      "id": "nvidia/studiovoice"
-    },
-    {
-      "provider": "nvidia-nim",
-      "source": "models.dev",
-      "namespace": "nvidia",
-      "id": "nvidia/nemotron-3.5-super-vl-120b-a12b"
-    },
-    {
-      "provider": "nvidia-nim",
-      "source": "models.dev",
-      "namespace": "nvidia",
-      "id": "nvidia/magpie-tts-zeroshot"
-    },
-    {
-      "provider": "nvidia-nim",
-      "source": "models.dev",
-      "namespace": "nvidia",
-      "id": "nvidia/bevformer"
-    },
-    {
-      "provider": "nvidia-nim",
-      "source": "models.dev",
-      "namespace": "nvidia",
-      "id": "nvidia/synthetic-video-detector"
-    },
-    {
-      "provider": "nvidia-nim",
-      "source": "models.dev",
-      "namespace": "nvidia",
-      "id": "nvidia/sparsedrive"
-    },
-    {
-      "provider": "nvidia-nim",
-      "source": "models.dev",
-      "namespace": "nvidia",
-      "id": "nvidia/nemotron-3.5-lightning-30b-a3b"
-    },
-    {
-      "provider": "nvidia-nim",
-      "source": "models.dev",
-      "namespace": "nvidia",
-      "id": "nvidia/usdcode"
-    },
-    {
-      "provider": "nvidia-nim",
-      "source": "models.dev",
-      "namespace": "nvidia",
-      "id": "nvidia/rerank-qa-mistral-4b"
-    },
-    {
-      "provider": "nvidia-nim",
-      "source": "models.dev",
-      "namespace": "nvidia",
-      "id": "nvidia/llama-3.1-nemotron-ultra-253b-v1"
-    },
-    {
-      "provider": "nvidia-nim",
-      "source": "models.dev",
-      "namespace": "nvidia",
-      "id": "nvidia/nemotron-3.5-content-safety"
-    },
-    {
-      "provider": "nvidia-nim",
-      "source": "models.dev",
-      "namespace": "nvidia",
-      "id": "nvidia/active-speaker-detection"
-    },
-    {
-      "provider": "nvidia-nim",
-      "source": "models.dev",
-      "namespace": "nvidia",
-      "id": "nvidia/llama-nemotron-embed-vl-1b-v2"
-    },
-    {
-      "provider": "nvidia-nim",
-      "source": "models.dev",
-      "namespace": "nvidia",
-      "id": "nvidia/riva-translate-4b-instruct-v1.1"
-    },
-    {
-      "provider": "nvidia-nim",
-      "source": "models.dev",
-      "namespace": "nvidia",
-      "id": "qwen/qwen-image"
-    },
-    {
-      "provider": "nvidia-nim",
-      "source": "models.dev",
-      "namespace": "nvidia",
-      "id": "qwen/qwen-image-edit"
-    },
-    {
-      "provider": "nvidia-nim",
-      "source": "models.dev",
-      "namespace": "nvidia",
-      "id": "meta/llama-3.2-11b-vision-instruct"
-    },
-    {
-      "provider": "nvidia-nim",
-      "source": "models.dev",
-      "namespace": "nvidia",
-      "id": "meta/llama-guard-4-12b"
-    },
-    {
-      "provider": "nvidia-nim",
-      "source": "models.dev",
-      "namespace": "nvidia",
-      "id": "meta/llama-3.2-90b-vision-instruct"
-    },
-    {
-      "provider": "nvidia-nim",
-      "source": "models.dev",
-      "namespace": "nvidia",
-      "id": "meta/muse-glimmer-30b"
-    },
-    {
-      "provider": "nvidia-nim",
-      "source": "models.dev",
-      "namespace": "nvidia",
       "id": "poolside/laguna-xs-2.1"
+    },
+    {
+      "provider": "nvidia-nim",
+      "source": "models.dev",
+      "namespace": "nvidia",
+      "id": "z-ai/glm-5.3-flash"
+    },
+    {
+      "provider": "nvidia-nim",
+      "source": "models.dev",
+      "namespace": "nvidia",
+      "id": "z-ai/glm-5.3"
+    },
+    {
+      "provider": "nvidia-nim",
+      "source": "models.dev",
+      "namespace": "nvidia",
+      "id": "deepseek-ai/deepseek-v4.1-flash"
     },
     {
       "provider": "openai-codex",
@@ -3573,43 +3579,13 @@
       "provider": "opencode-go",
       "source": "models.dev",
       "namespace": "opencode-go",
-      "id": "kimi-k3.1-pro"
+      "id": "cat-jam-free"
     },
     {
       "provider": "opencode-go",
       "source": "models.dev",
       "namespace": "opencode-go",
-      "id": "mimo-v2.6-pro"
-    },
-    {
-      "provider": "opencode-go",
-      "source": "models.dev",
-      "namespace": "opencode-go",
-      "id": "gpt-6-luna"
-    },
-    {
-      "provider": "opencode-go",
-      "source": "models.dev",
-      "namespace": "opencode-go",
-      "id": "step-5-preview-free"
-    },
-    {
-      "provider": "opencode-go",
-      "source": "models.dev",
-      "namespace": "opencode-go",
-      "id": "minimax-m3.1-flash-free"
-    },
-    {
-      "provider": "opencode-go",
-      "source": "models.dev",
-      "namespace": "opencode-go",
-      "id": "gemini-4-argon-contributor"
-    },
-    {
-      "provider": "opencode-go",
-      "source": "models.dev",
-      "namespace": "opencode-go",
-      "id": "space-bunny"
+      "id": "grok-4.7"
     },
     {
       "provider": "opencode-go",
@@ -3621,55 +3597,19 @@
       "provider": "opencode-go",
       "source": "models.dev",
       "namespace": "opencode-go",
-      "id": "hy4"
-    },
-    {
-      "provider": "opencode-go",
-      "source": "models.dev",
-      "namespace": "opencode-go",
-      "id": "longcat-2.5-preview-free"
-    },
-    {
-      "provider": "opencode-go",
-      "source": "models.dev",
-      "namespace": "opencode-go",
-      "id": "gemini-4-argon"
-    },
-    {
-      "provider": "opencode-go",
-      "source": "models.dev",
-      "namespace": "opencode-go",
-      "id": "longcat-2.5-free"
-    },
-    {
-      "provider": "opencode-go",
-      "source": "models.dev",
-      "namespace": "opencode-go",
       "id": "mimo-v2.6-flash"
     },
     {
       "provider": "opencode-go",
       "source": "models.dev",
       "namespace": "opencode-go",
-      "id": "beam-free"
+      "id": "gpt-6-luna"
     },
     {
       "provider": "opencode-go",
       "source": "models.dev",
       "namespace": "opencode-go",
-      "id": "step-5-preview"
-    },
-    {
-      "provider": "opencode-go",
-      "source": "models.dev",
-      "namespace": "opencode-go",
-      "id": "claude-haiku-5-5"
-    },
-    {
-      "provider": "opencode-go",
-      "source": "models.dev",
-      "namespace": "opencode-go",
-      "id": "cat-jam-free"
+      "id": "step-5-preview-free"
     },
     {
       "provider": "opencode-go",
@@ -3681,7 +3621,73 @@
       "provider": "opencode-go",
       "source": "models.dev",
       "namespace": "opencode-go",
-      "id": "grok-4.7"
+      "id": "mimo-v2.6-pro"
+    },
+    {
+      "provider": "opencode-go",
+      "source": "models.dev",
+      "namespace": "opencode-go",
+      "id": "kimi-k3.1-pro"
+    },
+    {
+      "provider": "opencode-go",
+      "source": "models.dev",
+      "namespace": "opencode-go",
+      "id": "space-bunny"
+    },
+    {
+      "provider": "opencode-go",
+      "source": "models.dev",
+      "namespace": "opencode-go",
+      "id": "beam-free"
+    },
+    {
+      "provider": "opencode-go",
+      "source": "models.dev",
+      "namespace": "opencode-go",
+      "id": "hy4"
+    },
+    {
+      "provider": "opencode-go",
+      "source": "models.dev",
+      "namespace": "opencode-go",
+      "id": "gemini-4-argon-contributor"
+    },
+    {
+      "provider": "opencode-go",
+      "source": "models.dev",
+      "namespace": "opencode-go",
+      "id": "step-5-preview"
+    },
+    {
+      "provider": "opencode-go",
+      "source": "models.dev",
+      "namespace": "opencode-go",
+      "id": "gemini-4-argon"
+    },
+    {
+      "provider": "opencode-go",
+      "source": "models.dev",
+      "namespace": "opencode-go",
+      "id": "minimax-m3.1-flash-free"
+    },
+    {
+      "provider": "opencode-go",
+      "source": "models.dev",
+      "namespace": "opencode-go",
+      "id": "longcat-2.5-free"
+    },
+    {
+      "provider": "opencode-go",
+      "source": "models.dev",
+      "namespace": "opencode-go",
+      "id": "longcat-2.5-preview-free"
+    },
+    {
+      "provider": "opencode-go",
+      "source": "models.dev",
+      "namespace": "opencode-go",
+      "id": "claude-haiku-5-5"
     },
     {
       "provider": "opencode-go",
@@ -3693,43 +3699,13 @@
       "provider": "opencode-zen",
       "source": "models.dev",
       "namespace": "opencode",
-      "id": "claude-opus-4-1"
+      "id": "cat-jam-free"
     },
     {
       "provider": "opencode-zen",
       "source": "models.dev",
       "namespace": "opencode",
-      "id": "mimo-v2-omni-free"
-    },
-    {
-      "provider": "opencode-zen",
-      "source": "models.dev",
-      "namespace": "opencode",
-      "id": "gpt-6.1-sol"
-    },
-    {
-      "provider": "opencode-zen",
-      "source": "models.dev",
-      "namespace": "opencode",
-      "id": "gpt-6-sol"
-    },
-    {
-      "provider": "opencode-zen",
-      "source": "models.dev",
-      "namespace": "opencode",
-      "id": "qwen3-coder"
-    },
-    {
-      "provider": "opencode-zen",
-      "source": "models.dev",
-      "namespace": "opencode",
-      "id": "flint-40b-free"
-    },
-    {
-      "provider": "opencode-zen",
-      "source": "models.dev",
-      "namespace": "opencode",
-      "id": "mistral-large-4"
+      "id": "grok-4.7"
     },
     {
       "provider": "opencode-zen",
@@ -3741,193 +3717,7 @@
       "provider": "opencode-zen",
       "source": "models.dev",
       "namespace": "opencode",
-      "id": "gpt-6-luna"
-    },
-    {
-      "provider": "opencode-zen",
-      "source": "models.dev",
-      "namespace": "opencode",
-      "id": "glm-4.7"
-    },
-    {
-      "provider": "opencode-zen",
-      "source": "models.dev",
-      "namespace": "opencode",
-      "id": "mimo-v2.6-flash-free"
-    },
-    {
-      "provider": "opencode-zen",
-      "source": "models.dev",
-      "namespace": "opencode",
-      "id": "ling-2.6-flash-free"
-    },
-    {
-      "provider": "opencode-zen",
-      "source": "models.dev",
-      "namespace": "opencode",
-      "id": "ling-3.0-flash-free"
-    },
-    {
-      "provider": "opencode-zen",
-      "source": "models.dev",
-      "namespace": "opencode",
-      "id": "step-5-preview-free"
-    },
-    {
-      "provider": "opencode-zen",
-      "source": "models.dev",
-      "namespace": "opencode",
-      "id": "minimax-m3.1-flash-free"
-    },
-    {
-      "provider": "opencode-zen",
-      "source": "models.dev",
-      "namespace": "opencode",
-      "id": "claude-fable-5-2"
-    },
-    {
-      "provider": "opencode-zen",
-      "source": "models.dev",
-      "namespace": "opencode",
-      "id": "minimax-m2.5-free"
-    },
-    {
-      "provider": "opencode-zen",
-      "source": "models.dev",
-      "namespace": "opencode",
-      "id": "qwen3.8-flash"
-    },
-    {
-      "provider": "opencode-zen",
-      "source": "models.dev",
-      "namespace": "opencode",
-      "id": "kimi-k2"
-    },
-    {
-      "provider": "opencode-zen",
-      "source": "models.dev",
-      "namespace": "opencode",
-      "id": "gemini-3-pro"
-    },
-    {
-      "provider": "opencode-zen",
-      "source": "models.dev",
-      "namespace": "opencode",
-      "id": "gemini-4-carbon"
-    },
-    {
-      "provider": "opencode-zen",
-      "source": "models.dev",
-      "namespace": "opencode",
-      "id": "claude-3-5-haiku"
-    },
-    {
-      "provider": "opencode-zen",
-      "source": "models.dev",
-      "namespace": "opencode",
-      "id": "inkling-2-small-free"
-    },
-    {
-      "provider": "opencode-zen",
-      "source": "models.dev",
-      "namespace": "opencode",
-      "id": "kimi-k2.5-free"
-    },
-    {
-      "provider": "opencode-zen",
-      "source": "models.dev",
-      "namespace": "opencode",
-      "id": "grok-code"
-    },
-    {
-      "provider": "opencode-zen",
-      "source": "models.dev",
-      "namespace": "opencode",
-      "id": "muse-ember-1.0"
-    },
-    {
-      "provider": "opencode-zen",
-      "source": "models.dev",
-      "namespace": "opencode",
-      "id": "longcat-2.5-preview-free"
-    },
-    {
-      "provider": "opencode-zen",
-      "source": "models.dev",
-      "namespace": "opencode",
-      "id": "gemini-4-argon"
-    },
-    {
-      "provider": "opencode-zen",
-      "source": "models.dev",
-      "namespace": "opencode",
       "id": "space-bunny-free"
-    },
-    {
-      "provider": "opencode-zen",
-      "source": "models.dev",
-      "namespace": "opencode",
-      "id": "longcat-2.5-free"
-    },
-    {
-      "provider": "opencode-zen",
-      "source": "models.dev",
-      "namespace": "opencode",
-      "id": "trinity-large-preview-free"
-    },
-    {
-      "provider": "opencode-zen",
-      "source": "models.dev",
-      "namespace": "opencode",
-      "id": "glm-4.6"
-    },
-    {
-      "provider": "opencode-zen",
-      "source": "models.dev",
-      "namespace": "opencode",
-      "id": "minimax-m3-free"
-    },
-    {
-      "provider": "opencode-zen",
-      "source": "models.dev",
-      "namespace": "opencode",
-      "id": "mimo-v2-flash-free"
-    },
-    {
-      "provider": "opencode-zen",
-      "source": "models.dev",
-      "namespace": "opencode",
-      "id": "claude-sonnet-5-5"
-    },
-    {
-      "provider": "opencode-zen",
-      "source": "models.dev",
-      "namespace": "opencode",
-      "id": "hy3-preview-free"
-    },
-    {
-      "provider": "opencode-zen",
-      "source": "models.dev",
-      "namespace": "opencode",
-      "id": "pulse-alpha-free"
-    },
-    {
-      "provider": "opencode-zen",
-      "source": "models.dev",
-      "namespace": "opencode",
-      "id": "glm-4.7-free"
-    },
-    {
-      "provider": "opencode-zen",
-      "source": "models.dev",
-      "namespace": "opencode",
-      "id": "beam-free"
-    },
-    {
-      "provider": "opencode-zen",
-      "source": "models.dev",
-      "namespace": "opencode",
-      "id": "minimax-m2.1"
     },
     {
       "provider": "opencode-zen",
@@ -3939,31 +3729,31 @@
       "provider": "opencode-zen",
       "source": "models.dev",
       "namespace": "opencode",
-      "id": "laguna-s-2.1-free"
+      "id": "nemotron-3-super-free"
     },
     {
       "provider": "opencode-zen",
       "source": "models.dev",
       "namespace": "opencode",
-      "id": "deepseek-v4.1-flash-free"
+      "id": "flint-40b-free"
     },
     {
       "provider": "opencode-zen",
       "source": "models.dev",
       "namespace": "opencode",
-      "id": "exo-free"
+      "id": "gpt-6-luna"
     },
     {
       "provider": "opencode-zen",
       "source": "models.dev",
       "namespace": "opencode",
-      "id": "ling-3.1-flash-free"
+      "id": "gpt-6-sol"
     },
     {
       "provider": "opencode-zen",
       "source": "models.dev",
       "namespace": "opencode",
-      "id": "qwen3.6-plus-free"
+      "id": "step-5-preview-free"
     },
     {
       "provider": "opencode-zen",
@@ -3975,49 +3765,13 @@
       "provider": "opencode-zen",
       "source": "models.dev",
       "namespace": "opencode",
-      "id": "claude-haiku-5-5"
+      "id": "laguna-s-2.1-free"
     },
     {
       "provider": "opencode-zen",
       "source": "models.dev",
       "namespace": "opencode",
-      "id": "cat-jam-free"
-    },
-    {
-      "provider": "opencode-zen",
-      "source": "models.dev",
-      "namespace": "opencode",
-      "id": "hy3-free"
-    },
-    {
-      "provider": "opencode-zen",
-      "source": "models.dev",
-      "namespace": "opencode",
-      "id": "glm-5.3-flash-free"
-    },
-    {
-      "provider": "opencode-zen",
-      "source": "models.dev",
-      "namespace": "opencode",
-      "id": "ring-2.6-1t-free"
-    },
-    {
-      "provider": "opencode-zen",
-      "source": "models.dev",
-      "namespace": "opencode",
-      "id": "deepseek-v4-flash-free"
-    },
-    {
-      "provider": "opencode-zen",
-      "source": "models.dev",
-      "namespace": "opencode",
-      "id": "ling-3.0-tiny-free"
-    },
-    {
-      "provider": "opencode-zen",
-      "source": "models.dev",
-      "namespace": "opencode",
-      "id": "glm-5-free"
+      "id": "muse-ember-1.0"
     },
     {
       "provider": "opencode-zen",
@@ -4029,43 +3783,13 @@
       "provider": "opencode-zen",
       "source": "models.dev",
       "namespace": "opencode",
-      "id": "ll-alpha-free"
+      "id": "gemini-3-pro"
     },
     {
       "provider": "opencode-zen",
       "source": "models.dev",
       "namespace": "opencode",
-      "id": "nemotron-3-super-free"
-    },
-    {
-      "provider": "opencode-zen",
-      "source": "models.dev",
-      "namespace": "opencode",
-      "id": "longcat-2.0-free"
-    },
-    {
-      "provider": "opencode-zen",
-      "source": "models.dev",
-      "namespace": "opencode",
-      "id": "north-mini-code-free"
-    },
-    {
-      "provider": "opencode-zen",
-      "source": "models.dev",
-      "namespace": "opencode",
-      "id": "nemotron-3.5-super-vl-free"
-    },
-    {
-      "provider": "opencode-zen",
-      "source": "models.dev",
-      "namespace": "opencode",
-      "id": "muse-wonder-1.0"
-    },
-    {
-      "provider": "opencode-zen",
-      "source": "models.dev",
-      "namespace": "opencode",
-      "id": "muse-spark-1.2-contributor-free"
+      "id": "kimi-k2.5-free"
     },
     {
       "provider": "opencode-zen",
@@ -4077,7 +3801,49 @@
       "provider": "opencode-zen",
       "source": "models.dev",
       "namespace": "opencode",
-      "id": "grok-4.7"
+      "id": "mimo-v2.6-flash-free"
+    },
+    {
+      "provider": "opencode-zen",
+      "source": "models.dev",
+      "namespace": "opencode",
+      "id": "glm-4.7"
+    },
+    {
+      "provider": "opencode-zen",
+      "source": "models.dev",
+      "namespace": "opencode",
+      "id": "mimo-v2-flash-free"
+    },
+    {
+      "provider": "opencode-zen",
+      "source": "models.dev",
+      "namespace": "opencode",
+      "id": "qwen3.8-flash"
+    },
+    {
+      "provider": "opencode-zen",
+      "source": "models.dev",
+      "namespace": "opencode",
+      "id": "glm-5-free"
+    },
+    {
+      "provider": "opencode-zen",
+      "source": "models.dev",
+      "namespace": "opencode",
+      "id": "inkling-2-small-free"
+    },
+    {
+      "provider": "opencode-zen",
+      "source": "models.dev",
+      "namespace": "opencode",
+      "id": "ll-alpha-free"
+    },
+    {
+      "provider": "opencode-zen",
+      "source": "models.dev",
+      "namespace": "opencode",
+      "id": "hy3-preview-free"
     },
     {
       "provider": "opencode-zen",
@@ -4095,7 +3861,61 @@
       "provider": "opencode-zen",
       "source": "models.dev",
       "namespace": "opencode",
-      "id": "crouton-alpha-free"
+      "id": "deepseek-v4.1-flash-free"
+    },
+    {
+      "provider": "opencode-zen",
+      "source": "models.dev",
+      "namespace": "opencode",
+      "id": "hy3-free"
+    },
+    {
+      "provider": "opencode-zen",
+      "source": "models.dev",
+      "namespace": "opencode",
+      "id": "ring-2.6-1t-free"
+    },
+    {
+      "provider": "opencode-zen",
+      "source": "models.dev",
+      "namespace": "opencode",
+      "id": "beam-free"
+    },
+    {
+      "provider": "opencode-zen",
+      "source": "models.dev",
+      "namespace": "opencode",
+      "id": "gpt-6.1-sol"
+    },
+    {
+      "provider": "opencode-zen",
+      "source": "models.dev",
+      "namespace": "opencode",
+      "id": "gemini-4-hydrogen"
+    },
+    {
+      "provider": "opencode-zen",
+      "source": "models.dev",
+      "namespace": "opencode",
+      "id": "gemini-4-carbon"
+    },
+    {
+      "provider": "opencode-zen",
+      "source": "models.dev",
+      "namespace": "opencode",
+      "id": "mimo-v2-omni-free"
+    },
+    {
+      "provider": "opencode-zen",
+      "source": "models.dev",
+      "namespace": "opencode",
+      "id": "qwen3.6-plus-free"
+    },
+    {
+      "provider": "opencode-zen",
+      "source": "models.dev",
+      "namespace": "opencode",
+      "id": "minimax-m2.5-free"
     },
     {
       "provider": "opencode-zen",
@@ -4107,7 +3927,97 @@
       "provider": "opencode-zen",
       "source": "models.dev",
       "namespace": "opencode",
-      "id": "kimi-k2-thinking"
+      "id": "qwen3-coder"
+    },
+    {
+      "provider": "opencode-zen",
+      "source": "models.dev",
+      "namespace": "opencode",
+      "id": "trinity-large-preview-free"
+    },
+    {
+      "provider": "opencode-zen",
+      "source": "models.dev",
+      "namespace": "opencode",
+      "id": "claude-opus-4-1"
+    },
+    {
+      "provider": "opencode-zen",
+      "source": "models.dev",
+      "namespace": "opencode",
+      "id": "ling-3.1-flash-free"
+    },
+    {
+      "provider": "opencode-zen",
+      "source": "models.dev",
+      "namespace": "opencode",
+      "id": "claude-sonnet-5-5"
+    },
+    {
+      "provider": "opencode-zen",
+      "source": "models.dev",
+      "namespace": "opencode",
+      "id": "claude-3-5-haiku"
+    },
+    {
+      "provider": "opencode-zen",
+      "source": "models.dev",
+      "namespace": "opencode",
+      "id": "nemotron-3.5-super-vl-free"
+    },
+    {
+      "provider": "opencode-zen",
+      "source": "models.dev",
+      "namespace": "opencode",
+      "id": "kimi-k2"
+    },
+    {
+      "provider": "opencode-zen",
+      "source": "models.dev",
+      "namespace": "opencode",
+      "id": "longcat-2.0-free"
+    },
+    {
+      "provider": "opencode-zen",
+      "source": "models.dev",
+      "namespace": "opencode",
+      "id": "ling-3.0-tiny-free"
+    },
+    {
+      "provider": "opencode-zen",
+      "source": "models.dev",
+      "namespace": "opencode",
+      "id": "glm-5.3-flash-free"
+    },
+    {
+      "provider": "opencode-zen",
+      "source": "models.dev",
+      "namespace": "opencode",
+      "id": "glm-4.7-free"
+    },
+    {
+      "provider": "opencode-zen",
+      "source": "models.dev",
+      "namespace": "opencode",
+      "id": "mistral-large-4"
+    },
+    {
+      "provider": "opencode-zen",
+      "source": "models.dev",
+      "namespace": "opencode",
+      "id": "minimax-m3-free"
+    },
+    {
+      "provider": "opencode-zen",
+      "source": "models.dev",
+      "namespace": "opencode",
+      "id": "ling-3.0-flash-free"
+    },
+    {
+      "provider": "opencode-zen",
+      "source": "models.dev",
+      "namespace": "opencode",
+      "id": "gemini-4-argon"
     },
     {
       "provider": "opencode-zen",
@@ -4116,136 +4026,106 @@
       "id": "minimax-m2.1-free"
     },
     {
-      "provider": "openrouter",
+      "provider": "opencode-zen",
       "source": "models.dev",
-      "namespace": "openrouter",
-      "id": "stepfun/step-5-preview"
+      "namespace": "opencode",
+      "id": "pulse-alpha-free"
     },
     {
-      "provider": "openrouter",
+      "provider": "opencode-zen",
       "source": "models.dev",
-      "namespace": "openrouter",
-      "id": "ricursiveai/ripple-65b-preview"
+      "namespace": "opencode",
+      "id": "exo-free"
     },
     {
-      "provider": "openrouter",
+      "provider": "opencode-zen",
       "source": "models.dev",
-      "namespace": "openrouter",
-      "id": "cognitivecomputations/dolphin-mistral-24b-venice-edition"
+      "namespace": "opencode",
+      "id": "deepseek-v4-flash-free"
     },
     {
-      "provider": "openrouter",
+      "provider": "opencode-zen",
       "source": "models.dev",
-      "namespace": "openrouter",
-      "id": "sakana/fugu-max"
+      "namespace": "opencode",
+      "id": "kimi-k2-thinking"
     },
     {
-      "provider": "openrouter",
+      "provider": "opencode-zen",
       "source": "models.dev",
-      "namespace": "openrouter",
-      "id": "sakana/fugu-ultra-v2"
+      "namespace": "opencode",
+      "id": "muse-spark-1.2-contributor-free"
     },
     {
-      "provider": "openrouter",
+      "provider": "opencode-zen",
       "source": "models.dev",
-      "namespace": "openrouter",
-      "id": "motif-technologies/motif-3"
+      "namespace": "opencode",
+      "id": "minimax-m3.1-flash-free"
     },
     {
-      "provider": "openrouter",
+      "provider": "opencode-zen",
       "source": "models.dev",
-      "namespace": "openrouter",
-      "id": "reflection/beam-1.0-501b-a23b"
+      "namespace": "opencode",
+      "id": "minimax-m2.1"
     },
     {
-      "provider": "openrouter",
+      "provider": "opencode-zen",
       "source": "models.dev",
-      "namespace": "openrouter",
-      "id": "x-ai/grok-4.20-multi-agent"
+      "namespace": "opencode",
+      "id": "longcat-2.5-free"
     },
     {
-      "provider": "openrouter",
+      "provider": "opencode-zen",
       "source": "models.dev",
-      "namespace": "openrouter",
-      "id": "x-ai/grok-4.7"
+      "namespace": "opencode",
+      "id": "north-mini-code-free"
     },
     {
-      "provider": "openrouter",
+      "provider": "opencode-zen",
       "source": "models.dev",
-      "namespace": "openrouter",
-      "id": "mistralai/mistral-small-24b-instruct-2501"
+      "namespace": "opencode",
+      "id": "claude-fable-5-2"
     },
     {
-      "provider": "openrouter",
+      "provider": "opencode-zen",
       "source": "models.dev",
-      "namespace": "openrouter",
-      "id": "mistralai/mistral-large-4-0"
+      "namespace": "opencode",
+      "id": "longcat-2.5-preview-free"
     },
     {
-      "provider": "openrouter",
+      "provider": "opencode-zen",
       "source": "models.dev",
-      "namespace": "openrouter",
-      "id": "mistralai/mistral-small-3.1-24b-instruct"
+      "namespace": "opencode",
+      "id": "grok-code"
     },
     {
-      "provider": "openrouter",
+      "provider": "opencode-zen",
       "source": "models.dev",
-      "namespace": "openrouter",
-      "id": "elorian/glimpse"
+      "namespace": "opencode",
+      "id": "ling-2.6-flash-free"
     },
     {
-      "provider": "openrouter",
+      "provider": "opencode-zen",
       "source": "models.dev",
-      "namespace": "openrouter",
-      "id": "openrouter/bodybuilder"
+      "namespace": "opencode",
+      "id": "muse-wonder-1.0"
     },
     {
-      "provider": "openrouter",
+      "provider": "opencode-zen",
       "source": "models.dev",
-      "namespace": "openrouter",
-      "id": "openrouter/pareto-code"
+      "namespace": "opencode",
+      "id": "claude-haiku-5-5"
     },
     {
-      "provider": "openrouter",
+      "provider": "opencode-zen",
       "source": "models.dev",
-      "namespace": "openrouter",
-      "id": "anthropic/claude-fable-5.2"
+      "namespace": "opencode",
+      "id": "glm-4.6"
     },
     {
-      "provider": "openrouter",
+      "provider": "opencode-zen",
       "source": "models.dev",
-      "namespace": "openrouter",
-      "id": "anthropic/claude-opus-5.5"
-    },
-    {
-      "provider": "openrouter",
-      "source": "models.dev",
-      "namespace": "openrouter",
-      "id": "anthropic/claude-sonnet-5.5"
-    },
-    {
-      "provider": "openrouter",
-      "source": "models.dev",
-      "namespace": "openrouter",
-      "id": "anthropic/claude-haiku-5.5"
-    },
-    {
-      "provider": "openrouter",
-      "source": "models.dev",
-      "namespace": "openrouter",
-      "id": "openai/gpt-6.1-sol"
-    },
-    {
-      "provider": "openrouter",
-      "source": "models.dev",
-      "namespace": "openrouter",
-      "id": "openai/gpt-6-sol"
-    },
-    {
-      "provider": "openrouter",
-      "source": "models.dev",
-      "namespace": "openrouter",
-      "id": "openai/gpt-6-luna"
+      "namespace": "opencode",
+      "id": "crouton-alpha-free"
     },
     {
       "provider": "openrouter",
@@ -4257,19 +4137,19 @@
       "provider": "openrouter",
       "source": "models.dev",
       "namespace": "openrouter",
-      "id": "openai/gpt-5-image"
+      "id": "openai/gpt-6-luna"
     },
     {
       "provider": "openrouter",
       "source": "models.dev",
       "namespace": "openrouter",
-      "id": "openai/gpt-6.1-terra"
+      "id": "openai/gpt-6-sol"
     },
     {
       "provider": "openrouter",
       "source": "models.dev",
       "namespace": "openrouter",
-      "id": "openai/gpt-6-astra"
+      "id": "openai/gpt-5-image-mini"
     },
     {
       "provider": "openrouter",
@@ -4287,7 +4167,7 @@
       "provider": "openrouter",
       "source": "models.dev",
       "namespace": "openrouter",
-      "id": "openai/gpt-6.1-terra-pro"
+      "id": "openai/gpt-6.1-terra"
     },
     {
       "provider": "openrouter",
@@ -4299,55 +4179,79 @@
       "provider": "openrouter",
       "source": "models.dev",
       "namespace": "openrouter",
+      "id": "openai/gpt-6.1-sol"
+    },
+    {
+      "provider": "openrouter",
+      "source": "models.dev",
+      "namespace": "openrouter",
+      "id": "openai/gpt-6.1-terra-pro"
+    },
+    {
+      "provider": "openrouter",
+      "source": "models.dev",
+      "namespace": "openrouter",
+      "id": "openai/gpt-5-image"
+    },
+    {
+      "provider": "openrouter",
+      "source": "models.dev",
+      "namespace": "openrouter",
       "id": "openai/gpt-6.1-sol-pro"
     },
     {
       "provider": "openrouter",
       "source": "models.dev",
       "namespace": "openrouter",
-      "id": "openai/gpt-5-image-mini"
+      "id": "openai/gpt-6-astra"
     },
     {
       "provider": "openrouter",
       "source": "models.dev",
       "namespace": "openrouter",
-      "id": "tencent/hy-mt2-1.8b"
+      "id": "minimax/minimax-m3.1-flash"
     },
     {
       "provider": "openrouter",
       "source": "models.dev",
       "namespace": "openrouter",
-      "id": "tencent/hy-mt2-30b-a3b"
+      "id": "nvidia/nemotron-3.5-content-safety"
     },
     {
       "provider": "openrouter",
       "source": "models.dev",
       "namespace": "openrouter",
-      "id": "tencent/hy-mt2-7b"
+      "id": "nvidia/nemotron-3.5-super-vl:free"
     },
     {
       "provider": "openrouter",
       "source": "models.dev",
       "namespace": "openrouter",
-      "id": "tencent/hy4"
+      "id": "nvidia/nemotron-3.5-super-vl"
     },
     {
       "provider": "openrouter",
       "source": "models.dev",
       "namespace": "openrouter",
-      "id": "tencent/hunyuan-a13b-instruct"
+      "id": "bytedance/ui-tars-1.5-7b"
     },
     {
       "provider": "openrouter",
       "source": "models.dev",
       "namespace": "openrouter",
-      "id": "nousresearch/hermes-4-405b"
+      "id": "xiaomi/mimo-v2.6-flash"
     },
     {
       "provider": "openrouter",
       "source": "models.dev",
       "namespace": "openrouter",
-      "id": "perplexity/sonar-reasoning-pro"
+      "id": "xiaomi/mimo-v2.6-pro"
+    },
+    {
+      "provider": "openrouter",
+      "source": "models.dev",
+      "namespace": "openrouter",
+      "id": "xiaomi/mimo-v2.6-pro-ultraspeed"
     },
     {
       "provider": "openrouter",
@@ -4365,6 +4269,12 @@
       "provider": "openrouter",
       "source": "models.dev",
       "namespace": "openrouter",
+      "id": "perplexity/sonar-reasoning-pro"
+    },
+    {
+      "provider": "openrouter",
+      "source": "models.dev",
+      "namespace": "openrouter",
       "id": "perplexity/sonar-pro-search"
     },
     {
@@ -4377,235 +4287,25 @@
       "provider": "openrouter",
       "source": "models.dev",
       "namespace": "openrouter",
-      "id": "nex-agi/nex-n2.5-pro"
+      "id": "stepfun/step-5-preview"
     },
     {
       "provider": "openrouter",
       "source": "models.dev",
       "namespace": "openrouter",
-      "id": "nex-agi/nex-n2.5-mini"
+      "id": "openrouter/pareto-code"
     },
     {
       "provider": "openrouter",
       "source": "models.dev",
       "namespace": "openrouter",
-      "id": "nex-agi/nex-n2.6"
+      "id": "openrouter/bodybuilder"
     },
     {
       "provider": "openrouter",
       "source": "models.dev",
       "namespace": "openrouter",
-      "id": "thinkingmachines/inkling-2-small:free"
-    },
-    {
-      "provider": "openrouter",
-      "source": "models.dev",
-      "namespace": "openrouter",
-      "id": "rekaai/reka-flash-3"
-    },
-    {
-      "provider": "openrouter",
-      "source": "models.dev",
-      "namespace": "openrouter",
-      "id": "moonshotai/kimi-k3.1-pro"
-    },
-    {
-      "provider": "openrouter",
-      "source": "models.dev",
-      "namespace": "openrouter",
-      "id": "unbiased/pareto-26.10"
-    },
-    {
-      "provider": "openrouter",
-      "source": "models.dev",
-      "namespace": "openrouter",
-      "id": "unbiased/pareto-26.9"
-    },
-    {
-      "provider": "openrouter",
-      "source": "models.dev",
-      "namespace": "openrouter",
-      "id": "minimax/minimax-m3.1-flash"
-    },
-    {
-      "provider": "openrouter",
-      "source": "models.dev",
-      "namespace": "openrouter",
-      "id": "meta-llama/llama-3.2-1b-instruct"
-    },
-    {
-      "provider": "openrouter",
-      "source": "models.dev",
-      "namespace": "openrouter",
-      "id": "meta-llama/llama-3.2-3b-instruct"
-    },
-    {
-      "provider": "openrouter",
-      "source": "models.dev",
-      "namespace": "openrouter",
-      "id": "meta-llama/llama-guard-4-12b"
-    },
-    {
-      "provider": "openrouter",
-      "source": "models.dev",
-      "namespace": "openrouter",
-      "id": "~unbiased/pareto-latest"
-    },
-    {
-      "provider": "openrouter",
-      "source": "models.dev",
-      "namespace": "openrouter",
-      "id": "~deepseek/deepseek-pro-latest"
-    },
-    {
-      "provider": "openrouter",
-      "source": "models.dev",
-      "namespace": "openrouter",
-      "id": "~deepseek/deepseek-flash-latest"
-    },
-    {
-      "provider": "openrouter",
-      "source": "models.dev",
-      "namespace": "openrouter",
-      "id": "thedrummer/skyfall-36b-v2"
-    },
-    {
-      "provider": "openrouter",
-      "source": "models.dev",
-      "namespace": "openrouter",
-      "id": "thedrummer/cydonia-24b-v4.1"
-    },
-    {
-      "provider": "openrouter",
-      "source": "models.dev",
-      "namespace": "openrouter",
-      "id": "gryphe/mythomax-l2-13b"
-    },
-    {
-      "provider": "openrouter",
-      "source": "models.dev",
-      "namespace": "openrouter",
-      "id": "liquid/lfm-2.5-24b-a2b"
-    },
-    {
-      "provider": "openrouter",
-      "source": "models.dev",
-      "namespace": "openrouter",
-      "id": "liquid/lfm-3-1.7b"
-    },
-    {
-      "provider": "openrouter",
-      "source": "models.dev",
-      "namespace": "openrouter",
-      "id": "liquid/lfm-3-1.7b:free"
-    },
-    {
-      "provider": "openrouter",
-      "source": "models.dev",
-      "namespace": "openrouter",
-      "id": "liquid/lfm-2.5-2.6b"
-    },
-    {
-      "provider": "openrouter",
-      "source": "models.dev",
-      "namespace": "openrouter",
-      "id": "mancer/weaver"
-    },
-    {
-      "provider": "openrouter",
-      "source": "models.dev",
-      "namespace": "openrouter",
-      "id": "xiaomi/mimo-v2.6-pro"
-    },
-    {
-      "provider": "openrouter",
-      "source": "models.dev",
-      "namespace": "openrouter",
-      "id": "xiaomi/mimo-v2.6-flash"
-    },
-    {
-      "provider": "openrouter",
-      "source": "models.dev",
-      "namespace": "openrouter",
-      "id": "xiaomi/mimo-v2.6-pro-ultraspeed"
-    },
-    {
-      "provider": "openrouter",
-      "source": "models.dev",
-      "namespace": "openrouter",
-      "id": "prism-ml/ternary-bonsai-2-9b"
-    },
-    {
-      "provider": "openrouter",
-      "source": "models.dev",
-      "namespace": "openrouter",
-      "id": "prism-ml/ternary-bonsai-2-27b"
-    },
-    {
-      "provider": "openrouter",
-      "source": "models.dev",
-      "namespace": "openrouter",
-      "id": "z-ai/glm-5.3-flashx-legal"
-    },
-    {
-      "provider": "openrouter",
-      "source": "models.dev",
-      "namespace": "openrouter",
-      "id": "z-ai/glm-5.3-flashx"
-    },
-    {
-      "provider": "openrouter",
-      "source": "models.dev",
-      "namespace": "openrouter",
-      "id": "z-ai/glm-5.3-prime"
-    },
-    {
-      "provider": "openrouter",
-      "source": "models.dev",
-      "namespace": "openrouter",
-      "id": "upstage/solar-mini4"
-    },
-    {
-      "provider": "openrouter",
-      "source": "models.dev",
-      "namespace": "openrouter",
-      "id": "aion-labs/aion-3.5-mini"
-    },
-    {
-      "provider": "openrouter",
-      "source": "models.dev",
-      "namespace": "openrouter",
-      "id": "aion-labs/aion-3.5"
-    },
-    {
-      "provider": "openrouter",
-      "source": "models.dev",
-      "namespace": "openrouter",
-      "id": "aion-labs/aion-rp-llama-3.1-8b"
-    },
-    {
-      "provider": "openrouter",
-      "source": "models.dev",
-      "namespace": "openrouter",
-      "id": "microsoft/phi-4"
-    },
-    {
-      "provider": "openrouter",
-      "source": "models.dev",
-      "namespace": "openrouter",
-      "id": "cohere/command-a"
-    },
-    {
-      "provider": "openrouter",
-      "source": "models.dev",
-      "namespace": "openrouter",
-      "id": "cohere/command-a-plus"
-    },
-    {
-      "provider": "openrouter",
-      "source": "models.dev",
-      "namespace": "openrouter",
-      "id": "cohere/command-r7b-12-2024"
+      "id": "reflection/beam-1.0-501b-a23b"
     },
     {
       "provider": "openrouter",
@@ -4623,127 +4323,61 @@
       "provider": "openrouter",
       "source": "models.dev",
       "namespace": "openrouter",
-      "id": "baidu/ernie-light-dt-1.0-intl"
+      "id": "thedrummer/skyfall-36b-v2"
     },
     {
       "provider": "openrouter",
       "source": "models.dev",
       "namespace": "openrouter",
-      "id": "baidu/ernie-5.5-flash-preview:free"
+      "id": "thedrummer/cydonia-24b-v4.1"
     },
     {
       "provider": "openrouter",
       "source": "models.dev",
       "namespace": "openrouter",
-      "id": "google/gemma-3-4b-it"
+      "id": "liquid/lfm-3-1.7b:free"
     },
     {
       "provider": "openrouter",
       "source": "models.dev",
       "namespace": "openrouter",
-      "id": "google/gemini-3.1-flash-lite-image"
+      "id": "liquid/lfm-3-1.7b"
     },
     {
       "provider": "openrouter",
       "source": "models.dev",
       "namespace": "openrouter",
-      "id": "google/gemini-omni-1.1-flash"
+      "id": "liquid/lfm-2.5-24b-a2b"
     },
     {
       "provider": "openrouter",
       "source": "models.dev",
       "namespace": "openrouter",
-      "id": "google/gemini-3-pro-image-preview"
+      "id": "microsoft/phi-4"
     },
     {
       "provider": "openrouter",
       "source": "models.dev",
       "namespace": "openrouter",
-      "id": "google/gemini-4-carbon"
+      "id": "prism-ml/ternary-bonsai-2-9b"
     },
     {
       "provider": "openrouter",
       "source": "models.dev",
       "namespace": "openrouter",
-      "id": "google/gemini-3.1-flash-image"
+      "id": "prism-ml/ternary-bonsai-2-27b"
     },
     {
       "provider": "openrouter",
       "source": "models.dev",
       "namespace": "openrouter",
-      "id": "google/gemini-2.5-flash-image"
+      "id": "sakana/fugu-max"
     },
     {
       "provider": "openrouter",
       "source": "models.dev",
       "namespace": "openrouter",
-      "id": "google/gemini-omni-1.2-flash"
-    },
-    {
-      "provider": "openrouter",
-      "source": "models.dev",
-      "namespace": "openrouter",
-      "id": "google/lyria-3-pro-preview"
-    },
-    {
-      "provider": "openrouter",
-      "source": "models.dev",
-      "namespace": "openrouter",
-      "id": "google/gemini-4-argon"
-    },
-    {
-      "provider": "openrouter",
-      "source": "models.dev",
-      "namespace": "openrouter",
-      "id": "google/lyria-3-clip-preview"
-    },
-    {
-      "provider": "openrouter",
-      "source": "models.dev",
-      "namespace": "openrouter",
-      "id": "google/gemma-2-27b-it"
-    },
-    {
-      "provider": "openrouter",
-      "source": "models.dev",
-      "namespace": "openrouter",
-      "id": "google/gemini-3.1-flash-image-preview"
-    },
-    {
-      "provider": "openrouter",
-      "source": "models.dev",
-      "namespace": "openrouter",
-      "id": "google/gemini-nano-banana-2.1"
-    },
-    {
-      "provider": "openrouter",
-      "source": "models.dev",
-      "namespace": "openrouter",
-      "id": "fireworks/ember-1"
-    },
-    {
-      "provider": "openrouter",
-      "source": "models.dev",
-      "namespace": "openrouter",
-      "id": "deepseek/deepseek-v4.1-flash-1017"
-    },
-    {
-      "provider": "openrouter",
-      "source": "models.dev",
-      "namespace": "openrouter",
-      "id": "deepseek/deepseek-v4.1-flash"
-    },
-    {
-      "provider": "openrouter",
-      "source": "models.dev",
-      "namespace": "openrouter",
-      "id": "sao10k/l3-lunaris-8b"
-    },
-    {
-      "provider": "openrouter",
-      "source": "models.dev",
-      "namespace": "openrouter",
-      "id": "~openai/gpt-astra-latest"
+      "id": "sakana/fugu-ultra-v2"
     },
     {
       "provider": "openrouter",
@@ -4755,31 +4389,235 @@
       "provider": "openrouter",
       "source": "models.dev",
       "namespace": "openrouter",
-      "id": "~openai/gpt-terra-latest"
-    },
-    {
-      "provider": "openrouter",
-      "source": "models.dev",
-      "namespace": "openrouter",
       "id": "~openai/gpt-sol-latest"
     },
     {
       "provider": "openrouter",
       "source": "models.dev",
       "namespace": "openrouter",
-      "id": "moondream/moondream3-preview"
+      "id": "~openai/gpt-astra-latest"
     },
     {
       "provider": "openrouter",
       "source": "models.dev",
       "namespace": "openrouter",
-      "id": "moondream/moondream3.1-9b-a2b"
+      "id": "~openai/gpt-terra-latest"
+    },
+    {
+      "provider": "openrouter",
+      "source": "models.dev",
+      "namespace": "openrouter",
+      "id": "moonshotai/kimi-k3.1-pro"
+    },
+    {
+      "provider": "openrouter",
+      "source": "models.dev",
+      "namespace": "openrouter",
+      "id": "unbiased/pareto-26.10-preview"
+    },
+    {
+      "provider": "openrouter",
+      "source": "models.dev",
+      "namespace": "openrouter",
+      "id": "unbiased/pareto-26.9"
+    },
+    {
+      "provider": "openrouter",
+      "source": "models.dev",
+      "namespace": "openrouter",
+      "id": "unbiased/pareto-26.10"
+    },
+    {
+      "provider": "openrouter",
+      "source": "models.dev",
+      "namespace": "openrouter",
+      "id": "relace/relace-apply-3"
+    },
+    {
+      "provider": "openrouter",
+      "source": "models.dev",
+      "namespace": "openrouter",
+      "id": "tencent/hy-mt2-1.8b"
+    },
+    {
+      "provider": "openrouter",
+      "source": "models.dev",
+      "namespace": "openrouter",
+      "id": "tencent/hy-mt2-7b"
+    },
+    {
+      "provider": "openrouter",
+      "source": "models.dev",
+      "namespace": "openrouter",
+      "id": "tencent/hunyuan-a13b-instruct"
+    },
+    {
+      "provider": "openrouter",
+      "source": "models.dev",
+      "namespace": "openrouter",
+      "id": "tencent/hy4"
+    },
+    {
+      "provider": "openrouter",
+      "source": "models.dev",
+      "namespace": "openrouter",
+      "id": "tencent/hy-mt2-30b-a3b"
+    },
+    {
+      "provider": "openrouter",
+      "source": "models.dev",
+      "namespace": "openrouter",
+      "id": "kt/midm-k-3.0-pro"
+    },
+    {
+      "provider": "openrouter",
+      "source": "models.dev",
+      "namespace": "openrouter",
+      "id": "scaledown/extract"
+    },
+    {
+      "provider": "openrouter",
+      "source": "models.dev",
+      "namespace": "openrouter",
+      "id": "scaledown/summarize"
+    },
+    {
+      "provider": "openrouter",
+      "source": "models.dev",
+      "namespace": "openrouter",
+      "id": "upstage/solar-mini4"
+    },
+    {
+      "provider": "openrouter",
+      "source": "models.dev",
+      "namespace": "openrouter",
+      "id": "anthracite-org/magnum-v4-72b"
+    },
+    {
+      "provider": "openrouter",
+      "source": "models.dev",
+      "namespace": "openrouter",
+      "id": "aion-labs/aion-3.5-mini"
+    },
+    {
+      "provider": "openrouter",
+      "source": "models.dev",
+      "namespace": "openrouter",
+      "id": "aion-labs/aion-rp-llama-3.1-8b"
+    },
+    {
+      "provider": "openrouter",
+      "source": "models.dev",
+      "namespace": "openrouter",
+      "id": "aion-labs/aion-3.5"
+    },
+    {
+      "provider": "openrouter",
+      "source": "models.dev",
+      "namespace": "openrouter",
+      "id": "sao10k/l3-lunaris-8b"
     },
     {
       "provider": "openrouter",
       "source": "models.dev",
       "namespace": "openrouter",
       "id": "particle-ai/particle-1"
+    },
+    {
+      "provider": "openrouter",
+      "source": "models.dev",
+      "namespace": "openrouter",
+      "id": "particle-ai/particle-1:free"
+    },
+    {
+      "provider": "openrouter",
+      "source": "models.dev",
+      "namespace": "openrouter",
+      "id": "meta/muse-ember"
+    },
+    {
+      "provider": "openrouter",
+      "source": "models.dev",
+      "namespace": "openrouter",
+      "id": "meta/muse-wonder"
+    },
+    {
+      "provider": "openrouter",
+      "source": "models.dev",
+      "namespace": "openrouter",
+      "id": "meta/muse-spark-open"
+    },
+    {
+      "provider": "openrouter",
+      "source": "models.dev",
+      "namespace": "openrouter",
+      "id": "~unbiased/pareto-latest"
+    },
+    {
+      "provider": "openrouter",
+      "source": "models.dev",
+      "namespace": "openrouter",
+      "id": "meta-llama/llama-guard-4-12b"
+    },
+    {
+      "provider": "openrouter",
+      "source": "models.dev",
+      "namespace": "openrouter",
+      "id": "meta-llama/llama-3.2-3b-instruct"
+    },
+    {
+      "provider": "openrouter",
+      "source": "models.dev",
+      "namespace": "openrouter",
+      "id": "meta-llama/llama-3.2-1b-instruct"
+    },
+    {
+      "provider": "openrouter",
+      "source": "models.dev",
+      "namespace": "openrouter",
+      "id": "qwen/qwen3.8-omni-flash"
+    },
+    {
+      "provider": "openrouter",
+      "source": "models.dev",
+      "namespace": "openrouter",
+      "id": "qwen/qwen3.8-max-prime"
+    },
+    {
+      "provider": "openrouter",
+      "source": "models.dev",
+      "namespace": "openrouter",
+      "id": "qwen/qwen2.5-vl-72b-instruct"
+    },
+    {
+      "provider": "openrouter",
+      "source": "models.dev",
+      "namespace": "openrouter",
+      "id": "qwen/qwen3.8-max-0902"
+    },
+    {
+      "provider": "openrouter",
+      "source": "models.dev",
+      "namespace": "openrouter",
+      "id": "qwen/qwen-2.5-coder-32b-instruct"
+    },
+    {
+      "provider": "openrouter",
+      "source": "models.dev",
+      "namespace": "openrouter",
+      "id": "inference-net/schematron-v2-small"
+    },
+    {
+      "provider": "openrouter",
+      "source": "models.dev",
+      "namespace": "openrouter",
+      "id": "inference-net/schematron-v2-turbo"
+    },
+    {
+      "provider": "openrouter",
+      "source": "models.dev",
+      "namespace": "openrouter",
+      "id": "writer/palmyra-x5"
     },
     {
       "provider": "openrouter",
@@ -4803,127 +4641,205 @@
       "provider": "openrouter",
       "source": "models.dev",
       "namespace": "openrouter",
-      "id": "nvidia/nemotron-3.5-super-vl:free"
+      "id": "mistralai/mistral-small-3.1-24b-instruct"
     },
     {
       "provider": "openrouter",
       "source": "models.dev",
       "namespace": "openrouter",
-      "id": "nvidia/nemotron-3.5-content-safety"
+      "id": "mistralai/mistral-small-24b-instruct-2501"
     },
     {
       "provider": "openrouter",
       "source": "models.dev",
       "namespace": "openrouter",
-      "id": "nvidia/nemotron-3.5-super-vl"
+      "id": "mistralai/mistral-large-4-0"
     },
     {
       "provider": "openrouter",
       "source": "models.dev",
       "namespace": "openrouter",
-      "id": "inference-net/schematron-v2-small"
+      "id": "nex-agi/nex-n2.5-mini"
     },
     {
       "provider": "openrouter",
       "source": "models.dev",
       "namespace": "openrouter",
-      "id": "inference-net/schematron-v2-turbo"
+      "id": "nex-agi/nex-n2.6"
     },
     {
       "provider": "openrouter",
       "source": "models.dev",
       "namespace": "openrouter",
-      "id": "scaledown/extract"
+      "id": "nex-agi/nex-n2.5-pro"
     },
     {
       "provider": "openrouter",
       "source": "models.dev",
       "namespace": "openrouter",
-      "id": "scaledown/summarize"
+      "id": "nousresearch/hermes-4-405b"
     },
     {
       "provider": "openrouter",
       "source": "models.dev",
       "namespace": "openrouter",
-      "id": "undi95/remm-slerp-l2-13b"
+      "id": "mancer/weaver"
     },
     {
       "provider": "openrouter",
       "source": "models.dev",
       "namespace": "openrouter",
-      "id": "bytedance/ui-tars-1.5-7b"
+      "id": "google/lyria-3-clip-preview"
     },
     {
       "provider": "openrouter",
       "source": "models.dev",
       "namespace": "openrouter",
-      "id": "writer/palmyra-x5"
+      "id": "google/lyria-3-pro-preview"
     },
     {
       "provider": "openrouter",
       "source": "models.dev",
       "namespace": "openrouter",
-      "id": "relace/relace-apply-3"
+      "id": "google/gemini-omni-1.2-flash"
     },
     {
       "provider": "openrouter",
       "source": "models.dev",
       "namespace": "openrouter",
-      "id": "kt/midm-k-3.0-pro"
+      "id": "google/gemini-nano-banana-2.1"
     },
     {
       "provider": "openrouter",
       "source": "models.dev",
       "namespace": "openrouter",
-      "id": "anthracite-org/magnum-v4-72b"
+      "id": "google/gemini-4-hydrogen"
     },
     {
       "provider": "openrouter",
       "source": "models.dev",
       "namespace": "openrouter",
-      "id": "qwen/qwen2.5-vl-72b-instruct"
+      "id": "google/gemini-3.1-flash-image"
     },
     {
       "provider": "openrouter",
       "source": "models.dev",
       "namespace": "openrouter",
-      "id": "qwen/qwen3.8-max-prime"
+      "id": "google/gemma-3-4b-it"
     },
     {
       "provider": "openrouter",
       "source": "models.dev",
       "namespace": "openrouter",
-      "id": "qwen/qwen-2.5-coder-32b-instruct"
+      "id": "google/gemini-4-carbon"
     },
     {
       "provider": "openrouter",
       "source": "models.dev",
       "namespace": "openrouter",
-      "id": "qwen/qwen3.8-omni-flash"
+      "id": "google/gemini-2.5-flash-image"
     },
     {
       "provider": "openrouter",
       "source": "models.dev",
       "namespace": "openrouter",
-      "id": "qwen/qwen3.8-max-0902"
+      "id": "google/gemini-3-pro-image-preview"
     },
     {
       "provider": "openrouter",
       "source": "models.dev",
       "namespace": "openrouter",
-      "id": "meta/muse-spark-open"
+      "id": "google/gemini-4-argon"
     },
     {
       "provider": "openrouter",
       "source": "models.dev",
       "namespace": "openrouter",
-      "id": "meta/muse-ember"
+      "id": "google/gemma-2-27b-it"
     },
     {
       "provider": "openrouter",
       "source": "models.dev",
       "namespace": "openrouter",
-      "id": "meta/muse-wonder"
+      "id": "google/gemini-3.1-flash-lite-image"
+    },
+    {
+      "provider": "openrouter",
+      "source": "models.dev",
+      "namespace": "openrouter",
+      "id": "google/gemini-omni-1.1-flash"
+    },
+    {
+      "provider": "openrouter",
+      "source": "models.dev",
+      "namespace": "openrouter",
+      "id": "google/gemini-3.1-flash-image-preview"
+    },
+    {
+      "provider": "openrouter",
+      "source": "models.dev",
+      "namespace": "openrouter",
+      "id": "elorian/glimpse"
+    },
+    {
+      "provider": "openrouter",
+      "source": "models.dev",
+      "namespace": "openrouter",
+      "id": "cognitivecomputations/dolphin-mistral-24b-venice-edition"
+    },
+    {
+      "provider": "openrouter",
+      "source": "models.dev",
+      "namespace": "openrouter",
+      "id": "ricursiveai/ripple-65b-preview"
+    },
+    {
+      "provider": "openrouter",
+      "source": "models.dev",
+      "namespace": "openrouter",
+      "id": "anthropic/claude-opus-5.5"
+    },
+    {
+      "provider": "openrouter",
+      "source": "models.dev",
+      "namespace": "openrouter",
+      "id": "anthropic/claude-sonnet-5.5"
+    },
+    {
+      "provider": "openrouter",
+      "source": "models.dev",
+      "namespace": "openrouter",
+      "id": "anthropic/claude-fable-5.2"
+    },
+    {
+      "provider": "openrouter",
+      "source": "models.dev",
+      "namespace": "openrouter",
+      "id": "anthropic/claude-haiku-5.5"
+    },
+    {
+      "provider": "openrouter",
+      "source": "models.dev",
+      "namespace": "openrouter",
+      "id": "deepseek/deepseek-v4.1-flash"
+    },
+    {
+      "provider": "openrouter",
+      "source": "models.dev",
+      "namespace": "openrouter",
+      "id": "deepseek/deepseek-v4.1-flash-1017"
+    },
+    {
+      "provider": "openrouter",
+      "source": "models.dev",
+      "namespace": "openrouter",
+      "id": "baidu/ernie-5.5-flash-preview:free"
+    },
+    {
+      "provider": "openrouter",
+      "source": "models.dev",
+      "namespace": "openrouter",
+      "id": "baidu/ernie-light-dt-1.0-intl"
     },
     {
       "provider": "openrouter",
@@ -4935,13 +4851,127 @@
       "provider": "openrouter",
       "source": "models.dev",
       "namespace": "openrouter",
-      "id": "morph/morph-v3-fast"
+      "id": "x-ai/grok-4.7"
+    },
+    {
+      "provider": "openrouter",
+      "source": "models.dev",
+      "namespace": "openrouter",
+      "id": "x-ai/grok-4.20-multi-agent"
+    },
+    {
+      "provider": "openrouter",
+      "source": "models.dev",
+      "namespace": "openrouter",
+      "id": "cohere/command-a"
+    },
+    {
+      "provider": "openrouter",
+      "source": "models.dev",
+      "namespace": "openrouter",
+      "id": "cohere/command-r7b-12-2024"
+    },
+    {
+      "provider": "openrouter",
+      "source": "models.dev",
+      "namespace": "openrouter",
+      "id": "cohere/command-a-plus"
+    },
+    {
+      "provider": "openrouter",
+      "source": "models.dev",
+      "namespace": "openrouter",
+      "id": "z-ai/glm-5.3-flashx-legal"
+    },
+    {
+      "provider": "openrouter",
+      "source": "models.dev",
+      "namespace": "openrouter",
+      "id": "z-ai/glm-5.3-prime"
+    },
+    {
+      "provider": "openrouter",
+      "source": "models.dev",
+      "namespace": "openrouter",
+      "id": "z-ai/glm-5.3-flashx"
+    },
+    {
+      "provider": "openrouter",
+      "source": "models.dev",
+      "namespace": "openrouter",
+      "id": "fireworks/ember-1"
+    },
+    {
+      "provider": "openrouter",
+      "source": "models.dev",
+      "namespace": "openrouter",
+      "id": "thinkingmachines/inkling-2-small:free"
+    },
+    {
+      "provider": "openrouter",
+      "source": "models.dev",
+      "namespace": "openrouter",
+      "id": "thinkingmachines/inkling-2-small"
+    },
+    {
+      "provider": "openrouter",
+      "source": "models.dev",
+      "namespace": "openrouter",
+      "id": "~deepseek/deepseek-pro-latest"
+    },
+    {
+      "provider": "openrouter",
+      "source": "models.dev",
+      "namespace": "openrouter",
+      "id": "~deepseek/deepseek-flash-latest"
+    },
+    {
+      "provider": "openrouter",
+      "source": "models.dev",
+      "namespace": "openrouter",
+      "id": "undi95/remm-slerp-l2-13b"
+    },
+    {
+      "provider": "openrouter",
+      "source": "models.dev",
+      "namespace": "openrouter",
+      "id": "gryphe/mythomax-l2-13b"
+    },
+    {
+      "provider": "openrouter",
+      "source": "models.dev",
+      "namespace": "openrouter",
+      "id": "motif-technologies/motif-3"
+    },
+    {
+      "provider": "openrouter",
+      "source": "models.dev",
+      "namespace": "openrouter",
+      "id": "rekaai/reka-flash-3"
+    },
+    {
+      "provider": "openrouter",
+      "source": "models.dev",
+      "namespace": "openrouter",
+      "id": "moondream/moondream3-preview"
+    },
+    {
+      "provider": "openrouter",
+      "source": "models.dev",
+      "namespace": "openrouter",
+      "id": "moondream/moondream3.1-9b-a2b"
     },
     {
       "provider": "openrouter",
       "source": "models.dev",
       "namespace": "openrouter",
       "id": "morph/morph-v3-large"
+    },
+    {
+      "provider": "openrouter",
+      "source": "models.dev",
+      "namespace": "openrouter",
+      "id": "morph/morph-v3-fast"
     },
     {
       "provider": "qwen",
@@ -5829,13 +5859,19 @@
       "provider": "xai",
       "source": "models.dev",
       "namespace": "xai",
-      "id": "grok-imagine-video-1.5"
+      "id": "grok-4.20-0309-reasoning"
     },
     {
       "provider": "xai",
       "source": "models.dev",
       "namespace": "xai",
-      "id": "grok-imagine-image"
+      "id": "grok-4.7"
+    },
+    {
+      "provider": "xai",
+      "source": "models.dev",
+      "namespace": "xai",
+      "id": "grok-build-0.1"
     },
     {
       "provider": "xai",
@@ -5847,7 +5883,13 @@
       "provider": "xai",
       "source": "models.dev",
       "namespace": "xai",
-      "id": "grok-4.20-0309-reasoning"
+      "id": "grok-4.20-0309-non-reasoning"
+    },
+    {
+      "provider": "xai",
+      "source": "models.dev",
+      "namespace": "xai",
+      "id": "grok-imagine-video-1.5"
     },
     {
       "provider": "xai",
@@ -5865,31 +5907,19 @@
       "provider": "xai",
       "source": "models.dev",
       "namespace": "xai",
-      "id": "grok-build-0.1"
-    },
-    {
-      "provider": "xai",
-      "source": "models.dev",
-      "namespace": "xai",
-      "id": "grok-4.20-0309-non-reasoning"
-    },
-    {
-      "provider": "xai",
-      "source": "models.dev",
-      "namespace": "xai",
-      "id": "grok-4.7"
-    },
-    {
-      "provider": "xiaomi-mimo",
-      "source": "models.dev",
-      "namespace": "xiaomi",
-      "id": "mimo-v2.5-pro-ultraspeed"
+      "id": "grok-imagine-image"
     },
     {
       "provider": "xiaomi-mimo",
       "source": "models.dev",
       "namespace": "xiaomi",
       "id": "mimo-v2.5-pro"
+    },
+    {
+      "provider": "xiaomi-mimo",
+      "source": "models.dev",
+      "namespace": "xiaomi",
+      "id": "mimo-v2.5-pro-ultraspeed"
     },
     {
       "provider": "xiaomi-mimo",
@@ -5907,67 +5937,13 @@
       "provider": "zai",
       "source": "models.dev",
       "namespace": "zai",
+      "id": "glm-5"
+    },
+    {
+      "provider": "zai",
+      "source": "models.dev",
+      "namespace": "zai",
       "id": "glm-4.7-flashx"
-    },
-    {
-      "provider": "zai",
-      "source": "models.dev",
-      "namespace": "zai",
-      "id": "glm-4.5"
-    },
-    {
-      "provider": "zai",
-      "source": "models.dev",
-      "namespace": "zai",
-      "id": "glm-5.1"
-    },
-    {
-      "provider": "zai",
-      "source": "models.dev",
-      "namespace": "zai",
-      "id": "glm-5.3-flashx"
-    },
-    {
-      "provider": "zai",
-      "source": "models.dev",
-      "namespace": "zai",
-      "id": "glm-4.6v-flash"
-    },
-    {
-      "provider": "zai",
-      "source": "models.dev",
-      "namespace": "zai",
-      "id": "glm-4.5-air"
-    },
-    {
-      "provider": "zai",
-      "source": "models.dev",
-      "namespace": "zai",
-      "id": "glm-4.6"
-    },
-    {
-      "provider": "zai",
-      "source": "models.dev",
-      "namespace": "zai",
-      "id": "glm-4.5v"
-    },
-    {
-      "provider": "zai",
-      "source": "models.dev",
-      "namespace": "zai",
-      "id": "glm-5v-turbo"
-    },
-    {
-      "provider": "zai",
-      "source": "models.dev",
-      "namespace": "zai",
-      "id": "glm-4.6v"
-    },
-    {
-      "provider": "zai",
-      "source": "models.dev",
-      "namespace": "zai",
-      "id": "glm-4.7-flash"
     },
     {
       "provider": "zai",
@@ -5979,7 +5955,61 @@
       "provider": "zai",
       "source": "models.dev",
       "namespace": "zai",
-      "id": "glm-5"
+      "id": "glm-4.5v"
+    },
+    {
+      "provider": "zai",
+      "source": "models.dev",
+      "namespace": "zai",
+      "id": "glm-4.5-air"
+    },
+    {
+      "provider": "zai",
+      "source": "models.dev",
+      "namespace": "zai",
+      "id": "glm-4.6v"
+    },
+    {
+      "provider": "zai",
+      "source": "models.dev",
+      "namespace": "zai",
+      "id": "glm-4.5"
+    },
+    {
+      "provider": "zai",
+      "source": "models.dev",
+      "namespace": "zai",
+      "id": "glm-5.3-flashx"
+    },
+    {
+      "provider": "zai",
+      "source": "models.dev",
+      "namespace": "zai",
+      "id": "glm-5v-turbo"
+    },
+    {
+      "provider": "zai",
+      "source": "models.dev",
+      "namespace": "zai",
+      "id": "glm-4.6v-flash"
+    },
+    {
+      "provider": "zai",
+      "source": "models.dev",
+      "namespace": "zai",
+      "id": "glm-4.7-flash"
+    },
+    {
+      "provider": "zai",
+      "source": "models.dev",
+      "namespace": "zai",
+      "id": "glm-5.1"
+    },
+    {
+      "provider": "zai",
+      "source": "models.dev",
+      "namespace": "zai",
+      "id": "glm-4.6"
     },
     {
       "provider": "zai",
@@ -6073,10 +6103,9 @@
     }
   ],
   "retiredReappeared": [
+    "opencode-go/minimax-m2.5",
     "opencode-go/qwen3.6-plus",
-    "opencode-go/grok-4.6",
-    "openrouter/qwen/qwen3-235b-a22b-thinking-2507",
-    "openrouter/qwen/qwen3-30b-a3b"
+    "opencode-go/grok-4.6"
   ],
   "crossSourceContextDiffs": [
     {
@@ -6245,7 +6274,7 @@
       "provider": "opencode-zen",
       "id": "minimax-m2.5",
       "modelsDev": 204800,
-      "openRouter": 200000
+      "openRouter": 198000
     },
     {
       "provider": "opencode-zen",
@@ -6302,11 +6331,275 @@
       "openRouter": 1048576
     }
   ],
-  "contextWindowShrinks": [],
+  "contextWindowShrinks": [
+    {
+      "provider": "openrouter",
+      "id": "minimax/minimax-m2.5",
+      "from": 200000,
+      "to": 198000,
+      "declared": true
+    }
+  ],
   "changes": {
-    "pricing": [],
-    "contextWindow": [],
-    "reasoning": []
+    "pricing": [
+      {
+        "provider": "deepseek",
+        "id": "deepseek-chat",
+        "from": {
+          "input": 0.32,
+          "output": 0.89
+        },
+        "to": {
+          "input": 0.2574,
+          "output": 1.0287
+        }
+      },
+      {
+        "provider": "mistral",
+        "id": "mistral-large-latest",
+        "from": {
+          "input": 0.5,
+          "output": 1.5,
+          "cacheRead": 0.05
+        },
+        "to": {
+          "input": 0.7,
+          "output": 2.1,
+          "cacheRead": 0.07
+        }
+      },
+      {
+        "provider": "opencode-go",
+        "id": "glm-5.1",
+        "from": {
+          "input": 1.33,
+          "output": 4.18,
+          "cacheRead": 0.247
+        },
+        "to": {
+          "input": 1.4,
+          "output": 4.4,
+          "cacheRead": 0.26
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "deepseek/deepseek-v4-pro",
+        "from": {
+          "input": 0.95526,
+          "output": 1.91052,
+          "cacheRead": 0.079605
+        },
+        "to": {
+          "input": 0.9,
+          "output": 1.5,
+          "cacheRead": 0.25
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "google/gemma-3-27b-it",
+        "from": {
+          "input": 0.08,
+          "output": 0.45,
+          "cacheRead": 0.04
+        },
+        "to": {
+          "input": 0.08,
+          "output": 0.35,
+          "cacheRead": 0.04
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "google/gemma-4-26b-a4b-it",
+        "from": {
+          "input": 0.08,
+          "output": 0.1,
+          "cacheRead": 0.046
+        },
+        "to": {
+          "input": 0.09,
+          "output": 0.3,
+          "cacheRead": 0.05
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "minimax/minimax-m2.5",
+        "from": {
+          "input": 0.27,
+          "output": 1.08,
+          "cacheRead": 0.027
+        },
+        "to": {
+          "input": 0.27,
+          "output": 0.95,
+          "cacheRead": 0.03
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "moonshotai/kimi-k2.5",
+        "from": {
+          "input": 0.532,
+          "output": 3.325,
+          "cacheRead": 0.209
+        },
+        "to": {
+          "input": 0.5,
+          "output": 2.5,
+          "cacheRead": 0.15
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "qwen/qwen3-14b",
+        "from": {
+          "input": 0.1,
+          "output": 0.22
+        },
+        "to": {
+          "input": 0.12,
+          "output": 0.24
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "qwen/qwen3.5-9b",
+        "from": {
+          "input": 0.17,
+          "output": 0.25
+        },
+        "to": {
+          "input": 0.141,
+          "output": 0.208,
+          "cacheRead": 0.127
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "tencent/hy3",
+        "from": {
+          "input": 0.132,
+          "output": 0.528,
+          "cacheRead": 0.033
+        },
+        "to": {
+          "input": 0.0825,
+          "output": 0.33,
+          "cacheRead": 0.020625
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "tencent/hy4-preview",
+        "from": {
+          "input": 0.834,
+          "output": 2.501,
+          "cacheRead": 0.042
+        },
+        "to": {
+          "input": 0.7506,
+          "output": 2.2509,
+          "cacheRead": 0.0378
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "xiaomi/mimo-v2.5-pro",
+        "from": {
+          "input": 0.48,
+          "output": 1.8,
+          "cacheRead": 0.096
+        },
+        "to": {
+          "input": 0.435,
+          "output": 0.87,
+          "cacheRead": 0.0036
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "z-ai/glm-5.1",
+        "from": {
+          "input": 1.33,
+          "output": 4.18,
+          "cacheRead": 0.247
+        },
+        "to": {
+          "input": 1.4,
+          "output": 4.4,
+          "cacheRead": 0.26
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "z-ai/glm-5.3",
+        "from": {
+          "input": 0.0699,
+          "output": 1.4,
+          "cacheRead": 0.0689
+        },
+        "to": {
+          "input": 0.084,
+          "output": 3.6,
+          "cacheRead": 0.079
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "z-ai/glm-5.3-flash:batch",
+        "from": {
+          "input": 0.047,
+          "output": 0.061,
+          "cacheRead": 0.02
+        },
+        "to": {
+          "input": 0.05,
+          "output": 0.18,
+          "cacheRead": 0.01
+        }
+      },
+      {
+        "provider": "openrouter",
+        "id": "~google/gemini-flash-latest",
+        "from": {
+          "input": 0.75,
+          "output": 3.75,
+          "cacheRead": 0.075,
+          "cacheWrite": 0.041667
+        },
+        "to": {
+          "input": 1.5,
+          "output": 7.5,
+          "cacheRead": 0.075,
+          "cacheWrite": 0.083333
+        }
+      }
+    ],
+    "contextWindow": [
+      {
+        "provider": "mistral",
+        "id": "mistral-large-latest",
+        "from": 262144,
+        "to": 1048576
+      },
+      {
+        "provider": "openrouter",
+        "id": "minimax/minimax-m2.5",
+        "from": 200000,
+        "to": 198000
+      }
+    ],
+    "reasoning": [
+      {
+        "provider": "mistral",
+        "id": "mistral-large-latest",
+        "from": false,
+        "to": true
+      }
+    ]
   },
   "issues": []
 }

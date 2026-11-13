@@ -25,11 +25,22 @@
       "name": "Deep Research Preview (Apr-21-2026)"
     },
     "gemini-2.5-computer-use-preview-10-2025": {
-      "author": "moh (#1004)",
-      "date": "2026-09-26",
-      "reason": "labels and row identity are moh-owned (ADR-0046): never aggregator-supplied; the contextWindow is declared so the row cannot lose it silently (the shrink escape hatch accepts a smaller number, never an absence; #1004)",
+      "author": "moh (#1759)",
+      "date": "2026-11-13",
+      "reason": "Retain the 128000-token input limit and the documented legacy tiered rates from https://ai.google.dev/gemini-api/docs/pricing#gemini-2.5-computer-use-preview and https://ai.google.dev/gemini-api/docs/models/gemini-2.5-computer-use-preview-10-2025 (checked 2026-11-13). models.dev now omits the long-context tier; the provider still documents it. Labels remain moh-owned.",
       "name": "Gemini 2.5 Computer Use Preview 10-2025",
-      "contextWindow": 128000
+      "contextWindow": 128000,
+      "cost": {
+        "input": 1.25,
+        "output": 10,
+        "tiers": [
+          {
+            "inputTokensAbove": 200000,
+            "input": 2.5,
+            "output": 15
+          }
+        ]
+      }
     },
     "gemini-2.5-flash": {
       "author": "moh migration (#959)",

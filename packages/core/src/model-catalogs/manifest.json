@@ -1,21 +1,21 @@
 {
   "schemaVersion": 1,
-  "version": "0.67.0",
-  "generatedAt": "2026-11-13T21:19:26.782Z",
+  "version": "0.67.1",
+  "generatedAt": "2026-11-13T21:33:27.955Z",
   "sources": [
     {
       "name": "models.dev",
       "url": "https://models.dev/api.json",
-      "fetchedAt": "2026-11-13T21:19:26.725Z",
-      "sha256": "f55606113b377c543af6c9da092fcd59c73828f9ef7cd0e57d3a48a6ea8c45de",
-      "acquisition": "file"
+      "fetchedAt": "2026-11-13T21:33:27.772Z",
+      "sha256": "93ab34e493c95707ff418dcf771f1eb814c956a0fe8edb98777f62b499ff65a2",
+      "acquisition": "network"
     },
     {
       "name": "openrouter",
       "url": "https://openrouter.ai/api/v1/models",
-      "fetchedAt": "2026-11-13T21:19:26.733Z",
-      "sha256": "367f739ef7f354ab71678fabf456ad91b172b074ec9249a32cfcb2085ed604f6",
-      "acquisition": "file"
+      "fetchedAt": "2026-11-13T21:33:27.897Z",
+      "sha256": "3b0bc028e5014e2b214301a0853a73d9be7e0ba79b77bfd921eb649bab23bb97",
+      "acquisition": "network"
     }
   ],
   "files": {
@@ -60,7 +60,7 @@
       }
     },
     "deepseek": {
-      "sha256": "c7d9cb033a6b62f224eca71ff7e594863ae05ed7bd68f12e41a16975c85b7fe4",
+      "sha256": "6583320f64f62cd38034657b4b2aa8644d45371d7df044cb6dfde5260f41bf34",
       "rows": 1,
       "verdicts": {
         "exact": 0,
@@ -90,7 +90,7 @@
       }
     },
     "google": {
-      "sha256": "e8f17c5e11b43c54089fdc4a1cc9a459f0bb6c8425e3c0df784b1bd4bd24f579",
+      "sha256": "5caa7bb2e53694197c7ef85e7961fc8af04b4c9b449de0d25df96f9724d43056",
       "rows": 22,
       "verdicts": {
         "exact": 22,
@@ -140,7 +140,7 @@
       }
     },
     "mistral": {
-      "sha256": "082181b3f8e70f7237c44d91cbaf9ed286e1ed9546d8cfb552857409a35f0812",
+      "sha256": "e6cf7b071bf0b5a0290d04a5317a8b61e99c7c2bf3606d3f64d409fdae35855f",
       "rows": 1,
       "verdicts": {
         "exact": 1,
@@ -180,11 +180,11 @@
       }
     },
     "opencode-go": {
-      "sha256": "86d40889c4fcecc27ca38cdd2e7a6e0fd88ea1051dd5616e48441b1d166bb647",
-      "rows": 26,
+      "sha256": "a3eb577efda3ef578e284d4c7a1ccb970fe50b017e547082a0a99dc83766b777",
+      "rows": 25,
       "verdicts": {
         "exact": 20,
-        "base-model": 6,
+        "base-model": 5,
         "ambiguous": 0,
         "absent": 0
       }
@@ -200,10 +200,10 @@
       }
     },
     "openrouter": {
-      "sha256": "de7b3f004a2034ea6a079fc988ee530ff83df2671737f28c994860eac43c5253",
-      "rows": 319,
+      "sha256": "8e5ad0372f0e545c178050aaec1ce06cd77ade937676e23eee516dacb11ee1f3",
+      "rows": 317,
       "verdicts": {
-        "exact": 298,
+        "exact": 296,
         "base-model": 1,
         "ambiguous": 0,
         "absent": 20
@@ -995,6 +995,7 @@
         "input"
       ],
       "overrides": [
+        "cost",
         "contextWindow"
       ]
     },
@@ -1260,6 +1261,7 @@
       "source": "models.dev",
       "namespace": "google",
       "supplied": [
+        "cost",
         "contextWindow",
         "maxTokens",
         "reasoning",
@@ -1274,6 +1276,7 @@
       "source": "models.dev",
       "namespace": "google",
       "supplied": [
+        "cost",
         "contextWindow",
         "maxTokens",
         "reasoning",
@@ -1560,20 +1563,6 @@
         "contextWindow",
         "maxTokens"
       ]
-    },
-    "opencode-go/minimax-m2.5": {
-      "provider": "opencode-go",
-      "id": "minimax-m2.5",
-      "verdict": "base-model",
-      "source": "openrouter",
-      "namespace": "minimax/minimax-m2.5",
-      "supplied": [
-        "cost",
-        "contextWindow",
-        "reasoning",
-        "input"
-      ],
-      "overrides": []
     },
     "opencode-go/minimax-m2.7": {
       "provider": "opencode-go",
@@ -3509,54 +3498,9 @@
         "maxTokens"
       ]
     },
-    "openrouter/bytedance-seed/seed-1.6": {
-      "provider": "openrouter",
-      "id": "bytedance-seed/seed-1.6",
-      "verdict": "exact",
-      "source": "models.dev",
-      "namespace": "openrouter",
-      "supplied": [
-        "cost",
-        "contextWindow",
-        "maxTokens",
-        "reasoning",
-        "input"
-      ],
-      "overrides": []
-    },
-    "openrouter/bytedance-seed/seed-1.6-flash": {
-      "provider": "openrouter",
-      "id": "bytedance-seed/seed-1.6-flash",
-      "verdict": "exact",
-      "source": "models.dev",
-      "namespace": "openrouter",
-      "supplied": [
-        "cost",
-        "contextWindow",
-        "maxTokens",
-        "reasoning",
-        "input"
-      ],
-      "overrides": []
-    },
     "openrouter/bytedance-seed/seed-2-1-turbo": {
       "provider": "openrouter",
       "id": "bytedance-seed/seed-2-1-turbo",
-      "verdict": "exact",
-      "source": "models.dev",
-      "namespace": "openrouter",
-      "supplied": [
-        "cost",
-        "contextWindow",
-        "maxTokens",
-        "reasoning",
-        "input"
-      ],
-      "overrides": []
-    },
-    "openrouter/bytedance-seed/seed-2.0-code": {
-      "provider": "openrouter",
-      "id": "bytedance-seed/seed-2.0-code",
       "verdict": "exact",
       "source": "models.dev",
       "namespace": "openrouter",
@@ -4420,21 +4364,6 @@
         "reasoning",
         "input"
       ]
-    },
-    "openrouter/liquid/lfm-2.5-2.6b:free": {
-      "provider": "openrouter",
-      "id": "liquid/lfm-2.5-2.6b:free",
-      "verdict": "exact",
-      "source": "models.dev",
-      "namespace": "openrouter",
-      "supplied": [
-        "cost",
-        "contextWindow",
-        "maxTokens",
-        "reasoning",
-        "input"
-      ],
-      "overrides": []
     },
     "openrouter/meituan/longcat-2.0": {
       "provider": "openrouter",
@@ -6522,6 +6451,36 @@
     "openrouter/qwen/qwen3-235b-a22b-2507": {
       "provider": "openrouter",
       "id": "qwen/qwen3-235b-a22b-2507",
+      "verdict": "exact",
+      "source": "models.dev",
+      "namespace": "openrouter",
+      "supplied": [
+        "cost",
+        "contextWindow",
+        "maxTokens",
+        "reasoning",
+        "input"
+      ],
+      "overrides": []
+    },
+    "openrouter/qwen/qwen3-235b-a22b-thinking-2507": {
+      "provider": "openrouter",
+      "id": "qwen/qwen3-235b-a22b-thinking-2507",
+      "verdict": "exact",
+      "source": "models.dev",
+      "namespace": "openrouter",
+      "supplied": [
+        "cost",
+        "contextWindow",
+        "maxTokens",
+        "reasoning",
+        "input"
+      ],
+      "overrides": []
+    },
+    "openrouter/qwen/qwen3-30b-a3b": {
+      "provider": "openrouter",
+      "id": "qwen/qwen3-30b-a3b",
       "verdict": "exact",
       "source": "models.dev",
       "namespace": "openrouter",
