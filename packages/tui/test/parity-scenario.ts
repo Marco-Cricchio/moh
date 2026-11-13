@@ -2,6 +2,8 @@
  * content here: the fake provider and the PTY SSE adapter consume this exact
  * sequence rather than maintaining two fixtures that can drift. */
 export const PARITY = {
+  clockMs: 1794571200000,
+  theme: "tokyo-night",
   cols: 100,
   rows: 30,
   prompt: "parity scenario",
