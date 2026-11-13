@@ -7,6 +7,22 @@ matching section here at tag time.
 
 ## [Unreleased]
 
+## [0.67.0] - 2026-11-13
+
+### Added
+
+- Composed teams can opt into direct peer messages with `peerMessaging: true`.
+  Messages stay within the group, wait for the recipient's next turn, and
+  retain sender/recipient attribution in the session log and transcript.
+  The additional extension consent, existing tool permissions, bounded
+  message budget and team stop keep the coordinator in control (#1743).
+
+### Changed
+
+- The bundled model catalog retains the validated November 11 source snapshots.
+  Its release metadata declares 0.67.0; live source changes that would remove
+  pricing/context coverage or reduce context windows await review (#1759).
+
 ### Fixed
 
 - Extension hot reload recovers edits missed by native filesystem watchers,
@@ -20,14 +36,6 @@ matching section here at tag time.
 - Memory locks no longer reclaim a live same-machine owner based on differing
   process uptimes. Legacy lock metadata stays readable; dead owners remain
   recoverable and the existing foreign-machine policy is preserved (#1734).
-
-### Added
-
-- Composed teams can opt into direct peer messages with `peerMessaging: true`.
-  Messages stay within the group, wait for the recipient's next turn, and
-  retain sender/recipient attribution in the session log and transcript.
-  The additional extension consent, existing tool permissions, bounded
-  message budget and team stop keep the coordinator in control (#1743).
 
 ## [0.66.3] - 2026-11-11
 
@@ -2939,7 +2947,8 @@ security audit, each fixed behind its own PR.
   passed; a regression test pins the resolved path under
   `<home>/.moh/projects`.
 
-[Unreleased]: https://github.com/Marco-Cricchio/moh/compare/v0.66.1...develop
+[Unreleased]: https://github.com/Marco-Cricchio/moh/compare/v0.67.0...develop
+[0.67.0]: https://github.com/Marco-Cricchio/moh/compare/v0.66.3...v0.67.0
 [0.66.1]: https://github.com/Marco-Cricchio/moh/compare/v0.66.0...v0.66.1
 [0.66.0]: https://github.com/Marco-Cricchio/moh/compare/v0.65.4...v0.66.0
 [0.65.4]: https://github.com/Marco-Cricchio/moh/compare/v0.65.3...v0.65.4
