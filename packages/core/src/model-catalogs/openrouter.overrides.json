@@ -577,28 +577,32 @@
       "maxTokens": 30000
     },
     "bytedance-seed/seed-1.6": {
-      "author": "moh migration (#959)",
-      "date": "2026-09-24",
-      "reason": "labels and row identity are moh-owned (ADR-0046): never aggregator-supplied",
+      "author": "moh (#1759)",
+      "date": "2026-11-13",
+      "reason": "Explicitly retire this unavailable OpenRouter route: its primary endpoint API returns an empty endpoints array (https://openrouter.ai/api/v1/models/bytedance-seed/seed-1.6/endpoints, checked 2026-11-13), and the global live model list no longer advertises it. Historical model pages remain, but no serving endpoint is reported. This is a route availability decision, not a claim that the underlying model is discontinued.",
       "api": "openai-completions",
       "baseUrl": "https://openrouter.ai/api/v1",
       "name": "ByteDance Seed: Seed 1.6",
       "compat": {
         "supportsDeveloperRole": false,
         "thinkingFormat": "openrouter"
-      }
+      },
+      "retired": true,
+      "retirementEvidence": "https://openrouter.ai/api/v1/models/bytedance-seed/seed-1.6/endpoints"
     },
     "bytedance-seed/seed-1.6-flash": {
-      "author": "moh migration (#959)",
-      "date": "2026-09-24",
-      "reason": "labels and row identity are moh-owned (ADR-0046): never aggregator-supplied",
+      "author": "moh (#1759)",
+      "date": "2026-11-13",
+      "reason": "Explicitly retire this unavailable OpenRouter route: its primary endpoint API returns an empty endpoints array (https://openrouter.ai/api/v1/models/bytedance-seed/seed-1.6-flash/endpoints, checked 2026-11-13), and the global live model list no longer advertises it. Historical model pages remain, but no serving endpoint is reported. This is a route availability decision, not a claim that the underlying model is discontinued.",
       "api": "openai-completions",
       "baseUrl": "https://openrouter.ai/api/v1",
       "name": "ByteDance Seed: Seed 1.6 Flash",
       "compat": {
         "supportsDeveloperRole": false,
         "thinkingFormat": "openrouter"
-      }
+      },
+      "retired": true,
+      "retirementEvidence": "https://openrouter.ai/api/v1/models/bytedance-seed/seed-1.6-flash/endpoints"
     },
     "bytedance-seed/seed-2-1-turbo": {
       "author": "moh migration (#959)",
@@ -613,9 +617,9 @@
       }
     },
     "bytedance-seed/seed-2.0-code": {
-      "author": "moh migration (#959)",
-      "date": "2026-09-24",
-      "reason": "labels and row identity are moh-owned (ADR-0046): never aggregator-supplied",
+      "author": "moh (#1759)",
+      "date": "2026-11-13",
+      "reason": "Explicitly retire this unavailable OpenRouter route: its primary endpoint API returns an empty endpoints array (https://openrouter.ai/api/v1/models/bytedance-seed/seed-2.0-code/endpoints, checked 2026-11-13), and the global live model list no longer advertises it. Historical model pages remain, but no serving endpoint is reported. This is a route availability decision, not a claim that the underlying model is discontinued.",
       "api": "openai-completions",
       "baseUrl": "https://openrouter.ai/api/v1",
       "name": "ByteDance Seed: Seed-2.0-Code",
@@ -631,7 +635,9 @@
       "compat": {
         "supportsDeveloperRole": false,
         "thinkingFormat": "openrouter"
-      }
+      },
+      "retired": true,
+      "retirementEvidence": "https://openrouter.ai/api/v1/models/bytedance-seed/seed-2.0-code/endpoints"
     },
     "bytedance-seed/seed-2.0-lite": {
       "author": "moh migration (#959)",
@@ -1790,9 +1796,9 @@
       }
     },
     "liquid/lfm-2.5-2.6b:free": {
-      "author": "moh migration (#959)",
-      "date": "2026-09-24",
-      "reason": "labels and row identity are moh-owned (ADR-0046): never aggregator-supplied",
+      "author": "moh (#1759)",
+      "date": "2026-11-13",
+      "reason": "Explicitly retire this unavailable OpenRouter route: its primary endpoint API returns an empty endpoints array (https://openrouter.ai/api/v1/models/liquid/lfm-2.5-2.6b:free/endpoints, checked 2026-11-13), and the global live model list no longer advertises it. Historical model pages remain, but no serving endpoint is reported. This is a route availability decision, not a claim that the underlying model is discontinued.",
       "api": "openai-completions",
       "baseUrl": "https://openrouter.ai/api/v1",
       "name": "LiquidAI: LFM2.5-2.6B (free)",
@@ -1802,7 +1808,9 @@
       "compat": {
         "supportsDeveloperRole": false,
         "thinkingFormat": "openrouter"
-      }
+      },
+      "retired": true,
+      "retirementEvidence": "https://openrouter.ai/api/v1/models/liquid/lfm-2.5-2.6b:free/endpoints"
     },
     "meituan/longcat-2.0": {
       "author": "moh migration (#959)",
@@ -2055,9 +2063,9 @@
       "retired": true
     },
     "minimax/minimax-m2.5": {
-      "author": "moh release v0.66.2",
-      "date": "2026-11-11",
-      "reason": "labels and row identity are moh-owned (ADR-0046): never aggregator-supplied; accept the declared upstream context correction observed during the v0.66.2 rebuild: contextWindow 204800 → 200000",
+      "author": "moh (#1759)",
+      "date": "2026-11-13",
+      "reason": "Accept exactly the current OpenRouter context correction 200000 to 198000, confirmed by https://openrouter.ai/api/v1/models and the active Venice endpoint at https://openrouter.ai/api/v1/models/minimax/minimax-m2.5/endpoints (checked 2026-11-13). Labels and compatibility remain moh-owned.",
       "api": "openai-completions",
       "baseUrl": "https://openrouter.ai/api/v1",
       "name": "MiniMax: MiniMax M2.5",
@@ -2067,6 +2075,10 @@
       "compat": {
         "supportsDeveloperRole": false,
         "thinkingFormat": "openrouter"
+      },
+      "acceptContextShrink": {
+        "from": 200000,
+        "to": 198000
       }
     },
     "minimax/minimax-m2.7": {
@@ -4232,9 +4244,9 @@
       }
     },
     "qwen/qwen3-235b-a22b-thinking-2507": {
-      "author": "moh (v0.61.2, #1005)",
-      "date": "2026-10-10",
-      "reason": "OpenRouter retired the listing (window and metered price both gone, no live record) — dropped rather than frozen by hand (#1005)",
+      "author": "moh (#1759)",
+      "date": "2026-11-13",
+      "reason": "Reactivate after explicit review of the formerly retired OpenRouter route: the global live model list supplies context/pricing again and https://openrouter.ai/api/v1/models/qwen/qwen3-235b-a22b-thinking-2507/endpoints reports an active serving endpoint (checked 2026-11-13). Existing API, labels and compatibility declarations are retained; no automatic reactivation rule is introduced.",
       "api": "openai-completions",
       "baseUrl": "https://openrouter.ai/api/v1",
       "name": "Qwen: Qwen3 235B A22B Thinking 2507",
@@ -4244,21 +4256,19 @@
       "compat": {
         "supportsDeveloperRole": false,
         "thinkingFormat": "openrouter"
-      },
-      "retired": true
+      }
     },
     "qwen/qwen3-30b-a3b": {
-      "author": "moh (v0.61.2, #1005)",
-      "date": "2026-10-10",
-      "reason": "OpenRouter retired the listing (window and metered price both gone, no live record) — dropped rather than frozen by hand (#1005)",
+      "author": "moh (#1759)",
+      "date": "2026-11-13",
+      "reason": "Reactivate after explicit review of the formerly retired OpenRouter route: the global live model list supplies context/pricing again and https://openrouter.ai/api/v1/models/qwen/qwen3-30b-a3b/endpoints reports an active serving endpoint (checked 2026-11-13). Existing API, labels and compatibility declarations are retained; no automatic reactivation rule is introduced.",
       "api": "openai-completions",
       "baseUrl": "https://openrouter.ai/api/v1",
       "name": "Qwen: Qwen3 30B A3B",
       "compat": {
         "supportsDeveloperRole": false,
         "thinkingFormat": "openrouter"
-      },
-      "retired": true
+      }
     },
     "qwen/qwen3-30b-a3b-instruct-2507": {
       "author": "moh migration (#959)",

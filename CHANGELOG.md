@@ -7,6 +7,14 @@ matching section here at tag time.
 
 ## [Unreleased]
 
+### Changed
+
+- Refreshed the bundled model catalog from reviewed live sources. Preserve
+  Google's documented legacy pricing tiers, accept MiniMax M2.5's exact
+  context correction, retire five unavailable provider routes with evidence,
+  and restore two Qwen OpenRouter routes after checking active endpoints
+  (#1759).
+
 ## [0.67.0] - 2026-11-13
 
 ### Added
