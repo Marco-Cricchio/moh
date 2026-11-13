@@ -333,8 +333,8 @@ export class MemoryStore {
    */
   #staleLockHeldByOther(): boolean {
     const owner = parseLockOwner(readLockFile(this.#lockFile));
-    // Old-format/corrupt lock or a gone owner (dead pid, foreign machine,
-    // our own recycled pid): reclaim. A live same-machine owner is
+    // Old-format/corrupt lock or a gone owner (confirmed dead pid or
+    // foreign machine): reclaim. A live same-machine owner is
     // respected. Decided from content, never from mtime (#399).
     const reclaim = owner === undefined || ownerIsGone(owner);
     if (!reclaim) return false;

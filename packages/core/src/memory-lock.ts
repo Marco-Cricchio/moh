@@ -1,6 +1,6 @@
 /**
  * Content-based memory lock ownership (#399): a lock file records who
- * holds it (pid + machine/boot identifier), and staleness is decided
+ * holds it (pid + machine identifier; legacy boot metadata), and staleness is decided
  * from that content rather than filesystem mtime — a lock left by a
  * crashed process or another machine never blocks memory writes, while
  * a live same-machine owner still enforces exclusivity.
@@ -14,7 +14,7 @@ interface LockOwner {
   v: 1;
   pid: number;
   machineId: string;
-  /** Monotonic boot counter (0 on platforms without /proc uptime). */
+  /** Legacy v1 metadata; never evidence that a live PID is stale. */
   boot: number;
   createdAt: number;
 }
@@ -54,26 +54,11 @@ export function machineId(): string {
   return cachedMachineId;
 }
 
-/**
- * Approximate number of reboots this machine has had (cached per
- * process): uptime seconds rounded up on Linux (from /proc/uptime,
- * readable by non-root), 0 where unavailable. A pid recorded under a
- * smaller boot count predates a reboot, so its owner is dead even if
- * the pid got recycled.
- */
+/** Legacy v1 payload field. Uptime is not a boot identity: two live
+ * processes can observe different values. New locks use zero; old numeric
+ * values remain readable but never authorize reclaiming a live owner. */
 export function bootCount(): number {
-  if (cachedBootCount !== undefined) return cachedBootCount;
-  let boot = 0;
-  if (process.platform === "linux") {
-    try {
-      const uptimeSeconds = Number.parseFloat(readFileSync("/proc/uptime", "utf8").split(" ")[0]);
-      if (Number.isFinite(uptimeSeconds)) boot = Math.ceil(uptimeSeconds);
-    } catch {
-      // unavailable: 0, never causing spurious reclaims
-    }
-  }
-  cachedBootCount = boot;
-  return cachedBootCount;
+  return cachedBootCount ?? 0;
 }
 
 /** Test seam: pin the machine identity and boot count observed by the lock. */
@@ -122,10 +107,9 @@ export function ownerIsGone(owner: LockOwner): boolean {
   // Foreign machine in a shared home: liveness is unverifiable and the
   // acceptance contract (#399) says a foreign owner never blocks — reclaim.
   if (owner.machineId !== machineId()) return true;
-  // Recorded before the last reboot: the owner died with that boot,
-  // even if this boot recycled its pid.
-  if (owner.boot < bootCount()) return true;
-  // Same machine and boot: dead pid means stale.
+  // Same machine: only a confirmed dead PID permits reclamation. A live
+  // recycled PID can conservatively block a legacy lock; uptime cannot
+  // distinguish it from a legitimate holder started earlier this boot.
   return !isProcessAlive(owner.pid);
 }
 
