@@ -2007,11 +2007,13 @@ export class AgentSession {
    * when the slot is free, so a request made from a settling turn's own
    * `afterTurn` hook waits without deadlocking it; queued user sends go
    * first, and an active turn is never preempted by a synthetic one.
+   * An optional outside signal cancels a queued or active synthetic turn
+   * (peer-channel stop, #1743), without cancelling the turn ahead of it.
    * Resolves `{ ok: false }` only when the session is disposed.
    */
-  runSyntheticTurn(text: string): Promise<{ ok: boolean; result?: TurnResult }> {
+  runSyntheticTurn(text: string, signal?: AbortSignal): Promise<{ ok: boolean; result?: TurnResult }> {
     if (this.#disposed) return Promise.resolve({ ok: false });
-    const synthetic = (): Promise<TurnResult> => this.#queue.sendSynthetic(text);
+    const synthetic = (): Promise<TurnResult> => this.#queue.sendSynthetic(text, signal);
     const run =
       this.#extensions?.hasPendingRegistrations() === true
         ? this.#extensions.ready().then(synthetic)

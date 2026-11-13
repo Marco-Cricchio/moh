@@ -339,3 +339,44 @@ describe("one runtime, two sessions: the last binding wins", () => {
     }
   });
 });
+
+test("synthetic peer turns wait without preemption and cancellation prevents queued execution (#1743)", async () => {
+  let started!: () => void;
+  const entered = new Promise<void>((resolve) => { started = resolve; });
+  let release!: () => void;
+  const hold = new Promise<void>((resolve) => { release = resolve; });
+  let activeSignal!: AbortSignal;
+  const seen: string[] = [];
+  const session = createSession({ provider: {
+    name: "mock",
+    async *stream(messages, signal) {
+      const text = JSON.stringify(messages);
+      seen.push(text);
+      if (seen.length === 1) {
+        activeSignal = signal;
+        started();
+        await hold;
+      }
+      yield { type: "text_delta", text: "answer" };
+      yield { type: "finish", reason: "stop" };
+    },
+  } });
+  try {
+    const original = session.send("original task");
+    await entered;
+    const stop = new AbortController();
+    const cancelled = session.runSyntheticTurn("cancel this queued message", stop.signal);
+    const delivered = session.runSyntheticTurn("deliver this peer message");
+    expect(activeSignal.aborted).toBe(false);
+    stop.abort();
+    expect(activeSignal.aborted).toBe(false);
+    release();
+    expect((await original).status).toBe("done");
+    expect(await cancelled).toMatchObject({ ok: true, result: { status: "cancelled" } });
+    expect(await delivered).toMatchObject({ ok: true, result: { status: "done" } });
+    expect(seen).toHaveLength(2);
+    expect(seen[1]).toContain("original task");
+    expect(seen[1]).toContain("deliver this peer message");
+    expect(seen[1]).not.toContain("cancel this queued message");
+  } finally { release(); await session.dispose(); }
+});

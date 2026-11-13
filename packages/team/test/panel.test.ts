@@ -165,6 +165,7 @@ describe("the shipped manifest (#1225)", () => {
   test("the physical manifest declares the panels grant", () => {
     expect(JSON.parse(readFileSync(teamManifestAuthority().path, "utf8")).capabilities).toEqual([
       "spawn-subagent",
+      "peer-messaging",
       "contribute-tool:team",
       "contribute-panels",
     ]);

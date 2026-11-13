@@ -50,15 +50,15 @@ describe("team extension manifest (#1220, ADR-0074)", () => {
     expect(raw.name).toBe(TEAM_NAME);
     expect(raw.version).toBe(TEAM_VERSION);
     expect(raw.entry).toEqual(["src/index.ts"]);
-    expect(raw.capabilities).toEqual(["spawn-subagent", "contribute-tool:team", "contribute-panels"]);
+    expect(raw.capabilities).toEqual(["spawn-subagent", "peer-messaging", "contribute-tool:team", "contribute-panels"]);
     // The enable question's NOT-do list lives in the manifest reasoning.
-    expect(raw.reasoning).toContain("peer messaging");
+    expect(raw.reasoning).toContain("Peer messaging");
     expect(raw.reasoning).toContain("spawn grandchildren");
   });
 
   test("the manifest authority hashes the bytes on disk with the declared capabilities", () => {
     const authority = teamManifestAuthority();
-    expect(authority.capabilities).toEqual(["spawn-subagent", "contribute-tool:team", "contribute-panels"]);
+    expect(authority.capabilities).toEqual(["spawn-subagent", "peer-messaging", "contribute-tool:team", "contribute-panels"]);
     expect(authority.hash).toMatch(/^[0-9a-f]{64}$/);
     expect(authority.reasoning).toContain("up to 10 concurrent children");
   });
@@ -88,14 +88,14 @@ describe("enable consent (#1220, ADR-0053/0055 style)", () => {
 
     expect(asked).toHaveLength(1);
     expect(asked[0]!.name).toBe(TEAM_NAME);
-    expect(asked[0]!.capabilities).toEqual(["spawn-subagent", "contribute-tool:team", "contribute-panels"]);
-    expect(asked[0]!.reasoning).toContain("peer messaging");
+    expect(asked[0]!.capabilities).toEqual(["spawn-subagent", "peer-messaging", "contribute-tool:team", "contribute-panels"]);
+    expect(asked[0]!.reasoning).toContain("Peer messaging");
     expect(typeof ctx!.spawnSubagent).toBe("function");
     expect(typeof ctx!.subagentActivity).toBe("function");
 
     const instance = rt.instances.find((i) => i.def.name === TEAM_NAME);
     expect(instance).toBeDefined();
-    expect(instance!.grantedCapabilities).toEqual(["spawn-subagent", "contribute-tool:team", "contribute-panels"]);
+    expect(instance!.grantedCapabilities).toEqual(["spawn-subagent", "peer-messaging", "contribute-tool:team", "contribute-panels"]);
   });
 
   test("the enable is remembered; removing the stored consent removes the capability", async () => {
@@ -338,7 +338,7 @@ describe("spawn through the ADR-0055 API (#1220)", () => {
     // /extensions (#1131): the live surface names the extension with its
     // grant list — the modal and the headless notify fallback read this.
     const live = session.extensionLiveInfo().find((i) => i.name === TEAM_NAME);
-    expect(live?.capabilities).toEqual(["spawn-subagent", "contribute-tool:team", "contribute-panels"]);
+    expect(live?.capabilities).toEqual(["spawn-subagent", "peer-messaging", "contribute-tool:team", "contribute-panels"]);
     await session.dispose();
   });
 });
@@ -881,5 +881,47 @@ describe("panel steering + team-scoped stop-all (#1226, ADR-0055)", () => {
     const roster = String(panel.render());
     expect(roster).toContain("◌ builder");
     expect(roster).toContain("✓ builder");
+  });
+});
+
+describe("composition peer opt-in (#1743)", () => {
+  test("fresh compositions isolate same-name members and only the opted-in group gets team_message", async () => {
+    const rt = runtime();
+    await rt.register(createTeamExtension(), { manifest: teamManifestAuthority() });
+    const offers: { task: string; tools: string[] }[] = [];
+    const provider: import("@moh/core").Provider = {
+      name: "mock",
+      async *stream(messages, _signal, tools) {
+        offers.push({ task: JSON.stringify(messages), tools: (tools ?? []).map((t) => t.name) });
+        yield { type: "text_delta", text: "finished" };
+        yield { type: "finish", reason: "stop" };
+      },
+    };
+    const compose = (prefix: string) => [
+      { name: "alice", role: "builder", task: `${prefix} alice` },
+      { name: "bob", role: "reviewer", task: `${prefix} bob` },
+    ];
+    const session = createSession({
+      extensions: rt, permissions: { unrestrictedTools: true },
+      subagents: { home: tempDir(), provider },
+      provider: MockProvider.scripted([
+        { deltas: [], finish: "tool_calls", toolCalls: [{ name: "team", args: { compose: compose("peer"), peerMessaging: true } }] },
+        { deltas: [], finish: "tool_calls", toolCalls: [{ name: "team", args: { compose: compose("plain") } }] },
+        { deltas: [], finish: "tool_calls", toolCalls: [{ name: "team", args: { member: "alice", message: "plain follow-up" } }] },
+        { deltas: ["done"], finish: "stop" },
+      ]),
+    });
+    const events = tap(session);
+    try {
+      expect((await session.send("compose teams")).status).toBe("done");
+      expect(offers).toHaveLength(5);
+      expect(offers.slice(0, 2).every((o) => o.tools.includes("team_message"))).toBe(true);
+      expect(offers.slice(2).every((o) => !o.tools.includes("team_message"))).toBe(true);
+      expect(offers[4]!.task).toContain("plain alice");
+      expect(offers[4]!.task).not.toContain("peer alice");
+      const records = events.filter((e) => e.type === "extension_event" && e.name === "team_composed");
+      expect(records[0]).toHaveProperty("payload.peerMessaging", true);
+      expect(records[1]).not.toHaveProperty("payload.peerGroup");
+    } finally { await session.dispose(); }
   });
 });

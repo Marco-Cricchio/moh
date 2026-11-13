@@ -97,9 +97,9 @@ export class TurnQueue {
    * like any queued send; queued *user* sends still preempt). Resolves
    * with the synthetic turn's own result.
    */
-  sendSynthetic(text: string): Promise<TurnResult> {
+  sendSynthetic(text: string, signal?: AbortSignal): Promise<TurnResult> {
     return new Promise<TurnResult>((resolve) => {
-      this.#queue.push({ text, resolve, synthetic: true });
+      this.#queue.push({ text, resolve, synthetic: true, ...(signal ? { signal } : {}) });
       this.#pump();
     });
   }
@@ -111,7 +111,7 @@ export class TurnQueue {
    */
   #pump(): void {
     if (this.#turn !== null) {
-      if (this.#queue.length > 0) this.#controller?.abort();
+      if (this.#queue.some((item) => !item.synthetic)) this.#controller?.abort();
       return;
     }
     const item = this.#queue.shift();

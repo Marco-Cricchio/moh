@@ -137,7 +137,8 @@
  * Minor bumps are additive (new optional hooks/fields); major bumps are
  * breaking and refuse to load older/newer extensions.
  */
-export const MOH_EXTENSION_API_VERSION = "1.18";
+/** 1.19 (#1743): opt-in, host-bound peerGroup under peer-messaging. */
+export const MOH_EXTENSION_API_VERSION = "1.19";
 
 /** One spawn an orchestration extension requests (ADR-0055, apiVersion 1.13).
  * `preset` resolves against the host's subagent presets (built-ins and
@@ -171,6 +172,11 @@ export interface ExtensionSpawnSpec {
    * the member's own route pin (ADR-0050). Resolved before any child
    * setup; a hallucinated ref fails the spawn fast, zero side effects. */
   readonly model?: string;
+  /** Opt-in peer channel (apiVersion 1.19). Requires `peer-messaging` as
+   * well as `spawn-subagent`. The host binds the sender to this child;
+   * recipients must be started members of this same extension/group.
+   * Use a fresh id for every composition; names are unique within it. */
+  readonly peerGroup?: { readonly id: string; readonly members: readonly string[] };
 }
 
 /** The settled outcome of one extension spawn (apiVersion 1.13). */
@@ -1047,9 +1053,8 @@ export interface ExtensionSetupContext {
    * message to a child this extension spawned — it becomes the member's
    * next turn, keeping its full context and its own route. **Present only
    * when the `spawn-subagent` capability is granted.** A callId this
-   * extension did not spawn resolves to `null`: members can never write
-   * into each other, by construction — every child answers only to the
-   * extension that spawned it (star-shaped coordination). The write is
+   * extension did not spawn resolves to `null`: this steering API remains coordinator-only. Opt-in peer channels use
+   * the separate, host-bound `team_message` tool (apiVersion 1.19). The write is
    * recorded as `subagent_steer` chrome in the parent's log, so replay
    * reconstructs who wrote what into whom; steering from inside a
    * borrowed (child) session's dispatch is refused loudly, like spawning.

@@ -3,6 +3,8 @@
 Status: accepted · Date: 2026-09-28 · Issue: #999 · Parent: wayfinder map #996
 Related: ADR-0031 (restrict-only), ADR-0037 (`requestTurn`), ADR-0047 (borrowed runtime), ADR-0050 (routes), ADR-0053 (`spawn-subagent`, absolute prohibitions)
 
+Peer-channel amendment: [ADR-0083](0083-opt-in-team-peer-messaging.md) supersedes the star-only restriction for explicitly consented, bounded groups (#1743).
+
 ## Context
 
 The map decided that a user-initiated *workflow* may create working conversations and

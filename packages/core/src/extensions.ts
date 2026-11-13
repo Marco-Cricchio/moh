@@ -627,6 +627,7 @@ const RESERVED_EVENT_NAMES: ReadonlySet<string> = new Set([
   "session_start",
   "skill_invoked",
   "subagent_result",
+  "subagent_message",
   "subagent_spawn",
   "switch_refused",
   "task_declared",
@@ -2129,6 +2130,9 @@ export class ExtensionRuntime {
     // depth one is what keeps the envelope checkable at every level.
     if (this.#borrowedSessions.getStore() !== undefined) {
       return refuse("no_grandchildren", `extension "${name}" attempted to spawn from inside a subagent — grandchildren are refused`);
+    }
+    if (spec.peerGroup && !instance.grantedCapabilities.includes("peer-messaging")) {
+      return refuse("peer_messaging_denied", `extension "${name}" has no peer-messaging grant`);
     }
     const host = this.#subagentHost;
     if (!host) {

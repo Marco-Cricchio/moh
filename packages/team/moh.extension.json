@@ -6,8 +6,9 @@
   ],
   "capabilities": [
     "spawn-subagent",
+    "peer-messaging",
     "contribute-tool:team",
     "contribute-panels"
   ],
-  "reasoning": "The team extension coordinates child sessions as one team: up to 10 concurrent children, per-role path scopes, one stop for everything it started, and one live panel in the extensions rail (roster and member detail, read-only). It does not add peer messaging between members \u2014 steering flows through the team lead \u2014 and its children never spawn grandchildren."
+  "reasoning": "The team extension coordinates child sessions as one team: up to 10 concurrent children, per-role path scopes, one stop for everything it started, and one live panel in the extensions rail (roster and member detail, read-only). Peer messaging is available only when explicitly enabled for a composition, stays within that group, and is recorded in the session log. Its children never spawn grandchildren."
 }

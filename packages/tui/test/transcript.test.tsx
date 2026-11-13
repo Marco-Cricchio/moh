@@ -997,3 +997,17 @@ describe("#1310: the edit tool shows its diff (kind: diff, revived)", () => {
     expect(blocks.some((block) => block.kind === "moh")).toBe(true);
   });
 });
+
+test("peer exchanges have a compact attributed preview in live and replay projections (#1743)", () => {
+  const events: AgentEvent[] = [
+    { type: "subagent_message", messageId: "m1", extension: "team", group: "g1", sender: "builder", recipient: "reviewer", senderCallId: "s1", recipientCallId: "s2", status: "queued", message: `Please review\n${"detail ".repeat(40)}\u001b[2K` },
+    { type: "subagent_message", messageId: "m1", extension: "team", group: "g1", sender: "builder", recipient: "reviewer", senderCallId: "s1", recipientCallId: "s2", status: "done" },
+  ];
+  for (const mode of ["dev", "vibe"] as const) {
+    const blocks = projectTranscript(events, { mode });
+    expect(blocks.map((b) => b.type)).toEqual(["peer · builder → reviewer · queued", "peer · builder → reviewer · done"]);
+    expect(blocks[0]!.lines[0]!.length).toBeLessThanOrEqual(120);
+    expect(blocks[0]!.lines[0]).not.toContain("\u001b");
+    expect(events[0]).toHaveProperty("message", `Please review\n${"detail ".repeat(40)}\u001b[2K`);
+  }
+});
