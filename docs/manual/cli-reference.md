@@ -169,8 +169,8 @@ usage: moh provider <command>
 commands:
   add              guided provider onboarding (asks api-key or subscription
                    auth first where a subscription login is offered;
-                   anthropic and google are API-key only; subscription runs
-                   the provider's OAuth flow)
+                   google is API-key only; subscription runs the provider's
+                   OAuth flow subject to its access and billing conditions)
   login <name>     re-authenticate a subscription endpoint
   logout <name>    drop a subscription endpoint's stored tokens
   status           per-endpoint auth kind, token expiry, plan usage

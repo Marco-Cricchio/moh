@@ -9,6 +9,11 @@ matching section here at tag time.
 
 ### Changed
 
+- Restore Anthropic subscription onboarding with current conditional access
+  and usage-credit billing warnings; identify subscription API traffic as moh.
+  Refresh all nine bundled provider ToS cards and generated documentation,
+  correcting API/consumer, retention, training, and interactive-use distinctions.
+
 - Refreshed the bundled model catalog from reviewed live sources. Preserve
   Google's documented legacy pricing tiers, accept MiniMax M2.5's exact
   context correction, retire five unavailable provider routes with evidence,

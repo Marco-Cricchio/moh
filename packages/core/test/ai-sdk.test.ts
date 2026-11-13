@@ -264,6 +264,37 @@ describe("anthropic subscription credential rides the Bearer path (issue #134, s
     expect(headers.authorization).toBe("Bearer oauth-token");
     expect(headers["x-api-key"]).toBeUndefined();
     expect(headers["anthropic-beta"]).toContain("oauth-2025-04-20");
+    expect(new Headers(headers).get("user-agent")).toContain("moh");
+  });
+
+  it("identifies moh on the actual HTTP request and preserves Anthropic's authorization refusal", async () => {
+    const requests: Headers[] = [];
+    const server = Bun.serve({
+      port: 0,
+      fetch(request) {
+        requests.push(request.headers);
+        return Response.json({ type: "error", error: { type: "authentication_error", message: "Third-party client not authorized" } }, { status: 401 });
+      },
+    });
+    try {
+      const target = {
+        endpoint: new Endpoint({ name: "anthropic", kind: "anthropic", auth: { kind: "subscription" } }),
+        modelId: "claude-x",
+      };
+      const stream = aiSdkStreamFor(target, "test-oauth-token", { baseUrl: `http://localhost:${server.port}/v1` });
+      let failure: unknown;
+      try {
+        for await (const _event of stream([{ role: "user", parts: [{ kind: "text", text: "ping" }] }], new AbortController().signal)) { /* consume */ }
+      } catch (error) { failure = error; }
+      expect(failure).toBeInstanceOf(ProviderError);
+      expect((failure as ProviderError).kind).toBe("auth");
+      expect(String(failure)).toContain("Third-party client not authorized");
+      expect(requests).toHaveLength(1);
+      expect(requests[0]!.get("authorization")).toBe("Bearer test-oauth-token");
+      expect(requests[0]!.get("x-api-key")).toBeNull();
+      expect(requests[0]!.get("user-agent")).toContain("moh");
+      expect(requests[0]!.get("user-agent")).not.toMatch(/claude.?code/i);
+    } finally { server.stop(true); }
   });
 
   it("an api-key endpoint keeps the x-api-key path", async () => {

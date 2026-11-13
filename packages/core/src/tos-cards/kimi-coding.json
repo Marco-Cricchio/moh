@@ -1,18 +1,33 @@
 {
   "provider": "kimi-coding",
-  "verified": "2026-09",
+  "verified": "2026-11",
   "allowed": [
-    "You may access Kimi models programmatically through the Moonshot platform API, including automated and agent-driven use.",
-    "You may use the model outputs in your own products and workflows."
+    "Use Kimi Code subscriptions for personal interactive coding, including through supported third-party coding tools and agent frameworks.",
+    "Use the separate Kimi Platform/API offering for enterprise integrations or other workloads under that product's terms."
   ],
   "forbidden": [
-    "You must not circumvent rate limits or platform access controls.",
-    "You must not reverse engineer the models or services.",
-    "You must not submit unlawful content under Moonshot's use restrictions."
+    "Do not use a Kimi Code subscription for unattended scripts, batch execution, or data-annotation pipelines.",
+    "Do not resell accounts or subscription capabilities, spoof client identity, or bypass limits and access controls.",
+    "Do not reverse engineer services, train competing services contrary to the terms, or submit prohibited content."
   ],
-  "retention": "Not fully verified from the official pages as of the verification date: Moonshot's terms reserve rights to process inputs to operate and improve the service, so review the platform terms for retention specifics.",
-  "training": "Conservative reading: whether Moonshot trains on API inputs is not clearly stated in the pages verified; treat it as possible unless you confirm otherwise in the platform terms.",
+  "retention": "The global privacy policy retains data as needed for service, security, legal, and business purposes, without a universal fixed deadline. Product-specific policies and regional terms apply; do not assume API or mainland-China rules cover a global Code subscription.",
+  "training": "The global consumer terms permit content training with prospective opt-out. Kimi API documentation states API inputs/outputs are not used for model training; that product-specific statement is not a blanket Code-subscription guarantee.",
   "links": [
-    { "label": "Terms of Use", "url": "https://www.moonshot.ai/en/terms-of-use" }
+    {
+      "label": "Kimi Code Community Guidelines",
+      "url": "https://www.kimi.ai/help/kimi-code/community-guidelines"
+    },
+    {
+      "label": "Global Terms of Service (outside mainland China)",
+      "url": "https://www.kimi.ai/user/agreement/modelUse?version=v2"
+    },
+    {
+      "label": "Global Privacy Policy",
+      "url": "https://www.kimi.ai/user/agreement/userPrivacy?version=v2"
+    },
+    {
+      "label": "Kimi API data security",
+      "url": "https://www.kimi.ai/help/kimi-api/api-data-security"
+    }
   ]
 }

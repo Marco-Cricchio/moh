@@ -2,27 +2,28 @@
 
 > ⚠ Machine-written informational summary; not legal advice. The original text at the linked source prevails.
 
-Verification date: **2026-09**
+Verification date: **2026-11**
 
 ## Allowed (API/CLI usage)
 
-- You may use Copilot through its supported programmatic interfaces for automated coding assistance within your subscription.
-- You may use generated code suggestions in your projects, subject to your own license-review obligations.
+- Use Copilot through supported interfaces within your plan and organization policies; availability of an OAuth flow does not approve every third-party client.
+- Use generated suggestions subject to your review, testing, and third-party license obligations; GitHub does not claim ownership of inputs or outputs.
 
 ## Forbidden (API/CLI usage)
 
-- You must not resell, sublicense, or repackage Copilot as a competing service.
-- You must not circumvent rate limits or access controls.
-- You must not reverse engineer the service.
+- Do not share credentials to evade limits, bypass access controls, or misuse the service under the applicable acceptable-use policies.
+- Do not treat individual and Business/Enterprise data terms, preview features, or purchased-through-Microsoft agreements as interchangeable.
 
 ## Data handling
 
-- **Retention:** GitHub states Copilot prompts and suggestions are not retained except in limited cases such as abuse investigation (as of the verification date).
-- **Training on your inputs:** GitHub states prompts and suggestions are not used to train its generative models by default.
+- **Retention:** Retention varies by feature and agreement. Some services retain prompts and outputs for functionality, including outside the editor; there is no blanket no-retention promise.
+- **Training on your inputs:** Individual Free, Pro, Pro+, and Max interactions may be used for training unless you opt out. Business/Enterprise content is not used for model training without customer instructions under the applicable agreement.
 
 ## Original text
 
-- [Customer Terms](https://github.com/customer-terms)
 - [Terms for Additional Products and Features](https://docs.github.com/en/site-policy/github-terms/github-terms-for-additional-products-and-features)
+- [Individual terms, including AI data use](https://docs.github.com/en/site-policy/github-terms/github-terms-of-service)
+- [Generative AI Services Terms (direct volume licensing)](https://github.com/customer-terms/github-generative-ai-services-terms)
+- [Copilot policies and training controls](https://docs.github.com/en/copilot/how-tos/manage-your-account/manage-policies)
 
-Verified: 2026-09
+Verified: 2026-11

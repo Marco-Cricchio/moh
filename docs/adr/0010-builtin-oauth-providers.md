@@ -139,3 +139,35 @@ that already stores a google subscription token keeps its configuration —
 nothing is converted, deleted, disabled, or called — and records the same
 `endpoint_auth_withdrawn` warning per open, whose remedy sentence (add an
 API-key endpoint, `moh provider logout <name>`) is kind-generic.
+
+
+## Amendment — 2026-11-13: restore the conditional Anthropic subscription offer
+
+The owner requested restoration after Anthropic updated its
+[subscription login guidance](https://support.claude.com/en/articles/13189465-log-in-to-your-claude-account).
+Anthropic may allow certain third-party tools for paid subscribers with
+usage credits enabled, and reserves the right to bill those credits instead
+of subscription limits. This is conditional, provider-controlled access;
+it does not establish that moh is approved or that plan quota is included.
+The [Claude Code legal page](https://code.claude.com/docs/en/legal-and-compliance)
+still restricts developers offering Claude.ai login and intermediating
+users' credentials. The warning presents both facts; API keys remain the
+recommended integration method. The account-specific 429 recorded in the
+October amendment is not proof that all current accounts fail.
+
+Remove only `anthropic` from the existing withheld set. Both wizards again
+offer the subscription choice and existing Anthropic endpoints no longer
+emit a withdrawn-offer diagnostic. Google stays withheld for the separately
+verified transport problem in #1720. Grants, refresh, provider denials, and
+the mandatory connection test remain authoritative; no included-quota claim,
+identity spoof, or limit bypass is introduced. Anthropic subscription API
+requests identify the client as `moh`; OAuth's captured public client ID
+remains visible in the warning and overridable through the existing config.
+
+All subscription grants and the TUI pre-login screen now consume the same
+provider-specific warning function. The November review also refreshes the
+nine bundled ToS cards and their generated docs, separating API and consumer
+terms, retention exceptions, individual versus business training controls,
+Kimi Code's interactive-only scope, and aggregator route-specific policies.
+These are informational summaries, not provider permissions or legal advice;
+the linked original terms and any account-specific agreement govern.

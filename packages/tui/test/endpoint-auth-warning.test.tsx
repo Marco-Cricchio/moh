@@ -1,7 +1,7 @@
 /**
  * #1317: the TUI's half of the withdrawn-subscription diagnostic. An
  * endpoint still authenticated with a subscription login moh's onboarding
- * no longer offers (anthropic) cannot serve inference, so the transcript
+ * no longer offers (google) cannot serve inference, so the transcript
  * renders the core's warning — remedy included — and an open whose
  * endpoint is in that state shows it at startup. Chrome only: it never
  * becomes provider context.
@@ -14,8 +14,11 @@ import { join } from "node:path";
 import { MockProvider, type AgentEvent } from "@moh/core";
 import { App } from "../src/App";
 import { projectTranscript } from "../src/transcript";
-import { stripAnsi, waitForFrame } from "./helpers";
+import { stripAnsi, waitForFrame, useFileCredentialStore } from "./helpers";
 
+useFileCredentialStore();
+
+// Historical events remain renderable after the Anthropic offer is restored.
 const REASON =
   "endpoint \"anthropic\" is authenticated with anthropic subscription login, which moh's onboarding no longer offers and which does not serve inference — add an API-key endpoint instead (`moh provider add` → anthropic → api-key) and drop the stored tokens with `moh provider logout anthropic`.";
 
@@ -34,13 +37,13 @@ describe("endpoint_auth_withdrawn in the transcript (#1317)", () => {
 });
 
 describe("the warning at startup (#1317)", () => {
-  test("an anthropic subscription endpoint is visible in the open session", async () => {
+  test("a google subscription endpoint is visible in the open session", async () => {
     const cwd = mkdtempSync(join(tmpdir(), "moh-endpoint-warning-"));
     writeFileSync(
       join(cwd, "moh.json"),
       JSON.stringify({
         provider: "mock",
-        endpoints: [{ name: "anthropic", type: "anthropic", defaultModel: "claude-sonnet-4-5", auth: { kind: "subscription" } }],
+        endpoints: [{ name: "google", type: "google", defaultModel: "gemini-3-pro", auth: { kind: "subscription" } }],
       }),
     );
     const i = render(

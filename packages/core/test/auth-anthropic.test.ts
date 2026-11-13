@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import {
-  ANTHROPIC_OAUTH_BETA,
+  ANTHROPIC_SUBSCRIPTION_HEADERS,
   ANTHROPIC_OAUTH_DEFAULTS,
   ANTHROPIC_SUBSCRIPTION_SCOPES,
   buildAnthropicAuthorizeUrl,
@@ -323,7 +323,7 @@ describe("loginAnthropic", () => {
 
 describe("anthropic adapter beta header", () => {
   test("subscription endpoints get anthropic-beta: claude-code-20250219,oauth-2025-04-20", () => {
-    expect(anthropicSubscriptionHeaders("subscription")).toEqual(ANTHROPIC_OAUTH_BETA);
+    expect(anthropicSubscriptionHeaders("subscription")).toEqual(ANTHROPIC_SUBSCRIPTION_HEADERS);
   });
 
   test("api-key endpoints get no extra headers (byte-identical invariant)", () => {

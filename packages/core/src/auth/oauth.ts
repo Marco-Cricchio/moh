@@ -23,8 +23,7 @@
 import { createHash, randomBytes } from "node:crypto";
 import { createServer, type Server } from "node:http";
 import type { OnboardingIo } from "../provider-onboarding";
-import type { OAuthBuiltinKind } from "../wire";
-import { isOAuthBuiltinKind } from "../wire";
+import type { SubscriptionKind } from "./lifecycle";
 
 /** Default callback wait: 5 minutes, matching the official CLIs. */
 const DEFAULT_CALLBACK_TIMEOUT_MS = 5 * 60 * 1000;
@@ -378,54 +377,63 @@ export async function raceForCode(
   });
 }
 
-/**
- * ToS warning shown and acknowledged before any subscription flow (spec
- * invariant 4): moh reuses the official CLI client_ids (fine for Google
- * installed-apps, gray for Anthropic/OpenAI), so the user must opt in.
- */
+/** Generic fallback for callers without a known provider kind. */
 export const TOS_WARNING =
-  "Subscription auth reuses the official CLI client_id of the provider. " +
-  "This is explicitly allowed by Google, but sits in a gray area of the " +
-  "Anthropic and OpenAI terms of service. Your access token follows the " +
-  "same terms as the corresponding plan (Claude Pro/Max, ChatGPT Plus/Pro, " +
-  "Google); abusing it may violate the provider's terms.";
+  "Subscription authentication is subject to the provider's current terms, " +
+  "client permissions, plan eligibility, and billing rules. A successful " +
+  "OAuth login does not guarantee third-party inference access, included " +
+  "subscription usage, or API data protections. Review the provider's ToS card before continuing.";
 
-/** Returns true only on an explicit `y`/`yes` acknowledgement. */
-export async function confirmToSWarning(io: AuthorizationIo): Promise<boolean> {
-  await io.info(TOS_WARNING);
-  const answer = (await io.ask("Acknowledge and continue? (y/n): ")).trim().toLowerCase();
-  return answer === "y" || answer === "yes";
-}
-
-/**
- * Per-provider ToS posture (ADR-0010, #159): which client_id moh reuses
- * and how the provider treats it. The generic warning covers the three
- * original grants; the new providers get their own copy. The grants
- * themselves (child tickets #160–#163) gate on this before their flows.
- */
-const TOS_WARNING_BY_PROVIDER: Record<OAuthBuiltinKind, string> = {
+/** Current per-provider authentication posture, reviewed November 2026.
+ * These warnings describe the grants moh actually uses; exposing a grant
+ * is not a claim that the provider has approved moh (ADR-0010). */
+const TOS_WARNING_BY_PROVIDER: Record<SubscriptionKind, string> = {
+  anthropic:
+    "Anthropic subscription login reuses the Claude Code OAuth client_id. " +
+    "moh is an independent client; this does not establish Anthropic approval. " +
+    "Anthropic may allow certain third-party tools for paid users with usage credits enabled " +
+    "and may bill those credits rather than plan limits. Claude Code's documentation still " +
+    "restricts third-party Claude.ai login and credential intermediation. Continue only with " +
+    "Anthropic's authorization. Login does not guarantee inference access or included quota; " +
+    "API-key access remains recommended.",
+  openai:
+    "OpenAI subscription login reuses the official Codex OAuth client_id. " +
+    "A ChatGPT subscription or successful login does not by itself authorize every third-party client. " +
+    "Access, billing, and data use follow the applicable plan and current OpenAI terms; " +
+    "API no-training and retention rules do not automatically apply to subscription traffic.",
+  google:
+    "Google subscription login reuses the Gemini CLI OAuth client_id. " +
+    "Google API terms require permitted access and truthful client identity; reuse is not blanket permission. " +
+    "moh withholds this subscription option from onboarding because personal Code Assist credentials " +
+    "do not support its inference transport. Use a Gemini API-key endpoint instead.",
   "github-copilot":
-    "GitHub Copilot subscription auth reuses the official VS Code Copilot " +
-    "GitHub App client_id via the device flow. Your access follows your " +
-    "Copilot plan terms; automating it outside the editor may violate " +
-    "GitHub's terms of service.",
+    "GitHub Copilot login reuses the VS Code Copilot GitHub App client_id and editor headers. " +
+    "This does not establish approval of moh as a third-party client. Follow your plan and organization policies. " +
+    "Individual interactions may be used for model training unless you opt out; " +
+    "Business/Enterprise have separate data terms. Retention depends on the feature.",
   openrouter:
-    "OpenRouter sign-in uses OpenRouter's official OAuth app and produces " +
-    "a persistent API key you control. Standard OpenRouter account terms apply.",
+    "OpenRouter sign-in uses its documented OAuth flow to create an API key you control. " +
+    "OpenRouter account terms and each routed model's terms apply; data retention and training " +
+    "depend on the route and your logging/privacy settings.",
   "kimi-coding":
-    "Kimi Code subscription auth uses Moonshot's published public client_id " +
-    "for CLI device flows. Your access follows your Kimi subscription terms; " +
-    "automating it may violate the provider's terms of service.",
+    "Kimi Code login uses the published CLI device-flow client_id. " +
+    "Kimi Code permits personal interactive coding through third-party tools, but prohibits " +
+    "unattended scripts, batch execution, resale, and client-identity spoofing. " +
+    "Use the separate Kimi Platform/API product for other workloads; API data guarantees " +
+    "do not automatically apply to a Code subscription.",
   xai:
-    "xAI subscription auth uses xAI's published public client_id for CLI " +
-    "device flows (SuperGrok / X Premium). Your access follows your plan's " +
-    "terms; automating it may violate xAI's terms of service.",
+    "xAI login uses a captured public CLI device-flow client_id. " +
+    "A SuperGrok or X subscription does not by itself establish API entitlement or approval of moh. " +
+    "Use only an authentication method and workload your account permits. " +
+    "Consumer Grok and the API have separate billing and data-use terms.",
 };
 
 /** ToS warning for a provider kind: per-provider copy when one exists,
  * the generic warning otherwise. */
 export function tosWarningFor(provider: string): string {
-  return isOAuthBuiltinKind(provider) ? TOS_WARNING_BY_PROVIDER[provider] : TOS_WARNING;
+  return Object.hasOwn(TOS_WARNING_BY_PROVIDER, provider)
+    ? TOS_WARNING_BY_PROVIDER[provider as SubscriptionKind]
+    : TOS_WARNING;
 }
 
 /** Acknowledgement gate with per-provider copy (same y/yes rule). */

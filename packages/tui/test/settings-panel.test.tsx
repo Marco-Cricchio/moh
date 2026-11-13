@@ -176,8 +176,8 @@ describe("settings panel ToS card (#444)", () => {
     await settle(i, "Machine-written informational summary", "ToS card for anthropic");
     frame = stripAnsi(i.lastFrame() ?? "");
     expect(frame).toContain("Machine-written informational summary"); // disclaimer
-    expect(frame).toContain("Terms of Service — anthropic (verified 2026-09)");
-    expect(frame).toContain("Terms of Service: https://www.anthropic.com/legal/com…");
+    expect(frame).toContain("Terms of Service — anthropic (verified 2026-11)");
+    expect(frame).toContain("Commercial Terms: https://www.anthropic.com/legal/com…");
     expect(frame).toContain("Data retention:");
     i.stdin.write("\x1b"); // back
     await settle(i, "Machine-written informational summary", "back from the ToS card", { absent: true });

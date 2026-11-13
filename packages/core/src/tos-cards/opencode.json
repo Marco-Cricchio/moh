@@ -1,15 +1,28 @@
 {
   "provider": "opencode",
-  "verified": "2026-09",
+  "verified": "2026-11",
   "allowed": [
-    "Use OpenCode Zen and Go through their documented APIs with an API key."
+    "Use Zen and Go through their documented API-key interfaces within the applicable account and plan conditions.",
+    "Retain rights in your content; third-party model terms still govern the models you use."
   ],
   "forbidden": [
-    "Do not use moh to bypass OpenCode account, subscription, balance, or API-key controls."
+    "Do not bypass account, subscription, balance, or API-key controls, or resell access contrary to the hosted-service terms.",
+    "Do not equate the open-source client license with hosted Zen/Go permissions, or assume every model has the same privacy policy."
   ],
-  "retention": "See OpenCode's current terms and privacy documentation for retention details.",
-  "training": "See OpenCode's current terms and privacy documentation for training details.",
+  "retention": "Basic proxied prompts are passed upstream rather than stored by OpenCode. Hosted-agent sessions are an exception, normally deleted after 30 days of inactivity; account data and other hosted features have separate retention. Upstream model retention still applies.",
+  "training": "Terms permit unpaid-account content to improve the service, except content obtained/derived from Connected Services. Connected-Service data is not used to train models by OpenCode. Upstream exceptions, including some free models, mean no universal no-training or ZDR guarantee.",
   "links": [
-    { "label": "OpenCode documentation", "url": "https://opencode.ai/docs/" }
+    {
+      "label": "Hosted-service Terms",
+      "url": "https://opencode.ai/legal/terms-of-service"
+    },
+    {
+      "label": "Privacy Policy",
+      "url": "https://opencode.ai/legal/privacy-policy"
+    },
+    {
+      "label": "Console models and privacy exceptions",
+      "url": "https://opencode.ai/docs/console/models/"
+    }
   ]
 }

@@ -45,8 +45,7 @@ describe("onboarding wizard — cursor race", () => {
       );
       const frame = () => stripAnsi(i.lastFrame() ?? "");
       await waitForFrame(frame, "Pick a provider type");
-      // #1317/#1720: anthropic's and google's subscription offers are
-      // withdrawn — drive a kind that still offers the choice.
+      // Drive OpenAI's existing subscription flow to exercise the cursor race.
       i.stdin.write("\x1b[B");
       await waitForFrame(frame, "› openai");
       i.stdin.write("\r");
