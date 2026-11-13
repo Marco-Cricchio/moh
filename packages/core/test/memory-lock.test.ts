@@ -1,13 +1,14 @@
 /**
  * Content-based memory lock (#399): the lock file records owner
- * identity (pid + machine/boot id); staleness is decided from that
- * content, not mtime. A dead, foreign, or pre-reboot owner is
+ * identity (pid + machine id); staleness is decided from that
+ * content, not mtime. A dead or foreign owner is
  * reclaimed without a spurious timeout; a live owner still enforces
  * exclusivity. Tests observe acquire/timeout/reclaim through memory
  * writes and the lock file's recorded content.
  */
 import { afterEach, describe, expect, test } from "bun:test";
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { uptime } from "node:os";
 import { join } from "node:path";
 import { MemoryStore } from "../src/memory";
 import {
@@ -53,20 +54,12 @@ afterEach(() => {
 describe("memory lock ownership", () => {
   test("lock file carries owner identity (pid + machine + boot id)", async () => {
     const s = store("identity");
-    // Pin identity, plant a reclaimable lock, and let the append win a
-    // fresh lock: then read what a real acquire writes by planting it
-    // via createLockFile's payload through an append that keeps the lock
-    // observable — simplest observable path: assert on the payload shape
-    // ownIdentity() produces (what createLockFile writes), plus that a
-    // lock carrying this process's own pre-reboot identity is reclaimed.
     const identity = ownIdentity();
     expect(identity.pid).toBe(process.pid);
     expect(identity.machineId).toBe(machineId());
     expect(typeof identity.boot).toBe("number");
-    // Reclaim of our own pre-reboot lock proves the acquire parsed a
-    // full v1 payload and matched machine + boot.
-    setLockIdentityForTests(identity.machineId, identity.boot + 1);
-    plantLock(s, JSON.stringify({ ...identity, createdAt: Date.now() }));
+    const deadPid = spawnSync(process.execPath, ["-e", ""]).pid!;
+    plantLock(s, JSON.stringify({ ...identity, pid: deadPid, createdAt: Date.now() }));
     await s.append([{ topic: "t", fact: "f" }], "s1");
     expect(readFileSync(s.topicFile("t"), "utf8")).toContain("f");
   });
@@ -93,16 +86,45 @@ describe("memory lock ownership", () => {
     expect(readFileSync(s.topicFile("recovery"), "utf8")).toContain("after crash");
   });
 
-  test("pre-reboot owner is reclaimed even with a recycled live pid", async () => {
-    const s = store("pre-reboot");
-    const identity = ownIdentity();
-    // A lock from before the last reboot whose pid is now alive again
-    // (recycled) must not be honored.
-    setLockIdentityForTests(identity.machineId, identity.boot + 1);
-    const preReboot = { v: 1, pid: LIVE_OTHER_PID, machineId: identity.machineId, boot: identity.boot, createdAt: Date.now() };
-    plantLock(s, JSON.stringify(preReboot));
-    await s.append([{ topic: "reboot", fact: "reclaimed" }], "s1");
-    expect(readFileSync(s.topicFile("reboot"), "utf8")).toContain("reclaimed");
+  test("an earlier live holder remains exclusive for a later process with larger legacy uptime", async () => {
+    const dir = tmpDir("two-processes");
+    const lock = join(dir, ".lock");
+    const modulePath = join(import.meta.dir, "../src/memory-lock.ts");
+    const holderCode = `
+      import { createLockFile, ownIdentity, setLockIdentityForTests } from ${JSON.stringify(modulePath)};
+      import { uptime } from "node:os";
+      setLockIdentityForTests(undefined, Math.ceil(uptime()));
+      if (!createLockFile(process.argv[1])) process.exit(2);
+      console.log(JSON.stringify(ownIdentity()));
+      await new Response(Bun.stdin.stream()).text();
+    `;
+    const holder = Bun.spawn([process.execPath, "-e", holderCode, lock], { stdin: "pipe", stdout: "pipe", stderr: "pipe" });
+    try {
+      const reader = holder.stdout.getReader();
+      const ready = await reader.read();
+      reader.releaseLock();
+      const owner = JSON.parse(new TextDecoder().decode(ready.value));
+      const deadline = Date.now() + 3000;
+      while (Math.ceil(uptime()) <= owner.boot && Date.now() < deadline) await Bun.sleep(10);
+      expect(Math.ceil(uptime())).toBeGreaterThan(owner.boot);
+      const contenderCode = `
+        import { createLockFile, ownerIsGone, parseLockOwner, readLockFile, ownIdentity, setLockIdentityForTests } from ${JSON.stringify(modulePath)};
+        import { uptime } from "node:os";
+        setLockIdentityForTests(undefined, Math.ceil(uptime()));
+        const owner = parseLockOwner(readLockFile(process.argv[1]));
+        console.log(JSON.stringify({ boot: ownIdentity().boot, gone: ownerIsGone(owner), acquired: createLockFile(process.argv[1]) }));
+      `;
+      const contender = Bun.spawn([process.execPath, "-e", contenderCode, lock], { stdout: "pipe", stderr: "pipe" });
+      const result = JSON.parse(await new Response(contender.stdout).text());
+      expect(await contender.exited).toBe(0);
+      expect(result.boot).toBeGreaterThan(owner.boot);
+      expect(result.gone).toBe(false);
+      expect(result.acquired).toBe(false);
+      expect(JSON.parse(readFileSync(lock, "utf8")).pid).toBe(holder.pid);
+    } finally {
+      holder.kill();
+      await holder.exited;
+    }
   });
 
   test("legacy mtime-era lock content is reclaimed", async () => {
@@ -162,9 +184,9 @@ describe("ownerIsGone (characterization, #1437)", () => {
     expect(ownerIsGone(owner({ machineId: "machine-b" }))).toBe(true);
   });
 
-  test("an owner recorded before the last reboot is gone, even with a live pid", () => {
+  test("smaller legacy uptime never makes a live same-machine pid reclaimable", () => {
     setLockIdentityForTests("machine-a", 7);
-    expect(ownerIsGone(owner({ boot: 6 }))).toBe(true);
+    expect(ownerIsGone(owner({ boot: 6 }))).toBe(false);
   });
 
   test("a dead pid on the same machine and boot is gone", () => {

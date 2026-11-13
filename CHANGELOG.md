@@ -7,6 +7,12 @@ matching section here at tag time.
 
 ## [Unreleased]
 
+### Fixed
+
+- Memory locks no longer reclaim a live same-machine owner based on differing
+  process uptimes. Legacy lock metadata stays readable; dead owners remain
+  recoverable and the existing foreign-machine policy is preserved (#1734).
+
 ### Added
 
 - Composed teams can opt into direct peer messages with `peerMessaging: true`.
