@@ -14,16 +14,23 @@ when you are ready to use a real model, run the guided onboarding:
 moh provider add
 ```
 
-It asks whether you have an API key or a provider subscription (ChatGPT
-Plus/Pro, GitHub Copilot, OpenRouter, xAI, Kimi) and walks you through the
-rest. Subscription logins use your plan's OAuth flow — no key to copy, and
-your plan's usage is what gets billed. **Anthropic and Google are
-API-key only**: the wizard no longer offers Claude Pro/Max or a personal
-Google account as a subscription login, because neither route serves
-inference any more (Anthropic reserves it for its own clients; Google's
-Code Assist tiers refuse third parties and point individuals at
-Antigravity). An endpoint that still stores such a login is reported at
-session start, and `moh provider logout <name>` drops its tokens.
+It offers an API key or, for supported providers, a subscription login
+(Anthropic, ChatGPT, GitHub Copilot, OpenRouter, xAI, Kimi). Review the
+provider-specific terms before authorizing: a successful OAuth login does
+not guarantee inference access, included plan usage, or API data protections.
+
+**Anthropic subscription login is available again, conditionally.** Anthropic
+may allow certain third-party tools for paid subscribers with usage credits
+enabled, and may charge those credits instead of subscription limits. Its
+Claude Code documentation still restricts third-party Claude.ai login and
+credential intermediation. moh is an independent client, and the login flow
+does not establish Anthropic approval. API-key access remains recommended.
+See [Providers & models](./providers-and-models.md) for the source links.
+
+**Google remains API-key only in onboarding** because its personal Code
+Assist credentials do not support moh's inference transport. Existing Google
+subscription endpoints receive a startup warning; `moh provider logout <name>`
+drops their tokens.
 
 ## Your first session
 

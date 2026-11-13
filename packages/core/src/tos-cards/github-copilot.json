@@ -1,19 +1,32 @@
 {
   "provider": "github-copilot",
-  "verified": "2026-09",
+  "verified": "2026-11",
   "allowed": [
-    "You may use Copilot through its supported programmatic interfaces for automated coding assistance within your subscription.",
-    "You may use generated code suggestions in your projects, subject to your own license-review obligations."
+    "Use Copilot through supported interfaces within your plan and organization policies; availability of an OAuth flow does not approve every third-party client.",
+    "Use generated suggestions subject to your review, testing, and third-party license obligations; GitHub does not claim ownership of inputs or outputs."
   ],
   "forbidden": [
-    "You must not resell, sublicense, or repackage Copilot as a competing service.",
-    "You must not circumvent rate limits or access controls.",
-    "You must not reverse engineer the service."
+    "Do not share credentials to evade limits, bypass access controls, or misuse the service under the applicable acceptable-use policies.",
+    "Do not treat individual and Business/Enterprise data terms, preview features, or purchased-through-Microsoft agreements as interchangeable."
   ],
-  "retention": "GitHub states Copilot prompts and suggestions are not retained except in limited cases such as abuse investigation (as of the verification date).",
-  "training": "GitHub states prompts and suggestions are not used to train its generative models by default.",
+  "retention": "Retention varies by feature and agreement. Some services retain prompts and outputs for functionality, including outside the editor; there is no blanket no-retention promise.",
+  "training": "Individual Free, Pro, Pro+, and Max interactions may be used for training unless you opt out. Business/Enterprise content is not used for model training without customer instructions under the applicable agreement.",
   "links": [
-    { "label": "Customer Terms", "url": "https://github.com/customer-terms" },
-    { "label": "Terms for Additional Products and Features", "url": "https://docs.github.com/en/site-policy/github-terms/github-terms-for-additional-products-and-features" }
+    {
+      "label": "Terms for Additional Products and Features",
+      "url": "https://docs.github.com/en/site-policy/github-terms/github-terms-for-additional-products-and-features"
+    },
+    {
+      "label": "Individual terms, including AI data use",
+      "url": "https://docs.github.com/en/site-policy/github-terms/github-terms-of-service"
+    },
+    {
+      "label": "Generative AI Services Terms (direct volume licensing)",
+      "url": "https://github.com/customer-terms/github-generative-ai-services-terms"
+    },
+    {
+      "label": "Copilot policies and training controls",
+      "url": "https://docs.github.com/en/copilot/how-tos/manage-your-account/manage-policies"
+    }
   ]
 }

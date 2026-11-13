@@ -30,7 +30,7 @@
 import type { AuthToken, GoogleAuthOverrides } from "./types";
 import {
   buildAuthorizeUrl,
-  confirmToSWarning,
+  confirmToSWarningFor,
   generatePkce,
   generateState,
   LoginAborted,
@@ -252,7 +252,7 @@ export async function loginGoogle(
   } = {},
 ): Promise<AuthToken> {
   /** Thrown by {@link loginGoogle} when the user declines the ToS warning. */
-  if (!(await confirmToSWarning(io))) throw new LoginAborted("GoogleLoginAborted");
+  if (!(await confirmToSWarningFor(io, "google"))) throw new LoginAborted("GoogleLoginAborted");
 
   const config = resolveGoogleOAuthConfig(opts.overrides);
   const state = generateState();

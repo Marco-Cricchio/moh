@@ -24,3 +24,16 @@ File-only token storage for v1 (no OS keychain) — revisit only if users ask.
 - Refresh is core-owned and transparent: refresh-before-stream within a 5-minute proactive window (`auth/resolve.ts`); never mid-stream (principle 3 intact — a mid-stream auth failure is `ProviderError(auth)` and the route fallback chain applies). Refresh failure carries a `moh provider login <name>` hint; no retry loops.
 - `moh provider logout` and successful re-login are the only token deleters/replacers (lifecycle invariant).
 - Credential resolution has one seam (`resolveEndpointCredential`), injectable per route for tests; the CLI (`moh provider add|login|logout|status`) and any future TUI wiring are thin clients over `auth/lifecycle.ts` (principle 1).
+
+
+## Amendment — 2026-11-13: OAuth is not a billing or access guarantee
+
+The earlier statements that native Anthropic tokens necessarily use plan
+limits and that Google CLI client reuse is explicitly allowed are superseded
+by the current provider-specific warnings and the November amendment to
+[ADR-0010](0010-builtin-oauth-providers.md). A public client ID or successful
+OAuth exchange does not establish third-party authorization, inference
+entitlement, included quota, or API data protections. Anthropic may charge
+usage credits for permitted third-party tools; Google remains withheld for
+its unsupported inference transport. moh identifies its Anthropic
+subscription API traffic honestly and does not force plan-limit billing.

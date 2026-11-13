@@ -17,7 +17,7 @@ import { RetroStore } from "@moh/core";
 import { retroSignature } from "../../core/src/retro";
 import { RetroModal } from "../src/RetroModal";
 import { ThemeProvider, THEMES, DEFAULT_THEME } from "../src/themes";
-import { stripAnsi, waitForFrame } from "./helpers";
+import { pressSettled, stripAnsi, unmountSettled, waitStep, waitText, waitForFrame } from "./helpers";
 
 const dirs: string[] = [];
 function tempDir(prefix: string): string {
@@ -121,23 +121,27 @@ describe("RetroModal", () => {
     writeFileSync(join(cwd, "AGENTS.md"), "# Agents\n");
     seed(cwd, mohHome);
     const instance = mount(cwd, mohHome);
-    await waitForFrame(() => stripAnsi(instance.lastFrame() ?? ""), "navigation");
-    instance.stdin.write("a");
-    await sleep(40);
-    expect(stripAnsi(instance.lastFrame() ?? "")).toContain("apply to AGENTS.md?");
-    instance.stdin.write("n");
-    await sleep(40);
-    expect(readFileSync(join(cwd, "AGENTS.md"), "utf8")).toBe("# Agents\n");
-    instance.stdin.write("a");
-    await sleep(40);
-    instance.stdin.write("y");
-    await sleep(60);
-    const after = readFileSync(join(cwd, "AGENTS.md"), "utf8");
-    expect(after).toContain("## Retro findings");
-    expect(after).toContain("add a navigation pointer");
-    expect(stripAnsi(instance.lastFrame() ?? "")).toContain("applied to");
-    instance.unmount();
-  });
+    try {
+      await waitText(instance, "navigation", "finding ready");
+      await pressSettled(instance, "a");
+      await waitText(instance, "apply to AGENTS.md?", "first apply confirmation");
+      expect(stripAnsi(instance.lastFrame() ?? "")).toContain("apply to AGENTS.md?");
+      await pressSettled(instance, "n");
+      await waitText(instance, "apply to AGENTS.md?", "declined confirmation closed", { absent: true });
+      expect(readFileSync(join(cwd, "AGENTS.md"), "utf8")).toBe("# Agents\n");
+      await pressSettled(instance, "a");
+      await waitText(instance, "apply to AGENTS.md?", "second apply confirmation");
+      await pressSettled(instance, "y");
+      await waitStep(instance, () => readFileSync(join(cwd, "AGENTS.md"), "utf8").includes("## Retro findings"), "confirmed steering write");
+      const after = readFileSync(join(cwd, "AGENTS.md"), "utf8");
+      expect(after).toContain("## Retro findings");
+      expect(after).toContain("add a navigation pointer");
+      await waitText(instance, "applied to", "visible completion");
+      expect(stripAnsi(instance.lastFrame() ?? "")).toContain("applied to");
+    } finally {
+      await unmountSettled(instance);
+    }
+  }, 25_000);
 });
 
 describe("RetroModal vertical fit", () => {

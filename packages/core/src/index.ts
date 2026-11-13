@@ -588,7 +588,7 @@ export {
   saveTokens,
 } from "./auth/store";
 export {
-  TOS_WARNING,
+  tosWarningFor,
   type AuthorizationIo,
 } from "./auth/oauth";
 

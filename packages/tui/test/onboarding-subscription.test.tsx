@@ -5,10 +5,8 @@
  * input, completion), tokens + endpoint stub persisted right after login,
  * model + connection test as usual, and no token/code material on screen.
  *
- * #1317/#1720: neither anthropic nor google sees the auth-method step any
- * more, so the flows here are driven on openai — the live kind that behaves
- * like them (native OAuth, paste-code, shipped catalog) — and one case
- * asserts both withheld kinds take the api-key path.
+ * Anthropic is offered again with its conditional warning; Google remains
+ * API-key-only. The full existing OpenAI flow covers the shared login UI.
  */
 import { describe, expect, test } from "bun:test";
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -16,18 +14,17 @@ import { render } from "ink-testing-library";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { TOS_WARNING, readUserConfigFile, subscriptionModelCatalog, type AuthToken, type AuthorizationIo } from "@moh/core";
+import { tosWarningFor, readUserConfigFile, subscriptionModelCatalog, type AuthToken, type AuthorizationIo } from "@moh/core";
 import { getStoredToken } from "../../core/src/auth/store";
 import { Onboarding } from "../src/OnboardingOverlay";
 import { clipboardBackend } from "../src/clipboard";
-import { stripAnsi, waitForCondition, waitForFrame } from "./helpers";
+import { pressSettled, stripAnsi, unmountSettled, waitText, waitForCondition, waitForFrame } from "./helpers";
 
 const tempHome = () => mkdtempSync(join(tmpdir(), "moh-sub-home-"));
 const tempCwd = () => mkdtempSync(join(tmpdir(), "moh-sub-"));
 const okTester = async () => ({ ok: true as const, modelId: "tested" });
 
-/** #1317/#1720: drives the wizard to a kind whose subscription offer is
- * live — openai, one row down the type list (anthropic, openai). The
+/** Drives the wizard to openai, one row down the type list. The
  * per-row wait makes a dropped keystroke visible instead of silently
  * selecting the wrong kind. */
 const pickOpenai = async (i: ReturnType<typeof render>, frame: () => string): Promise<void> => {
@@ -63,11 +60,9 @@ const browserWaitingLogin = async (io: AuthorizationIo): Promise<AuthToken> => {
 
 
 describe("onboarding wizard — subscription branch (#149, #1317)", () => {
-  test("#1317/#1720: anthropic and google never show the auth-method step; a live offer does; openai-compat never does", async () => {
-    // Both kinds have a grant but the wizard withholds the offer: selecting
-    // either lands straight on the api-key flow — never the ToS, login or
-    // subscription-model screens. Rows: anthropic (0 downs), google (2).
-    for (const downs of [0, 2]) {
+  test("Google remains API-key-only; OpenAI is offered; openai-compat has no grant", async () => {
+    // Google remains withheld: selecting it lands on the API-key model step.
+    for (const downs of [2]) {
       const i1 = render(<Onboarding cwd={tempCwd()} home={tempHome()} env={{}} tester={okTester} onDone={() => {}} />);
       const frame1 = () => stripAnsi(i1.lastFrame() ?? "");
       await waitForFrame(frame1, "Pick a provider type");
@@ -99,6 +94,31 @@ describe("onboarding wizard — subscription branch (#149, #1317)", () => {
     expect(frame3()).not.toContain("authenticate?");
     i3.unmount();
   });
+
+  test("Anthropic offers subscription with the same conditional warning before any grant", async () => {
+    const home = tempHome();
+    let logins = 0;
+    const i = render(<Onboarding cwd={tempCwd()} home={home} env={{}} tester={okTester}
+      subscriptionLogin={async () => { logins++; return TOKEN; }} onDone={() => {}} />);
+    try {
+      await waitText(i, "Pick a provider type", "Anthropic type");
+      await pressSettled(i, "\r");
+      await waitText(i, "How does anthropic authenticate?", "Anthropic auth choice");
+      await pressSettled(i, "\x1b[B");
+      await waitText(i, "› subscription", "Anthropic subscription choice");
+      await pressSettled(i, "\r");
+      await waitText(i, "Terms of service", "Anthropic conditional warning");
+      const warning = stripAnsi(i.lastFrame() ?? "").replace(/│/g, " ").replace(/\s+/g, " ");
+      expect(warning).toContain(tosWarningFor("anthropic"));
+      expect(warning).toContain("usage credits enabled");
+      expect(warning).toContain("does not guarantee inference access");
+      expect(logins).toBe(0);
+      await pressSettled(i, "n");
+      await waitText(i, "How does anthropic authenticate?", "declined warning returns to auth");
+      expect(logins).toBe(0);
+      expect(getStoredToken(join(home, ".moh", "config"), "anthropic")).toBeUndefined();
+    } finally { await unmountSettled(i); }
+  }, 25_000);
 
   test("full subscription flow: ToS → login → stub+tokens → model → test → user-level save", async () => {
     const cwd = tempCwd();
@@ -133,7 +153,7 @@ describe("onboarding wizard — subscription branch (#149, #1317)", () => {
     // ToS screen first (spec invariant 4) — same text as the CLI.
     await waitForFrame(frame, "Terms of service");
     const tos = frame();
-    expect(tos).toContain(TOS_WARNING.slice(0, 40));
+    expect(tos).toContain(tosWarningFor("openai").slice(0, 40));
     i.stdin.write("y");
 
     // Login screen: manual URL visible, browser opened via the seam.

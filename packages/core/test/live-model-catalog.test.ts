@@ -493,6 +493,7 @@ describe("listProviderModels", () => {
     expect(headers.Authorization).toBe("Bearer oauth-token");
     expect(headers["x-api-key"]).toBeUndefined();
     expect(headers["anthropic-beta"]).toContain("oauth-2025-04-20");
+    expect(headers["User-Agent"]).toBe("moh");
   });
 
   test("an inline api key keeps the x-api-key listing shape", async () => {

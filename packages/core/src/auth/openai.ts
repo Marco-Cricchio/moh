@@ -29,7 +29,7 @@
 import type { AuthToken, OpenAiAuthOverrides } from "./types";
 import {
   buildAuthorizeUrl,
-  confirmToSWarning,
+  confirmToSWarningFor,
   generatePkce,
   generateState,
   LoginAborted,
@@ -439,7 +439,7 @@ export async function loginOpenAI(
   } = {},
 ): Promise<AuthToken> {
   /** Thrown by {@link loginOpenAI} when the user declines the ToS warning. */
-  if (!(await confirmToSWarning(io))) throw new LoginAborted("OpenAiLoginAborted");
+  if (!(await confirmToSWarningFor(io, "openai"))) throw new LoginAborted("OpenAiLoginAborted");
 
   const config = resolveOpenAiOAuthConfig(opts.overrides);
   const pkce = generatePkce();

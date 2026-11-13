@@ -50,7 +50,7 @@ import { providerProfile } from "./provider-profiles";
 import { PROVIDER_KINDS } from "./provider-kinds";
 import { OAUTH_BUILTIN_BASE_URLS } from "./wire";
 import { CHATGPT_CODEX_BASE_URL, CHATGPT_CODEX_ORIGINATOR, OPENAI_API_BASE_URL } from "./auth/openai";
-import { ANTHROPIC_OAUTH_BETA } from "./auth/anthropic";
+import { ANTHROPIC_SUBSCRIPTION_HEADERS } from "./auth/anthropic";
 import { readAuthSection, getStoredApiKey } from "./auth/store";
 import { freshAccessToken, type TokenFetch } from "./auth/resolve";
 import { readUserConfigFile, userConfigFile } from "./user-config";
@@ -417,7 +417,7 @@ export async function listProviderModels(
           ...ACCEPT,
           "anthropic-version": "2023-06-01",
           ...(credential.credential ? { Authorization: `Bearer ${credential.credential}` } : {}),
-          ...ANTHROPIC_OAUTH_BETA,
+          ...ANTHROPIC_SUBSCRIPTION_HEADERS,
         }
       : contract.headers?.(credential.credential) ?? bearer(credential.credential);
   const doFetch = opts.fetchImpl ?? (async (u, h) => {

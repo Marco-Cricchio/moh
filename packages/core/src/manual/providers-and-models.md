@@ -25,28 +25,42 @@ failed attempt is persisted to `~/.moh/provider-test-failures.log`
 (bounded, never carrying credentials), so a failure stays diagnosable
 after the wizard is gone.
 
-The wizard first asks **API key or subscription** — for the providers
-whose subscription login moh offers (ChatGPT Plus/Pro, GitHub Copilot,
-OpenRouter, xAI, Kimi). A subscription login
-runs the provider's OAuth flow and stores its tokens in `~/.moh/config`
-— never in moh.json, never in logs. **Anthropic and Google are
-exceptions: the wizard offers API key only.** Anthropic reserves
-subscription OAuth for Claude Code and its own clients, and Google's Code
-Assist tiers refuse third-party inference for a personal account (its
-free tier now directs individuals to Antigravity, its standard tier needs
-a cloud project of your own) — so neither route serves inference;
-`moh provider login anthropic` and `moh provider login google` still
-exist for anyone who reached them
-deliberately, and a session whose endpoint still carries those tokens
-records a visible `endpoint_auth_withdrawn` warning at start, naming the
-remedy. `moh provider login <name>` re-establishes tokens,
-`moh provider logout <name>` drops them, `moh provider status` shows
-per-endpoint auth state and plan usage. On the wizard's login
-screen the authorize URL can be wider than the dialog (the rendered line
-is truncated); press `c` to copy the full URL to the clipboard and open
-it in a browser. If the terminal refuses the clipboard write (OSC 52 may
-be ignored), the login screen says so instead of failing silently — the
-URL line stays on screen as the manual fallback.
+The wizard asks **API key or subscription** where moh offers both methods
+(Anthropic, OpenAI, GitHub Copilot, OpenRouter, xAI, Kimi). OAuth tokens are
+stored in `~/.moh/config`, never in moh.json or logs. Authentication alone
+does not establish permission, inference access, included quota, or API data
+protections; the provider-specific warning describes the applicable limits.
+
+**Anthropic's subscription option is restored with conditions.** The updated
+[login guidance](https://support.claude.com/en/articles/13189465-log-in-to-your-claude-account)
+says Anthropic may allow certain third-party tools for paid subscribers who
+have usage credits enabled, and may charge those credits instead of plan
+limits. The [Claude Code legal documentation](https://code.claude.com/docs/en/legal-and-compliance)
+still restricts third-party Claude.ai login and credential intermediation.
+moh reuses the captured Claude Code OAuth client ID and identifies its own
+subscription API requests as moh; this is not evidence of provider approval.
+Continue only with the authorization applicable to your account and tool.
+API-key access remains the recommended path. moh does not force subscription
+billing or bypass provider refusals.
+
+**Google remains API-key only in onboarding.** Its personal Code Assist
+tiers do not support moh's inference transport. `moh provider login google`
+remains reachable deliberately; sessions carrying Google subscription
+credentials record `endpoint_auth_withdrawn` with an API-key remedy.
+Anthropic endpoints no longer receive that withdrawn-offer warning.
+
+Kimi Code subscriptions are for personal interactive coding through supported
+tools, not unattended scripts or batch pipelines. Copilot's individual plans
+may use interactions for training unless you opt out; Business/Enterprise
+have separate data terms. API and consumer data policies differ for several
+providers. The bundled ToS cards summarize the current sources and verification
+date; OpenAI-compatible transport alone says nothing about a backend's policy.
+
+`moh provider login <name>` re-establishes tokens, `moh provider logout <name>`
+drops them, and `moh provider status` shows per-endpoint authentication state
+and best-effort usage. On the wizard's login screen, press `c` to copy the full
+authorize URL. If the terminal rejects clipboard access, the screen reports
+that result and keeps the URL as the manual fallback.
 
 ## Endpoints and routing
 

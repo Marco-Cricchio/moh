@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { wireForKind, OAUTH_BUILTIN_BASE_URLS, OAUTH_BUILTIN_KINDS, isOAuthBuiltinKind } from "../src/wire";
 import { authOverridesSchema, authSectionSchema } from "../src/auth/types";
+import { SUBSCRIPTION_KINDS } from "../src/auth/lifecycle";
 import { tosWarningFor, TOS_WARNING } from "../src/auth/oauth";
 import { BUILTIN_PROVIDER_TYPES } from "../src/provider-onboarding";
 import { resolveProvider } from "../src/provider-registry";
@@ -61,12 +62,15 @@ describe("auth store extension (#159)", () => {
 });
 
 describe("ToS copy per provider (#159)", () => {
-  test("each new provider has dedicated copy; others get the generic warning", () => {
-    for (const kind of OAUTH_BUILTIN_KINDS) {
+  test("each subscription grant has dedicated copy; unknown names get the generic warning", () => {
+    for (const kind of SUBSCRIPTION_KINDS) {
       expect(tosWarningFor(kind)).not.toBe(TOS_WARNING);
     }
-    expect(tosWarningFor("anthropic")).toBe(TOS_WARNING);
-    expect(tosWarningFor("openai")).toBe(TOS_WARNING);
+    expect(tosWarningFor("custom")).toBe(TOS_WARNING);
+    expect(tosWarningFor("constructor")).toBe(TOS_WARNING);
+    expect(tosWarningFor("anthropic")).toContain("usage credits");
+    expect(tosWarningFor("anthropic")).toContain("does not guarantee inference");
+    expect(tosWarningFor("kimi-coding")).toContain("interactive");
   });
 });
 

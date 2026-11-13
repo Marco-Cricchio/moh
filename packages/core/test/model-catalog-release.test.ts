@@ -14,55 +14,81 @@ import { join } from "node:path";
 import manifest from "../src/model-catalogs/manifest.json";
 import { releaseVersionProblem } from "../scripts/model-catalog-build";
 
+// Publication checks specify filesystem/process correctness, not a 5s CLI SLO.
+// Each child has its own bound; the case allows two children plus cleanup.
+const CHILD_TIMEOUT_MS = 10_000;
+const CASE_TIMEOUT_MS = 25_000;
+async function runCatalogChild(command: string[], timeoutMs = CHILD_TIMEOUT_MS, receipt?: string) {
+  const started = performance.now();
+  const child = Bun.spawn(command, { stdin: "ignore", stdout: "pipe", stderr: "pipe" });
+  let expired = false;
+  const timer = setTimeout(() => { expired = true; child.kill("SIGKILL"); }, timeoutMs);
+  try {
+    const [stdout, stderr, exitCode] = await Promise.all([
+      new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited,
+    ]);
+    const elapsed = Math.round(performance.now() - started);
+    const phase = receipt ? (existsSync(receipt) ? "after preload" : "before preload") : "entry not instrumented";
+    const diagnostic = `catalog child pid=${child.pid}, elapsed=${elapsed}ms, ${phase}, exit=${exitCode}, signal=${child.signalCode}\ncommand: ${JSON.stringify(command)}\nstdout: ${stdout}\nstderr: ${stderr}`;
+    if (expired) throw new Error(`catalog child deadline expired after ${timeoutMs}ms: ${diagnostic}`);
+    if (child.signalCode) throw new Error(`catalog child terminated by signal: ${diagnostic}`);
+    if (elapsed > 3000) console.warn(`slow ${diagnostic}`);
+    return { stdout: Buffer.from(stdout), stderr: Buffer.from(stderr), exitCode };
+  } finally {
+    clearTimeout(timer);
+    child.kill();
+    await child.exited;
+  }
+}
+
 const SCRIPT = join(import.meta.dir, "../scripts/build-model-catalogs.ts");
 const REFERENCE = "2026-09-25T18:06:00.000Z";
 
 /** Empty aggregator snapshots: every committed row loses its aggregator
  * data, which is the largest possible upstream move. Nothing here touches
  * the network or writes a file. */
-function snapshots(): { modelsDev: string; openRouter: string } {
+function snapshots(): { root: string; modelsDev: string; openRouter: string } {
   const dir = mkdtempSync(join(tmpdir(), "moh-catalog-"));
   const modelsDev = join(dir, "models-dev.json");
   const openRouter = join(dir, "open-router.json");
   writeFileSync(modelsDev, "{}\n");
   writeFileSync(openRouter, '{"data":[]}\n');
-  return { modelsDev, openRouter };
+  return { root: dir, modelsDev, openRouter };
 }
 
-function run(args: string[]): { code: number; out: string; err: string } {
+async function run(args: string[]): Promise<{ code: number; out: string; err: string }> {
   const snap = snapshots();
-  const result = Bun.spawnSync([process.execPath, SCRIPT, ...args, "--models-dev", snap.modelsDev, "--open-router", snap.openRouter], {
-    stdout: "pipe",
-    stderr: "pipe",
-  });
-  return { code: result.exitCode, out: result.stdout.toString(), err: result.stderr.toString() };
+  try {
+    const result = await runCatalogChild([process.execPath, SCRIPT, ...args, "--models-dev", snap.modelsDev, "--open-router", snap.openRouter]);
+    return { code: result.exitCode, out: result.stdout.toString(), err: result.stderr.toString() };
+  } finally { rmSync(snap.root, { recursive: true, force: true }); }
 }
 
 describe("#1005 release-time catalog freshness", () => {
-  test("the version contract holds offline and names both versions when it does not", () => {
-    const ok = run(["--verify-version", manifest.version]);
+  test("the version contract holds offline and names both versions when it does not", async () => {
+    const ok = await run(["--verify-version", manifest.version]);
     expect(ok.code).toBe(0);
     expect(ok.out).toContain(`manifest.json declares moh ${manifest.version}`);
 
-    const mismatch = run(["--verify-version", "0.50.0"]);
+    const mismatch = await run(["--verify-version", "0.50.0"]);
     expect(mismatch.code).toBe(1);
     expect(mismatch.err).toContain(`manifest.json declares moh ${manifest.version}, but the release is 0.50.0`);
-  });
+  }, CASE_TIMEOUT_MS);
 
-  test("a manifest with no version at all breaks the contract too, and says so", () => {
+  test("a manifest with no version at all breaks the contract too, and says so", async () => {
     // The branch a hand-edited or pre-manifest tree would hit: the release
     // must not proceed on a catalog that declares nothing.
     expect(releaseVersionProblem(undefined, "0.51.0")).toBe(
       "manifest.json declares moh (no version), but the release is 0.51.0 — regenerate with --version 0.51.0 and commit the result",
     );
     expect(releaseVersionProblem("0.51.0", "0.51.0")).toBeUndefined();
-  });
+  }, CASE_TIMEOUT_MS);
 
-  test("a rebuild the guards refuse still reports — age and drifted files, with no row counts", () => {
+  test("a rebuild the guards refuse still reports — age and drifted files, with no row counts", async () => {
     // Empty snapshots: every committed row loses its aggregator data, so the
     // guards reject the rebuild. That is the release whose freshness is worth
     // reading most, and there is no flavour of drift that makes this job red.
-    const { code, out } = run(["--freshness", "--at", REFERENCE]);
+    const { code, out } = await run(["--freshness", "--at", REFERENCE]);
     expect(code).toBe(0);
     const lines = out.split("\n");
     // The age is the committed manifest's, not the rebuild's: it is readable
@@ -78,22 +104,34 @@ describe("#1005 release-time catalog freshness", () => {
     expect(out).toMatch(/^  guard: .+/m);
     expect(out).toMatch(/advisory: \d+ committed file\(s\) differ and \d+ guard finding\(s\)/);
     expect(out).not.toContain("0 price(s)");
-  });
+  }, CASE_TIMEOUT_MS);
 
-  test("the explicit-input drift compare keeps its non-zero exit", () => {
-    const check = run(["--check"]);
+  test("the explicit-input drift compare keeps its non-zero exit", async () => {
+    const check = await run(["--check"]);
     expect(check.code).toBe(1);
     expect(check.err).toContain("generation failed");
-  });
+  }, CASE_TIMEOUT_MS);
 
-  test("--check and --freshness together are a usage error, not a silent choice", () => {
-    const both = run(["--check", "--freshness"]);
+  test("--check and --freshness together are a usage error, not a silent choice", async () => {
+    const both = await run(["--check", "--freshness"]);
     expect(both.code).toBe(2);
     expect(both.err).toContain("--check fails on drift and --freshness reports it");
-  });
+  }, CASE_TIMEOUT_MS);
 });
 
 describe("catalog publication safety", () => {
+  test("a hung child is killed and reaped with process diagnostics", async () => {
+    let failure = "";
+    try { await runCatalogChild([process.execPath, "-e", "setInterval(() => {}, 1000)"], 150); }
+    catch (error) { failure = String(error); }
+    expect(failure).toContain("catalog child deadline expired after 150ms");
+    expect(failure).toContain("stdout:");
+    expect(failure).toContain("stderr:");
+    const pid = Number(/pid=(\d+)/.exec(failure)?.[1]);
+    expect(pid).toBeGreaterThan(0);
+    expect(() => process.kill(pid, 0)).toThrow();
+  }, CASE_TIMEOUT_MS);
+
   // Copy the real CLI and its implementation to a temporary repository.
   // The production path stays fixed relative to the script: no test-only
   // output directory, filesystem mock, network, or modified checkout.
@@ -117,14 +155,18 @@ describe("catalog publication safety", () => {
     writeFileSync(md, JSON.stringify({ demo: { models: { one: { id: "one", limit: { context: 200 }, cost: { input: 2, output: 4 } } } } }));
     writeFileSync(or, '{"data":[]}');
     const preload = join(root, "no-network.ts");
-    writeFileSync(preload, 'globalThis.fetch = async () => { throw new Error("network access forbidden by test"); };');
-    const run = (args: string[] = ["--version", "1.0.1"], withInputs = true) => Bun.spawnSync([process.execPath, "--preload", preload, join(scripts, "build-model-catalogs.ts"), ...args, ...(withInputs ? ["--models-dev", md, "--open-router", or] : [])], { stdout: "pipe", stderr: "pipe" });
+    const receipt = join(root, "child-started.json");
+    writeFileSync(preload, `import {writeFileSync} from "node:fs"; writeFileSync(${JSON.stringify(receipt)}, JSON.stringify({pid:process.pid})); globalThis.fetch = async () => { throw new Error("network access forbidden by test"); };`);
+    const run = async (args: string[] = ["--version", "1.0.1"], withInputs = true) => {
+      rmSync(receipt, { force: true });
+      return runCatalogChild([process.execPath, "--preload", preload, join(scripts, "build-model-catalogs.ts"), ...args, ...(withInputs ? ["--models-dev", md, "--open-router", or] : [])], CHILD_TIMEOUT_MS, receipt);
+    };
     const contents = () => Object.fromEntries(readdirSync(dir).filter(name => statSync(join(dir, name)).isFile()).sort().map(name => [name, readFileSync(join(dir, name), "utf8")]));
     return { root, src, dir, md, or, run, contents };
   }
 
   for (const failure of ["missing-source", "invalid-json", "empty-source", "late-sidecar", "missing-sidecar", "staging-write"] as const) {
-    test(`${failure}: refuses the build and preserves every published byte`, () => {
+    test(`${failure}: refuses the build and preserves every published byte`, async () => {
       const f = fixture();
       try {
         if (failure === "missing-source") rmSync(f.md);
@@ -138,45 +180,45 @@ describe("catalog publication safety", () => {
           writeFileSync(join(f.dir, "generation-report.json", "keep"), "previous");
         }
         const before = f.contents();
-        const result = f.run();
+        const result = await f.run();
         expect(result.exitCode).toBe(1);
         expect(result.stderr.toString()).toContain("failed");
         expect(f.contents()).toEqual(before);
         if (failure === "staging-write") expect(readFileSync(join(f.dir, "generation-report.json", "keep"), "utf8")).toBe("previous");
         expect(existsSync(`${f.dir}.previous`)).toBe(false);
       } finally { rmSync(f.root, { recursive: true, force: true }); }
-    });
+    }, CASE_TIMEOUT_MS);
   }
 
-  test("a late migration error cannot leave an earlier sidecar behind", () => {
+  test("a late migration error cannot leave an earlier sidecar behind", async () => {
     const f = fixture();
     try {
       rmSync(join(f.dir, "demo.overrides.json"));
       renameSync(join(f.dir, "demo.json"), join(f.dir, "anthropic.json"));
       writeFileSync(join(f.dir, "zzz.json"), "{}");
       const before = f.contents();
-      expect(f.run(["--migrate-overrides", "--version", "1.0.1"]).exitCode).toBe(1);
+      expect((await f.run(["--migrate-overrides", "--version", "1.0.1"])).exitCode).toBe(1);
       expect(f.contents()).toEqual(before);
     } finally { rmSync(f.root, { recursive: true, force: true }); }
-  });
+  }, CASE_TIMEOUT_MS);
 
-  test("recovery keeps the complete new generation after the second rename", () => {
+  test("recovery keeps the complete new generation after the second rename", async () => {
     const f = fixture();
     try {
       mkdirSync(`${f.dir}.previous`);
       writeFileSync(join(`${f.dir}.previous`, "manifest.json"), '{"version":"0.9.0"}');
       const before = f.contents();
-      expect(f.run(["--verify-version", "1.0.0"]).exitCode).toBe(0);
+      expect((await f.run(["--verify-version", "1.0.0"])).exitCode).toBe(0);
       expect(f.contents()).toEqual(before);
       expect(existsSync(`${f.dir}.previous`)).toBe(false);
     } finally { rmSync(f.root, { recursive: true, force: true }); }
-  });
+  }, CASE_TIMEOUT_MS);
 
-  test("publishes a complete generation whose files match its manifest", () => {
+  test("publishes a complete generation whose files match its manifest", async () => {
     const f = fixture();
     try {
       const sidecar = readFileSync(join(f.dir, "demo.overrides.json"), "utf8");
-      const result = f.run();
+      const result = await f.run();
       expect(result.exitCode).toBe(0);
       const m = JSON.parse(readFileSync(join(f.dir, "manifest.json"), "utf8"));
       expect(m.version).toBe("1.0.1");
@@ -186,9 +228,9 @@ describe("catalog publication safety", () => {
       expect(existsSync(`${f.dir}.previous`)).toBe(false);
       expect(existsSync(`${f.dir}.staging`)).toBe(false);
     } finally { rmSync(f.root, { recursive: true, force: true }); }
-  });
+  }, CASE_TIMEOUT_MS);
 
-  test("refuses a live generator's lock without touching its staging files", () => {
+  test("refuses a live generator's lock without touching its staging files", async () => {
     const f = fixture();
     try {
       expect(createLockFile(`${f.dir}.lock`)).toBe(true);
@@ -198,31 +240,31 @@ describe("catalog publication safety", () => {
       mkdirSync(`${f.dir}.staging`);
       writeFileSync(join(`${f.dir}.staging`, "sentinel"), "busy");
       const before = f.contents();
-      expect(f.run().exitCode).toBe(1);
+      expect((await f.run()).exitCode).toBe(1);
       expect(f.contents()).toEqual(before);
       expect(readFileSync(join(`${f.dir}.staging`, "sentinel"), "utf8")).toBe("busy");
     } finally { releaseLockFile(`${f.dir}.lock`); rmSync(f.root, { recursive: true, force: true }); }
-  });
+  }, CASE_TIMEOUT_MS);
 
-  test("pinned verification reproduces all artifacts with fetch forbidden and raw inputs removed", () => {
+  test("pinned verification reproduces all artifacts with fetch forbidden and raw inputs removed", async () => {
     const f = fixture();
     try {
-      expect(f.run().exitCode).toBe(0);
+      expect((await f.run()).exitCode).toBe(0);
       rmSync(f.md); rmSync(f.or);
       const before = f.contents();
-      const result = f.run(["--check"], false);
+      const result = await f.run(["--check"], false);
       expect(result.stderr.toString()).toBe("");
       expect(result.exitCode).toBe(0);
       expect(result.stdout.toString()).toContain("pinned inputs (offline)");
       expect(f.contents()).toEqual(before);
     } finally { rmSync(f.root, { recursive: true, force: true }); }
-  }, 15_000);
+  }, CASE_TIMEOUT_MS);
 
   for (const target of ["snapshot", "snapshot-hash", "snapshot-digest", "catalog", "report", "manifest"] as const) {
-    test(`pinned verification rejects tampered ${target} without rewriting it`, () => {
+    test(`pinned verification rejects tampered ${target} without rewriting it`, async () => {
       const f = fixture();
       try {
-        expect(f.run().exitCode).toBe(0);
+        expect((await f.run()).exitCode).toBe(0);
         const m = JSON.parse(readFileSync(join(f.dir, "manifest.json"), "utf8"));
         if (target === "snapshot") writeFileSync(join(f.dir, "sources", `${m.sources[0].sha256}.json.gz`), "broken gzip");
         if (target === "snapshot-hash") writeFileSync(join(f.dir, "sources", `${m.sources[0].sha256}.json.gz`), gzipSync(Buffer.from("{}")));
@@ -237,22 +279,22 @@ describe("catalog publication safety", () => {
           writeFileSync(join(f.dir, "manifest.json"), JSON.stringify(m));
         }
         const before = f.contents();
-        const result = f.run(["--check"], false);
+        const result = await f.run(["--check"], false);
         expect(result.exitCode).toBe(1);
         if (target === "snapshot-hash") expect(result.stderr.toString()).toContain("snapshot hash mismatch");
         if (target === "snapshot-digest") expect(result.stderr.toString()).toContain("missing or invalid pinned snapshot digest");
         expect(f.contents()).toEqual(before);
       } finally { rmSync(f.root, { recursive: true, force: true }); }
-    }, 15_000);
+    }, CASE_TIMEOUT_MS);
   }
 
-  test("live review reports rejected guards and candidates without publishing", () => {
+  test("live review reports rejected guards and candidates without publishing", async () => {
     const f = fixture();
     try {
       writeFileSync(f.md, JSON.stringify({ demo: { models: { newcomer: { id: "newcomer" } } } }));
       const before = f.contents();
       const path = join(f.root, "review.json");
-      const result = f.run(["--freshness", "--report", path]);
+      const result = await f.run(["--freshness", "--report", path]);
       expect(result.exitCode).toBe(0);
       const report = JSON.parse(readFileSync(path, "utf8"));
       expect(report.status).toBe("rejected");
@@ -260,9 +302,9 @@ describe("catalog publication safety", () => {
       expect(report.analysis.candidates).toContainEqual({ provider: "demo", source: "models.dev", namespace: "demo", id: "newcomer" });
       expect(f.contents()).toEqual(before);
     } finally { rmSync(f.root, { recursive: true, force: true }); }
-  }, 15_000);
+  }, CASE_TIMEOUT_MS);
 
-  test("PR base guards cannot be erased by rewriting the output and its manifest together", () => {
+  test("PR base guards cannot be erased by rewriting the output and its manifest together", async () => {
     const f = fixture();
     try {
       const git = (...args: string[]) => execFileSync("git", args, { cwd: f.root, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
@@ -276,21 +318,21 @@ describe("catalog publication safety", () => {
       const m = JSON.parse(readFileSync(join(f.dir, "manifest.json"), "utf8"));
       m.files.demo.sha256 = createHash("sha256").update("{}").digest("hex");
       writeFileSync(join(f.dir, "manifest.json"), JSON.stringify(m));
-      expect(f.run().exitCode).toBe(0);
-      const result = f.run(["--check", "--baseline", base], false);
+      expect((await f.run()).exitCode).toBe(0);
+      const result = await f.run(["--check", "--baseline", base], false);
       expect(result.exitCode).toBe(1);
       expect(result.stderr.toString()).toContain("PR base:");
       expect(result.stderr.toString()).toContain("does not declare");
     } finally { rmSync(f.root, { recursive: true, force: true }); }
-  }, 15_000);
+  }, CASE_TIMEOUT_MS);
 
-  test("an occupied reclamation marker is never removed by a contender", () => {
+  test("an occupied reclamation marker is never removed by a contender", async () => {
     const f = fixture();
     try {
       expect(createLockFile(`${f.dir}.lock`)).toBe(true);
       expect(createLockFile(`${f.dir}.reclaim`)).toBe(true);
       const before = f.contents();
-      const result = f.run();
+      const result = await f.run();
       expect(result.exitCode).toBe(1);
       expect(result.stderr.toString()).toContain("lock recovery is busy or interrupted");
       expect(existsSync(`${f.dir}.reclaim`)).toBe(true);
@@ -300,9 +342,9 @@ describe("catalog publication safety", () => {
       releaseLockFile(`${f.dir}.reclaim`);
       rmSync(f.root, { recursive: true, force: true });
     }
-  });
+  }, CASE_TIMEOUT_MS);
 
-  test("recovers a process killed between directory renames before checking the version", () => {
+  test("recovers a process killed between directory renames before checking the version", async () => {
     const f = fixture();
     try {
       const before = f.contents();
@@ -311,11 +353,11 @@ describe("catalog publication safety", () => {
       writeFileSync(join(`${f.dir}.staging`, "incomplete"), "partial");
       // A process-boundary fixture: the lock's owner has really exited.
       const lockScript = `import { createLockFile } from ${JSON.stringify(join(f.src, "memory-lock.ts"))}; createLockFile(${JSON.stringify(`${f.dir}.lock`)});`;
-      expect(Bun.spawnSync([process.execPath, "-e", lockScript]).exitCode).toBe(0);
-      expect(f.run(["--verify-version", "1.0.0"]).exitCode).toBe(0);
+      expect((await runCatalogChild([process.execPath, "-e", lockScript])).exitCode).toBe(0);
+      expect((await f.run(["--verify-version", "1.0.0"])).exitCode).toBe(0);
       expect(f.contents()).toEqual(before);
       expect(existsSync(`${f.dir}.previous`)).toBe(false);
       expect(existsSync(`${f.dir}.staging`)).toBe(false);
     } finally { rmSync(f.root, { recursive: true, force: true }); }
-  }, 15_000);
+  }, CASE_TIMEOUT_MS);
 });

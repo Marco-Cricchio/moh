@@ -33,7 +33,7 @@ test.skipIf(!hasPython)("SIGWINCH reflows the live frame without widening post-r
   expect(input.width).toBeLessThanOrEqual(80);
   for (const line of lines.slice(inputIdx)) expect(line.width).toBeLessThanOrEqual(80);
   expect(lines.slice(inputIdx).some((line) => line.text.includes("model"))).toBe(true);
-}, 30_000);
+}, 60_000); // includes the harness's bounded cold-start/cleanup envelope
 
 test.skipIf(!hasPython)("#1305 settled tinted cards never send the live frame fullscreen", async () => {
   const { server, url } = startFakeOpenAiTurns(3);
@@ -65,4 +65,4 @@ test.skipIf(!hasPython)("#1305 settled tinted cards never send the live frame fu
     console.log(`[block-surfaces PTY] maxFrameRows=${meta.maxFrameRows} maxFrameRowsAfterMark=${meta.maxFrameRowsAfterMark} fullscreenFrames=${meta.fullscreenFrames}`);
     expect(meta.aliveAtEnd).toBe(true);
   } finally { server.stop(true); }
-}, 45_000);
+}, 60_000);

@@ -7,6 +7,32 @@ matching section here at tag time.
 
 ## [Unreleased]
 
+## [0.67.1] - 2026-11-13
+
+### Fixed
+
+- Restore Anthropic subscription onboarding in the CLI and TUI with the
+  current provider-specific access conditions. Permitted third-party use
+  may bill usage credits instead of included plan limits; login alone does
+  not establish approval or inference entitlement. Subscription requests
+  identify moh and preserve provider authorization refusals (#1767).
+- Strengthen catalog-publication child deadlines and cleanup, isolate
+  slash-popup credentials and rendering lifecycle, separate cold PTY startup
+  from interaction readiness, and wait for Retro apply confirmation and
+  steering-file writes (#1763, #1764, #1765, #1768).
+
+### Changed
+
+- Refresh all nine bundled provider ToS summaries and their generated docs
+  for November 2026. Distinguish API and consumer policies, individual and
+  business training controls, retention exceptions, and Kimi Code's
+  interactive-only subscription scope (#1767).
+- Refresh the bundled model catalog from reviewed live sources. Preserve
+  Google's documented legacy pricing tiers, accept MiniMax M2.5's exact
+  context correction, retire five unavailable provider routes with evidence,
+  and restore two Qwen OpenRouter routes after checking active endpoints
+  (#1762). The release ships 510 reviewed rows across 25 catalogs.
+
 ## [0.67.0] - 2026-11-13
 
 ### Added

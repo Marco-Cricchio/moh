@@ -8,7 +8,7 @@ import { createAnthropic } from "@ai-sdk/anthropic";
 import { createOpenAI } from "@ai-sdk/openai";
 import { createGoogleGenerativeAI } from "@ai-sdk/google";
 import type { AuthMethodKind } from "../auth/types";
-import { ANTHROPIC_OAUTH_BETA } from "../auth/anthropic";
+import { ANTHROPIC_SUBSCRIPTION_HEADERS } from "../auth/anthropic";
 import { wireForKind, type WireApi } from "../wire";
 import { openRouterChatModel } from "./openrouter-chat";
 
@@ -116,7 +116,7 @@ function thinkingWithChatToolsPin(
  * subscription-authed anthropic endpoints; api-key traffic is untouched.
  */
 export function anthropicSubscriptionHeaders(authKind: AuthMethodKind): Record<string, string> | undefined {
-  return authKind === "subscription" ? { ...ANTHROPIC_OAUTH_BETA } : undefined;
+  return authKind === "subscription" ? { ...ANTHROPIC_SUBSCRIPTION_HEADERS } : undefined;
 }
 
 /** OpenCode Go asks coding-agent clients to identify each conversation

@@ -14,7 +14,7 @@ import {
   withdrawnSubscriptionReason,
 } from "../src/auth/lifecycle";
 import { LoginAborted } from "../src/auth/oauth";
-import { TOS_WARNING } from "../src/auth/oauth";
+import { tosWarningFor } from "../src/auth/oauth";
 
 /** IO double: pre-scripted answers, recorded info lines. */
 function ioWith(answers: string[]): OnboardingIo & { said: string[] } {
@@ -66,11 +66,11 @@ describe("isSubscriptionKind", () => {
 });
 
 describe("offersSubscriptionAuth (#1317, #1720)", () => {
-  test("anthropic and google have a grant but are withheld; the other grant kinds are offered", () => {
-    // The grant stays reachable (providerLogin below) — only the offer goes.
+  test("anthropic is offered again while google remains withheld", () => {
+    // Grant capability and onboarding availability remain distinct.
     expect(isSubscriptionKind("anthropic")).toBe(true);
     expect(isSubscriptionKind("google")).toBe(true);
-    expect(offersSubscriptionAuth("anthropic")).toBe(false);
+    expect(offersSubscriptionAuth("anthropic")).toBe(true);
     // #1720: Google's Code Assist tiers refuse third-party inference for
     // consumer accounts (the bundle's free tier answers UNSUPPORTED_CLIENT,
     // the standard tier needs a user-defined GCP project) — the grant
@@ -83,23 +83,21 @@ describe("offersSubscriptionAuth (#1317, #1720)", () => {
     expect(offersSubscriptionAuth("mock")).toBe(false);
   });
 
-  test("the withheld offer never removes the grant: the real anthropic grant is still dispatched", async () => {
-    // #1317 withdraws the *offer*, not the capability. `moh provider login
-    // anthropic` (and refresh, and logout) must keep reaching the Anthropic
-    // grant itself: declining its ToS answers with the grant's own abort —
-    // never a "has no subscription auth" refusal — and touches no network.
+  test("the real anthropic grant requires its conditional warning before any network call", async () => {
+    // Declining the real grant must abort before callback or token I/O;
+    // restoring the offer must not bypass the provider-specific acknowledgement.
     const io = ioWith(["n"]);
     const failure = await runSubscriptionLogin("anthropic", io).catch((error: unknown) => error);
     expect(failure).toBeInstanceOf(LoginAborted);
     expect((failure as Error).name).toBe("AnthropicLoginAborted");
     expect((failure as Error).message).toBe("subscription auth aborted: terms of service not acknowledged");
-    expect(io.said.join("\n")).toContain(TOS_WARNING);
+    expect(io.said.join("\n")).toContain(tosWarningFor("anthropic"));
   });
 });
 
 describe("withdrawnSubscriptionReason (#1317, #1720)", () => {
   test("names the endpoint and both halves of the remedy, for every withheld kind", () => {
-    for (const [name, type] of [["claude", "anthropic"], ["g", "google"]] as const) {
+    for (const [name, type] of [["g", "google"]] as const) {
       const reason = withdrawnSubscriptionReason({ name, type, auth: { kind: "subscription" } });
       expect(reason).toContain(`"${name}"`);
       expect(reason).toContain("no longer offers");
@@ -112,6 +110,7 @@ describe("withdrawnSubscriptionReason (#1317, #1720)", () => {
 
   test("every other endpoint is silent", () => {
     expect(withdrawnSubscriptionReason({ name: "anthropic", type: "anthropic" })).toBeNull();
+    expect(withdrawnSubscriptionReason({ name: "claude", type: "anthropic", auth: { kind: "subscription" } })).toBeNull();
     expect(withdrawnSubscriptionReason({ name: "mygoogle", type: "google" })).toBeNull();
     expect(withdrawnSubscriptionReason({ name: "myopenai", type: "openai", auth: { kind: "subscription" } })).toBeNull();
     expect(withdrawnSubscriptionReason({ name: "odd", type: "openai-compat", auth: { kind: "subscription" } })).toBeNull();

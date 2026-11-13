@@ -1,20 +1,33 @@
 {
   "provider": "xai",
-  "verified": "2026-09",
+  "verified": "2026-11",
   "allowed": [
-    "You may use the Grok API programmatically, including for automated and agent-driven workloads.",
-    "You may use the outputs, including commercially, subject to the terms."
+    "Use the Grok API for applications and agent workflows under the Enterprise Terms and acceptable-use rules.",
+    "Retain ownership of inputs and outputs as between you and the provider, subject to applicable rights and your agreement."
   ],
   "forbidden": [
-    "You must not use outputs to develop a competing model.",
-    "You must not circumvent rate limits or access controls.",
-    "You must not reverse engineer the services or models.",
-    "You must not submit unlawful or harmful content under the Acceptable Use Policy."
+    "Do not train AI models on outputs without the permission required by the Enterprise Terms; restrictions extend beyond competing models.",
+    "Do not reverse engineer services, bypass limits or safeguards, or access through unauthorized automated means.",
+    "Do not assume a SuperGrok or X subscription includes API entitlement or permission for every third-party OAuth client."
   ],
-  "retention": "As of the verification date, xAI states API/enterprise customer data is not used for training and is retained only as needed to provide the service.",
-  "training": "xAI states it does not train on API inputs by default.",
+  "retention": "API requests/responses normally have 30-day audit retention, with agreement, feature, legal, and safety exceptions. Team-level ZDR is available where eligible and disables features requiring stored data. Consumer Grok has separate data controls.",
+  "training": "API inputs/outputs are not used for model training without explicit permission. Consumer-service content follows separate training settings and terms.",
   "links": [
-    { "label": "Terms of Service", "url": "https://x.ai/legal/terms-of-service" },
-    { "label": "Acceptable Use Policy", "url": "https://x.ai/legal/acceptable-use-policy" }
+    {
+      "label": "Enterprise Terms (API/business)",
+      "url": "https://x.ai/legal/terms-of-service-enterprise"
+    },
+    {
+      "label": "Consumer Terms",
+      "url": "https://x.ai/legal/terms-of-service"
+    },
+    {
+      "label": "Acceptable Use Policy",
+      "url": "https://x.ai/legal/acceptable-use-policy"
+    },
+    {
+      "label": "API security and retention",
+      "url": "https://docs.x.ai/developers/faq/security"
+    }
   ]
 }

@@ -13,7 +13,7 @@ import { userConfigFile } from "./user-config";
 import { runSubscriptionLogin, offersSubscriptionAuth } from "./auth/lifecycle";
 import { getStoredToken, getStoredApiKey, readAuthSection, bindStoredApiKeyOrigin, saveStoredApiKey, saveTokens } from "./auth/store";
 import type { SubscriptionKind } from "./auth/lifecycle";
-import { ANTHROPIC_OAUTH_BETA } from "./auth/anthropic";
+import { ANTHROPIC_SUBSCRIPTION_HEADERS } from "./auth/anthropic";
 import { openaiNativeAuthContext } from "./auth/resolve";
 import { OAUTH_BUILTIN_BASE_URLS, isOAuthBuiltinKind } from "./wire";
 import { catalogEntryFor, knownCompatEndpointMetadata, subscriptionModelCatalog } from "./model-catalog";
@@ -150,9 +150,8 @@ export interface ProviderAddOptions {
  * `api-key | subscription` first, then branch — the api-key questions are
  * unchanged; the subscription branch runs the per-provider login (ToS
  * first) and marks the profile `auth: { kind: "subscription" }` (no key
- * prompt). #1317/#1720: anthropic's and google's grants are withheld from
- * the wizard (`offersSubscriptionAuth`) — they go straight to the api-key
- * path, while `moh provider login <kind>` stays reachable. */
+ * prompt). Google remains withheld from the wizard (#1720); Anthropic is
+ * offered with its conditional provider-specific warning (ADR-0010). */
 export async function runProviderAdd(
   io: OnboardingIo,
   tester: ConnectionTester = minimalConnectionTest,
@@ -172,10 +171,8 @@ export async function runProviderAdd(
   let authKind: "api-key" | "subscription" = "api-key";
   if (offersSubscriptionAuth(type)) {
     // Auth method is asked per capability: only kinds whose grant the
-    // wizard offers see the question (openai-compat and the not-yet-granted
-    // new providers have none; #1317/#1720 withholds anthropic's and
-    // google's) — the api-key path is unchanged. The new providers join
-    // isSubscriptionKind as their grant tickets land.
+    // wizard offers see the question. Google remains withheld; openai-compat
+    // and the API-key profiles have no grant. The api-key path is unchanged.
     const answer = await askOneOf(io, "Auth method (api-key | subscription)", ["api-key", "subscription"]);
     authKind = answer as "api-key" | "subscription";
   }
@@ -515,7 +512,7 @@ async function runConnectionTest(
           "content-type": "application/json",
           // Subscription: OAuth bearer + beta header (issue #134); the
           // minted OpenAI key rides the normal Bearer/api-key path below.
-          ...(subscription ? { authorization: `Bearer ${apiKey}`, ...ANTHROPIC_OAUTH_BETA } : { "x-api-key": apiKey ?? "" }),
+          ...(subscription ? { authorization: `Bearer ${apiKey}`, ...ANTHROPIC_SUBSCRIPTION_HEADERS } : { "x-api-key": apiKey ?? "" }),
           "anthropic-version": "2023-06-01",
         },
         body: JSON.stringify({ model: modelId, max_tokens: PROBE_MAX_OUTPUT_TOKENS, messages: [{ role: "user", content: "ping" }] }),

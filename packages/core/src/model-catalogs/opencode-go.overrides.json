@@ -11,10 +11,12 @@
   },
   "rows": {
     "minimax-m2.5": {
-      "author": "moh release v0.66.2",
-      "date": "2026-11-11",
-      "reason": "labels and row identity are moh-owned (ADR-0046): never aggregator-supplied; accept the declared upstream context correction observed during the v0.66.2 rebuild: contextWindow 204800 → 200000",
-      "name": "MiniMax-M2.5"
+      "author": "moh (#1759)",
+      "date": "2026-11-13",
+      "reason": "OpenCode Go no longer lists MiniMax M2.5 in its current model/pricing table (https://opencode.ai/docs/console/go/, checked 2026-11-13); current MiniMax offerings are M3 and M3.1 Flash. Remove this Go route rather than importing another provider's M2.5 rates/context.",
+      "name": "MiniMax-M2.5",
+      "retired": true,
+      "retirementEvidence": "https://opencode.ai/docs/console/go/"
     },
     "minimax-m2.7": {
       "author": "moh migration (#959)",
@@ -29,11 +31,12 @@
       "name": "MiniMax-M3"
     },
     "qwen3.6-plus": {
-      "author": "moh migration (#959)",
-      "date": "2026-10-23",
-      "reason": "labels and row identity are moh-owned (ADR-0046): never aggregator-supplied; 2026-10-23 (moh release (v0.65.3)): OpenCode Go's pricing page no longer lists `qwen3.6-plus` (checked 2026-10-23, https://opencode.ai/docs/go/; superseded by Qwen3.7 Plus), so the row is dropped instead of shipping a rate without its long-context tier",
+      "author": "moh (#1759)",
+      "date": "2026-11-13",
+      "reason": "labels and row identity are moh-owned (ADR-0046): never aggregator-supplied; 2026-10-23 (moh release (v0.65.3)): OpenCode Go's pricing page no longer lists `qwen3.6-plus` (checked 2026-10-23, https://opencode.ai/docs/go/; superseded by Qwen3.7 Plus), so the row is dropped instead of shipping a rate without its long-context tier; 2026-11-13 review (#1759): still absent from the provider's current Go model/pricing list at https://opencode.ai/docs/console/go/. An aggregator match from another provider does not reactivate this Go route.",
       "name": "Qwen3.6 Plus",
-      "retired": true
+      "retired": true,
+      "retirementEvidence": "https://opencode.ai/docs/console/go/"
     },
     "qwen3.7-max": {
       "author": "moh migration (#959)",
@@ -203,12 +206,13 @@
       "name": "GPT-5.6 Luna"
     },
     "grok-4.6": {
-      "author": "moh migration (#959)",
-      "date": "2026-10-23",
-      "reason": "labels and row identity are moh-owned (ADR-0046): never aggregator-supplied; 2026-10-23 (moh release (v0.65.3)): OpenCode Go's pricing page no longer lists `grok-4.6` (checked 2026-10-23, https://opencode.ai/docs/go/; superseded by Grok 4.7), so the row is dropped instead of shipping a rate without its long-context tier",
+      "author": "moh (#1759)",
+      "date": "2026-11-13",
+      "reason": "labels and row identity are moh-owned (ADR-0046): never aggregator-supplied; 2026-10-23 (moh release (v0.65.3)): OpenCode Go's pricing page no longer lists `grok-4.6` (checked 2026-10-23, https://opencode.ai/docs/go/; superseded by Grok 4.7), so the row is dropped instead of shipping a rate without its long-context tier; 2026-11-13 review (#1759): still absent from the provider's current Go model/pricing list at https://opencode.ai/docs/console/go/. An aggregator match from another provider does not reactivate this Go route.",
       "api": "openai-responses",
       "name": "Grok 4.6",
-      "retired": true
+      "retired": true,
+      "retirementEvidence": "https://opencode.ai/docs/console/go/"
     },
     "muse-spark-1.2-contributor": {
       "author": "moh migration (#959)",

@@ -68,17 +68,21 @@ validation, so a broken config leaves no orphan session file.
 
 **Subscription (OAuth) endpoints.** An endpoint profile may carry
 `auth: { kind: "subscription" }` (absent = api-key, the backward-compatible
-default). Two kinds are exceptions: **anthropic** and **google**, whose
-subscription offers moh's onboarding withdrew (#1317 and #1720, ADR-0010
-amendments — the grant stays reachable through `moh provider login`, the
-offer does not; neither route serves inference). Such an
+default). **Google** remains an exception: onboarding withholds its
+subscription offer (#1720, ADR-0010) because the personal Code Assist route
+does not support moh's inference transport. The deliberate grant remains
+reachable through `moh provider login`. Such an
 endpoint still opens a session and records one visible
 `endpoint_auth_withdrawn` chrome event per open, on resume too: nothing is
 converted, deleted, disabled or called, and the reason names the remedy
 (an API-key endpoint, and `moh provider logout <name>`); the predicate
 behind the exception is exported as `offersSubscriptionAuth(kind)`, for a
-client that builds a wizard of its own. Every other kind resolves its
-credential automatically at stream time: the access token is read from the
+client that builds a wizard of its own. Anthropic is offered again with a
+conditional warning: provider authorization is still required, usage credits
+may be charged instead of plan limits, and login is not approval of moh.
+`tosWarningFor(kind)` supplies the same provider-specific warning to the CLI
+and TUI; custom clients can use it before initiating a grant. Every other
+kind resolves its credential automatically at stream time: the access token is read from the
 `auth` section of `~/.moh/config` (ADR-0009 — never moh.json), refreshed
 proactively before the single stream call when near expiry, and a failure
 surfaces as a `ProviderError` of kind `auth` pointing at

@@ -1,18 +1,34 @@
-import { describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, test } from "bun:test";
 import { render } from "ink-testing-library";
-import { mkdtempSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { MultilineInput, slashSuggestions } from "../src/Input";
 import type { CommandEntry } from "../src/commands";
 import { App } from "../src/App";
 import { MockProvider } from "@moh/core";
-import { COMPOSER_READY, pressCommitted, stripAnsi, waitStep, waitText } from "./helpers";
+import { COMPOSER_READY, grantTeamExtension, pressCommitted, pressSettled, stripAnsi, unmountSettled, useFileCredentialStore, waitStep, waitText } from "./helpers";
+
+// App startup must not touch the developer's native keychain (#1504).
+useFileCredentialStore();
+const mounted: ReturnType<typeof render>[] = [];
+const roots: string[] = [];
+afterEach(async () => {
+  try {
+    for (const view of mounted.splice(0)) {
+      try { await unmountSettled(view); }
+      finally { view.cleanup(); }
+    }
+  } finally {
+    for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
+  }
+});
 
 /** Renders the input in isolation and returns a frame prober; resolves once
  * the placeholder painted and its input handler is attached (#1495). */
 async function mount(onSubmit: (text: string) => void, commands: readonly CommandEntry[] = []) {
   const i = render(<MultilineInput placeholder="p" focused commands={commands} onSubmit={onSubmit} />);
+  mounted.push(i);
   await waitText(i, "p", "input mounted");
   return {
     ...i,
@@ -88,7 +104,6 @@ describe("slash completion popup (raw bytes through Ink's parser)", () => {
     await waitStep(i, () => /▶ \/settings\s+- \[s\]:/.test(i.frame()), "/settings selected");
     expect(i.frame()).toMatch(/▶ \/settings\s+- \[s\]:/);
     expect(i.frame()).toContain("↑ 1 more");
-    i.unmount();
   });
 
   test("the popup filters as the user types more characters", async () => {
@@ -100,7 +115,6 @@ describe("slash completion popup (raw bytes through Ink's parser)", () => {
     expect(frame).toContain("/theme");
     expect(frame).toContain("/thinking");
     expect(frame).not.toContain("/ask-moh");
-    i.unmount();
   });
 
   test("arrow keys move the popup selection and Enter completes like Tab (with trailing space)", async () => {
@@ -123,7 +137,6 @@ describe("slash completion popup (raw bytes through Ink's parser)", () => {
     // the next Enter is the send
     i.stdin.write("\r");
     await waitStep(i, () => submitted === "/model pick a bigger one", "draft submitted");
-    i.unmount();
   });
 
   test("Tab completes the selection into the textarea; the draft stays editable (focus never leaves it)", async () => {
@@ -139,7 +152,6 @@ describe("slash completion popup (raw bytes through Ink's parser)", () => {
     expect(i.draft()).toBe("/mode d");
     // the popup still follows the (now non-matching) draft — it closed
     expect(i.frame()).not.toContain("▶");
-    i.unmount();
   });
 
   test("backspacing the slash closes the popup", async () => {
@@ -157,7 +169,6 @@ describe("slash completion popup (raw bytes through Ink's parser)", () => {
     i.stdin.write("\x7f"); // → empty
     await waitText(i, "/ask-moh", "popup closed", { absent: true });
     expect(i.frame()).not.toContain("/ask-moh");
-    i.unmount();
   });
 
   test("popup rows carry the provenance marker and the short description", async () => {
@@ -171,7 +182,6 @@ describe("slash completion popup (raw bytes through Ink's parser)", () => {
     i.stdin.write("my");
     await waitText(i, "▶ /my-own", "/my-own selected");
     expect(i.frame()).toContain("▶ /my-own - [u]: a user-defined command");
-    i.unmount();
   });
 
   test("Enter on the exact match completes like Tab (never sends the bare command)", async () => {
@@ -186,33 +196,40 @@ describe("slash completion popup (raw bytes through Ink's parser)", () => {
     // the draft holds the command (trailing space closes the popup)
     expect(i.draft()).toBe("/model");
     expect(i.frame()).not.toContain("▶");
-    i.unmount();
   });
 });
 
 describe("slash popup at App level (Tab defers to the popup)", () => {
+  // Six bounded state waits can outlive a 5s aggregate case. Preserve named
+  // failures and unconditional cleanup instead of an outer timeout.
   test("Tab with the popup open completes the command and keeps the textarea focused (no chip focus)", async () => {
+    const root = mkdtempSync(join(tmpdir(), "moh-tabfocus-"));
+    roots.push(root);
+    const home = join(root, "home");
+    const cwd = join(root, "project");
+    mkdirSync(cwd);
+    grantTeamExtension(home);
     const i = render(
-      <App intro={false} cwd={process.cwd()} home={mkdtempSync(join(tmpdir(), "moh-tabfocus-"))} provider={MockProvider.demo()} startInChat skipOnboarding />,
+      <App intro={false} cwd={cwd} home={home} provider={MockProvider.demo()} startInChat skipOnboarding />,
     );
+    mounted.push(i);
     const frame = () => stripAnsi(i.lastFrame() ?? "");
     const hasLine = (line: string) => frame().split("\n").some((l) => l.trim() === line);
     await waitText(i, COMPOSER_READY, "composer mounted");
-    i.stdin.write("/");
+    await pressSettled(i, "/");
     await waitStep(i, () => frame().includes("▶ /"), "popup open");
-    i.stdin.write("\x1b[B"); // ↓ once: /browser, twice: /commands (list order)
+    await pressSettled(i, "\x1b[B"); // ↓ once: /browser, twice: /commands (list order)
     await waitStep(i, () => /▶ \/browser/.test(frame()), "/browser selected");
-    i.stdin.write("\x1b[B");
+    await pressSettled(i, "\x1b[B");
     await waitStep(i, () => /▶ \/commands/.test(frame()), "/commands selected");
-    i.stdin.write("\t");
+    await pressSettled(i, "\t");
     await waitStep(i, () => hasLine("/commands"), "/commands completed into the textarea");
     // the command completed into the textarea…
     expect(hasLine("/commands")).toBe(true);
     // …and typing still edits the draft (focus never left the textarea);
     // the trailing completion space separates command and typed text
-    i.stdin.write("x");
+    await pressSettled(i, "x");
     await waitStep(i, () => hasLine("/commands x"), "typed after the completion");
     expect(hasLine("/commands x")).toBe(true);
-    i.unmount();
-  });
+  }, 25_000);
 });

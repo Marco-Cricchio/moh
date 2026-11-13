@@ -190,7 +190,6 @@ StrandedDataSummary
 StreamOptions
 SubagentOptions
 THINKING_LEVELS
-TOS_WARNING
 TaskOutcome
 TaskReport
 TaskRow
@@ -382,6 +381,7 @@ taskReport
 thinkingLevelStates
 thinkingStatesForRef
 tosCardFor
+tosWarningFor
 trackerTools
 transportActive
 updateNoticeFor
