@@ -487,7 +487,11 @@ def main() -> None:
     # Optional env injection (image-preview detection tests, #490): the
     # caller pins TERM_PROGRAM/KITTY_WINDOW_ID to simulate a terminal.
     if isinstance(spec.get("env"), dict):
-        env.update(spec["env"])
+        for key, value in spec["env"].items():
+            if value is None:
+                env.pop(key, None)
+            else:
+                env[key] = value
 
     # The pty must be the child's CONTROLLING terminal (#236): bun on Linux
     # reads the window size from /dev/tty, not the stdout fd — without

@@ -58,7 +58,7 @@ function startSlowEndpoint(): { server: ReturnType<typeof Bun.serve>; url: strin
   return { server, url: `http://127.0.0.1:${server.port}/v1` };
 }
 
-const scenario = (env: Record<string, string>, url: string, rawPath: string) => ({
+const scenario = (env: Record<string, string | null>, url: string, rawPath: string) => ({
   cols: 100,
   rows: 30,
   config: {
@@ -68,15 +68,14 @@ const scenario = (env: Record<string, string>, url: string, rawPath: string) => 
     provider: "fake",
     endpoints: [{ name: "fake", type: "openai-compat", baseUrl: url, apiKey: "test-key", defaultModel: "fake-model" }],
   },
-  env,
+  env: { FORCE_COLOR: null, ...env },
   steps: [
-    // #1045: no `until: COMPOSER_READY` before the first send — at boot the
-    // app lands on Home and the composer does not exist yet, so that wait
-    // burned its budget silently (the dropped `pump_until` bool) and the
-    // send fell through to Home anyway. Type immediately; readiness is
-    // asserted on the needle the turn paints (harness now fails loudly).
-    { wait: 0.3, send: B("hi") },
-    { wait: 0.4, send: B("\r") },
+    // Wait for Home and then the committed query before Return: a cold
+    // start must not turn the first input into a lost-key timing test.
+    { wait: 10, until: "New session", untilOnScreen: true },
+    { send: B("hi") },
+    { wait: 5, until: "start “hi”", untilOnScreen: true },
+    { send: B("\r") },
     { wait: 6.0, until: "Hello from moh" },
   ],
   tail: 30,
@@ -105,7 +104,7 @@ describe.skipIf(!hasPython)("NO_COLOR in a real PTY (#880)", () => {
   test("unset: the same screen is painted in color (the control)", async () => {
     const { server, url } = startSlowEndpoint();
     try {
-      await runPtyRaw(scenario({}, url, "/tmp/moh-nocolor-off.bin"));
+      await runPtyRaw(scenario({ NO_COLOR: null }, url, "/tmp/moh-nocolor-off.bin"));
     } finally {
       server.stop(true);
     }
