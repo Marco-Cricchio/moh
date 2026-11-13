@@ -5,7 +5,7 @@ import {
   TOS_WARNING,
   base64url,
   buildAuthorizeUrl,
-  confirmToSWarning,
+  confirmToSWarningFor,
   generatePkce,
   generateState,
   raceForCode,
@@ -266,12 +266,12 @@ describe("manual-paste race", () => {
 
 describe("ToS warning", () => {
   test("requires explicit acknowledgement; y/yes pass, anything else fails", async () => {
-    expect(await confirmToSWarning(ioDouble(["y"]))).toBe(true);
-    expect(await confirmToSWarning(ioDouble(["yes"]))).toBe(true);
-    expect(await confirmToSWarning(ioDouble(["n"]))).toBe(false);
+    expect(await confirmToSWarningFor(ioDouble(["y"]), "custom")).toBe(true);
+    expect(await confirmToSWarningFor(ioDouble(["yes"]), "custom")).toBe(true);
+    expect(await confirmToSWarningFor(ioDouble(["n"]), "custom")).toBe(false);
   });
 
-  test("the warning text mentions ToS / client_id reuse", () => {
+  test("the generic fallback mentions terms and client permissions", () => {
     expect(TOS_WARNING).toMatch(/terms/i);
     expect(TOS_WARNING).toMatch(/client/i);
   });

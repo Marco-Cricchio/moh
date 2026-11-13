@@ -170,26 +170,25 @@ describe("onboarding overlay (issue #33)", () => {
     const cwd = tempCwd();
     const home = tempHome();
     const i = render(<Onboarding cwd={cwd} home={home} env={{}} onDone={() => {}} />);
-    await sleep(50);
-    i.stdin.write("\r"); // provider type = anthropic (wizard opens, no env creds)
-    await sleep(100);
-    // #1317: anthropic goes straight to the api-key flow — no auth-method
-    // step — so the model prompt is already up.
-    i.stdin.write("qwen3"); await sleep(120);
-    i.stdin.write("\r"); // model
-    await sleep(250);
-    i.stdin.write("\r"); // empty api key
-    await sleep(250);
-    i.stdin.write("\r"); // submit the prefilled base URL → test fails fast
-    await sleep(1500);
-    const { existsSync, readFileSync } = await import("node:fs");
-    const { join } = await import("node:path");
-    const trace = join(home, ".moh", "provider-test-failures.log");
-    expect(existsSync(trace)).toBe(true);
-    const entry = JSON.parse(readFileSync(trace, "utf8")) as { endpoint: string; message: string };
-    expect(entry.endpoint).toBe("anthropic");
-    i.unmount();
-  });
+    try {
+      await waitText(i, "Pick a provider type", "provider types");
+      await pressSettled(i, "\r");
+      await waitText(i, "How does anthropic authenticate?", "Anthropic auth methods");
+      await pressSettled(i, "\r");
+      await waitText(i, "Default model", "API-key model");
+      await pressSettled(i, "qwen3");
+      await waitText(i, "qwen3", "model typed");
+      await pressSettled(i, "\r");
+      await waitText(i, "API key", "API-key input");
+      await pressSettled(i, "\r");
+      await waitText(i, "Base URL", "base URL input");
+      await pressSettled(i, "\r");
+      const trace = join(home, ".moh", "provider-test-failures.log");
+      await waitStep(i, () => existsSync(trace), "failed probe trace written");
+      const entry = JSON.parse(readFileSync(trace, "utf8")) as { endpoint: string; message: string };
+      expect(entry.endpoint).toBe("anthropic");
+    } finally { await unmountSettled(i); }
+  }, 30_000);
 
   test("skip completes without writing moh.json", async () => {
     const cwd = tempCwd();
@@ -208,14 +207,16 @@ describe("onboarding overlay (issue #33)", () => {
     const cwd = tempCwd();
     const home = tempHome();
     const i = render(<Onboarding cwd={cwd} home={home} env={{}} tester={okTester} onDone={() => {}} />);
-    await sleep(30);
-    i.stdin.write("\r"); // select anthropic → the api-key flow's model prompt (#1317)
-    await sleep(30);
-    i.stdin.write("\r"); // empty model → stays
-    await sleep(30);
-    expect(stripAnsi(i.lastFrame() ?? "")).toContain("Default model");
-    i.unmount();
-  });
+    try {
+      await waitText(i, "Pick a provider type", "provider types");
+      await pressSettled(i, "\r");
+      await waitText(i, "How does anthropic authenticate?", "Anthropic auth methods");
+      await pressSettled(i, "\r");
+      await waitText(i, "Default model", "API-key model");
+      await pressSettled(i, "\r");
+      await waitText(i, "Default model", "empty model remains at model step");
+    } finally { await unmountSettled(i); }
+  }, 20_000);
 
   test("openai-compat wizard refuses an empty base URL", async () => {
     const cwd = tempCwd();

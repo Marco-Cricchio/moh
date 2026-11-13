@@ -1,6 +1,6 @@
 /**
  * Per-provider ToS summary cards (#444): short, fixed-template syntheses of
- * each supported provider's terms, written by a subagent from the official
+ * each covered provider's terms, machine-written from the official
  * sites and shipped as bundled JSON assets (binary-safe per ADR-0013 — the
  * JSON modules are imported statically, so `bun build --compile` embeds
  * them like the shipped model catalogs).
@@ -37,9 +37,9 @@ interface TosCard {
   allowed: string[];
   /** What the terms forbid for API/CLI usage. */
   forbidden: string[];
-  /** Input retention posture for API use, one sentence. */
+  /** Retention posture, distinguishing products and exceptions where needed. */
   retention: string;
-  /** Whether the provider trains on API inputs by default, one sentence. */
+  /** Training posture, distinguishing API and subscription products. */
   training: string;
   /** Links to the original ToS (source of truth). */
   links: TosLink[];

@@ -4,7 +4,7 @@
  * the shared GET+parse and finite-number helpers live here once.
  * `getQuota` (./index) keeps the provider `switch`.
  */
-import { ANTHROPIC_OAUTH_BETA } from "../auth/anthropic";
+import { ANTHROPIC_SUBSCRIPTION_HEADERS } from "../auth/anthropic";
 import { ANTHROPIC_USAGE_URL } from "../auth/lifecycle";
 import { COPILOT_EDITOR_HEADERS } from "../auth/github-copilot";
 import { KIMI_CODE_API_BASE_URL } from "../auth/kimi-coding";
@@ -54,7 +54,7 @@ export async function probeAnthropic(
     ANTHROPIC_USAGE_URL,
     {
       authorization: `Bearer ${accessToken}`,
-      ...ANTHROPIC_OAUTH_BETA,
+      ...ANTHROPIC_SUBSCRIPTION_HEADERS,
     },
     fetchImpl,
   );

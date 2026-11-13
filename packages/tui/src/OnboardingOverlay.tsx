@@ -12,7 +12,7 @@ import {
   providerRequiresBaseUrlInput,
   saveStoredApiKey,
   bindStoredApiKeyOrigin,
-  TOS_WARNING,
+  tosWarningFor,
   minimalConnectionTest,
   readAuthSection,
   runSubscriptionLogin,
@@ -35,7 +35,7 @@ import { useTheme } from "./themes";
 import { TuiAuthorizationIo, latestAuthorizeUrl } from "./subscription-io";
 import { copyToClipboard } from "./clipboard";
 import { Dialog, Dim } from "./ui";
-import { useViewport, windowing } from "./viewport";
+import { useViewport, windowing, wrapLines } from "./viewport";
 
 /**
  * Hybrid onboarding overlay (issue #33): detected env credentials are
@@ -310,8 +310,8 @@ export function Onboarding({ cwd, home, env, tester = defaultTester(home), force
           // subscription grant the wizard offers — one predicate, shared with
           // the CLI's `moh provider add` (core: auth/lifecycle). It never
           // appears for openai-compat or the compat profiles (no grant, #149)
-          // and no longer for anthropic and google (withheld). Those kinds go
-          // straight to the api-key flow, byte-identical to before.
+          // or Google (withheld). Anthropic is offered with its conditional
+          // provider-specific ToS warning, shared with the CLI.
           if (!offersSubscriptionAuth(type)) {
             setAuthKind("api-key");
             return applyPhase({ kind: "wizard-text", field: "model", value: providerProfile(type)?.defaultModel ?? "" });
@@ -534,8 +534,8 @@ export function Onboarding({ cwd, home, env, tester = defaultTester(home), force
         <>
           <Text color={theme.warn}>Terms of service</Text>
           <Text> </Text>
-          {TOS_WARNING.match(/.{1,64}(?:\s|$)/g)!.map((chunk) => (
-            <Text key={chunk}>{chunk.trim()}</Text>
+          {wrapLines(tosWarningFor(wizard.type ?? "anthropic"), Math.min(64, Math.max(1, viewport.columns - 8))).map((chunk, index) => (
+            <Text key={index}>{chunk}</Text>
           ))}
           <Text> </Text>
           <Dim>y acknowledge and continue · n back</Dim>

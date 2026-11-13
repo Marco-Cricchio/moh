@@ -82,7 +82,7 @@ describe("runProviderAdd (guided flow)", () => {
 
 describe("tos wizard line (#444)", () => {
   test("a discreet ToS line with a parseable verification date follows the provider choice", async () => {
-    const io = ioWith(["anthropic", "anthropic", "", "", "claude-sonnet"]);
+    const io = ioWith(["anthropic", "anthropic", "api-key", "", "", "claude-sonnet"]);
     await runProviderAdd(io, okTest());
     const line = io.said.find((l) => l.startsWith("ToS: "));
     expect(line).toMatch(/^ToS: https:\S+ \(verified \d{4}-\d{2}\)$/);
@@ -151,9 +151,7 @@ describe("known compat endpoints (#295)", () => {
   });
 
   test("non-compat providers keep the plain Base URL prompt (no numbered list)", async () => {
-    // #1317: anthropic never asks the auth-method question — the api-key
-    // flow is the only one, straight after the name.
-    const io = ioWith(["anthropic", "", "sk-x", "", "claude-sonnet-4-5"]);
+    const io = ioWith(["anthropic", "", "api-key", "sk-x", "", "claude-sonnet-4-5"]);
     await runProviderAdd(io, okTest());
     expect(io.said.join("\n")).not.toContain("1) Ollama");
     expect(io.said).toContain("Base URL (empty for default): ");
@@ -337,9 +335,6 @@ describe("runProviderAdd (subscription branch)", () => {
   test("subscription choice skips the key prompt, logs in, marks auth kind, stores tokens", async () => {
     const authFile = `${import.meta.dir}/tmp-onboarding/config`;
     await Bun.write(authFile, "{}");
-    // #1317/#1720: anthropic's and google's offers are withdrawn, so the
-    // live subscription flows are exercised on a kind that still offers the
-    // choice.
     const io = ioWith([
       "openai",          // type
       "",                // name default
@@ -407,6 +402,7 @@ describe("runProviderAdd (subscription branch)", () => {
     const io = ioWith([
       "anthropic",
       "",
+      "api-key",
       "sk-live",
       "",
       "claude-sonnet-4-5",
@@ -427,7 +423,6 @@ describe("runProviderAdd (subscription branch)", () => {
   });
 
   for (const [type, envVar, model] of [
-    ["anthropic", "MOH_ENDPOINT_ANTHROPIC_API_KEY", "claude-sonnet-4-5"],
     ["google", "MOH_ENDPOINT_GOOGLE_API_KEY", "gemini-3-pro"],
   ] as const) {
     test(`#1317/#1720: ${type} never asks for an auth method — the api-key flow is the only one`, async () => {
@@ -444,17 +439,18 @@ describe("runProviderAdd (subscription branch)", () => {
     });
   }
 
-  test("#1317: a kind whose subscription offer is live still gets the question", async () => {
+  test("#1317: Anthropic subscription onboarding is offered and persists its own token", async () => {
     const authFile = `${import.meta.dir}/tmp-onboarding/config-offer`;
     await Bun.write(authFile, "{}");
-    const io = ioWith(["openai", "", "subscription", "gpt-6-sol"]);
+    const io = ioWith(["anthropic", "", "subscription", "claude-sonnet-4-5"]);
     try {
       const profile = await runProviderAdd(io, okTest(), {
         authFile,
         subscriptionLogin: async () => fakeToken(),
       });
       expect(io.said).toContain("Auth method (api-key | subscription): ");
-      expect(profile.auth).toEqual({ kind: "subscription" });
+      expect(profile).toMatchObject({ type: "anthropic", auth: { kind: "subscription" }, defaultModel: "claude-sonnet-4-5" });
+      expect(JSON.parse(readFileSync(authFile, "utf8")).auth.tokens.anthropic.accessToken).toBe("acc-xyz");
     } finally {
       await Bun.file(authFile).delete();
     }
@@ -626,6 +622,7 @@ describe("minimalConnectionTest (subscription)", () => {
       const headers = calls[0]!.headers as Record<string, string>;
       expect(headers["authorization"]).toBe("Bearer acc-xyz");
       expect(headers["anthropic-beta"]).toBe("claude-code-20250219,oauth-2025-04-20");
+      expect(headers["User-Agent"]).toBe("moh");
       expect(headers["x-api-key"]).toBeUndefined();
     } finally {
       await Bun.file(authFile).delete();

@@ -422,3 +422,14 @@ rule (#1552).
 ## Amendment — ablation (2026-10-23)
 
 The decision above is unchanged. This amendment updates the module reference for the #594 seam: `discoverGistHandoffs` and its types are defined in `packages/core/src/handoff-transport.ts`, which the handoff family split out of the former gist module (#1451, PR #1612). The seam's contract is unchanged. It adds no decision.
+
+
+## Amendment — 2026-11-13: shared subscription warning copy
+
+Export `tosWarningFor(kind)` from the existing OAuth module because the TUI's
+pre-login screen now consumes it in the same change. CLI grants already use
+this function. One core-owned text source prevents the two clients from
+presenting different provider conditions. This replaces the formerly
+client-only `TOS_WARNING` entry export; callers without a known provider kind
+receive the generic fallback through the function. The warning map stays
+internal, and the now-unused generic acknowledgement helper is removed.

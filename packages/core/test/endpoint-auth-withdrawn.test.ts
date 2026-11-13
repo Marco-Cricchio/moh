@@ -1,6 +1,6 @@
 /**
  * #1317/#1720: an endpoint whose stored credential is a subscription login
- * moh's onboarding no longer offers (anthropic, google) cannot serve
+ * moh's onboarding no longer offers (google) cannot serve
  * inference. Session open records exactly one visible
  * `endpoint_auth_withdrawn` chrome event — on resume too — and changes
  * nothing else: no conversion, no deletion, no network call.
@@ -20,7 +20,7 @@ const anthropicSubscription = {
   auth: { kind: "subscription" as const },
 };
 
-/** #1720: the other withheld kind — a google subscription endpoint. */
+/** #1720: the remaining withheld kind — a google subscription endpoint. */
 const googleSubscription = {
   name: "google",
   type: "google",
@@ -43,7 +43,7 @@ function load(file: string): AgentEvent[] {
 const diagnostics = (events: readonly AgentEvent[]) => events.filter((e) => e.type === "endpoint_auth_withdrawn");
 
 describe("endpoint_auth_withdrawn at session open (#1317, #1720)", () => {
-  for (const profile of [anthropicSubscription, googleSubscription]) {
+  for (const profile of [googleSubscription]) {
     test(`one visible diagnostic for ${profile.name}, and the stored tokens are left alone`, () => {
       const { cwd, home, cleanup } = tempProject();
       try {
@@ -77,12 +77,12 @@ describe("endpoint_auth_withdrawn at session open (#1317, #1720)", () => {
     const dir = mkdtempSync(join(tmpdir(), "moh-auth-withdrawn-"));
     try {
       const store = SessionStore.create(dir, dir);
-      createSession({ provider: MockProvider.demo(), endpoints: [anthropicSubscription], sink: (e) => store.append(e) });
+      createSession({ provider: MockProvider.demo(), endpoints: [googleSubscription], sink: (e) => store.append(e) });
       const first = load(store.file);
       expect(diagnostics(first)).toHaveLength(1);
       createSession({
         provider: MockProvider.demo(),
-        endpoints: [anthropicSubscription],
+        endpoints: [googleSubscription],
         sessionFile: store.file,
         sink: (e) => store.append(e),
         resume: { events: first },
@@ -109,6 +109,7 @@ describe("endpoint_auth_withdrawn at session open (#1317, #1720)", () => {
         config: {
           provider: "mock",
           endpoints: [
+            anthropicSubscription,
             { name: "anthropic-key", type: "anthropic", defaultModel: "claude-sonnet-4-5" },
             { name: "google-key", type: "google", defaultModel: "gemini-3-pro" },
             { name: "myopenai", type: "openai", defaultModel: "gpt-6-sol", auth: { kind: "subscription" } },

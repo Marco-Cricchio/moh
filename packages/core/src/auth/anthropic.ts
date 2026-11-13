@@ -7,9 +7,10 @@
  * without notice, so every captured value is overridable via
  * `auth.overrides.anthropic` in `~/.moh/config` (spec decision 5).
  *
- * Posture (spec decision 8): **native tokens only** — minting an API key
- * (`/api/oauth/claude_cli/create_api_key`) is deliberately rejected: the
- * minted key bills Console credits, not the Pro/Max plan.
+ * Native OAuth tokens only (spec decision 8); this flow does not mint a
+ * Console API key. Neither a token nor its scope establishes billing
+ * entitlement: Anthropic may charge usage credits for third-party tools.
+ * The provider-specific warning explains the remaining access restrictions.
  *
  * Long-lived inference-only tokens (spec decision 9): authorize with just
  * `user:inference` and a client-requested `expires_in`; if the server
@@ -20,7 +21,7 @@
 import type { AuthToken, AnthropicAuthOverrides } from "./types";
 import {
   buildAuthorizeUrl,
-  confirmToSWarning,
+  confirmToSWarningFor,
   generatePkce,
   generateState,
   LoginAborted,
@@ -57,10 +58,12 @@ export const ANTHROPIC_SUBSCRIPTION_SCOPES = [
 
 /**
  * Injected on API calls whenever the endpoint is subscription-authed.
- * Mirrors Claude Code and pi-ai: both beta features are sent together.
+ * The beta feature names describe the protocol, not client identity.
+ * Identify moh explicitly; do not impersonate the Claude Code binary.
  */
-export const ANTHROPIC_OAUTH_BETA = {
+export const ANTHROPIC_SUBSCRIPTION_HEADERS = {
   "anthropic-beta": "claude-code-20250219,oauth-2025-04-20",
+  "User-Agent": "moh",
 } as const;
 
 interface AnthropicOAuthConfig {
@@ -103,7 +106,9 @@ export function buildAnthropicAuthorizeUrl(
 }
 
 /** HTTP seam for the token endpoint. Tests script it; production uses fetch. */
-const defaultTokenEndpointFetch: OAuthPostFetch = postJson();
+const defaultTokenEndpointFetch: OAuthPostFetch = postJson({
+  headers: { "content-type": "application/json", "User-Agent": ANTHROPIC_SUBSCRIPTION_HEADERS["User-Agent"] },
+});
 
 interface AnthropicTokenResponse {
   access_token: string;
@@ -255,7 +260,7 @@ export async function loginAnthropic(
   } = {},
 ): Promise<AuthToken> {
   /** Thrown by {@link loginAnthropic} when the user declines the ToS warning. */
-  if (!(await confirmToSWarning(io))) throw new LoginAborted("AnthropicLoginAborted");
+  if (!(await confirmToSWarningFor(io, "anthropic"))) throw new LoginAborted("AnthropicLoginAborted");
 
   const config = resolveAnthropicOAuthConfig(opts.overrides);
   const pkce = generatePkce();

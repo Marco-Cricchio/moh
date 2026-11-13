@@ -2,8 +2,8 @@
  * `moh provider` (issue #138, spec docs/spec/oauth-subscription-auth.md):
  * - `add`     guided onboarding; asks `api-key | subscription` first for
  *             providers whose subscription login the wizard offers
- *             (ToS warning first, headless-safe) — anthropic is API-key
- *             only (#1317)
+ *             (provider-specific ToS warning first, headless-safe);
+ *             Google remains API-key only (#1720)
  * - `login`   re-auth a subscription endpoint
  * - `logout`  drop its tokens (the only deleter besides re-login)
  * - `status`  per-endpoint auth kind, token expiry, best-effort usage
@@ -37,8 +37,8 @@ export const PROVIDER_USAGE = `usage: moh provider <command>
 commands:
   add              guided provider onboarding (asks api-key or subscription
                    auth first where a subscription login is offered;
-                   anthropic and google are API-key only; subscription runs
-                   the provider's OAuth flow)
+                   google is API-key only; subscription runs the provider's
+                   OAuth flow subject to its access and billing conditions)
   login <name>     re-authenticate a subscription endpoint
   logout <name>    drop a subscription endpoint's stored tokens
   status           per-endpoint auth kind, token expiry, plan usage

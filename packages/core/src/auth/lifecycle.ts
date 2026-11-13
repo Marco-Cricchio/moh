@@ -13,7 +13,7 @@
 import type { EndpointProfile } from "../config";
 import { envApiKey } from "../route";
 import { userConfigFile } from "../user-config";
-import { loginAnthropic, ANTHROPIC_OAUTH_BETA } from "./anthropic";
+import { loginAnthropic, ANTHROPIC_SUBSCRIPTION_HEADERS } from "./anthropic";
 import { loginGoogle } from "./google";
 import { loginOpenAI } from "./openai";
 import { loginOpenRouter } from "./openrouter";
@@ -32,16 +32,12 @@ export function isSubscriptionKind(kind: string): kind is SubscriptionKind {
 }
 
 /**
- * #1317/#1720: the kinds whose subscription grant moh's onboarding
- * **withholds** from the wizard. Their grant stays reachable deliberately
- * (`moh provider login <kind>`, below) but is never offered: Anthropic
- * reserves subscription OAuth for Claude Code and its own clients, and
- * Google's Code Assist tiers refuse third-party inference for consumer
- * accounts — in both cases the route does not serve inference (ADR-0010
- * amendments). One list, one predicate — both clients' wizards and the
- * startup diagnostic read this.
+ * Google Code Assist consumer tiers still refuse third-party inference
+ * (#1720, ADR-0010). Anthropic's offer is restored with its provider-specific
+ * warning: third-party access is conditional and may bill usage credits.
+ * One predicate controls both wizards and the startup diagnostic.
  */
-const WITHHELD_SUBSCRIPTION_KINDS: readonly SubscriptionKind[] = ["anthropic", "google"];
+const WITHHELD_SUBSCRIPTION_KINDS: readonly SubscriptionKind[] = ["google"];
 
 /** Whether the wizard offers the `api-key | subscription` choice for
  * `kind`: a grant exists *and* is not withheld (#1317, #1720). */
@@ -239,7 +235,7 @@ async function anthropicUsage(accessToken: string, usageFetch: UsageFetch): Prom
   try {
     const res = await usageFetch(ANTHROPIC_USAGE_URL, {
       authorization: `Bearer ${accessToken}`,
-      ...ANTHROPIC_OAUTH_BETA,
+      ...ANTHROPIC_SUBSCRIPTION_HEADERS,
     });
     if (res.status !== 200) return `usage unavailable (HTTP ${res.status})`;
     return `usage: ${summarizeUsage(res.text)}`;
