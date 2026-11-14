@@ -354,7 +354,7 @@ export function createTeamExtension(): ExtensionDefinition {
           "Delegate work to the team, compose it by complexity, or steer an existing member. " +
           "Spawn: pass `task` — spawns a builder member as a child session that works on the task and returns its result (the simple, one-member ask). " +
           "Compose: pass `compose` — a list of members (`role: builder|reviewer`, optional `name`, `scope` path glob, `lane` branchRef, `model` route, `task`) plus an optional `brief`; builders are scoped to disjoint paths, reviewers are read-only, members with a task are dispatched in parallel, and the roster then drives `work`. A member whose lane does not exist yet works un-laned: to give it isolation, create the lane yourself (bash: moh lanes group <group> && moh lanes start <group> <branch> — it asks for consent per the session mode) and re-dispatch the member. " +
-          "Peer messages: opt in with `peerMessaging: true` on `compose` (at least two members). Members get `team_message` for other started members of that composition only; messages queue after the current turn and are audited. Omit it to keep coordinator-only steering. Each composition starts a fresh group. " +
+          "Peer messages: opt in with `peerMessaging: true` on `compose` (at least two members). All members are started, including taskless reviewers, so they can receive messages; taskless members acknowledge readiness and finish their initial turn. Members get `team_message` for other started members of that composition only; messages queue after the current turn and are audited. Omit it to keep coordinator-only steering. Each composition starts a fresh group. " +
           "Plan: pass `plan` — decomposes the brief into bag tasks; then pass `work` (and optionally `member`) to run the team through the bag. " +
           "Steer: pass `member` + `message` — relays a follow-up instruction to that member's next turn (it keeps its context) and returns the new outcome. " +
           "Use when the user asks to work on something with the team, or to correct or redirect one of its members.",
@@ -388,6 +388,14 @@ export function createTeamExtension(): ExtensionDefinition {
               const peerGroup = { id: randomUUID(), members: roster.map((m) => m.name) };
               roster = roster.map((m) => ({ ...m, peerGroup }));
             }
+            // A peer roster must have real child sessions before bag work starts.
+            // Otherwise its first worker cannot reach later workers, and reviewers
+            // (which never claim bag tasks) remain permanently unreachable.
+            const dispatched = roster
+              .map((m, i) => ({ m, memberTask: compose[i]!.task ?? (m.peerGroup
+                ? `You are ${m.name}, the ${m.role} in this team. Acknowledge readiness briefly and finish this turn. The coordinator will assign work or peers will send messages in later turns; do not poll or wait for them.`
+                : undefined) }))
+              .filter((entry): entry is { m: TeamMember; memberTask: string } => entry.memberTask !== undefined);
             members.clear(); // a new composition must never steer a previous group's seats
             state.roster = roster;
             ctx.appendEvent({
@@ -401,12 +409,9 @@ export function createTeamExtension(): ExtensionDefinition {
                   ...(m.model !== undefined ? { model: m.model } : {}),
                 })),
                 ...(roster[0]?.peerGroup ? { peerGroup: roster[0].peerGroup.id, peerMessaging: true } : {}),
-                dispatched: compose.filter((m) => m.task !== undefined).length,
+                dispatched: dispatched.length,
               },
             });
-            const dispatched = roster
-              .map((m, i) => ({ m, memberTask: compose[i]!.task }))
-              .filter((entry): entry is { m: TeamMember; memberTask: string } => entry.memberTask !== undefined);
             if (dispatched.length === 0 && work === undefined) {
               return `team: composed ${roster.length} members — ${roster.map((m) => `${m.name} (${m.role}${m.scope !== undefined ? `, ${m.scope}` : ""}${m.lane !== undefined ? `, lane ${m.lane}` : ""})`).join(", ")}. Pass a task on a member to dispatch it, or work to run the bag.`;
             }
