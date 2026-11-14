@@ -7,6 +7,22 @@ matching section here at tag time.
 
 ## [Unreleased]
 
+## [0.67.2] - 2026-11-14
+
+### Fixed
+
+- Start every member of a team composed with `peerMessaging: true`, including
+  reviewers and members without an initial task. This makes them reachable
+  during subsequent `plan` / `work` execution instead of refusing messages to
+  members that never started. Taskless members use one initial readiness turn;
+  later tasks and messages reuse their context (#1770).
+
+### Changed
+
+- Refresh the model catalog source snapshots and release metadata for 0.67.2.
+  The 510 reviewed model rows across 25 catalogs retain their existing prices,
+  context windows and reasoning flags.
+
 ## [0.67.1] - 2026-11-13
 
 ### Fixed
