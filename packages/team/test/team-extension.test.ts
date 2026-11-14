@@ -885,6 +885,57 @@ describe("panel steering + team-scoped stop-all (#1226, ADR-0055)", () => {
 });
 
 describe("composition peer opt-in (#1743)", () => {
+  for (const mode of ["normal", "yolo"] as const) for (const initialTask of [false, true]) {
+    test(`bag workers can exchange messages with an initially taskless reviewer in ${mode} (initial task: ${initialTask})`, async () => {
+      const rt = runtime();
+      await rt.register(createTeamExtension(), { manifest: teamManifestAuthority() });
+      const approvals: string[] = [];
+      const provider: import("@moh/core").Provider = {
+        name: "mock",
+        async *stream(messages) {
+          const texts = messages.filter((m) => m.role === "user")
+            .flatMap((m) => m.parts.filter((p) => p.kind === "text").map((p) => p.text));
+          const task = texts.at(-1) ?? "";
+          const hadResult = messages.at(-1)?.parts.some((p) => p.kind === "tool_result");
+          const review = task.startsWith("Peer message") && task.includes("Review the draft");
+          if (!hadResult && (task.includes("Task t1:") || review)) {
+            yield { type: "tool_calls", calls: [{ callId: review ? "feedback" : "review-request", name: "team_message",
+              args: { recipient: review ? "alice" : "bob", message: review ? "Keep the boundary explicit" : "Review the draft" } }] };
+            yield { type: "finish", reason: "tool_calls" };
+            return;
+          }
+          yield { type: "text_delta", text: task.includes("Keep the boundary explicit") ? "Feedback incorporated" : "Ready" };
+          yield { type: "finish", reason: "stop" };
+        },
+      };
+      const session = createSession({
+        extensions: rt, permissions: mode === "yolo" ? { unrestrictedTools: true } : { mode },
+        onPermissionRequest: (tool) => { approvals.push(tool); return "yes"; },
+        subagents: { home: tempDir(), provider, maxConcurrency: 1 },
+        provider: MockProvider.scripted([
+          { deltas: [], finish: "tool_calls", toolCalls: [{ name: "team", args: { compose: [
+            { name: "alice", role: "builder", ...(initialTask ? { task: "Inspect the boundary" } : {}) }, { name: "bob", role: "reviewer" },
+          ], peerMessaging: true } }] },
+          { deltas: [], finish: "tool_calls", toolCalls: [{ name: "team", args: { plan: [{ title: "Draft the boundary" }] } }] },
+          { deltas: [], finish: "tool_calls", toolCalls: [{ name: "team", args: { work: "Collaborate" } }] },
+          { deltas: ["done"], finish: "stop" },
+        ]),
+      });
+      const events = tap(session);
+      try {
+        expect((await session.send("Collaborate with a reviewer")).status).toBe("done");
+        const exchanges = events.filter((e) => e.type === "subagent_message");
+        expect(exchanges.filter((e) => e.status === "done")).toHaveLength(2);
+        expect(exchanges).toContainEqual(expect.objectContaining({ sender: "alice", recipient: "bob", message: "Review the draft", status: "queued" }));
+        expect(exchanges).toContainEqual(expect.objectContaining({ sender: "bob", recipient: "alice", message: "Keep the boundary explicit", status: "queued" }));
+        expect(events.filter((e) => e.type === "subagent_spawn")).toHaveLength(2);
+        expect(JSON.stringify(session.history())).toContain("Feedback incorporated");
+        if (mode === "normal") expect(approvals.filter((tool) => tool === "team_message")).toHaveLength(2);
+        else expect(approvals).toEqual([]);
+      } finally { await session.dispose(); }
+    });
+  }
+
   test("fresh compositions isolate same-name members and only the opted-in group gets team_message", async () => {
     const rt = runtime();
     await rt.register(createTeamExtension(), { manifest: teamManifestAuthority() });

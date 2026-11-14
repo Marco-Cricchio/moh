@@ -211,6 +211,10 @@ in every case, something you are asked before anything runs.
   Peer messaging is **off by default**. Ask the coordinator to compose the
   team with `peerMessaging: true` to let members call
   `team_message({ recipient: "reviewer-1", message: "Please critique this finding" })`.
+  An opted-in composition starts every member, including reviewers and members
+  without an initial task. Taskless members acknowledge readiness and finish
+  their turn; they keep their context for later messages and bag work. This
+  uses one initial model turn and one child slot per member.
   Only other started members of that composition are reachable; plain
   subagents and other groups or sessions are excluded. Messages wait for
   the recipient's current turn and keep its context. The sender gets a queue
