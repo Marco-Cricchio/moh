@@ -12,7 +12,7 @@ import { PROVIDER_KINDS } from "./provider-kinds";
 import type { EndpointProfile, MohConfig } from "./config";
 import type { Provider, StreamOptions } from "./types";
 import { OAUTH_BUILTIN_BASE_URLS, type OAuthBuiltinKind } from "./wire";
-import { catalogEntryFor } from "./model-catalog";
+import { inputSupportFor, catalogEntryFor } from "./model-catalog";
 import { contextFitFor } from "./context-fit";
 import type { DeclaredWindowLookup } from "./declared-window";
 import { contextWindowFor } from "./compaction";
@@ -172,6 +172,8 @@ function routeTargetFor(profile: EndpointProfile, modelId: string, apiKey: strin
       capabilities: profile.capabilities,
     }),
     modelId,
+    mediaInput: (["audio", "video"] as const).filter((modality) => inputSupportFor(profile, modelId, modality).supported),
+    videoInput: profile.type === "openai-compat" || profile.type === "openrouter" || providerProfile(profile.type) !== undefined,
     ...catalogTargetOverrides(kind, modelId, baseUrl),
     ...(thinkingFormat ? { thinkingFormat } : {}),
   };

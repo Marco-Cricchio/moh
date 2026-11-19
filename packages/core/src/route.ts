@@ -101,6 +101,10 @@ const FAILURE_KINDS: readonly RouteFailureKind[] = [
 /** One stop of a fallback chain: endpoint + model id. */
 export interface RouteTarget {
   endpoint: Endpoint;
+  /** Effective model declarations for native audio/video, resolved by assembly. */
+  mediaInput?: readonly ("audio" | "video")[];
+  /** Use the compatible chat dialect's non-standard video_url content part. */
+  videoInput?: boolean;
   /** Model id as the provider knows it, e.g. "claude-sonnet-4-5". */
   modelId: string;
   /** Wire override (ADR-0010): per-model wire for github-copilot and
@@ -316,7 +320,17 @@ export function createRoute(config: RouteConfig): Route {
       // from the stop this session leads with — never a silent no-op.
       const spendable = (i: number) => (failures.get(i)?.until ?? 0) <= now();
       const viable = walkInOrder.filter(spendable);
-      const walk = viable.length > 0 ? viable : walkInOrder;
+      const candidates = viable.length > 0 ? viable : walkInOrder;
+      const required = new Set(messages.flatMap((message) => message.parts.flatMap((part) =>
+        part.kind === "audio" || part.kind === "video" ? [part.kind] : [],
+      )));
+      const walk = candidates.filter((index) => [...required].every((kind) => chain[index]!.mediaInput?.includes(kind)));
+      if (walk.length === 0) {
+        throw new ProviderError("invalid_request", `No available route declares ${[...required].join(" and ")} input for the attached media. Configure capabilities.inputModels for a compatible model or switch models. Attachments remain in the session.`);
+      }
+      if (walk[0] !== candidates[0]) {
+        yield { type: "fallback", from: refFor(chain[candidates[0]!]!), to: refFor(chain[walk[0]!]!), reason: "invalid_request" };
+      }
       for (const i of walk) {
         if (i !== walk[0] && !spendable(i)) continue;
         const target = chain[i]!;

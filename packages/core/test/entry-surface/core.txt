@@ -270,6 +270,7 @@ hasSkillPlaceholders
 imageDimensions
 imageSupportFor
 importHandoffFile
+inputSupportFor
 installBrowserToolchain
 installExtension
 installFirstPartySkills

@@ -677,7 +677,8 @@ export function projectTranscript(events: ReadonlyArray<AgentEvent>, options: { 
           type: synthetic ? "synthetic" : "you",
           lines: (synthetic ? `[automatic correction] ${event.text}` : event.text)
             .split("\n")
-            .map(sanitizeForDisplay),
+            .map(sanitizeForDisplay)
+            .concat((event.attachments ?? []).flatMap((a) => a.kind === "audio" || a.kind === "video" ? [sanitizeForDisplay(`[${a.kind}: ${a.path}]`)] : [])),
           ...(image ? { image: { name: image.path, mime: image.mime, base64: image.content, width: image.width, height: image.height } } : {}),
         });
         break;

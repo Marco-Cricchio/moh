@@ -7,6 +7,19 @@ matching section here at tag time.
 
 ## [Unreleased]
 
+### Added
+
+- Native WAV/MP3 audio and MP4 video mentions, preserved across session resume
+  and fork. Configure image/audio/video input independently per model in the
+  CLI/TUI wizard; existing image declarations remain supported. Routes exclude
+  models without the required audio/video capability, and Settings shows each
+  modality's declaration source. Media uses native provider payloads, with a
+  combined 20 MiB attachment budget and no local conversion.
+
+### Fixed
+
+- Honor the configured base URL for Google's native SDK transport.
+
 ## [0.68.0] - 2026-11-19
 
 ### Added

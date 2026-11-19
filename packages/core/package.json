@@ -13,6 +13,7 @@
     "@ai-sdk/anthropic": "^4.0.40",
     "@ai-sdk/google": "^4.0.48",
     "@ai-sdk/openai": "^4.0.45",
+    "@ai-sdk/openai-compatible": "3.0.36",
     "@moh/extension": "workspace:*",
     "ai": "^7.0.71"
   }

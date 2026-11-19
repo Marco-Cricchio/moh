@@ -3,7 +3,7 @@ import { selectionStyle } from "./color";
 import { Text, useInput } from "ink";
 import { join } from "node:path";
 import { homedir } from "node:os";
-import { imageSupportFor, endpointModelCatalog, fallbackIneligibleReason, fetchLiveCatalogs, liveListings, loadMohConfig, loadMergedConfig, listOpenAiCompatModels, MAX_ITERATIONS_UNLIMITED, probeBrowserToolchain, readUserProviderConfig, removeUserEndpoint, renderTosCard, saveUserProviderRef, setUserEndpointFallbackEligible, setUserEndpointModel, summarizeLiveCatalogReport, tosCardFor, writeMohConfig, userConfigFile, DEFAULT_MAX_ITERATIONS, type BrowserToolchainStatus, type LiveModelListing, type MohConfig } from "@moh/core";
+import { inputSupportFor, endpointModelCatalog, fallbackIneligibleReason, fetchLiveCatalogs, liveListings, loadMohConfig, loadMergedConfig, listOpenAiCompatModels, MAX_ITERATIONS_UNLIMITED, probeBrowserToolchain, readUserProviderConfig, removeUserEndpoint, renderTosCard, saveUserProviderRef, setUserEndpointFallbackEligible, setUserEndpointModel, summarizeLiveCatalogReport, tosCardFor, writeMohConfig, userConfigFile, DEFAULT_MAX_ITERATIONS, type BrowserToolchainStatus, type LiveModelListing, type MohConfig } from "@moh/core";
 import { validateJevKey, readTypesafeConfig, removeTypesafeKey, migrateTypesafeKey, resolveTypesafeConfig, saveTypesafeApiKey, saveTypesafeFlag, maskApiKey, JEV_USE_CASE_DESCRIPTIONS, TYPESAFE_TIMEOUT_MS_DEFAULT, transportFromFetch, TYPESAFE_CREDENTIAL_REF, type JevKeyValidation, type JevTransport } from "@moh/jev-guard";
 import { defaultCredentialStore, validateCredentialScope } from "@moh/core";
 import { setIcons } from "./icons";
@@ -524,7 +524,7 @@ export function SettingsPanel({ cwd, home, config, onChange, modelLabel, onProvi
   const subWin = windowing(
     subOptions.length,
     subCursor,
-    Math.max(3, viewport.rows - 9 - (sub?.kind === "model" ? 1 : 0) - jevParagraphLinesFull.length - (jevParagraphHidden ? 1 : 0) - (sub?.kind === "jev" ? 2 : 0)),
+    Math.max(3, viewport.rows - 9 - (sub?.kind === "model" ? 3 : 0) - jevParagraphLinesFull.length - (jevParagraphHidden ? 1 : 0) - (sub?.kind === "jev" ? 2 : 0)),
   );
 
   const activate = (row: Row) => {
@@ -1434,8 +1434,10 @@ export function SettingsPanel({ cwd, home, config, onChange, modelLabel, onProvi
                 const list = vendored.length ? vendored : Array.isArray(remote[sub.name]) ? fetchedToCatalog(remote[sub.name] as string[]) : [];
                 const id = filterCatalog(list, sub.query)[sub.cursor]?.id ?? sub.query.trim();
                 if (!id) return null;
-                const image = imageSupportFor(endpoint, id);
-                return <Dim>{truncate(`Images: ${image.source === "unknown" ? "unknown (text-only)" : image.supported ? "yes" : "no"} · ${image.source}`, innerWidth)}</Dim>;
+                return <>{(["image", "audio", "video"] as const).map((kind) => {
+                  const support = inputSupportFor(endpoint, id, kind);
+                  return <Dim key={kind}>{truncate(`${kind === "image" ? "Images" : kind === "audio" ? "Audio" : "Video"}: ${support.source === "unknown" ? "unknown" : support.supported ? "yes" : "no"} (${support.source})`, innerWidth)}</Dim>;
+                })}</>;
               })()}
               {sub.kind === "model" && liveCatalogNote && (
                 <Dim>{` live: ${liveCatalogNote}`}</Dim>

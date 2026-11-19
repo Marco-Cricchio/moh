@@ -94,16 +94,20 @@ All keys are optional. Notes:
   a catalog entry (openai-compat, custom); on catalog-backed endpoints
   `false` vetoes even a catalog grant. Absent = declared capability only
   (catalog modalities, else not multimodal) — never inferred (#490).
-- `capabilities.imageModels` — image-input declarations keyed by exact model id,
-  for example `{ "Qwen/Qwen3.5-397B-A17B-FP8": true, "text-model": false }`.
-  The custom OpenAI-compatible wizard offers Automatic / Yes / No when image
-  support is unknown. Automatic stores no model declaration; unknown models
-  remain text-only. Yes/No applies only to the selected model, including when
-  used as a fallback. The connection test checks text, not image support.
-  Resolution: endpoint `multimodal: false` veto, exact model declaration,
-  catalog modalities, legacy endpoint declaration, otherwise unknown.
-  Model selection in Settings shows image support and its source. Existing
-  `multimodal: true` still applies to all uncatalogued models on that endpoint.
+- `capabilities.inputModels` — input declarations keyed by exact model id,
+  for example `{ "my-model": { "image": true, "audio": false, "video": true } }`.
+  Each omitted modality uses the catalog; unknown means unavailable. A declaration
+  describes what the selected endpoint/model accepts, not a conversion performed
+  by moh. The custom OpenAI-compatible wizard asks Automatic / Yes / No for each
+  unknown modality. The connection test checks text only.
+- `capabilities.imageModels` — legacy image-input declarations, for example
+  `{ "my-model": true }`. Existing configurations continue to work. Image
+  resolution: endpoint `multimodal: false` veto, `inputModels[id].image`,
+  `imageModels[id]`, catalog, legacy endpoint declaration, otherwise unknown.
+  Audio/video resolution: `inputModels[id].audio` / `.video`, catalog, otherwise
+  unknown. The legacy `multimodal` flag only describes images and never grants
+  audio/video. Settings shows each modality and its source. Run the provider
+  wizard again or edit config to change an existing declaration.
 - `capabilities.thinking.format` — one of `openai-effort`,
   `openrouter-effort`, `anthropic-effort`, `google-thinking-level`;
   `levels` are canonical thinking levels (`off`, `low`, `medium`,

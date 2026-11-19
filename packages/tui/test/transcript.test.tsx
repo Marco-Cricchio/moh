@@ -1021,3 +1021,12 @@ test("peer exchanges have a compact attributed preview in live and replay projec
     expect(events[0]).toHaveProperty("message", `Please review\n${"detail ".repeat(40)}\u001b[2K`);
   }
 });
+
+test("native audio/video chips never render attachment bytes or terminal escapes", () => {
+  const blocks = projectTranscript([{ type: "user_message", text: "Analyze attachments", attachments: [
+    { kind: "audio", path: "voice.wav", mime: "audio/wav", content: "DO_NOT_RENDER_BYTES" },
+    { kind: "video", path: "clip\u001b[2K.mp4", mime: "video/mp4", content: "DO_NOT_RENDER_BYTES" },
+  ] }]);
+  expect(blocks[0]?.lines).toEqual(["Analyze attachments", "[audio: voice.wav]", "[video: clip.mp4]"]);
+  expect(JSON.stringify(blocks)).not.toContain("DO_NOT_RENDER_BYTES");
+});
