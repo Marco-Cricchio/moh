@@ -441,9 +441,11 @@ describe("merged provider endpoints (#129)", () => {
     const cwd = setupCwd();
     const home = mkdtempSync(join(tmpdir(), "moh-home-"));
     const userFile = join(home, ".moh", "config");
+    let discoveryAvailable = true;
     const server = Bun.serve({
       port: 0,
       fetch() {
+        if (!discoveryAvailable) return new Response("offline", { status: 503 });
         return Response.json({ data: [{ id: "glm-5.3" }, { id: "glm-5.3-air" }] });
       },
     });
@@ -484,6 +486,21 @@ describe("merged provider endpoints (#129)", () => {
       expect(readUserProviderConfig(userFile).endpoints?.find((e) => e.name === "zai")?.defaultModel).toBe("glm-5.3");
       expect(loadMohConfig(join(cwd, "moh.json")).endpoints?.some((e) => e.name === "zai")).toBe(false);
       await unmountSettled(i);
+      discoveryAvailable = false;
+      const reopened = mount(cwd, { home });
+      await mounted(reopened.i);
+      await gotoRow(reopened.i, "Provider");
+      reopened.i.stdin.write("\r");
+      await settle(reopened.i, "› mock", "reopened endpoints");
+      await down(reopened.i, 3);
+      await settle(reopened.i, "› zai (user)", "saved endpoint");
+      reopened.i.stdin.write("\r");
+      await settle(reopened.i, "air (air) · ctx — · saved", "remembered model without discovery");
+      reopened.i.stdin.write("\r");
+      await until(reopened.i, () => reopened.switched.length > 0, "saved model switch");
+      expect(reopened.switched).toEqual(["zai/air"]);
+      expect(readUserProviderConfig(userFile).endpoints?.find((e) => e.name === "zai")?.defaultModel).toBe("glm-5.3");
+      await unmountSettled(reopened.i);
     } finally {
       server.stop(true);
     }

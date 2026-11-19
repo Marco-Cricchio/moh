@@ -1,11 +1,14 @@
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, test } from "bun:test";
 import { render } from "ink-testing-library";
 import { createSession, listOpenAiCompatModels, subscriptionModelCatalog, type CatalogModel } from "@moh/core";
 import { ModelPickerModal, type ModelPickerModalProps } from "../src/ModelPickerModal";
-import { contextWindowForLabel, filterCatalog, modelRow, windowText, type EndpointPick } from "../src/model-picker";
+import { contextWindowForLabel, filterCatalog, modelRow, windowText, readModelSelection, saveModelSelection, withSavedModels, type EndpointPick } from "../src/model-picker";
 import { contextFraction } from "../src/sidebar";
 import { ThemeProvider, THEMES, DEFAULT_THEME } from "../src/themes";
-import { stripAnsi, waitText } from "./helpers";
+import { pressSettled, stripAnsi, unmountSettled, waitText } from "./helpers";
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
@@ -236,6 +239,34 @@ describe("/model modal (#181)", () => {
     } finally {
       server.stop(true);
     }
+  });
+
+  test("saved namespaced models remain selectable when discovery fails", async () => {
+    const { i, switched } = mount({
+      activeModel: "local/Qwen/old",
+      servingModel: "fallback/temporary",
+      endpoints: [{ name: "local", type: "openai-compat", baseUrl: "http://127.0.0.1:1/v1", catalog: [], defaultModel: "Qwen/old", lastSelectedModel: "Qwen/new" }],
+    });
+    try {
+      await waitText(i, "no list from local", "discovery failure");
+      expect(stripAnsi(i.lastFrame() ?? "")).toContain("Qwen/new · — · saved");
+      expect(stripAnsi(i.lastFrame() ?? "")).toContain("Qwen/old · — · saved ‹current›");
+      await pressSettled(i, "\r");
+      expect(switched).toEqual(["local/Qwen/new"]);
+    } finally { await unmountSettled(i); }
+  });
+
+  test("a new model on another endpoint can be entered when discovery fails", async () => {
+    const { i, switched } = mount({
+      endpoints: [{ name: "local", type: "openai-compat", catalog: [] }],
+    });
+    try {
+      await waitText(i, "active:", "picker opened");
+      await pressSettled(i, "local/Qwen/new");
+      await waitText(i, '+ use "local/Qwen/new"', "explicit endpoint free text");
+      await pressSettled(i, "\r");
+      expect(switched).toEqual(["local/Qwen/new"]);
+    } finally { await unmountSettled(i); }
   });
 
   test("a failed fetch degrades to free text, never blocks", async () => {
@@ -501,5 +532,25 @@ describe("/model modal: the endpoints prop changing identity (#1497)", () => {
     } finally {
       server.stop(true);
     }
+  });
+});
+
+describe("model selection memory", () => {
+  test("persists by project and endpoint identity without rewriting provider defaults", () => {
+    const dir = mkdtempSync(join(tmpdir(), "moh-model-memory-"));
+    const file = join(dir, "config");
+    const endpoint = { name: "local", type: "openai-compat", baseUrl: "http://localhost:1234/v1", defaultModel: "original" };
+    try {
+      writeFileSync(file, JSON.stringify({ provider: "local/original", endpoints: [endpoint], future: { keep: true } }));
+      saveModelSelection(file, dir, endpoint, "Qwen/first");
+      saveModelSelection(file, dir, endpoint, "Qwen/last");
+      expect(readModelSelection(file, dir, endpoint)).toBe("Qwen/last");
+      expect(readModelSelection(file, join(dir, "other"), endpoint)).toBeUndefined();
+      expect(readModelSelection(file, dir, { ...endpoint, baseUrl: "http://localhost:5678/v1" })).toBeUndefined();
+      expect(readModelSelection(file, dir, { ...endpoint, name: "second" })).toBeUndefined();
+      expect(JSON.parse(readFileSync(file, "utf8"))).toMatchObject({ provider: "local/original", endpoints: [endpoint], future: { keep: true } });
+      expect(withSavedModels(CATALOG, CATALOG[0]!.id)).toEqual(CATALOG);
+      expect(withSavedModels([], "Qwen/last", "Qwen/last")).toEqual([{ id: "Qwen/last", name: "Qwen/last", contextWindow: 0, reasoning: false, saved: true }]);
+    } finally { rmSync(dir, { recursive: true, force: true }); }
   });
 });

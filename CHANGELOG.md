@@ -7,6 +7,12 @@ matching section here at tag time.
 
 ## [Unreleased]
 
+### Added
+
+- Name custom endpoints in TUI onboarding. Settings and `/model` remember
+  explicit model choices per project and endpoint, and offer saved models
+  when discovery is unavailable without changing routing defaults.
+
 ## [0.68.0] - 2026-11-19
 
 ### Added

@@ -60,7 +60,12 @@ describe("onboarding overlay (issue #33)", () => {
     await sleep(30);
     i.stdin.write("\r");
     await sleep(30);
-    expect(stripAnsi(i.lastFrame() ?? "")).toContain("Default model");
+    expect(stripAnsi(i.lastFrame() ?? "")).toContain("Endpoint name");
+    await waitText(i, "Endpoint name", "custom endpoint name");
+    // Keep the default prefix and give this local server its own identity.
+    await pressSettled(i, "-desktop");
+    await pressSettled(i, "\r");
+    await waitText(i, "Default model", "model after name");
     typeInto(i, "qwen3");
     await sleep(10);
     i.stdin.write("\r");
@@ -88,11 +93,11 @@ describe("onboarding overlay (issue #33)", () => {
     i.stdin.write("\r");
     await sleep(100);
 
-    expect(done).toEqual(["openai-compat/qwen3"]);
+    expect(done).toEqual(["openai-compat-desktop/qwen3"]);
     const config = loadMohConfig(join(cwd, "moh.json"));
-    expect(config.provider).toBe("openai-compat/qwen3");
+    expect(config.provider).toBe("openai-compat-desktop/qwen3");
     expect(config.endpoints![0]).toMatchObject({
-      name: "openai-compat",
+      name: "openai-compat-desktop",
       type: "openai-compat",
       baseUrl: "http://localhost:11434/v1",
       defaultModel: "qwen3",
@@ -235,6 +240,9 @@ describe("onboarding overlay (issue #33)", () => {
     await sleep(10);
     i.stdin.write("\r");
     await sleep(30);
+    await waitText(i, "Endpoint name", "custom endpoint name");
+    await pressSettled(i, "\r");
+    await waitText(i, "Default model", "model after name");
     typeInto(i, "qwen3");
     i.stdin.write("\r");
     await sleep(30);
@@ -269,6 +277,9 @@ describe("onboarding overlay — known endpoint pick-list (#295)", () => {
     await sleep(10);
     i.stdin.write("\r");
     await sleep(30);
+    await waitText(i, "Endpoint name", "custom endpoint name");
+    await pressSettled(i, "\r");
+    await waitText(i, "Default model", "model after name");
     typeInto(i, "qwen3");
     i.stdin.write("\r");
     await sleep(30);
@@ -316,6 +327,9 @@ describe("onboarding overlay — known endpoint pick-list (#295)", () => {
     }
     i.stdin.write("\r");
     await sleep(30);
+    await waitText(i, "Endpoint name", "custom endpoint name");
+    await pressSettled(i, "\r");
+    await waitText(i, "Default model", "model after name");
     typeInto(i, "qwen3");
     i.stdin.write("\r");
     await sleep(30);
@@ -346,6 +360,9 @@ describe("onboarding overlay — known endpoint pick-list (#295)", () => {
     }
     i.stdin.write("\r");
     await sleep(30);
+    await waitText(i, "Endpoint name", "custom endpoint name");
+    await pressSettled(i, "\r");
+    await waitText(i, "Default model", "model after name");
     typeInto(i, "qwen3");
     i.stdin.write("\r");
     await sleep(30);
@@ -377,6 +394,9 @@ describe("onboarding overlay — user-level wizard semantics (#129)", () => {
     await sleep(20);
     i.stdin.write("\r");
     await sleep(20);
+    await waitText(i, "Endpoint name", "custom endpoint name");
+    await pressSettled(i, "\r");
+    await waitText(i, "Default model", "model after name");
     typeInto(i, "qwen3");
     await sleep(10);
     i.stdin.write("\r");

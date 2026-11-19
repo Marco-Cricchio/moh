@@ -14,7 +14,7 @@ import { useTheme } from "./themes";
 import { ThemeStudioModal } from "./ThemeStudioModal";
 import { Dialog, Dim, truncate } from "./ui";
 import { dialogWidth, homeListCycleValues, useViewport, windowing, wrapLines } from "./viewport";
-import { fetchedToCatalog, filterCatalog, freeTextRow, mergePickCatalog, modelRow } from "./model-picker";
+import { fetchedToCatalog, filterCatalog, freeTextRow, mergePickCatalog, modelRow, readModelSelection, saveModelSelection, withSavedModels } from "./model-picker";
 import { browserRowValue, readBrowserSettingWithState } from "./browser-setup";
 
 /**
@@ -477,7 +477,7 @@ export function SettingsPanel({ cwd, home, config, onChange, modelLabel, onProvi
     if (sub.kind === "model") {
       // Vendored catalog + #551 live overlay; otherwise the fetched list.
       const vendored = modelListFor(sub.type, sub.baseUrl, sub.name);
-      const list = vendored.length > 0 ? vendored : Array.isArray(remote[sub.name]) ? fetchedToCatalog(remote[sub.name] as string[]) : [];
+      const list = withSavedModels(vendored.length > 0 ? vendored : Array.isArray(remote[sub.name]) ? fetchedToCatalog(remote[sub.name] as string[]) : [], sub.current);
       const rows = filterCatalog(list, sub.query).map((m) =>
         modelRow(m, m.id === sub.current, declaredWindow?.(`${sub.name}/${m.id}`)),
       );
@@ -812,6 +812,11 @@ export function SettingsPanel({ cwd, home, config, onChange, modelLabel, onProvi
       writeMohConfig(configFile, { ...project, provider: ref });
       setMoh({ ...moh, provider: ref });
     }
+    const endpoint = moh.endpoints?.find((e) => e.name === name);
+    if (endpoint) {
+      try { saveModelSelection(userFile, cwd, endpoint, modelId); }
+      catch (error) { onToast(`could not remember model: ${error instanceof Error ? error.message : String(error)}`); }
+    }
     onProviderSwitch(ref);
     onToast(`provider: ${ref} (new sessions)${userOwned ? " · user endpoint, default not editable here" : " · default saved in moh.json"}`);
   };
@@ -1117,18 +1122,19 @@ export function SettingsPanel({ cwd, home, config, onChange, modelLabel, onProvi
           const endpoint = (moh.endpoints ?? []).find((e) => e.name === name);
           if (!endpoint) return;
           const userOwned = !projectNames.has(name);
+          const current = readModelSelection(userFile, cwd, endpoint) ?? endpoint.defaultModel;
           const catalog = endpointModelCatalog(endpoint.type, endpoint.baseUrl);
           if (catalog.length === 0 && !endpoint.baseUrl) {
             // Unknown types without a base URL (custom): free text only,
             // as in the wizard (acceptance).
-            return setSub({ kind: "model-free", name, userOwned, purpose: "default", value: endpoint.defaultModel ?? "" });
+            return setSub({ kind: "model-free", name, userOwned, purpose: "default", value: current ?? "" });
           }
           if (catalog.length === 0) fetchRemoteModels(endpoint);
-          return setSub({ kind: "model", name, type: endpoint.type, baseUrl: endpoint.baseUrl, current: endpoint.defaultModel, userOwned, purpose: "default", cursor: 0, query: "" });
+          return setSub({ kind: "model", name, type: endpoint.type, baseUrl: endpoint.baseUrl, current, userOwned, purpose: "default", cursor: 0, query: "" });
         }
         if (sub.kind === "model") {
           const vendored = modelListFor(sub.type, sub.baseUrl, sub.name);
-          const list = vendored.length > 0 ? vendored : Array.isArray(remote[sub.name]) ? fetchedToCatalog(remote[sub.name] as string[]) : [];
+          const list = withSavedModels(vendored.length > 0 ? vendored : Array.isArray(remote[sub.name]) ? fetchedToCatalog(remote[sub.name] as string[]) : [], sub.current);
           const catalog = filterCatalog(list, sub.query);
           if (index < catalog.length) {
             if (sub.purpose === "fallback") {
@@ -1431,7 +1437,7 @@ export function SettingsPanel({ cwd, home, config, onChange, modelLabel, onProvi
               {sub.kind === "model" && (() => {
                 const endpoint = moh.endpoints?.find((e) => e.name === sub.name);
                 const vendored = modelListFor(sub.type, sub.baseUrl, sub.name);
-                const list = vendored.length ? vendored : Array.isArray(remote[sub.name]) ? fetchedToCatalog(remote[sub.name] as string[]) : [];
+                const list = withSavedModels(vendored.length ? vendored : Array.isArray(remote[sub.name]) ? fetchedToCatalog(remote[sub.name] as string[]) : [], sub.current);
                 const id = filterCatalog(list, sub.query)[sub.cursor]?.id ?? sub.query.trim();
                 if (!id) return null;
                 const image = imageSupportFor(endpoint, id);

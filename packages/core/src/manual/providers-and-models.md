@@ -17,6 +17,19 @@ moh provider add
 
 The wizard presents a documented endpoint and default model for every built-in profile. Where a provider requires an account- or region-specific URL, it asks for the concrete endpoint instead of guessing. API keys are resolved from the provider's documented environment variable as well as `MOH_ENDPOINT_<NAME>_API_KEY`; values entered in the wizard are stored in `~/.moh/config`, never in moh.json.
 
+The TUI's custom `openai-compat` wizard asks for an **Endpoint name** before
+its model. Give each server a distinct name, such as `ollama-desktop` or
+`lmstudio-laptop`; model references use that name (`ollama-desktop/Qwen/model`).
+
+Settings and `/model` retain saved models even when discovery is unavailable
+or returns an empty list. A **saved** row has not been confirmed by discovery;
+selecting it still sends the exact model id to the server. Explicit selections
+are remembered privately in `~/.moh/config` (`modelSelections`), separately for
+each project and endpoint identity. `/model` still switches only the current
+session; remembering a choice does not change startup defaults or fallback
+models. Settings retains its existing project-default behavior. Automatic
+fallbacks never overwrite this picker preference.
+
 The mandatory connection test sends one small probe to the endpoint.
 When it fails, the overlay shows the provider's actionable error fields
 in full — status, message, the offending parameter (`error.param`), error
