@@ -18,9 +18,18 @@ const MENTION_DIR_ENTRY_CAP = 5000;
 export const IMAGE_MENTION_CAP = 5 * 1024 * 1024;
 /** Image formats promoted to image content blocks (vision note 4). */
 export const IMAGE_MENTION_MIMES = new Set(["image/png", "image/jpeg", "image/webp", "image/gif"]);
+/** Combined audio/video byte budget per send; base64 is persisted for replay. */
+export const MEDIA_MENTION_CAP = 20 * 1024 * 1024;
+const MEDIA_MIMES = new Set(["audio/wav", "audio/mpeg", "video/mp4"]);
 
 /** One structured attachment on a `user_message` event (#488). */
 export type MentionAttachment =
+  | ({ kind: "audio" } | { kind: "video" }) & {
+      path: string;
+      mime: string;
+      /** Immutable native file snapshot, base64-encoded. */
+      content: string;
+    }
   | {
       kind: "file";
       /** Path as written by the user (cwd-relative when under cwd). */
@@ -182,6 +191,24 @@ const MIME_BY_EXT: Record<string, string> = {
   ".tar": "application/x-tar",
   ".gz": "application/gzip",
   ".mp3": "audio/mpeg",
+  ".wav": "audio/wav",
+  ".ogg": "audio/ogg",
+  ".flac": "audio/flac",
+  ".m4a": "audio/mp4",
+  ".aac": "audio/aac",
+  ".aif": "audio/aiff",
+  ".aiff": "audio/aiff",
+  ".opus": "audio/opus",
+  ".weba": "audio/webm",
+  ".wma": "audio/x-ms-wma",
+  ".m4v": "video/x-m4v",
+  ".mpeg": "video/mpeg",
+  ".mpg": "video/mpeg",
+  ".ogv": "video/ogg",
+  ".wmv": "video/x-ms-wmv",
+  ".webm": "video/webm",
+  ".avi": "video/x-msvideo",
+  ".mkv": "video/x-matroska",
   ".mp4": "video/mp4",
   ".mov": "video/quicktime",
   ".json": "application/json",
@@ -217,6 +244,7 @@ export async function assembleMentions(text: string, options: AssembleMentionsOp
   const { mentions } = expandMentions(text, options.cwd);
   const attachments: MentionAttachment[] = [];
   const warnings: MentionWarning[] = [];
+  let mediaBytes = 0;
   for (const mention of mentions) {
     if (!mention.exists) {
       warnings.push({ path: mention.displayPath, reason: "not found" });
@@ -241,11 +269,32 @@ export async function assembleMentions(text: string, options: AssembleMentionsOp
       continue;
     }
     const mime = mimeForPath(mention.absPath);
+    const media = mime.startsWith("audio/") ? "audio" : mime.startsWith("video/") ? "video" : undefined;
+    if (media && !MEDIA_MIMES.has(mime)) {
+      warnings.push({ path: mention.displayPath, reason: "unsupported media format — attach WAV/MP3 audio or MP4 video; no conversion is performed" });
+      continue;
+    }
     let buf: Buffer;
     try {
+      if (media) {
+        const stat = statSync(mention.absPath);
+        if (!stat.isFile() || stat.size > MEDIA_MENTION_CAP - mediaBytes) {
+          warnings.push({ path: mention.displayPath, reason: "audio/video exceeds the 20MB combined attachment cap or is not a regular file — not attached" });
+          continue;
+        }
+      }
       buf = await readFile(mention.absPath);
     } catch (err) {
       warnings.push({ path: mention.displayPath, reason: `unreadable: ${err instanceof Error ? err.message : String(err)}` });
+      continue;
+    }
+    if (media) {
+      if (buf.length > MEDIA_MENTION_CAP - mediaBytes) {
+        warnings.push({ path: mention.displayPath, reason: "audio/video exceeds the 20MB combined attachment cap — not attached" });
+        continue;
+      }
+      mediaBytes += buf.length;
+      attachments.push({ kind: media, path: mention.displayPath, mime, content: buf.toString("base64") });
       continue;
     }
     if (IMAGE_MENTION_MIMES.has(mime)) {
@@ -355,6 +404,7 @@ async function listDirectory(dir: string, cap: number): Promise<{ listing: strin
  * providers the gate dropped the part for — the universal reference chip
  * (same format as the TUI's imageChip). */
 export function renderMentionAttachment(attachment: MentionAttachment): string {
+  if (attachment.kind === "audio" || attachment.kind === "video") return `[${attachment.kind}: ${attachment.path}]`;
   if (attachment.kind === "image") {
     const dims = attachment.width && attachment.height ? ` ${attachment.width}x${attachment.height}` : "";
     return `[image: ${attachment.path}${dims}]`;

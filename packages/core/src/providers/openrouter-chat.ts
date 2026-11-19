@@ -20,6 +20,7 @@
  * leaked as provider-specific stream-part types into the Core contract.
  */
 import { createOpenAI } from "@ai-sdk/openai";
+import { chatModelWithVideo } from "./chat-media";
 import type { LanguageModel } from "ai";
 
 /** Reasoning extracted from one OpenRouter response. */
@@ -375,6 +376,7 @@ interface OpenRouterChatModelOptions {
    * `reasoning_effort: "none"` (#1723). Off by default — elsewhere the
    * absence of a reasoning request is how off is said. */
   sendDisabledEffort?: boolean;
+  videoInput?: boolean;
 }
 
 /** Wraps the stock openai.chat model with the Chat Completions reasoning
@@ -387,13 +389,17 @@ export function openRouterChatModel(options: OpenRouterChatModelOptions): Langua
   const openRouterDialect = options.dialect !== "openai-compat";
   // One client factory for both the interface prototype and the
   // per-call inner model (the latter swaps in the patched fetch).
-  const chatModel = (fetch?: BaseFetch) =>
-    createOpenAI({
+  const chatModel = (fetch?: BaseFetch) => {
+    const settings = {
       apiKey: options.apiKey,
       ...(options.baseUrl ? { baseURL: options.baseUrl } : {}),
       ...(options.headers ? { headers: options.headers } : {}),
       ...(fetch ? { fetch: fetch as never } : {}),
-    }).chat(options.modelId);
+    };
+    return options.videoInput && options.baseUrl
+      ? chatModelWithVideo({ ...settings, baseURL: options.baseUrl }, options.modelId)
+      : createOpenAI(settings).chat(options.modelId);
+  };
   const proto = chatModel() as unknown as {
     specificationVersion: string;
     provider: string;

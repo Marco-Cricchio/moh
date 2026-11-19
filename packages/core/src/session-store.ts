@@ -539,13 +539,34 @@ const chainHeads = new Map<string, string>();
  */
 function redactedLine(event: AgentEvent, file: string): string {
   const stamped = event.id === undefined ? stampEvent(event, file) : event;
-  const result = redactValue(stamped);
+  // Native media is opaque binary, not prose. A base64 sequence can happen
+  // to match a credential pattern; masking it would corrupt replay bytes.
+  // Keep only well-formed base64 outside the text scan; filenames, prompt,
+  // metadata and malformed content still take the unconditional redaction.
+  const media = new Map<number, string>();
+  const scan = stamped.type === "user_message" && stamped.attachments
+    ? { ...stamped, attachments: stamped.attachments.map((attachment, index) => {
+      if ((attachment.kind === "audio" || attachment.kind === "video")
+        && attachment.content.length % 4 === 0 && /^[A-Za-z0-9+/]*={0,2}$/.test(attachment.content)) {
+        media.set(index, attachment.content);
+        return { ...attachment, content: "" };
+      }
+      return attachment;
+    }) }
+    : stamped;
+  const result = redactValue(scan);
   if (result.misses.length > 0 || result.depthCut) noteRedactionResult(mohHomeFor(file), result);
   // #1259: the hash chain is stamped at this same single seam, after
   // redaction, so every writer path is covered and no secret ever feeds
   // the digest.
   const prevHash = chainHeadFor(file);
   const value = result.value as AgentEvent;
+  if (value.type === "user_message") {
+    for (const [index, content] of media) {
+      const attachment = value.attachments?.[index];
+      if (attachment?.kind === "audio" || attachment?.kind === "video") attachment.content = content;
+    }
+  }
   const hash = lineHash(prevHash, integrityPayload(value as HashedEvent));
   chainHeads.set(file, hash);
   return JSON.stringify({ ...value, prevHash, hash }) + "\n";
@@ -818,11 +839,10 @@ export function replayMessages(events: ReadonlyArray<AgentEvent>): Message[] {
           parts: [
             { kind: "text", text: event.text },
             // #488/vision note 4: persisted attachments ride the rebuilt
-            // user message exactly as the live turn saw them — images as
-            // typed image parts, everything else as text blocks.
+            // user message — media as typed native parts, other files as text.
             ...(event.attachments ?? []).map((a) =>
-              a.kind === "image"
-                ? ({ kind: "image", mime: a.mime, base64: a.content } as const)
+              a.kind === "image" || a.kind === "audio" || a.kind === "video"
+                ? ({ kind: a.kind, mime: a.mime, base64: a.content } as const)
                 : ({ kind: "text", text: renderMentionAttachment(a) } as const),
             ),
           ],

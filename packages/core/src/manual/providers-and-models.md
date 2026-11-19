@@ -25,13 +25,35 @@ failed attempt is persisted to `~/.moh/provider-test-failures.log`
 (bounded, never carrying credentials), so a failure stays diagnosable
 after the wizard is gone.
 
-For a custom OpenAI-compatible model with unknown image support, choose
-**Automatic**, **Yes**, or **No** for image input. Automatic keeps an unknown
-model text-only; Yes and No save a declaration for that exact model id under
-`capabilities.imageModels`. The connection test checks text only. Settings'
-model picker shows effective image support and whether it comes from the
-catalog, a model declaration, an endpoint declaration, or is unknown. Change
-an existing declaration in config or run the provider wizard again.
+For a custom OpenAI-compatible model, choose **Automatic**, **Yes**, or **No**
+for each unknown input modality: images, audio and video. Automatic uses the
+catalog; unknown means unavailable. Explicit choices are saved per exact model
+id under `capabilities.inputModels`. Existing `imageModels` declarations still
+work. Settings' model picker shows each capability and its source. The connection
+test checks text only; a declaration does not verify remote media support.
+
+Attach native files with `@voice.wav`, `@music.mp3` or `@clip.mp4` (quote paths
+with spaces). Audio/video share a **20 MiB byte budget per send**, in addition to
+the existing image limit. Files are permission-gated and snapshotted in the
+session log: resume/fork uses those bytes, even if the originals change or disappear.
+The transcript shows a media chip; it does not play the attachment. Other media
+formats produce a visible warning instead of sending binary data as text.
+
+Audio uses `input_audio` on Chat Completions endpoints; video uses the
+non-standard `video_url` extension on OpenAI-compatible/OpenRouter endpoints.
+Google's native transport accepts both as inline file parts. The selected model
+must declare the modality and its endpoint must accept the request format.
+Provider file-size/duration limits may be lower than moh's attachment cap.
+There is no local transcription, frame extraction, conversion, microphone
+streaming, media generation, or automatic file upload service. Video understanding
+does not imply understanding its audio track.
+
+Routes skip models without the required audio/video capabilities, including on
+resume. If no available route qualifies, moh reports an actionable error and
+retains the attachment; select a compatible model or correct its declaration.
+Infomaniak audio/video compatibility has **not** been verified against an
+activated account; Qwen's model documentation alone does not establish endpoint
+support.
 
 The wizard asks **API key or subscription** where moh offers both methods
 (Anthropic, OpenAI, GitHub Copilot, OpenRouter, xAI, Kimi). OAuth tokens are
