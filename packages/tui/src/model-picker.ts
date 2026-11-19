@@ -5,7 +5,8 @@
  * (persistent, moh.json). Both receive an endpoint-aware catalog — one
  * list story for builtin and recognized openai-compat providers.
  */
-import type { CatalogModel, LiveModelListing } from "@moh/core";
+import { readUserConfigFile, updateUserConfigFile, type CatalogModel, type LiveModelListing } from "@moh/core";
+import { resolve } from "node:path";
 
 /**
  * Incremental filter over a catalog (#181): case-insensitive substring
@@ -13,7 +14,7 @@ import type { CatalogModel, LiveModelListing } from "@moh/core";
  * Keeps the catalog's own order (the provider's preference); the
  * free-text row is appended by the caller, not here.
  */
-export function filterCatalog(models: CatalogModel[], query: string): CatalogModel[] {
+export function filterCatalog<T extends CatalogModel>(models: T[], query: string): T[] {
   const q = query.trim().toLowerCase();
   if (!q) return models;
   const substr = models.filter(
@@ -54,7 +55,7 @@ export function windowText(catalogWindow: number, declared?: number, shipped?: n
 
 /** One list row: `name (id) · ctx Nk`, with the current-model marker. */
 export function modelRow(m: PickerModel, current?: boolean, declared?: number): string {
-  return `${m.name} (${m.id}) · ctx ${windowText(m.contextWindow, declared, m.shippedContextWindow)}${current ? " ‹current›" : ""}`;
+  return `${m.name} (${m.id}) · ctx ${windowText(m.contextWindow, declared, m.shippedContextWindow)}${m.saved ? " · saved" : ""}${current ? " ‹current›" : ""}`;
 }
 
 /** The free-text fallback row shown when the query misses the catalog
@@ -71,6 +72,7 @@ export interface EndpointPick {
   name: string;
   type: string;
   defaultModel?: string;
+  lastSelectedModel?: string;
   baseUrl?: string;
   apiKey?: string;
   /** Catalog rows (vendored or fetched). Empty + no baseUrl = free-text only. */
@@ -81,7 +83,9 @@ export interface EndpointPick {
  * endpoint's own listing declared a different window (#1032), the
  * shipped value it replaced — both numbers, wherever a window is shown
  * (ADR-0049). */
-interface PickerModel extends CatalogModel {
+export interface PickerModel extends CatalogModel {
+  /** Saved locally; discovery has not confirmed this row. */
+  saved?: boolean;
   /** The shipped catalog window this row's `contextWindow` replaced
    * (absent when the two agree or no listing declared one). */
   shippedContextWindow?: number;
@@ -140,4 +144,40 @@ export function contextWindowForLabel(
   if (declared !== undefined && declared > 0) return declared;
   const pick = picks.find((p) => p.name === name);
   return pick?.catalog.find((m) => m.id === modelId)?.contextWindow ?? 0;
+}
+
+/** Picker preferences are private, project-scoped UI state, never routing defaults.
+ * Include endpoint identity so replacing a server does not inherit another server's model. */
+function selectionKey(cwd: string, endpoint: Pick<EndpointPick, "name" | "type" | "baseUrl">): string {
+  return JSON.stringify([resolve(cwd), endpoint.name, endpoint.type, endpoint.baseUrl ?? ""]);
+}
+
+export function readModelSelection(file: string, cwd: string, endpoint: Pick<EndpointPick, "name" | "type" | "baseUrl">): string | undefined {
+  const saved = readUserConfigFile(file).modelSelections;
+  if (!saved || typeof saved !== "object" || Array.isArray(saved)) return undefined;
+  const value = (saved as Record<string, unknown>)[selectionKey(cwd, endpoint)];
+  return typeof value === "string" && value.trim() ? value : undefined;
+}
+
+export function saveModelSelection(file: string, cwd: string, endpoint: Pick<EndpointPick, "name" | "type" | "baseUrl">, model: string): void {
+  updateUserConfigFile(file, (data) => {
+    const saved = data.modelSelections;
+    data.modelSelections = {
+      ...(saved && typeof saved === "object" && !Array.isArray(saved) ? saved : {}),
+      [selectionKey(cwd, endpoint)]: model,
+    };
+  });
+}
+
+/** Keep explicit selections usable even if discovery fails or omits them.
+ * Listed models retain their metadata; synthetic rows never invent capabilities. */
+export function withSavedModels(models: PickerModel[], ...ids: (string | undefined)[]): PickerModel[] {
+  const missing: PickerModel[] = [];
+  const seen = new Set(models.map((m) => m.id));
+  for (const id of ids) {
+    if (!id || seen.has(id)) continue;
+    seen.add(id);
+    missing.push({ id, name: id, contextWindow: 0, reasoning: false, saved: true });
+  }
+  return [...missing, ...models];
 }

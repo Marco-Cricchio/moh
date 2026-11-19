@@ -11,6 +11,8 @@ import {
   freeTextRow,
   mergePickCatalog,
   windowText,
+  withSavedModels,
+  type PickerModel,
   type EndpointPick,
 } from "./model-picker";
 import type { LiveModelListing } from "@moh/core";
@@ -127,7 +129,7 @@ export function ModelPickerModal({
   interface Row {
     endpoint: string;
     type: string;
-    model?: CatalogModel & { shippedContextWindow?: number };
+    model?: PickerModel;
     free?: string;
     current?: boolean;
   }
@@ -138,25 +140,29 @@ export function ModelPickerModal({
     // before the slash matches endpoint names, the rest filters models.
     const q = query.trim().toLowerCase();
     const slash = q.indexOf("/");
-    const endpointPrefix = slash > 0 ? q.slice(0, slash) : null;
-    const modelQuery = slash > 0 ? query.trim().slice(slash + 1) : query;
+    const prefix = slash > 0 ? q.slice(0, slash) : null;
+    const endpointPrefix = prefix && endpoints.some((e) => e.name.toLowerCase().startsWith(prefix)) ? prefix : null;
+    const modelQuery = endpointPrefix !== null ? query.trim().slice(slash + 1) : query;
     for (const e of endpoints) {
       if (endpointPrefix !== null && !e.name.toLowerCase().startsWith(endpointPrefix)) continue;
-      const list = mergePickCatalog(
+      const list = withSavedModels(mergePickCatalog(
         e.catalog.length > 0
           ? e.catalog
           : Array.isArray(remote[e.name])
             ? (remote[e.name] as CatalogModel[])
             : [],
         liveCatalog[e.name] ?? [],
-      );
+      ), e.lastSelectedModel, e.defaultModel, e.name === activeEndpoint ? activeModel.slice(activeModel.indexOf("/") + 1) : undefined);
       for (const model of filterCatalog(list, modelQuery)) {
         out.push({
           endpoint: e.name,
           type: e.type,
           model,
-          current: e.name === activeEndpoint && model.id === activeModel.split("/")[1],
+          current: e.name === activeEndpoint && `${e.name}/${model.id}` === activeModel,
         });
+      }
+      if (endpointPrefix !== null && modelQuery.trim()) {
+        out.push({ endpoint: e.name, type: e.type, free: `${e.name}/${modelQuery.trim()}` });
       }
     }
     if (q && endpointPrefix === null) {
@@ -174,9 +180,9 @@ export function ModelPickerModal({
     // endpoint when there is one (pre-built providers pass it through).
     const ref =
       row.free !== undefined
-        ? row.free.includes("/") || !activeEndpoint
+        ? !row.endpoint || row.free.startsWith(`${row.endpoint}/`)
           ? row.free
-          : `${activeEndpoint}/${row.free}`
+          : `${row.endpoint}/${row.free}`
         : `${row.endpoint}/${row.model!.id}`;
     const result = onSwitch(ref);
     if (!result.ok) {
@@ -205,7 +211,7 @@ export function ModelPickerModal({
             row.model!.contextWindow,
             declaredWindow?.(`${row.endpoint}/${row.model!.id}`),
             row.model!.shippedContextWindow,
-          )}`;
+          )}${row.model!.saved ? " · saved" : ""}`;
     return ` ${selected ? "›" : " "} ${body}${row.current ? " ‹current›" : ""}${selected ? " " : ""}`;
   };
 

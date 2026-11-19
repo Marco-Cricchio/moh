@@ -441,3 +441,11 @@ internal, and the now-unused generic acknowledgement helper is removed.
 The session uses the same resolver for the serving model, keeping displayed
 capabilities and image attachment gates aligned. Exact model declarations
 are user-owned configuration; the legacy endpoint-wide veto remains dominant.
+
+
+## Amendment — 2026-11-19: shared input modality declarations
+
+Export `inputSupportFor` alongside the existing `imageSupportFor`: the CLI
+wizard, TUI wizard and Settings consume the same model-scoped declarations and
+catalog resolution. `imageSupportFor` delegates to it and preserves its API.
+SDK transport types remain internal (ADR-0002).

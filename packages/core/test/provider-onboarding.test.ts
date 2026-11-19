@@ -852,7 +852,7 @@ describe("custom model image input", () => {
       const file = join(mkdtempSync(join(tmpdir(), "moh-image-config-")), "moh.json");
       const { config } = await addProviderToFile(ioWith([...answers(), answer]), file, { tester: okTest() });
       const profile = config.endpoints![0]!;
-      expect(profile.capabilities?.imageModels).toEqual(answer === "auto" ? undefined : { qwen3: answer === "yes" });
+      expect(profile.capabilities?.inputModels).toEqual(answer === "auto" ? undefined : { qwen3: { image: answer === "yes" } });
       expect(profile.capabilities?.multimodal).toBeUndefined();
       expect(JSON.parse(readFileSync(file, "utf8")).endpoints[0]).toEqual(profile);
     });
@@ -861,10 +861,10 @@ describe("custom model image input", () => {
 
 
 describe("Infomaniak onboarding", () => {
-  test("collects the product URL and declares image input without subscription", async () => {
-    const io = ioWith(["infomaniak", "swiss", "", "https://api.infomaniak.com/2/ai/123/openai/v1", "Qwen/test", "yes"]);
+  test("collects the product URL and declares each input without subscription", async () => {
+    const io = ioWith(["infomaniak", "swiss", "", "https://api.infomaniak.com/2/ai/123/openai/v1", "Qwen/test", "yes", "no", "yes"]);
     const profile = await runProviderAdd(io, okTest());
-    expect(profile).toEqual({ name: "swiss", type: "infomaniak", baseUrl: "https://api.infomaniak.com/2/ai/123/openai/v1", defaultModel: "Qwen/test", capabilities: { imageModels: { "Qwen/test": true } } });
+    expect(profile).toEqual({ name: "swiss", type: "infomaniak", baseUrl: "https://api.infomaniak.com/2/ai/123/openai/v1", defaultModel: "Qwen/test", capabilities: { inputModels: { "Qwen/test": { image: true, audio: false, video: true } } } });
     expect(io.said.some((line) => line.startsWith("Auth method"))).toBe(false);
     expect(io.said.some((line) => line.includes("INFOMANIAK_API_TOKEN"))).toBe(true);
   });
@@ -873,4 +873,11 @@ describe("Infomaniak onboarding", () => {
     await expect(runProviderAdd(ioWith(["infomaniak", "", "", ""]), async () => { calls++; return { ok: true, modelId: "qwen3" }; })).rejects.toThrow("concrete base URL");
     expect(calls).toBe(0);
   });
+});
+
+test("custom wizard declares audio and video independently and persists them", async () => {
+  const file = join(mkdtempSync(join(tmpdir(), "moh-media-wizard-")), "moh.json");
+  const { config } = await addProviderToFile(ioWith([...answers(), "no", "yes", "yes"]), file, { tester: okTest() });
+  expect(config.endpoints?.[0]?.capabilities?.inputModels).toEqual({ qwen3: { image: false, audio: true, video: true } });
+  expect(JSON.parse(readFileSync(file, "utf8")).endpoints[0].capabilities.inputModels).toEqual(config.endpoints?.[0]?.capabilities?.inputModels);
 });

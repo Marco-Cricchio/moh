@@ -382,12 +382,23 @@ export function imageSupportFor(
   profile: import("./config").EndpointProfile | undefined,
   modelId: string,
 ): { supported: boolean; source: "model declaration" | "endpoint declaration" | "catalog" | "unknown" } {
+  return inputSupportFor(profile, modelId, "image");
+}
+
+/** Model understanding is declared separately for each input modality.
+ * The legacy multimodal flag describes images only; it never grants audio/video. */
+export function inputSupportFor(
+  profile: import("./config").EndpointProfile | undefined,
+  modelId: string,
+  modality: "image" | "audio" | "video",
+): { supported: boolean; source: "model declaration" | "endpoint declaration" | "catalog" | "unknown" } {
   const capabilities = profile?.capabilities;
-  if (capabilities?.multimodal === false) return { supported: false, source: "endpoint declaration" };
-  const declared = capabilities?.imageModels?.[modelId];
+  if (modality === "image" && capabilities?.multimodal === false) return { supported: false, source: "endpoint declaration" };
+  const declared = capabilities?.inputModels?.[modelId]?.[modality]
+    ?? (modality === "image" ? capabilities?.imageModels?.[modelId] : undefined);
   if (typeof declared === "boolean") return { supported: declared, source: "model declaration" };
   const model = catalogEntryFor(profile?.type ?? "", modelId, profile?.baseUrl);
-  if (model) return { supported: modelSupportsImages(model, capabilities), source: model.input ? "catalog" : "unknown" };
-  if (capabilities?.multimodal !== undefined) return { supported: capabilities.multimodal, source: "endpoint declaration" };
+  if (model) return { supported: model.input?.includes(modality) ?? false, source: model.input ? "catalog" : "unknown" };
+  if (modality === "image" && capabilities?.multimodal !== undefined) return { supported: capabilities.multimodal, source: "endpoint declaration" };
   return { supported: false, source: "unknown" };
 }

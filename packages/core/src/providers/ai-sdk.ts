@@ -6,6 +6,8 @@
 import { jsonSchema, streamText, stepCountIs, type LanguageModel, type ToolSet } from "ai";
 import { createAnthropic } from "@ai-sdk/anthropic";
 import { createOpenAI } from "@ai-sdk/openai";
+import { chatModelWithVideo } from "./chat-media";
+import { ProviderError } from "../types";
 import { createGoogleGenerativeAI } from "@ai-sdk/google";
 import type { AuthMethodKind } from "../auth/types";
 import { ANTHROPIC_SUBSCRIPTION_HEADERS } from "../auth/anthropic";
@@ -168,7 +170,7 @@ export function languageModelFor(
     return anthropic(target.modelId);
   }
   if (wire === "google") {
-    const google = createGoogleGenerativeAI({ apiKey, ...(baseUrl ? { baseUrl } : {}) });
+    const google = createGoogleGenerativeAI({ apiKey, ...(baseUrl ? { baseURL: baseUrl } : {}) });
     return google(target.modelId);
   }
   const openai = createOpenAI({
@@ -204,6 +206,7 @@ export function languageModelFor(
       const openRouterDialect =
         target.compat?.thinkingFormat === "openrouter" || target.thinkingFormat === "openrouter-effort";
       return openRouterChatModel({
+        videoInput: target.videoInput,
         modelId: target.modelId,
         apiKey,
         ...(baseUrl ? { baseUrl } : {}),
@@ -220,7 +223,9 @@ export function languageModelFor(
         ...(target.endpoint.kind === "openai" && !openRouterDialect ? { sendDisabledEffort: true } : {}),
       });
     }
-    return openai.chat(target.modelId);
+    return target.videoInput && baseUrl
+      ? chatModelWithVideo({ apiKey, baseURL: baseUrl, headers }, target.modelId)
+      : openai.chat(target.modelId);
   }
   throw new Error(`endpoint "${name}": wire "${wire}" has no AI SDK model factory; provide createStream`);
 }
@@ -261,8 +266,8 @@ function toAiMessages(messages: Message[], wire: WireApi): { system: string | un
     for (const part of msg.parts) {
       if (part.kind === "text") {
         content.push({ type: "text", text: part.text });
-      } else if (part.kind === "image") {
-        // Vision note 4: multimodal image content block (AI SDK v5 shape).
+      } else if (part.kind === "image" || part.kind === "audio" || part.kind === "video") {
+        // Native file parts; the selected transport owns the wire encoding.
         content.push({ type: "file", mediaType: part.mime, data: part.base64 });
       } else if (part.kind === "tool_call") {
         content.push({
@@ -366,6 +371,14 @@ export function aiSdkStreamFor(
     return {
       async *[Symbol.asyncIterator]() {
         const wire: WireApi = transport?.wire ?? target.wire ?? wireForKind(target.endpoint.kind);
+        for (const part of messages.flatMap((message) => message.parts)) {
+          if (part.kind === "audio" && wire !== "openai-chat" && wire !== "google") {
+            throw new ProviderError("invalid_request", `Native audio input is not supported by the ${wire} transport.`);
+          }
+          if (part.kind === "video" && wire !== "google" && !(wire === "openai-chat" && target.videoInput)) {
+            throw new ProviderError("invalid_request", `Native video input requires a Google or video_url-compatible chat endpoint.`);
+          }
+        }
         const { system, messages: aiMessages } = toAiMessages(messages, wire);
         const aiTools = toAiTools(tools);
         // #240/#256: the neutral thinking-level request, mapped per wire

@@ -60,7 +60,12 @@ describe("onboarding overlay (issue #33)", () => {
     await sleep(30);
     i.stdin.write("\r");
     await sleep(30);
-    expect(stripAnsi(i.lastFrame() ?? "")).toContain("Default model");
+    expect(stripAnsi(i.lastFrame() ?? "")).toContain("Endpoint name");
+    await waitText(i, "Endpoint name", "custom endpoint name");
+    // Keep the default prefix and give this local server its own identity.
+    await pressSettled(i, "-desktop");
+    await pressSettled(i, "\r");
+    await waitText(i, "Default model", "model after name");
     typeInto(i, "qwen3");
     await sleep(10);
     i.stdin.write("\r");
@@ -78,6 +83,10 @@ describe("onboarding overlay (issue #33)", () => {
 
     await waitText(i, "Image input for", "image capability choice");
     await pressSettled(i, "\r");
+    await waitText(i, "Audio input for", "audio capability choice");
+    await pressSettled(i, "\r");
+    await waitText(i, "Video input for", "video capability choice");
+    await pressSettled(i, "\r");
     await waitText(i, "Where should", "save scope after automatic image choice");
 
     // Save-scope chooser (#129): brand-new endpoint, no moh.json → cursor
@@ -88,11 +97,11 @@ describe("onboarding overlay (issue #33)", () => {
     i.stdin.write("\r");
     await sleep(100);
 
-    expect(done).toEqual(["openai-compat/qwen3"]);
+    expect(done).toEqual(["openai-compat-desktop/qwen3"]);
     const config = loadMohConfig(join(cwd, "moh.json"));
-    expect(config.provider).toBe("openai-compat/qwen3");
+    expect(config.provider).toBe("openai-compat-desktop/qwen3");
     expect(config.endpoints![0]).toMatchObject({
-      name: "openai-compat",
+      name: "openai-compat-desktop",
       type: "openai-compat",
       baseUrl: "http://localhost:11434/v1",
       defaultModel: "qwen3",
@@ -235,6 +244,9 @@ describe("onboarding overlay (issue #33)", () => {
     await sleep(10);
     i.stdin.write("\r");
     await sleep(30);
+    await waitText(i, "Endpoint name", "custom endpoint name");
+    await pressSettled(i, "\r");
+    await waitText(i, "Default model", "model after name");
     typeInto(i, "qwen3");
     i.stdin.write("\r");
     await sleep(30);
@@ -269,6 +281,9 @@ describe("onboarding overlay — known endpoint pick-list (#295)", () => {
     await sleep(10);
     i.stdin.write("\r");
     await sleep(30);
+    await waitText(i, "Endpoint name", "custom endpoint name");
+    await pressSettled(i, "\r");
+    await waitText(i, "Default model", "model after name");
     typeInto(i, "qwen3");
     i.stdin.write("\r");
     await sleep(30);
@@ -289,6 +304,10 @@ describe("onboarding overlay — known endpoint pick-list (#295)", () => {
     await sleep(100);
 
     await waitText(i, "Image input for", "image capability choice");
+    await pressSettled(i, "\r");
+    await waitText(i, "Audio input for", "audio capability choice");
+    await pressSettled(i, "\r");
+    await waitText(i, "Video input for", "video capability choice");
     await pressSettled(i, "\r");
     await waitText(i, "Where should", "save scope after automatic image choice");
 
@@ -316,6 +335,9 @@ describe("onboarding overlay — known endpoint pick-list (#295)", () => {
     }
     i.stdin.write("\r");
     await sleep(30);
+    await waitText(i, "Endpoint name", "custom endpoint name");
+    await pressSettled(i, "\r");
+    await waitText(i, "Default model", "model after name");
     typeInto(i, "qwen3");
     i.stdin.write("\r");
     await sleep(30);
@@ -346,6 +368,9 @@ describe("onboarding overlay — known endpoint pick-list (#295)", () => {
     }
     i.stdin.write("\r");
     await sleep(30);
+    await waitText(i, "Endpoint name", "custom endpoint name");
+    await pressSettled(i, "\r");
+    await waitText(i, "Default model", "model after name");
     typeInto(i, "qwen3");
     i.stdin.write("\r");
     await sleep(30);
@@ -366,7 +391,7 @@ void readFileSync;
 describe("onboarding overlay — user-level wizard semantics (#129)", () => {
   const profile0 = { name: "openai-compat", type: "openai-compat", baseUrl: "http://localhost:11434/v1", defaultModel: "qwen3" };
 
-  async function runWizard(home: string, cwd: string, imageChoice = 0) {
+  async function runWizard(home: string, cwd: string, imageChoice = 0, mediaChoice = 0) {
     const done: (string | null)[] = [];
     const i = render(<Onboarding cwd={cwd} home={home} env={{}} tester={okTester} onDone={(ref) => done.push(ref)} />);
     await sleep(30);
@@ -377,6 +402,9 @@ describe("onboarding overlay — user-level wizard semantics (#129)", () => {
     await sleep(20);
     i.stdin.write("\r");
     await sleep(20);
+    await waitText(i, "Endpoint name", "custom endpoint name");
+    await pressSettled(i, "\r");
+    await waitText(i, "Default model", "model after name");
     typeInto(i, "qwen3");
     await sleep(10);
     i.stdin.write("\r");
@@ -389,6 +417,12 @@ describe("onboarding overlay — user-level wizard semantics (#129)", () => {
     await waitText(i, "Image input for", "image capability choice");
     for (let n = 0; n < imageChoice; n++) await pressSettled(i, "\x1b[B");
     await pressSettled(i, "\r");
+    await waitText(i, "Audio input for", "audio capability choice");
+    for (let n = 0; n < mediaChoice; n++) await pressSettled(i, "\x1b[B");
+    await pressSettled(i, "\r");
+    await waitText(i, "Video input for", "video capability choice");
+    for (let n = 0; n < mediaChoice; n++) await pressSettled(i, "\x1b[B");
+    await pressSettled(i, "\r");
     await sleep(100);
     return { i, done };
   }
@@ -397,13 +431,13 @@ describe("onboarding overlay — user-level wizard semantics (#129)", () => {
     test(`custom wizard persists image input ${enabled} for the selected model`, async () => {
       const home = tempHome();
       const cwd = tempCwd();
-      const { i, done } = await runWizard(home, cwd, choice);
+      const { i, done } = await runWizard(home, cwd, choice, choice);
       try {
         await waitText(i, "Where should", "scope after explicit image choice");
         await pressSettled(i, "\r");
         await waitStep(i, () => done.length === 1, "custom image profile saved");
         const config = JSON.parse(readFileSync(join(home, ".moh", "config"), "utf8"));
-        expect(config.endpoints[0].capabilities).toEqual({ imageModels: { qwen3: enabled } });
+        expect(config.endpoints[0].capabilities).toEqual({ inputModels: { qwen3: { image: enabled, audio: enabled, video: enabled } } });
       } finally { await unmountSettled(i); }
     });
   }
@@ -544,7 +578,7 @@ describe("OpenCode onboarding (#794)", () => {
 });
 
 
-test("Infomaniak onboarding requires the product URL and saves image support", async () => {
+test("Infomaniak onboarding requires the product URL and saves independent input support", async () => {
   const cwd = tempCwd();
   const home = tempHome();
   let probes = 0;
@@ -570,12 +604,19 @@ test("Infomaniak onboarding requires the product URL and saves image support", a
     await waitText(i, "Image input for", "image declaration");
     await pressSettled(i, "\x1b[B");
     await pressSettled(i, "\r");
+    await waitText(i, "Audio input for", "audio declaration");
+    await pressSettled(i, "\x1b[B");
+    await pressSettled(i, "\x1b[B");
+    await pressSettled(i, "\r");
+    await waitText(i, "Video input for", "video declaration");
+    await pressSettled(i, "\x1b[B");
+    await pressSettled(i, "\r");
     await waitText(i, "Where should", "save scope");
     await pressSettled(i, "\x1b[B");
     await pressSettled(i, "\r");
     await waitStep(i, () => done.length > 0, "Infomaniak saved");
     expect(probes).toBe(1);
     expect(done).toEqual(["infomaniak/qwen3"]);
-    expect(loadMohConfig(join(cwd, "moh.json")).endpoints?.[0]).toMatchObject({ type: "infomaniak", baseUrl: "https://api.infomaniak.com/2/ai/123/openai/v1", capabilities: { imageModels: { qwen3: true } } });
+    expect(loadMohConfig(join(cwd, "moh.json")).endpoints?.[0]).toMatchObject({ type: "infomaniak", baseUrl: "https://api.infomaniak.com/2/ai/123/openai/v1", capabilities: { inputModels: { qwen3: { image: true, audio: false, video: true } } } });
   } finally { await unmountSettled(i); }
 }, 20_000);
