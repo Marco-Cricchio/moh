@@ -140,8 +140,9 @@ export function ModelPickerModal({
     // before the slash matches endpoint names, the rest filters models.
     const q = query.trim().toLowerCase();
     const slash = q.indexOf("/");
-    const endpointPrefix = slash > 0 ? q.slice(0, slash) : null;
-    const modelQuery = slash > 0 ? query.trim().slice(slash + 1) : query;
+    const prefix = slash > 0 ? q.slice(0, slash) : null;
+    const endpointPrefix = prefix && endpoints.some((e) => e.name.toLowerCase().startsWith(prefix)) ? prefix : null;
+    const modelQuery = endpointPrefix !== null ? query.trim().slice(slash + 1) : query;
     for (const e of endpoints) {
       if (endpointPrefix !== null && !e.name.toLowerCase().startsWith(endpointPrefix)) continue;
       const list = withSavedModels(mergePickCatalog(
@@ -179,9 +180,9 @@ export function ModelPickerModal({
     // endpoint when there is one (pre-built providers pass it through).
     const ref =
       row.free !== undefined
-        ? row.free.includes("/") || !activeEndpoint
+        ? !row.endpoint || row.free.startsWith(`${row.endpoint}/`)
           ? row.free
-          : `${activeEndpoint}/${row.free}`
+          : `${row.endpoint}/${row.free}`
         : `${row.endpoint}/${row.model!.id}`;
     const result = onSwitch(ref);
     if (!result.ok) {

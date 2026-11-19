@@ -256,6 +256,17 @@ describe("/model modal (#181)", () => {
     } finally { await unmountSettled(i); }
   });
 
+  test("a bare namespaced model id uses the active endpoint", async () => {
+    const { i, switched } = mount({ endpoints: [{ name: "alpha", type: "openai-compat", catalog: [] }] });
+    try {
+      await waitText(i, "active:", "picker opened");
+      await pressSettled(i, "Qwen/new");
+      await waitText(i, '+ use "Qwen/new"', "namespaced model entry");
+      await pressSettled(i, "\r");
+      expect(switched).toEqual(["alpha/Qwen/new"]);
+    } finally { await unmountSettled(i); }
+  });
+
   test("a new model on another endpoint can be entered when discovery fails", async () => {
     const { i, switched } = mount({
       endpoints: [{ name: "local", type: "openai-compat", catalog: [] }],
