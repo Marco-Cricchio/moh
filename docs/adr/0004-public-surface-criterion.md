@@ -433,3 +433,11 @@ presenting different provider conditions. This replaces the formerly
 client-only `TOS_WARNING` entry export; callers without a known provider kind
 receive the generic fallback through the function. The warning map stays
 internal, and the now-unused generic acknowledgement helper is removed.
+
+
+### Image capability provenance (2026-11-19)
+
+`imageSupportFor` is exported for the TUI onboarding and Settings clients.
+The session uses the same resolver for the serving model, keeping displayed
+capabilities and image attachment gates aligned. Exact model declarations
+are user-owned configuration; the legacy endpoint-wide veto remains dominant.

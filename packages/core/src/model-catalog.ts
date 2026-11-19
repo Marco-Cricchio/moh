@@ -373,3 +373,21 @@ export function modelSupportsImages(
   // alone — moh never invents it.
   return capabilities?.multimodal === true;
 }
+
+/** Effective image input and its provenance for one serving endpoint/model.
+ * Endpoint false remains a global veto; exact model declarations are scoped
+ * to that id, never inherited by a different model or fallback endpoint.
+ */
+export function imageSupportFor(
+  profile: import("./config").EndpointProfile | undefined,
+  modelId: string,
+): { supported: boolean; source: "model declaration" | "endpoint declaration" | "catalog" | "unknown" } {
+  const capabilities = profile?.capabilities;
+  if (capabilities?.multimodal === false) return { supported: false, source: "endpoint declaration" };
+  const declared = capabilities?.imageModels?.[modelId];
+  if (typeof declared === "boolean") return { supported: declared, source: "model declaration" };
+  const model = catalogEntryFor(profile?.type ?? "", modelId, profile?.baseUrl);
+  if (model) return { supported: modelSupportsImages(model, capabilities), source: model.input ? "catalog" : "unknown" };
+  if (capabilities?.multimodal !== undefined) return { supported: capabilities.multimodal, source: "endpoint declaration" };
+  return { supported: false, source: "unknown" };
+}

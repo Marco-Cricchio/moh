@@ -279,3 +279,22 @@ test("#1727 generic image request delivers pixels over HTTP to compat, including
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test("image declarations follow serving model changes and endpoint fallbacks", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "moh-model-images-"));
+  const { provider: captured, users } = captureProvider();
+  let serving = "custom/org/vision";
+  const provider: Provider = { ...captured, get serving() { return serving; }, selected: "custom/org/vision" };
+  const session = createSession({ provider, cwd: dir, endpoints: [
+    { name: "custom", type: "openai-compat", capabilities: { imageModels: { "org/vision": true, text: false } } },
+    { name: "fallback", type: "openai-compat" },
+  ] });
+  try {
+    writeFileSync(join(dir, "pic.png"), Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/l9sAAAAASUVORK5CYII=", "base64"));
+    for (const [ref, supported] of [["custom/org/vision", true], ["custom/text", false], ["fallback/org/vision", false], ["custom/org/vision", true]] as const) {
+      serving = ref;
+      expect((await session.send("describe @pic.png")).status).toBe("done");
+      expect(users.at(-1)!.parts.some((part) => part.kind === "image")).toBe(supported);
+    }
+  } finally { await session.dispose(); rmSync(dir, { recursive: true, force: true }); }
+});

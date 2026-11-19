@@ -16,7 +16,7 @@ import type { SubscriptionKind } from "./auth/lifecycle";
 import { ANTHROPIC_SUBSCRIPTION_HEADERS } from "./auth/anthropic";
 import { openaiNativeAuthContext } from "./auth/resolve";
 import { OAUTH_BUILTIN_BASE_URLS, isOAuthBuiltinKind } from "./wire";
-import { catalogEntryFor, knownCompatEndpointMetadata, subscriptionModelCatalog } from "./model-catalog";
+import { imageSupportFor, catalogEntryFor, knownCompatEndpointMetadata, subscriptionModelCatalog } from "./model-catalog";
 import { tosWizardLine } from "./tos-cards";
 import { noteProviderTestFailure } from "./provider-test-trace";
 import { CHATGPT_CODEX_BASE_URL, CHATGPT_CODEX_ORIGINATOR, OPENAI_API_BASE_URL } from "./auth/openai";
@@ -247,6 +247,18 @@ export async function runProviderAdd(
     const result = await tester(profile);
     if (result.ok) {
       await io.info(`✓ Connected (${result.modelId} responded)`);
+      if (type === "openai-compat" && imageSupportFor(profile, defaultModel).source === "unknown") {
+        await io.info("The connection test checks text only. Declare image input for this model; automatic leaves unknown models text-only.");
+        for (;;) {
+          const answer = (await io.ask("Image input (auto | yes | no) [auto]: ")).trim().toLowerCase();
+          if (!answer || answer === "auto") break;
+          if (answer === "yes" || answer === "no") {
+            profile = { ...profile, capabilities: { ...profile.capabilities, imageModels: { [defaultModel]: answer === "yes" } } };
+            break;
+          }
+          await io.info("Choose auto, yes or no.");
+        }
+      }
       // #1256: the base URL is known only now (asked after the key) — bind
       // the stored key to the endpoint identity it was just tested against.
       bindStoredApiKeyOrigin(options.authFile ?? userConfigFile(), name, { type, baseUrl: baseUrl || undefined });
