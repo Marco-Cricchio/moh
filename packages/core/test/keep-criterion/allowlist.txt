@@ -14,6 +14,7 @@ browserToolchainRoot docs/extending/library-usage.md
 concurrencyReport docs/extending/library-usage.md
 estimateModelCost docs/extending/library-usage.md
 expandMentions docs/extending/library-usage.md
+imageSupportFor docs/extending/library-usage.md
 performanceByModel docs/extending/library-usage.md
 pricingForModel docs/extending/library-usage.md
 pricingForPlan docs/extending/library-usage.md

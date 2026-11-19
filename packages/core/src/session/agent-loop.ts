@@ -747,7 +747,11 @@ export class AgentLoop {
     const userParts: Message["parts"] = [{ kind: "text", text }];
     if (attachments) {
       for (const attachment of attachments) {
-        if (attachment.kind === "image" && this.#mentions?.imageCapable?.() !== false) {
+        if (attachment.kind === "audio" || attachment.kind === "video") {
+          // Keep native bytes in history even when a route refuses the call.
+          // A later switch/resume can use them without rereading the file.
+          userParts.push({ kind: attachment.kind, mime: attachment.mime, base64: attachment.content });
+        } else if (attachment.kind === "image" && this.#mentions?.imageCapable?.() !== false) {
           userParts.push({ kind: "image", mime: attachment.mime, base64: attachment.content });
         } else {
           if (attachment.kind === "image") {

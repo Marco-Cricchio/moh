@@ -47,6 +47,12 @@ const capabilitiesSchema = z
     multimodal: z.boolean(),
     /** Explicit image-input declarations keyed by exact model id. */
     imageModels: z.record(z.string().min(1), z.boolean()).optional(),
+    /** Per-model input declarations. Omitted modalities use the catalog. */
+    inputModels: z.record(z.string().min(1), z.object({
+      image: z.boolean().optional(),
+      audio: z.boolean().optional(),
+      video: z.boolean().optional(),
+    })).optional(),
     /** #256: endpoint-level thinking capability declaration (openai-compat
      * and as the base for per-model overrides on catalog-backed endpoints). */
     thinking: thinkingDeclarationSchema.optional(),

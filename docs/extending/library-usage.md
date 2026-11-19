@@ -884,3 +884,20 @@ choices a guided client may show; `providerRequiresBaseUrlInput(id)` identifies
 profiles whose URL needs user-owned account details. These are presentation
 metadata only: create sessions through `sessionFromConfig` as usual, and do
 not construct provider transports in the client.
+
+## Native input modalities
+
+`inputSupportFor(profile, modelId, modality)` resolves `image`, `audio` or `video`
+input and its provenance from per-model config and the catalog. The existing
+`imageSupportFor(profile, modelId)` remains a supported image-only alias.
+These functions describe the model declaration; they do not probe a remote
+endpoint or certify its transport support.
+
+`MessagePart` includes native `{ kind: "audio" | "video", mime, base64 }` parts.
+Custom `Provider` implementations must forward supported native bytes or refuse
+unsupported media explicitly. Do not stringify them into text or silently drop
+them. `@path` snapshots use read permissions and the existing event log, so
+resuming a session does not require the source media file to still exist.
+The built-in routes filter incompatible audio/video targets before making a
+request. See the user manual's [providers and models](../manual/providers-and-models.md)
+for supported formats, transport boundaries and size limits.

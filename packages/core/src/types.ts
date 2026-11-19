@@ -47,13 +47,15 @@ type TextPart = { kind: "text"; text: string };
  * block — bytes are the base64 of the `user_message` attachment (they must
  * stay identical for replay to rebuild the exact provider context). */
 type ImagePart = { kind: "image"; mime: string; base64: string };
+/** Native media bytes snapshotted in the event log; never transcribed or converted. */
+type MediaPart = { kind: "audio" | "video"; mime: string; base64: string };
 /** #240: provider-exposed reasoning attached to an assistant message —
  * completed text plus the provider's opaque continuation artifacts
  * (e.g. a signature) required to resume the exact provider context. */
 export type ReasoningPart = { kind: "reasoning"; text: string; continuation?: Record<string, unknown> };
 type ToolCallPart = ToolCall & { kind: "tool_call" };
 type ToolResultPart = { kind: "tool_result"; callId: string; ok: boolean; output: string; /** #731: structured failure reason — failures only. */ errorKind?: ToolErrorKind; /** #778: screenshot pixels when image-capable (rides the #490 pipeline). */ image?: { mime: string; base64: string } };
-export type MessagePart = TextPart | ImagePart | ReasoningPart | ToolCallPart | ToolResultPart;
+export type MessagePart = TextPart | ImagePart | MediaPart | ReasoningPart | ToolCallPart | ToolResultPart;
 
 /**
  * #731: structured failure reason carried on failed `tool_result` events.

@@ -852,9 +852,17 @@ describe("custom model image input", () => {
       const file = join(mkdtempSync(join(tmpdir(), "moh-image-config-")), "moh.json");
       const { config } = await addProviderToFile(ioWith([...answers(), answer]), file, { tester: okTest() });
       const profile = config.endpoints![0]!;
-      expect(profile.capabilities?.imageModels).toEqual(answer === "auto" ? undefined : { qwen3: answer === "yes" });
+      expect(profile.capabilities?.inputModels).toEqual(answer === "auto" ? undefined : { qwen3: { image: answer === "yes" } });
       expect(profile.capabilities?.multimodal).toBeUndefined();
       expect(JSON.parse(readFileSync(file, "utf8")).endpoints[0]).toEqual(profile);
     });
   }
+});
+
+
+test("custom wizard declares audio and video independently and persists them", async () => {
+  const file = join(mkdtempSync(join(tmpdir(), "moh-media-wizard-")), "moh.json");
+  const { config } = await addProviderToFile(ioWith([...answers(), "no", "yes", "yes"]), file, { tester: okTest() });
+  expect(config.endpoints?.[0]?.capabilities?.inputModels).toEqual({ qwen3: { image: false, audio: true, video: true } });
+  expect(JSON.parse(readFileSync(file, "utf8")).endpoints[0].capabilities.inputModels).toEqual(config.endpoints?.[0]?.capabilities?.inputModels);
 });
