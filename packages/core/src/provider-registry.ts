@@ -173,7 +173,7 @@ function routeTargetFor(profile: EndpointProfile, modelId: string, apiKey: strin
     }),
     modelId,
     mediaInput: (["audio", "video"] as const).filter((modality) => inputSupportFor(profile, modelId, modality).supported),
-    videoInput: profile.type === "openai-compat" || profile.type === "openrouter",
+    videoInput: profile.type === "openai-compat" || profile.type === "openrouter" || providerProfile(profile.type) !== undefined,
     ...catalogTargetOverrides(kind, modelId, baseUrl),
     ...(thinkingFormat ? { thinkingFormat } : {}),
   };

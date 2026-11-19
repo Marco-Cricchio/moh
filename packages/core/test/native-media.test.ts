@@ -72,8 +72,8 @@ describe("native media input declarations", () => {
   });
 });
 
-for (const reasoning of [false, true]) {
-  test(`native media reaches HTTP unchanged and survives persisted replay (reasoning=${reasoning})`, async () => {
+for (const type of ["openai-compat", "mistral"]) for (const reasoning of [false, true]) {
+  test(`native media reaches HTTP unchanged and survives persisted replay (${type}, reasoning=${reasoning})`, async () => {
     const dir = mkdtempSync(join(tmpdir(), "moh-media-http-"));
     const requests: any[] = [];
     const server = Bun.serve({ hostname: "127.0.0.1", port: 0, async fetch(request) {
@@ -83,7 +83,7 @@ for (const reasoning of [false, true]) {
     } });
     try {
       for (const name of ["voice.wav", "music.mp3", "clip.mp4"]) writeFileSync(join(dir, name), bytes);
-      const endpoint: EndpointProfile = { ...profile, apiKey: "test", baseUrl: `http://127.0.0.1:${server.port}/v1`, capabilities: {
+      const endpoint: EndpointProfile = { ...profile, type, apiKey: "test", baseUrl: `http://127.0.0.1:${server.port}/v1`, capabilities: {
         ...profile.capabilities, ...(reasoning ? { thinking: { format: "openai-effort" as const, levels: ["off", "high"] } } : {}),
       } };
       const provider = resolveProvider({ provider: "local/org/omni", endpoints: [endpoint] });

@@ -40,7 +40,10 @@ The transcript shows a media chip; it does not play the attachment. Other media
 formats produce a visible warning instead of sending binary data as text.
 
 Audio uses `input_audio` on Chat Completions endpoints; video uses the
-non-standard `video_url` extension on OpenAI-compatible/OpenRouter endpoints.
+non-standard `video_url` extension on custom OpenAI-compatible endpoints,
+built-in compatible provider profiles, and OpenRouter. This still requires
+video support declared for the exact model; a compatible URL alone does not
+establish that the backend accepts video.
 Google's native transport accepts both as inline file parts. The selected model
 must declare the modality and its endpoint must accept the request format.
 Provider file-size/duration limits may be lower than moh's attachment cap.
