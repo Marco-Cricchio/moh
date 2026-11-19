@@ -72,7 +72,7 @@ describe("native media input declarations", () => {
   });
 });
 
-for (const type of ["openai-compat", "mistral"]) for (const reasoning of [false, true]) {
+for (const type of ["openai-compat", "mistral", "infomaniak"]) for (const reasoning of [false, true]) {
   test(`native media reaches HTTP unchanged and survives persisted replay (${type}, reasoning=${reasoning})`, async () => {
     const dir = mkdtempSync(join(tmpdir(), "moh-media-http-"));
     const requests: any[] = [];

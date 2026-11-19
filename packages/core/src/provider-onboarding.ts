@@ -247,7 +247,7 @@ export async function runProviderAdd(
     const result = await tester(profile);
     if (result.ok) {
       await io.info(`✓ Connected (${result.modelId} responded)`);
-      if (type === "openai-compat") {
+      if (type === "openai-compat" || isProviderProfile(type)) {
         await io.info("The connection test checks text only. Declare each model input separately; automatic uses the catalog. Audio: WAV/MP3. Video: MP4 via video_url; endpoint support is required.");
         for (const modality of ["image", "audio", "video"] as const) {
           if (inputSupportFor(profile, defaultModel, modality).source !== "unknown") continue;
@@ -351,7 +351,7 @@ async function askSubscriptionModel(io: OnboardingIo, type: string): Promise<str
 async function askRequiredProviderBaseUrl(io: OnboardingIo, type: string): Promise<string> {
   const template = providerProfile(type)?.baseUrl;
   const value = (await io.ask(`Base URL [${template}]: `)).trim() || template || "";
-  if (!value || value.includes("{")) throw new OnboardingAborted("a concrete base URL is required for this endpoint");
+  if (!value || /\{|%7b/i.test(value)) throw new OnboardingAborted("a concrete base URL is required for this endpoint");
   return value;
 }
 

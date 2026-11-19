@@ -860,6 +860,21 @@ describe("custom model image input", () => {
 });
 
 
+describe("Infomaniak onboarding", () => {
+  test("collects the product URL and declares each input without subscription", async () => {
+    const io = ioWith(["infomaniak", "swiss", "", "https://api.infomaniak.com/2/ai/123/openai/v1", "Qwen/test", "yes", "no", "yes"]);
+    const profile = await runProviderAdd(io, okTest());
+    expect(profile).toEqual({ name: "swiss", type: "infomaniak", baseUrl: "https://api.infomaniak.com/2/ai/123/openai/v1", defaultModel: "Qwen/test", capabilities: { inputModels: { "Qwen/test": { image: true, audio: false, video: true } } } });
+    expect(io.said.some((line) => line.startsWith("Auth method"))).toBe(false);
+    expect(io.said.some((line) => line.includes("INFOMANIAK_API_TOKEN"))).toBe(true);
+  });
+  test("rejects an unresolved product placeholder before probing", async () => {
+    let calls = 0;
+    await expect(runProviderAdd(ioWith(["infomaniak", "", "", ""]), async () => { calls++; return { ok: true, modelId: "qwen3" }; })).rejects.toThrow("concrete base URL");
+    expect(calls).toBe(0);
+  });
+});
+
 test("custom wizard declares audio and video independently and persists them", async () => {
   const file = join(mkdtempSync(join(tmpdir(), "moh-media-wizard-")), "moh.json");
   const { config } = await addProviderToFile(ioWith([...answers(), "no", "yes", "yes"]), file, { tester: okTest() });

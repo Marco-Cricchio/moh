@@ -157,6 +157,9 @@ function routeTargetFor(profile: EndpointProfile, modelId: string, apiKey: strin
   const baseUrl = profile.baseUrl ?? (profile.type === "opencode"
     ? profile.name === "opencode-go" ? "https://opencode.ai/zen/go/v1" : "https://opencode.ai/zen/v1"
     : providerProfile(profile.type)?.baseUrl ?? OAUTH_BUILTIN_BASE_URLS[kind as OAuthBuiltinKind]);
+  if (baseUrl && /\{|%7b/i.test(baseUrl)) {
+    throw new Error(`provider "${profile.type}" requires a concrete base URL; replace the account/product placeholders`);
+  }
   // #256: a config-declared thinking format rides the target — per-model
   // declaration wins, inheriting the endpoint-level format when omitted.
   const thinkingFormat =
@@ -239,6 +242,8 @@ export function fallbackIneligibleReason(
   }
   if (profile.fallbackEligible === false) return "excluded from the chain";
   if (profile.defaultModel === undefined) return "no preferred model set";
+  const baseUrl = profile.baseUrl ?? providerProfile(profile.type)?.baseUrl;
+  if (baseUrl && /\{|%7b/i.test(baseUrl)) return "a concrete account/product base URL is required";
   if (active && active.type === "opencode" && profile.type === "opencode") {
     // Zen and Go are separate products: an entitlement failure on one must
     // remain visible, never silently cross-product fall back.

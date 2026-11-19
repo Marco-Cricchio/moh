@@ -9,19 +9,27 @@ matching section here at tag time.
 
 ### Added
 
-- Name custom endpoints in TUI onboarding. Settings and `/model` remember
-  explicit model choices per project and endpoint, and offer saved models
-  when discovery is unavailable without changing routing defaults.
 - Native WAV/MP3 audio and MP4 video mentions, preserved across session resume
   and fork. Configure image/audio/video input independently per model in the
   CLI/TUI wizard; existing image declarations remain supported. Routes exclude
   models without the required audio/video capability, and Settings shows each
   modality's declaration source. Media uses native provider payloads, with a
-  combined 20 MiB attachment budget and no local conversion.
+  combined 20 MiB attachment budget and no local conversion (#1777).
+- Name custom endpoints in TUI onboarding. Settings and `/model` remember
+  explicit model choices per project and endpoint, and offer saved models
+  when discovery is unavailable without changing routing defaults (#1779).
+- Infomaniak AI Services provider with product-specific configuration, API-token
+  authentication, live model discovery, per-model input declarations and a ToS
+  card (#1780). Authenticated live API compatibility remains unverified.
 
 ### Fixed
 
 - Honor the configured base URL for Google's native SDK transport.
+- Refuse unresolved account/product URL placeholders before requests and exclude
+  incomplete profiles from automatic fallback routing.
+- Accept namespaced custom model ids in `/model`, with or without an explicit
+  endpoint prefix, and keep their selected-model marker accurate.
+
 
 ## [0.68.0] - 2026-11-19
 

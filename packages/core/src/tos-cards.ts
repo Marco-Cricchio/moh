@@ -20,6 +20,7 @@ import openrouter from "./tos-cards/openrouter.json";
 import kimiCoding from "./tos-cards/kimi-coding.json";
 import xai from "./tos-cards/xai.json";
 import openaiCompat from "./tos-cards/openai-compat.json";
+import infomaniak from "./tos-cards/infomaniak.json";
 import opencode from "./tos-cards/opencode.json";
 
 /** One link on a ToS card. */
@@ -58,6 +59,7 @@ const CARDS: Record<string, TosCard> = {
   xai: xai as TosCard,
   "openai-compat": openaiCompat as TosCard,
   opencode: opencode as TosCard,
+  infomaniak: infomaniak as TosCard,
 };
 
 /** The bundled card for a provider id (`openai-compat` included); undefined
