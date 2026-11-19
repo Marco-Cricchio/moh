@@ -781,7 +781,8 @@ describe("listing-contract coverage (#920 audit)", () => {
     const staticByDesign = new Set(["baseten"]);
     for (const type of BUILTIN_PROVIDER_TYPES) {
       if (type === "openai-compat") continue; // arbitrary host: the pickers fetch it themselves (#181)
-      expect(hasVendoredCatalog(type)).toBe(true);
+      // Infomaniak intentionally uses documented live discovery without a static catalog.
+      expect(hasVendoredCatalog(type)).toBe(type !== "infomaniak");
       expect(hasLiveListingContract(type)).toBe(!staticByDesign.has(type));
     }
   });
