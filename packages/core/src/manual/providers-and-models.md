@@ -5,7 +5,7 @@ pick within it. moh ships built-ins for anthropic, openai, google,
 github-copilot, openrouter, kimi-coding, xai, OpenCode, and OpenAI-compatible endpoint
 profiles for DeepSeek, Groq, Cerebras, NVIDIA NIM, Together AI, Fireworks AI,
 Hugging Face, Mistral AI, Moonshot AI, MiniMax, Z.ai, Qwen, Xiaomi MiMo,
-Vercel AI Gateway, Cloudflare AI Gateway, and Baseten. It also has a
+Vercel AI Gateway, Cloudflare AI Gateway, Baseten, and Infomaniak. It also has a
 zero-credential **mock** provider (the default) and custom endpoints via
 `openai-compat`.
 
@@ -17,6 +17,19 @@ moh provider add
 
 The wizard presents a documented endpoint and default model for every built-in profile. Where a provider requires an account- or region-specific URL, it asks for the concrete endpoint instead of guessing. API keys are resolved from the provider's documented environment variable as well as `MOH_ENDPOINT_<NAME>_API_KEY`; values entered in the wizard are stored in `~/.moh/config`, never in moh.json.
 
+The TUI's custom `openai-compat` wizard asks for an **Endpoint name** before
+its model. Give each server a distinct name, such as `ollama-desktop` or
+`lmstudio-laptop`; model references use that name (`ollama-desktop/Qwen/model`).
+
+Settings and `/model` retain saved models even when discovery is unavailable
+or returns an empty list. A **saved** row has not been confirmed by discovery;
+selecting it still sends the exact model id to the server. Explicit selections
+are remembered privately in `~/.moh/config` (`modelSelections`), separately for
+each project and endpoint identity. `/model` still switches only the current
+session; remembering a choice does not change startup defaults or fallback
+models. Settings retains its existing project-default behavior. Automatic
+fallbacks never overwrite this picker preference.
+
 The mandatory connection test sends one small probe to the endpoint.
 When it fails, the overlay shows the provider's actionable error fields
 in full — status, message, the offending parameter (`error.param`), error
@@ -25,13 +38,38 @@ failed attempt is persisted to `~/.moh/provider-test-failures.log`
 (bounded, never carrying credentials), so a failure stays diagnosable
 after the wizard is gone.
 
-For a custom OpenAI-compatible model with unknown image support, choose
-**Automatic**, **Yes**, or **No** for image input. Automatic keeps an unknown
-model text-only; Yes and No save a declaration for that exact model id under
-`capabilities.imageModels`. The connection test checks text only. Settings'
-model picker shows effective image support and whether it comes from the
-catalog, a model declaration, an endpoint declaration, or is unknown. Change
-an existing declaration in config or run the provider wizard again.
+For a custom OpenAI-compatible model or a built-in compatible provider profile, choose **Automatic**, **Yes**, or **No**
+for each unknown input modality: images, audio and video. Automatic uses the
+catalog; unknown means unavailable. Explicit choices are saved per exact model
+id under `capabilities.inputModels`. Existing `imageModels` declarations still
+work. Settings' model picker shows each capability and its source. The connection
+test checks text only; a declaration does not verify remote media support.
+
+Attach native files with `@voice.wav`, `@music.mp3` or `@clip.mp4` (quote paths
+with spaces). Audio/video share a **20 MiB byte budget per send**, in addition to
+the existing image limit. Files are permission-gated and snapshotted in the
+session log: resume/fork uses those bytes, even if the originals change or disappear.
+The transcript shows a media chip; it does not play the attachment. Other media
+formats produce a visible warning instead of sending binary data as text.
+
+Audio uses `input_audio` on Chat Completions endpoints; video uses the
+non-standard `video_url` extension on custom OpenAI-compatible endpoints,
+built-in compatible provider profiles, and OpenRouter. This still requires
+video support declared for the exact model; a compatible URL alone does not
+establish that the backend accepts video.
+Google's native transport accepts both as inline file parts. The selected model
+must declare the modality and its endpoint must accept the request format.
+Provider file-size/duration limits may be lower than moh's attachment cap.
+There is no local transcription, frame extraction, conversion, microphone
+streaming, media generation, or automatic file upload service. Video understanding
+does not imply understanding its audio track.
+
+Routes skip models without the required audio/video capabilities, including on
+resume. If no available route qualifies, moh reports an actionable error and
+retains the attachment; select a compatible model or correct its declaration.
+Infomaniak audio/video compatibility has **not** been verified against an
+activated account; Qwen's model documentation alone does not establish endpoint
+support.
 
 The wizard asks **API key or subscription** where moh offers both methods
 (Anthropic, OpenAI, GitHub Copilot, OpenRouter, xAI, Kimi). OAuth tokens are
@@ -69,6 +107,30 @@ drops them, and `moh provider status` shows per-endpoint authentication state
 and best-effort usage. On the wizard's login screen, press `c` to copy the full
 authorize URL. If the terminal rejects clipboard access, the screen reports
 that result and keeps the URL as the manual fallback.
+
+## Infomaniak AI Services
+
+Choose `infomaniak` in the provider wizard. Supply your API token (stored in
+`~/.moh/config`) or set `INFOMANIAK_API_TOKEN`; an endpoint-specific
+`MOH_ENDPOINT_<NAME>_API_KEY` takes precedence over that environment variable.
+Set the full base URL to
+`https://api.infomaniak.com/2/ai/<product_id>/openai/v1`, replacing
+`<product_id>` with your AI Services product identifier. The wizard does not
+activate a service or create a product. Its connection test sends one small
+text request using an existing product.
+
+The default suggestion `qwen3` comes from the API documentation. Enter an exact
+model id available to your product; the selectors fetch `/models` from that
+same base URL. No static Infomaniak catalog, prices, context windows or media
+capabilities are assumed. For a model with unknown input capabilities, onboarding
+asks for independent image/audio/video declarations. Enable a modality only when
+the chosen model and its hosted endpoint support it. Audio transcription and image generation
+endpoints are separate APIs and are not part of this chat provider.
+
+See the [chat API](https://developer.infomaniak.com/docs/api/post/2/ai/%7Bproduct_id%7D/openai/v1/chat/completions)
+and [model listing](https://developer.infomaniak.com/docs/api/get/2/ai/%7Bproduct_id%7D/openai/v1/models).
+Integration is covered by local HTTP tests; authenticated Infomaniak inference
+has not been verified.
 
 ## Endpoints and routing
 

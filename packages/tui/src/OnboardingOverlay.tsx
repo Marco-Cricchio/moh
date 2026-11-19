@@ -6,7 +6,7 @@ import {
   BUILTIN_PROVIDER_TYPES,
   KNOWN_COMPAT_ENDPOINTS,
   knownCompatEndpointMetadata,
-  imageSupportFor,
+  inputSupportFor,
   offersSubscriptionAuth,
   providerProfile,
   providerEndpointChoices,
@@ -49,13 +49,13 @@ type Phase =
   | { kind: "detect"; cursor: number }
   | { kind: "wizard-type"; cursor: number }
   | { kind: "wizard-auth"; cursor: number }
-  | { kind: "wizard-images"; profile: EndpointProfile; cursor: number }
+  | { kind: "wizard-input"; modality: "image" | "audio" | "video"; profile: EndpointProfile; cursor: number }
   | { kind: "opencode-product"; cursor: number }
   | { kind: "tos" }
   | { kind: "sub-login"; error?: string }
   | { kind: "wizard-model-list"; cursor: number }
   | { kind: "wizard-endpoint-list"; cursor: number }
-  | { kind: "wizard-text"; field: "model" | "apiKey" | "baseUrl"; value: string }
+  | { kind: "wizard-text"; field: "name" | "model" | "apiKey" | "baseUrl"; value: string }
   | { kind: "test"; profile: EndpointProfile; profiles?: EndpointProfile[]; envCandidate?: EnvCandidate; result?: ConnectionTestResult }
   | { kind: "save-scope"; profile: EndpointProfile; profiles?: EndpointProfile[]; cursor: number }
   | { kind: "conflict"; profile: EndpointProfile; existing: EndpointProfile }
@@ -78,7 +78,8 @@ interface OnboardingProps {
   onDone: (providerRef: string | null) => void;
 }
 
-const FIELD_LABELS: Record<"model" | "apiKey" | "baseUrl", { label: string; hint: string }> = {
+const FIELD_LABELS: Record<"name" | "model" | "apiKey" | "baseUrl", { label: string; hint: string }> = {
+  name: { label: "Endpoint name", hint: "Letters, numbers, hyphens and underscores; use a different name for each server" },
   model: { label: "Default model", hint: "e.g. claude-sonnet-4-5, gpt-5, qwen3" },
   apiKey: { label: "API key (empty = env var / local, no key)", hint: "stored securely in ~/.moh/config — never in moh.json" },
   baseUrl: { label: "Base URL", hint: "required for openai-compat; built-in profiles prefill their documented endpoint" },
@@ -307,6 +308,10 @@ export function Onboarding({ cwd, home, env, tester = defaultTester(home), force
         if (key.return || input === "\n") {
           const type = BUILTIN_PROVIDER_TYPES[phase.cursor]!;
           applyWizard({ name: type, type });
+          if (type === "openai-compat") {
+            setAuthKind("api-key");
+            return applyPhase({ kind: "wizard-text", field: "name", value: type });
+          }
           if (type === "opencode") return applyPhase({ kind: "opencode-product", cursor: 0 });
           // #1317/#1720: the auth-method step is only for kinds whose
           // subscription grant the wizard offers — one predicate, shared with
@@ -427,15 +432,18 @@ export function Onboarding({ cwd, home, env, tester = defaultTester(home), force
         }
         return;
       }
-      case "wizard-images": {
+      case "wizard-input": {
         if (key.escape) return applyPhase({ kind: "wizard-text", field: "baseUrl", value: phase.profile.baseUrl ?? "" });
         if (key.upArrow || key.downArrow) return applyPhase({ ...phase, cursor: (phase.cursor + (key.upArrow ? 2 : 1)) % 3 });
         if (key.return || input === "\n") {
           const profile = phase.cursor === 0 ? phase.profile : {
             ...phase.profile, capabilities: { ...phase.profile.capabilities,
-              imageModels: { ...phase.profile.capabilities?.imageModels, [phase.profile.defaultModel!]: phase.cursor === 1 } },
+              inputModels: { ...phase.profile.capabilities?.inputModels, [phase.profile.defaultModel!]: { ...phase.profile.capabilities?.inputModels?.[phase.profile.defaultModel!], [phase.modality]: phase.cursor === 1 } } },
           };
-          return applyPhase({ kind: "test", profile });
+          const modalities = ["image", "audio", "video"] as const;
+          const next = modalities.slice(modalities.indexOf(phase.modality) + 1)
+            .find((modality) => inputSupportFor(profile, profile.defaultModel!, modality).source === "unknown");
+          return applyPhase(next ? { kind: "wizard-input", profile, modality: next, cursor: 0 } : { kind: "test", profile });
         }
         return;
       }
@@ -649,13 +657,14 @@ export function Onboarding({ cwd, home, env, tester = defaultTester(home), force
           <Dim>enter select · esc back · s skip</Dim>
         </>
       )}
-      {phase.kind === "wizard-images" && (
+      {phase.kind === "wizard-input" && (
         <>
-          <Text bold>Image input for {phase.profile.defaultModel}</Text>
-          <Dim>Unknown capability. The connection test checks text only.</Dim>
-          {["Automatic — unknown models stay text-only", "Yes — this model accepts images", "No — this model is text-only"].map((label, index) => (
+          <Text bold>{phase.modality[0]!.toUpperCase() + phase.modality.slice(1)} input for {phase.profile.defaultModel}</Text>
+          <Dim>The connection test checks text only. Declare endpoint/model support.</Dim>
+          {["Automatic — use catalog; unknown means unavailable", `Yes — this model accepts ${phase.modality} input`, `No — this model does not accept ${phase.modality} input`].map((label, index) => (
             <Text key={label}>{`${index === phase.cursor ? "›" : " "} ${label}`}</Text>
           ))}
+          <Dim>{phase.modality === "audio" ? "WAV/MP3 files" : phase.modality === "video" ? "MP4 files; requires video_url support" : "PNG/JPEG/WebP/GIF files"}</Dim>
           <Dim>↑↓ select · enter confirm · esc back</Dim>
         </>
       )}
@@ -671,7 +680,7 @@ export function Onboarding({ cwd, home, env, tester = defaultTester(home), force
             <Text color={theme.dim}>▊</Text>
           </Text>
           <Text> </Text>
-          <Dim>{FIELD_LABELS[phase.field].hint} · enter next · esc back</Dim>
+          <Dim>{phase.field === "baseUrl" && providerRequiresBaseUrlInput(wizard.type ?? "") ? "Replace the account/product placeholders with your own values" : FIELD_LABELS[phase.field].hint} · enter next · esc back</Dim>
         </>
       )}
       {phase.kind === "test" && (
@@ -760,6 +769,11 @@ function submitField(
   bindApiKeyOrigin: (name: string, origin: StoredApiKeyOrigin) => void,
 ): void {
   const value = phase.value.trim();
+  if (phase.field === "name") {
+    if (!/^[a-zA-Z0-9][a-zA-Z0-9_-]*$/.test(value)) return;
+    applyWizard({ ...wizard, name: value });
+    return applyPhase({ kind: "wizard-text", field: "model", value: "" });
+  }
   if (phase.field === "model") {
     if (!value) return; // a model is required
     applyWizard({ ...wizard, defaultModel: value });
@@ -803,6 +817,7 @@ function submitField(
     return applyPhase({ kind: "wizard-text", field: "baseUrl", value: wizard.baseUrl ?? "" });
   }
   // baseUrl
+  if (providerRequiresBaseUrlInput(wizard.type ?? "") && (!value || /\{|%7b/i.test(value))) return;
   if (wizard.type === "openai-compat" && !value) return; // required for compat
   const metadata = wizard.type === "openai-compat" ? knownCompatEndpointMetadata(value) : undefined;
   const capabilities = metadata ? { thinking: metadata.thinking } : undefined;
@@ -821,7 +836,10 @@ function submitField(
     ...(capabilities ? { capabilities } : {}),
     defaultModel: wizard.defaultModel!,
   };
-  applyPhase(profile.type === "openai-compat" && imageSupportFor(profile, profile.defaultModel!).source === "unknown"
-    ? { kind: "wizard-images", profile, cursor: 0 }
+  const modality = (profile.type === "openai-compat" || providerProfile(profile.type))
+    ? (["image", "audio", "video"] as const).find((kind) => inputSupportFor(profile, profile.defaultModel!, kind).source === "unknown")
+    : undefined;
+  applyPhase(modality
+    ? { kind: "wizard-input", profile, modality, cursor: 0 }
     : { kind: "test", profile });
 }

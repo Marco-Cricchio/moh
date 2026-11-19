@@ -90,6 +90,8 @@ describe("onboarding wizard — cursor race", () => {
         await waitForFrame(frame, `› ${type}`);
       }
       i.stdin.write("\r");
+      await waitForFrame(frame, "Endpoint name");
+      i.stdin.write("\r");
       await waitForFrame(frame, "Default model");
       i.stdin.write("qwen3");
       await waitForFrame(frame, "› qwen3");
@@ -103,6 +105,10 @@ describe("onboarding wizard — cursor race", () => {
       i.stdin.write("\r"); // accept the prefilled URL
       await waitText(i, "Image input for", "image capability choice");
       await pressSettled(i, "\r"); // automatic: preserve the original scope-race assertion
+      await waitText(i, "Audio input for", "audio capability choice");
+      await pressSettled(i, "\r");
+      await waitText(i, "Video input for", "video capability choice");
+      await pressSettled(i, "\r");
       await waitForFrame(frame, "Where should");
       // down+enter with no settling window: enter must read the cursor the
       // down produced even if ink re-registers the input handler only in a

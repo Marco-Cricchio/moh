@@ -54,5 +54,6 @@ export const PROVIDER_KINDS = [
   { kind: "vercel-ai-gateway", wire: "openai-chat", oauth: false, defaultBaseUrl: "https://ai-gateway.vercel.sh/v1", apiKeyEnv: "AI_GATEWAY_API_KEY", liveListing: "openai", profile: { displayName: "Vercel AI Gateway", defaultModel: "openai/gpt-4o-mini" } },
   { kind: "cloudflare-ai-gateway", wire: "openai-chat", oauth: false, defaultBaseUrl: "https://gateway.ai.cloudflare.com/v1/{account_id}/{gateway_id}/compat", apiKeyEnv: "CLOUDFLARE_API_TOKEN", liveListing: "openai", profile: { displayName: "Cloudflare AI Gateway", defaultModel: "meta/llama-3.3-70b-instruct" } },
   { kind: "baseten", wire: "openai-chat", oauth: false, defaultBaseUrl: "https://inference.baseten.co/v1", apiKeyEnv: "BASETEN_API_KEY", profile: { displayName: "Baseten", defaultModel: "deepseek-ai/DeepSeek-R1" } },
+  { kind: "infomaniak", wire: "openai-chat", oauth: false, defaultBaseUrl: "https://api.infomaniak.com/2/ai/{product_id}/openai/v1", apiKeyEnv: "INFOMANIAK_API_TOKEN", profile: { displayName: "Infomaniak", defaultModel: "qwen3" } },
   { kind: "opencode", wire: "openai-chat", oauth: false, apiKeyEnv: "OPENCODE_API_KEY" },
 ] as const satisfies readonly ProviderKindRecord[];

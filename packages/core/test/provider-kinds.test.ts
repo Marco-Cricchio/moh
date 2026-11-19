@@ -23,7 +23,7 @@ function assertType<T extends true>(_: T): void {}
 const KINDS = [
   "anthropic", "openai", "google", "github-copilot", "openrouter", "kimi-coding", "xai",
   "deepseek", "groq", "cerebras", "nvidia-nim", "together", "fireworks", "huggingface", "mistral",
-  "moonshot", "minimax", "zai", "qwen", "xiaomi-mimo", "vercel-ai-gateway", "cloudflare-ai-gateway", "baseten",
+  "moonshot", "minimax", "zai", "qwen", "xiaomi-mimo", "vercel-ai-gateway", "cloudflare-ai-gateway", "baseten", "infomaniak",
   "opencode",
   "openai-compat", "mock", "custom", "not-a-provider",
 ] as const;
@@ -45,6 +45,7 @@ const EXPECTED_PROFILES = [
   { id: "vercel-ai-gateway", displayName: "Vercel AI Gateway", baseUrl: "https://ai-gateway.vercel.sh/v1", apiKeyEnv: "AI_GATEWAY_API_KEY", defaultModel: "openai/gpt-4o-mini" },
   { id: "cloudflare-ai-gateway", displayName: "Cloudflare AI Gateway", baseUrl: "https://gateway.ai.cloudflare.com/v1/{account_id}/{gateway_id}/compat", apiKeyEnv: "CLOUDFLARE_API_TOKEN", defaultModel: "meta/llama-3.3-70b-instruct" },
   { id: "baseten", displayName: "Baseten", baseUrl: "https://inference.baseten.co/v1", apiKeyEnv: "BASETEN_API_KEY", defaultModel: "deepseek-ai/DeepSeek-R1" },
+  { id: "infomaniak", displayName: "Infomaniak", baseUrl: "https://api.infomaniak.com/2/ai/{product_id}/openai/v1", apiKeyEnv: "INFOMANIAK_API_TOKEN", defaultModel: "qwen3" },
 ] as const;
 
 describe("exported provider-kind lists equal their literal copies (#1423)", () => {
@@ -73,12 +74,12 @@ describe("exported provider-kind lists equal their literal copies (#1423)", () =
     assertType<Equal<ProviderKind, Exclude<(typeof KINDS)[number], "openai-compat" | "not-a-provider">>>(true);
   });
 
-  test("ProviderKind is exactly today's 26-member union", () => {
+  test("ProviderKind is exactly today's 27-member union", () => {
     type ProviderKindToday =
       | "anthropic" | "openai" | "google" | "github-copilot" | "openrouter" | "kimi-coding" | "xai"
       | "deepseek" | "groq" | "cerebras" | "nvidia-nim" | "together" | "fireworks" | "huggingface" | "mistral"
       | "moonshot" | "minimax" | "zai" | "qwen" | "xiaomi-mimo" | "vercel-ai-gateway" | "cloudflare-ai-gateway" | "baseten"
-      | "opencode" | "mock" | "custom";
+      | "infomaniak" | "opencode" | "mock" | "custom";
     assertType<Equal<ProviderKind, ProviderKindToday>>(true);
     // The check bites: one member more and one member less both fail.
     // @ts-expect-error a union with an extra member is not ProviderKind
@@ -91,7 +92,7 @@ describe("exported provider-kind lists equal their literal copies (#1423)", () =
     expect([...BUILTIN_PROVIDER_TYPES]).toEqual([
       "anthropic", "openai", "google", "openai-compat", "github-copilot", "openrouter", "kimi-coding", "xai", "opencode",
       "deepseek", "groq", "cerebras", "nvidia-nim", "together", "fireworks", "huggingface", "mistral",
-      "moonshot", "minimax", "zai", "qwen", "xiaomi-mimo", "vercel-ai-gateway", "cloudflare-ai-gateway", "baseten",
+      "moonshot", "minimax", "zai", "qwen", "xiaomi-mimo", "vercel-ai-gateway", "cloudflare-ai-gateway", "baseten", "infomaniak",
     ]);
   });
 });
@@ -131,6 +132,7 @@ describe("private provider-kind lists, pinned through behavior (#1423)", () => {
       "vercel-ai-gateway": "openai-chat",
       "cloudflare-ai-gateway": "openai-chat",
       baseten: "openai-chat",
+      infomaniak: "openai-chat",
       opencode: "openai-chat",
       "openai-compat": "openai-chat",
       mock: 'throws: provider kind "mock" has no wire mapping; it cannot use the default AI SDK factory',
@@ -153,14 +155,14 @@ describe("private provider-kind lists, pinned through behavior (#1423)", () => {
       "anthropic", "openai", "google", "github-copilot", "openrouter", "kimi-coding", "xai",
       "deepseek", "groq", "cerebras", "nvidia-nim", "together", "fireworks", "huggingface", "mistral",
       "moonshot", "minimax", "zai", "qwen", "xiaomi-mimo", "vercel-ai-gateway", "cloudflare-ai-gateway",
-      "opencode",
+      "infomaniak", "opencode",
     ]);
   });
 
   test("fallbackIneligibleReason (BUILTIN_KINDS via isRouteCapable)", () => {
     const reasons = Object.fromEntries(KINDS.map((kind) => [kind, fallbackIneligibleReason({ name: "ep", type: kind, defaultModel: "m" })]));
     const routeCapable = KINDS.filter((kind) => reasons[kind] === null);
-    expect(routeCapable).toEqual(KINDS.slice(0, 25));
+    expect(routeCapable).toEqual(KINDS.slice(0, 26).filter((kind) => kind !== "cloudflare-ai-gateway" && kind !== "infomaniak"));
     expect(reasons.mock).toBe('provider type "mock" cannot be a fallback stop (only built-in and openai-compat endpoints can)');
     expect(reasons.custom).toBe('provider type "custom" cannot be a fallback stop (only built-in and openai-compat endpoints can)');
     expect(reasons["not-a-provider"]).toBe('provider type "not-a-provider" cannot be a fallback stop (only built-in and openai-compat endpoints can)');
@@ -194,6 +196,7 @@ describe("private provider-kind lists, pinned through behavior (#1423)", () => {
       "vercel-ai-gateway": "env:AI_GATEWAY_API_KEY",
       "cloudflare-ai-gateway": "env:CLOUDFLARE_API_TOKEN",
       baseten: "env:BASETEN_API_KEY",
+      infomaniak: "env:INFOMANIAK_API_TOKEN",
       opencode: "env:OPENCODE_API_KEY",
       "openai-compat": null,
       mock: null,
@@ -235,7 +238,7 @@ const PROVIDER_ENV_VARS = [
   "ANTHROPIC_API_KEY", "OPENAI_API_KEY", "GOOGLE_API_KEY", "GEMINI_API_KEY", "GOOGLE_GENERATIVE_AI_API_KEY", "XAI_API_KEY", "OPENROUTER_API_KEY",
   "DEEPSEEK_API_KEY", "GROQ_API_KEY", "CEREBRAS_API_KEY", "NVIDIA_API_KEY", "TOGETHER_API_KEY", "FIREWORKS_API_KEY", "HF_TOKEN",
   "MISTRAL_API_KEY", "MOONSHOT_API_KEY", "MINIMAX_API_KEY", "ZAI_API_KEY", "DASHSCOPE_API_KEY", "XIAOMI_MIMO_API_KEY",
-  "AI_GATEWAY_API_KEY", "CLOUDFLARE_API_TOKEN", "BASETEN_API_KEY", "OPENCODE_API_KEY",
+  "AI_GATEWAY_API_KEY", "CLOUDFLARE_API_TOKEN", "BASETEN_API_KEY", "INFOMANIAK_API_TOKEN", "OPENCODE_API_KEY",
 ];
 
 function restoreEnv(name: string, value: string | undefined): void {
@@ -334,7 +337,8 @@ describe("route resolution for every kind (#1423, in place of a B2 scenario)", (
       qwen: route("https://dashscope-intl.aliyuncs.com/compatible-mode/v1/chat/completions", "Bearer env:DASHSCOPE_API_KEY"),
       "xiaomi-mimo": route("https://api.xiaomimimo.com/v1/chat/completions", "Bearer env:XIAOMI_MIMO_API_KEY"),
       "vercel-ai-gateway": route("https://ai-gateway.vercel.sh/v1/chat/completions", "Bearer env:AI_GATEWAY_API_KEY"),
-      "cloudflare-ai-gateway": route("https://gateway.ai.cloudflare.com/v1/{account_id}/{gateway_id}/compat/chat/completions", "Bearer env:CLOUDFLARE_API_TOKEN"),
+      "cloudflare-ai-gateway": { error: 'provider "cloudflare-ai-gateway" requires a concrete base URL; replace the account/product placeholders' },
+      infomaniak: { error: 'provider "infomaniak" requires a concrete base URL; replace the account/product placeholders' },
       baseten: route("https://inference.baseten.co/v1/chat/completions", "Bearer env:BASETEN_API_KEY"),
       opencode: route("https://opencode.ai/zen/v1/chat/completions", "Bearer env:OPENCODE_API_KEY"),
       "openai-compat": { error: 'endpoint "ep": openai-compat requires baseUrl' },
