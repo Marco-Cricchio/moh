@@ -671,7 +671,7 @@ export function Onboarding({ cwd, home, env, tester = defaultTester(home), force
             <Text color={theme.dim}>▊</Text>
           </Text>
           <Text> </Text>
-          <Dim>{FIELD_LABELS[phase.field].hint} · enter next · esc back</Dim>
+          <Dim>{phase.field === "baseUrl" && providerRequiresBaseUrlInput(wizard.type ?? "") ? "Replace the account/product placeholders with your own values" : FIELD_LABELS[phase.field].hint} · enter next · esc back</Dim>
         </>
       )}
       {phase.kind === "test" && (
@@ -803,6 +803,7 @@ function submitField(
     return applyPhase({ kind: "wizard-text", field: "baseUrl", value: wizard.baseUrl ?? "" });
   }
   // baseUrl
+  if (providerRequiresBaseUrlInput(wizard.type ?? "") && (!value || /\{|%7b/i.test(value))) return;
   if (wizard.type === "openai-compat" && !value) return; // required for compat
   const metadata = wizard.type === "openai-compat" ? knownCompatEndpointMetadata(value) : undefined;
   const capabilities = metadata ? { thinking: metadata.thinking } : undefined;
@@ -821,7 +822,7 @@ function submitField(
     ...(capabilities ? { capabilities } : {}),
     defaultModel: wizard.defaultModel!,
   };
-  applyPhase(profile.type === "openai-compat" && imageSupportFor(profile, profile.defaultModel!).source === "unknown"
+  applyPhase((profile.type === "openai-compat" || providerProfile(profile.type)) && imageSupportFor(profile, profile.defaultModel!).source === "unknown"
     ? { kind: "wizard-images", profile, cursor: 0 }
     : { kind: "test", profile });
 }

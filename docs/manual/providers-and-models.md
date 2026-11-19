@@ -5,7 +5,7 @@ pick within it. moh ships built-ins for anthropic, openai, google,
 github-copilot, openrouter, kimi-coding, xai, OpenCode, and OpenAI-compatible endpoint
 profiles for DeepSeek, Groq, Cerebras, NVIDIA NIM, Together AI, Fireworks AI,
 Hugging Face, Mistral AI, Moonshot AI, MiniMax, Z.ai, Qwen, Xiaomi MiMo,
-Vercel AI Gateway, Cloudflare AI Gateway, and Baseten. It also has a
+Vercel AI Gateway, Cloudflare AI Gateway, Baseten, and Infomaniak. It also has a
 zero-credential **mock** provider (the default) and custom endpoints via
 `openai-compat`.
 
@@ -69,6 +69,29 @@ drops them, and `moh provider status` shows per-endpoint authentication state
 and best-effort usage. On the wizard's login screen, press `c` to copy the full
 authorize URL. If the terminal rejects clipboard access, the screen reports
 that result and keeps the URL as the manual fallback.
+
+## Infomaniak AI Services
+
+Choose `infomaniak` in the provider wizard. Supply your API token (stored in
+`~/.moh/config`) or set `INFOMANIAK_API_TOKEN`; an endpoint-specific
+`MOH_ENDPOINT_<NAME>_API_KEY` takes precedence over that environment variable.
+Set the full base URL to
+`https://api.infomaniak.com/2/ai/<product_id>/openai/v1`, replacing
+`<product_id>` with your AI Services product identifier. The wizard does not
+activate a service or create a product. Its connection test sends one small
+text request using an existing product.
+
+The default suggestion `qwen3` comes from the API documentation. Enter an exact
+model id available to your product; the selectors fetch `/models` from that
+same base URL. No static Infomaniak catalog, prices, context windows or media
+capabilities are assumed. For a model with unknown image support, onboarding
+asks for an explicit image declaration. Audio transcription and image generation
+endpoints are separate APIs and are not part of this chat provider.
+
+See the [chat API](https://developer.infomaniak.com/docs/api/post/2/ai/%7Bproduct_id%7D/openai/v1/chat/completions)
+and [model listing](https://developer.infomaniak.com/docs/api/get/2/ai/%7Bproduct_id%7D/openai/v1/models).
+Integration is covered by local HTTP tests; authenticated Infomaniak inference
+has not been verified.
 
 ## Endpoints and routing
 

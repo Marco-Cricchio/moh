@@ -6,12 +6,15 @@
  * listing only *adds* models the shipped file does not yet carry, so newly
  * released models appear without a moh release.
  *
- * Every contract below was probed against the provider itself (#920):
+ * The original contracts were probed against the provider itself (#920):
  * the route exists, and the shape is the standard
  * `{object: "list", data: [{id}]}` unless the docblock says otherwise.
  * Coverage is the whole catalog moh ships, not a hand-picked subset —
  * the fifteen `openai-completions` profiles of #726 carry a single
  * shipped model each, so their listing IS their update story.
+ *
+ * Infomaniak uses its published V2 contract, verified with local HTTP tests;
+ * authenticated live inference/listing has not been verified.
  *
  * Per-provider contracts:
  *  - openai (ChatGPT/Codex backend): `models[].slug`, `originator` +
@@ -261,6 +264,14 @@ const CONTRACTS: Record<string, ListingContract> = {
   // The coding backend's list sits under /v1 (probed #920).
   "kimi-coding": { base: () => OAUTH_LISTING_BASES["kimi-coding"], parser: parseOpenAiData, urls: (base) => [`${base}/v1/models`] },
   opencode: { base: opencodeBaseUrl, parser: parseOpenAiData },
+  // Infomaniak documents OpenAI compatibility but its example has a single
+  // data object. Accept both documented forms; never infer model capabilities.
+  infomaniak: { parser: (body) => {
+    const standard = parseOpenAiData(body);
+    if (standard !== undefined) return standard;
+    if (!body || typeof body !== "object") return undefined;
+    return parseOpenAiData({ data: [(body as Record<string, unknown>).data] });
+  } },
 };
 for (const id of OPENAI_LISTING_PROFILES) CONTRACTS[id] = { parser: parseOpenAiData };
 
@@ -405,6 +416,7 @@ export async function listProviderModels(
   const contract = listingContractFor(kind, kindContract, opts.subscription ?? credential.subscription);
   const base = listingBase(contract, kind, endpointName, opts.baseUrl);
   if (!base) throw new Error(missingContract(kind));
+  if (/\{|%7b/i.test(base)) throw new Error(`provider "${kind}" requires a concrete base URL; replace the account/product placeholders`);
   const clientVersion = opts.clientVersion ?? CODEX_LISTING_CLIENT_VERSION;
   const templates = contract.urls?.(base, clientVersion) ?? [`${base}/models`];
   // Anthropic accepts OAuth access tokens only as `Authorization: Bearer`

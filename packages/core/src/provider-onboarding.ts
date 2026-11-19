@@ -247,7 +247,7 @@ export async function runProviderAdd(
     const result = await tester(profile);
     if (result.ok) {
       await io.info(`✓ Connected (${result.modelId} responded)`);
-      if (type === "openai-compat" && imageSupportFor(profile, defaultModel).source === "unknown") {
+      if ((type === "openai-compat" || isProviderProfile(type)) && imageSupportFor(profile, defaultModel).source === "unknown") {
         await io.info("The connection test checks text only. Declare image input for this model; automatic leaves unknown models text-only.");
         for (;;) {
           const answer = (await io.ask("Image input (auto | yes | no) [auto]: ")).trim().toLowerCase();
@@ -345,7 +345,7 @@ async function askSubscriptionModel(io: OnboardingIo, type: string): Promise<str
 async function askRequiredProviderBaseUrl(io: OnboardingIo, type: string): Promise<string> {
   const template = providerProfile(type)?.baseUrl;
   const value = (await io.ask(`Base URL [${template}]: `)).trim() || template || "";
-  if (!value || value.includes("{")) throw new OnboardingAborted("a concrete base URL is required for this endpoint");
+  if (!value || /\{|%7b/i.test(value)) throw new OnboardingAborted("a concrete base URL is required for this endpoint");
   return value;
 }
 

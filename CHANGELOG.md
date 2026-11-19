@@ -7,6 +7,16 @@ matching section here at tag time.
 
 ## [Unreleased]
 
+### Added
+
+- Infomaniak AI Services provider with product-specific configuration, API-token
+  authentication, live model discovery, image input declarations and a ToS card.
+
+### Fixed
+
+- Refuse unresolved account/product URL placeholders before requests and exclude
+  incomplete profiles from automatic fallback routing.
+
 ## [0.68.0] - 2026-11-19
 
 ### Added

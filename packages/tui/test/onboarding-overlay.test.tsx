@@ -4,7 +4,7 @@ import { existsSync, readFileSync, rmSync } from "node:fs";
 import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { loadMohConfig } from "@moh/core";
+import { BUILTIN_PROVIDER_TYPES, loadMohConfig } from "@moh/core";
 import { Onboarding } from "../src/OnboardingOverlay";
 import { pressSettled, stripAnsi, unmountSettled, waitStep, waitText } from "./helpers";
 
@@ -542,3 +542,40 @@ describe("OpenCode onboarding (#794)", () => {
     i.unmount();
   });
 });
+
+
+test("Infomaniak onboarding requires the product URL and saves image support", async () => {
+  const cwd = tempCwd();
+  const home = tempHome();
+  let probes = 0;
+  const done: (string | null)[] = [];
+  const i = render(<Onboarding cwd={cwd} home={home} env={{}} tester={async () => { probes++; return { ok: true, modelId: "qwen3" }; }} onDone={(ref) => done.push(ref)} />);
+  try {
+    await waitText(i, "Pick a provider type", "provider menu");
+    for (let n = 0; n < BUILTIN_PROVIDER_TYPES.indexOf("infomaniak"); n++) await pressSettled(i, "\x1b[B");
+    await waitText(i, "› infomaniak", "Infomaniak selected");
+    await pressSettled(i, "\r");
+    await waitText(i, "Default model", "documented default suggestion");
+    await pressSettled(i, "\r");
+    await waitText(i, "API key", "token step");
+    await pressSettled(i, "\r");
+    await waitText(i, "Replace the account/product", "required product URL");
+    await pressSettled(i, "\r");
+    expect(probes).toBe(0);
+    expect(stripAnsi(i.lastFrame() ?? "")).toContain("Base URL");
+    const template = "https://api.infomaniak.com/2/ai/{product_id}/openai/v1";
+    for (let n = 0; n < template.length; n++) await pressSettled(i, "\x7f");
+    await pressSettled(i, "https://api.infomaniak.com/2/ai/123/openai/v1");
+    await pressSettled(i, "\r");
+    await waitText(i, "Image input for", "image declaration");
+    await pressSettled(i, "\x1b[B");
+    await pressSettled(i, "\r");
+    await waitText(i, "Where should", "save scope");
+    await pressSettled(i, "\x1b[B");
+    await pressSettled(i, "\r");
+    await waitStep(i, () => done.length > 0, "Infomaniak saved");
+    expect(probes).toBe(1);
+    expect(done).toEqual(["infomaniak/qwen3"]);
+    expect(loadMohConfig(join(cwd, "moh.json")).endpoints?.[0]).toMatchObject({ type: "infomaniak", baseUrl: "https://api.infomaniak.com/2/ai/123/openai/v1", capabilities: { imageModels: { qwen3: true } } });
+  } finally { await unmountSettled(i); }
+}, 20_000);

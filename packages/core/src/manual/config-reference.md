@@ -57,7 +57,7 @@ All keys are optional. Notes:
   "deepseek" | "groq" | "cerebras" | "nvidia-nim" | "together" |
   "fireworks" | "huggingface" | "mistral" | "moonshot" | "minimax" |
   "zai" | "qwen" | "xiaomi-mimo" | "vercel-ai-gateway" |
-  "cloudflare-ai-gateway" | "baseten" | "openai-compat"`, or a custom id
+  "cloudflare-ai-gateway" | "baseten" | "infomaniak" | "openai-compat"`, or a custom id
   registered via `registerProvider`.
 - `endpoints[].apiKey` — falls back to the env var
   `MOH_ENDPOINT_<NAME>_API_KEY`, then a first-party profile's documented provider environment variable; prefer the guardian-stored key from the wizard over inlining secrets in moh.json.
