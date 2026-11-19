@@ -89,7 +89,9 @@ describe("onboarding wizard — subscription branch (#149, #1317)", () => {
       i3.stdin.write("\x1b[B");
       await waitForFrame(frame3, `› ${type}`);
     }
-    i3.stdin.write("\r"); // openai-compat → model directly (no grant at all)
+    i3.stdin.write("\r"); // openai-compat → name, then model (no grant)
+    await waitForFrame(frame3, "Endpoint name");
+    i3.stdin.write("\r");
     await waitForFrame(frame3, "Default model");
     expect(frame3()).not.toContain("authenticate?");
     i3.unmount();

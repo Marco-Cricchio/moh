@@ -9,6 +9,9 @@ matching section here at tag time.
 
 ### Added
 
+- Name custom endpoints in TUI onboarding. Settings and `/model` remember
+  explicit model choices per project and endpoint, and offer saved models
+  when discovery is unavailable without changing routing defaults.
 - Native WAV/MP3 audio and MP4 video mentions, preserved across session resume
   and fork. Configure image/audio/video input independently per model in the
   CLI/TUI wizard; existing image declarations remain supported. Routes exclude

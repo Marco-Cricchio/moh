@@ -87,7 +87,7 @@ import { LanesModal } from "./LanesModal";
 import { StrandedModal } from "./StrandedModal";
 import { TreePanel } from "./TreePanel";
 import { sessionTree, projectSessionsDir, type TreeNode } from "@moh/core";
-import { contextWindowForLabel, mergePickCatalog } from "./model-picker";
+import { contextWindowForLabel, mergePickCatalog, readModelSelection, saveModelSelection } from "./model-picker";
 import { Frontier } from "./Frontier";
 import { SkillChooser } from "./SkillChooser";
 import { WorkflowOffer } from "./WorkflowOffer";
@@ -2041,6 +2041,7 @@ function AppShell({
               name: e.name,
               type: e.type,
               defaultModel: e.defaultModel,
+              lastSelectedModel: readModelSelection(cfgFile, cwd, e),
               baseUrl: e.baseUrl,
               apiKey: e.apiKey,
               catalog: endpointModelCatalog(e.type, e.baseUrl),
@@ -2050,7 +2051,17 @@ function AppShell({
             onRefreshLive={() => refreshLiveCatalog({ force: true })}
             refreshingLive={liveRefreshing}
             onSwitch={(ref) => session.switchModel(ref)}
-            onSwitched={(model) => setModelLabel(model)}
+            onSwitched={(model) => {
+              setModelLabel(model);
+              const slash = model.indexOf("/");
+              const endpoint = session.endpointProfiles.find((e) => e.name === model.slice(0, slash));
+              if (!endpoint || slash < 0) return;
+              try {
+                saveModelSelection(cfgFile, cwd, endpoint, model.slice(slash + 1));
+              } catch (error) {
+                push(`model switched; could not remember selection: ${error instanceof Error ? error.message : String(error)}`);
+              }
+            }}
             onCompact={() => {
               void session.compact().then((result) => {
                 if (!result.ok) push(`✗ compaction: ${result.error}`);

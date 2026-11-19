@@ -90,6 +90,8 @@ describe("onboarding wizard — cursor race", () => {
         await waitForFrame(frame, `› ${type}`);
       }
       i.stdin.write("\r");
+      await waitForFrame(frame, "Endpoint name");
+      i.stdin.write("\r");
       await waitForFrame(frame, "Default model");
       i.stdin.write("qwen3");
       await waitForFrame(frame, "› qwen3");

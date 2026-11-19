@@ -55,7 +55,7 @@ type Phase =
   | { kind: "sub-login"; error?: string }
   | { kind: "wizard-model-list"; cursor: number }
   | { kind: "wizard-endpoint-list"; cursor: number }
-  | { kind: "wizard-text"; field: "model" | "apiKey" | "baseUrl"; value: string }
+  | { kind: "wizard-text"; field: "name" | "model" | "apiKey" | "baseUrl"; value: string }
   | { kind: "test"; profile: EndpointProfile; profiles?: EndpointProfile[]; envCandidate?: EnvCandidate; result?: ConnectionTestResult }
   | { kind: "save-scope"; profile: EndpointProfile; profiles?: EndpointProfile[]; cursor: number }
   | { kind: "conflict"; profile: EndpointProfile; existing: EndpointProfile }
@@ -78,7 +78,8 @@ interface OnboardingProps {
   onDone: (providerRef: string | null) => void;
 }
 
-const FIELD_LABELS: Record<"model" | "apiKey" | "baseUrl", { label: string; hint: string }> = {
+const FIELD_LABELS: Record<"name" | "model" | "apiKey" | "baseUrl", { label: string; hint: string }> = {
+  name: { label: "Endpoint name", hint: "Letters, numbers, hyphens and underscores; use a different name for each server" },
   model: { label: "Default model", hint: "e.g. claude-sonnet-4-5, gpt-5, qwen3" },
   apiKey: { label: "API key (empty = env var / local, no key)", hint: "stored securely in ~/.moh/config — never in moh.json" },
   baseUrl: { label: "Base URL", hint: "required for openai-compat; built-in profiles prefill their documented endpoint" },
@@ -307,6 +308,10 @@ export function Onboarding({ cwd, home, env, tester = defaultTester(home), force
         if (key.return || input === "\n") {
           const type = BUILTIN_PROVIDER_TYPES[phase.cursor]!;
           applyWizard({ name: type, type });
+          if (type === "openai-compat") {
+            setAuthKind("api-key");
+            return applyPhase({ kind: "wizard-text", field: "name", value: type });
+          }
           if (type === "opencode") return applyPhase({ kind: "opencode-product", cursor: 0 });
           // #1317/#1720: the auth-method step is only for kinds whose
           // subscription grant the wizard offers — one predicate, shared with
@@ -764,6 +769,11 @@ function submitField(
   bindApiKeyOrigin: (name: string, origin: StoredApiKeyOrigin) => void,
 ): void {
   const value = phase.value.trim();
+  if (phase.field === "name") {
+    if (!/^[a-zA-Z0-9][a-zA-Z0-9_-]*$/.test(value)) return;
+    applyWizard({ ...wizard, name: value });
+    return applyPhase({ kind: "wizard-text", field: "model", value: "" });
+  }
   if (phase.field === "model") {
     if (!value) return; // a model is required
     applyWizard({ ...wizard, defaultModel: value });
