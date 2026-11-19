@@ -6,6 +6,7 @@ import {
   BUILTIN_PROVIDER_TYPES,
   KNOWN_COMPAT_ENDPOINTS,
   knownCompatEndpointMetadata,
+  imageSupportFor,
   offersSubscriptionAuth,
   providerProfile,
   providerEndpointChoices,
@@ -48,6 +49,7 @@ type Phase =
   | { kind: "detect"; cursor: number }
   | { kind: "wizard-type"; cursor: number }
   | { kind: "wizard-auth"; cursor: number }
+  | { kind: "wizard-images"; profile: EndpointProfile; cursor: number }
   | { kind: "opencode-product"; cursor: number }
   | { kind: "tos" }
   | { kind: "sub-login"; error?: string }
@@ -425,6 +427,18 @@ export function Onboarding({ cwd, home, env, tester = defaultTester(home), force
         }
         return;
       }
+      case "wizard-images": {
+        if (key.escape) return applyPhase({ kind: "wizard-text", field: "baseUrl", value: phase.profile.baseUrl ?? "" });
+        if (key.upArrow || key.downArrow) return applyPhase({ ...phase, cursor: (phase.cursor + (key.upArrow ? 2 : 1)) % 3 });
+        if (key.return || input === "\n") {
+          const profile = phase.cursor === 0 ? phase.profile : {
+            ...phase.profile, capabilities: { ...phase.profile.capabilities,
+              imageModels: { ...phase.profile.capabilities?.imageModels, [phase.profile.defaultModel!]: phase.cursor === 1 } },
+          };
+          return applyPhase({ kind: "test", profile });
+        }
+        return;
+      }
       case "wizard-text": {
         if (key.escape) return applyPhase({ kind: "wizard-type", cursor: 0 });
         if (key.backspace || key.delete) return patchPhase((p) => (p.kind === "wizard-text" ? { ...p, value: p.value.slice(0, -1) } : p));
@@ -635,6 +649,16 @@ export function Onboarding({ cwd, home, env, tester = defaultTester(home), force
           <Dim>enter select · esc back · s skip</Dim>
         </>
       )}
+      {phase.kind === "wizard-images" && (
+        <>
+          <Text bold>Image input for {phase.profile.defaultModel}</Text>
+          <Dim>Unknown capability. The connection test checks text only.</Dim>
+          {["Automatic — unknown models stay text-only", "Yes — this model accepts images", "No — this model is text-only"].map((label, index) => (
+            <Text key={label}>{`${index === phase.cursor ? "›" : " "} ${label}`}</Text>
+          ))}
+          <Dim>↑↓ select · enter confirm · esc back</Dim>
+        </>
+      )}
       {phase.kind === "wizard-text" && (
         <>
           {phase.field === "model" && authKind === "subscription" && (
@@ -797,5 +821,7 @@ function submitField(
     ...(capabilities ? { capabilities } : {}),
     defaultModel: wizard.defaultModel!,
   };
-  applyPhase({ kind: "test", profile });
+  applyPhase(profile.type === "openai-compat" && imageSupportFor(profile, profile.defaultModel!).source === "unknown"
+    ? { kind: "wizard-images", profile, cursor: 0 }
+    : { kind: "test", profile });
 }

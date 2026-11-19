@@ -363,7 +363,7 @@ export {
   type ProviderAddOptions,
 } from "./provider-onboarding";
 export { PROVIDER_PROFILES, providerProfile, providerEndpointChoices, providerRequiresBaseUrlInput, type ProviderProfile } from "./provider-profiles";
-export { catalogEntryFor, pricingForModel, pricingForPlan, endpointModelCatalog, knownCompatEndpointMetadata, subscriptionModelCatalog, type BillingPlan, type CatalogModel, type ModelPricing, type ModelPricingTier } from "./model-catalog";
+export { imageSupportFor, catalogEntryFor, pricingForModel, pricingForPlan, endpointModelCatalog, knownCompatEndpointMetadata, subscriptionModelCatalog, type BillingPlan, type CatalogModel, type ModelPricing, type ModelPricingTier } from "./model-catalog";
 export { billingPlanResolver, estimateModelCost, PRICING_SNAPSHOT, type ModelCostEstimate } from "./pricing";
 // #993: the live reasoning channel's fold — the one rule shared by the log
 // (`session/agent-loop.ts`) and every client that renders reasoning live.

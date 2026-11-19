@@ -16,7 +16,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { subscriptionModelCatalog, type AuthToken, type AuthorizationIo } from "@moh/core";
 import { Onboarding } from "../src/OnboardingOverlay";
-import { stripAnsi, waitForCondition, waitForFrame } from "./helpers";
+import { pressSettled, waitText, stripAnsi, waitForCondition, waitForFrame } from "./helpers";
 
 const sleep = (ms: number) => Promise.resolve().then(() => new Promise((r) => setTimeout(r, ms)));
 const tempHome = () => mkdtempSync(join(tmpdir(), "moh-arrow-home-"));
@@ -101,6 +101,8 @@ describe("onboarding wizard — cursor race", () => {
       await waitForFrame(frame, "Base URL");
       await waitForFrame(frame, "http://localhost:11434/v1");
       i.stdin.write("\r"); // accept the prefilled URL
+      await waitText(i, "Image input for", "image capability choice");
+      await pressSettled(i, "\r"); // automatic: preserve the original scope-race assertion
       await waitForFrame(frame, "Where should");
       // down+enter with no settling window: enter must read the cursor the
       // down produced even if ink re-registers the input handler only in a

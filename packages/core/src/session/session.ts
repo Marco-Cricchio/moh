@@ -54,7 +54,7 @@ interface ContributedToolShape {
   execute(args: unknown, ctx: { signal: AbortSignal; cwd: string }): Promise<string> | string;
 }
 import { resolveEndpointThinking, thinkingStatesForRef } from "../thinking-preferences";
-import { catalogEntryFor, modelSupportsImages } from "../model-catalog";
+import { catalogEntryFor, imageSupportFor } from "../model-catalog";
 import { HandoffRunner } from "../handoff";
 import { resolveMaxIterations } from "./agent-loop";
 import { MpmService, projectMapDir, type MpmStatus } from "../mpm/service";
@@ -1367,9 +1367,9 @@ export class AgentSession {
    * part — resolved against the model that SERVES this session's calls, so
    * a fallback onto a model without image input downgrades the attachment
    * (visible warning, chip text) instead of sending a request the serving
-   * model rejects. The catalog's declared input modalities are the truth
-   * (never inferred), with an explicit `capabilities.multimodal: false`
-   * endpoint override; a config `images.imageCapable` pin wins outright
+   * model rejects. Model declarations and catalog input modalities use the
+   * shared resolver (never inferred), with `capabilities.multimodal: false`
+   * as an endpoint veto; a config `images.imageCapable` pin wins outright
    * (tests/custom providers). One definition for both probes: the browser
    * screenshot seam (#778) and the `@path` mention seam (#488).
    */
@@ -1381,8 +1381,7 @@ export class AgentSession {
     const slash = ref.indexOf("/");
     const [endpointName, modelId] = slash === -1 ? [ref, ""] : [ref.slice(0, slash), ref.slice(slash + 1)];
     const profile = this.#endpoints.find((e) => e.name === endpointName);
-    if (profile?.capabilities?.multimodal === false) return false;
-    return modelSupportsImages(catalogEntryFor(profile?.type ?? "", modelId), profile?.capabilities);
+    return imageSupportFor(profile, modelId).supported;
   }
 
   /**

@@ -94,6 +94,16 @@ All keys are optional. Notes:
   a catalog entry (openai-compat, custom); on catalog-backed endpoints
   `false` vetoes even a catalog grant. Absent = declared capability only
   (catalog modalities, else not multimodal) — never inferred (#490).
+- `capabilities.imageModels` — image-input declarations keyed by exact model id,
+  for example `{ "Qwen/Qwen3.5-397B-A17B-FP8": true, "text-model": false }`.
+  The custom OpenAI-compatible wizard offers Automatic / Yes / No when image
+  support is unknown. Automatic stores no model declaration; unknown models
+  remain text-only. Yes/No applies only to the selected model, including when
+  used as a fallback. The connection test checks text, not image support.
+  Resolution: endpoint `multimodal: false` veto, exact model declaration,
+  catalog modalities, legacy endpoint declaration, otherwise unknown.
+  Model selection in Settings shows image support and its source. Existing
+  `multimodal: true` still applies to all uncatalogued models on that endpoint.
 - `capabilities.thinking.format` — one of `openai-effort`,
   `openrouter-effort`, `anthropic-effort`, `google-thinking-level`;
   `levels` are canonical thinking levels (`off`, `low`, `medium`,

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { endpointModelCatalog, knownCompatEndpointMetadata, modelSupportsImages, subscriptionModelCatalog } from "../src/model-catalog";
+import { imageSupportFor, endpointModelCatalog, knownCompatEndpointMetadata, modelSupportsImages, subscriptionModelCatalog } from "../src/model-catalog";
 
 describe("subscriptionModelCatalog (#156)", () => {
   test("anthropic / openai / google each expose a non-empty list", () => {
@@ -76,5 +76,20 @@ describe("modelSupportsImages — endpoint capability declaration (#490)", () =>
     const vision = { ...entry, input: ["text", "image"] };
     expect(modelSupportsImages(vision)).toBe(true);
     expect(modelSupportsImages(vision, { multimodal: false })).toBe(false);
+  });
+});
+
+describe("model-scoped image declarations", () => {
+  const profile = { name: "local", type: "openai-compat", capabilities: { imageModels: { "org/vision": true, text: false } } };
+  test("exact model ids do not leak to another model or endpoint", () => {
+    expect(imageSupportFor(profile, "org/vision")).toEqual({ supported: true, source: "model declaration" });
+    expect(imageSupportFor(profile, "text")).toEqual({ supported: false, source: "model declaration" });
+    expect(imageSupportFor(profile, "other")).toEqual({ supported: false, source: "unknown" });
+    expect(imageSupportFor({ name: "fallback", type: "openai-compat" }, "org/vision").supported).toBe(false);
+  });
+  test("global veto and legacy declarations keep working", () => {
+    expect(imageSupportFor({ ...profile, capabilities: { ...profile.capabilities, multimodal: false } }, "org/vision").supported).toBe(false);
+    expect(imageSupportFor({ ...profile, capabilities: { multimodal: true } }, "other")).toEqual({ supported: true, source: "endpoint declaration" });
+    expect(imageSupportFor({ ...profile, capabilities: { ...profile.capabilities, multimodal: true } }, "text").supported).toBe(false);
   });
 });

@@ -118,3 +118,8 @@ describe("saveWizardProviderUser (#129)", () => {
     ]);
   });
 });
+
+test("wizard does not silently reuse a different nested model image declaration", () => {
+  const base = { name: "local", type: "openai-compat", defaultModel: "vision", capabilities: { imageModels: { vision: false } } };
+  expect(wizardSavePlan({ ...base, capabilities: { imageModels: { vision: true } } }, [base], false).kind).toBe("key-conflict");
+});

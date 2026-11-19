@@ -76,6 +76,10 @@ describe("onboarding overlay (issue #33)", () => {
     i.stdin.write("\r");
     await sleep(100);
 
+    await waitText(i, "Image input for", "image capability choice");
+    await pressSettled(i, "\r");
+    await waitText(i, "Where should", "save scope after automatic image choice");
+
     // Save-scope chooser (#129): brand-new endpoint, no moh.json → cursor
     // defaults to user; choose project for this test.
     expect(stripAnsi(i.lastFrame() ?? "")).toContain("Where should");
@@ -284,6 +288,10 @@ describe("onboarding overlay — known endpoint pick-list (#295)", () => {
     i.stdin.write("\r"); // accept the prefilled URL
     await sleep(100);
 
+    await waitText(i, "Image input for", "image capability choice");
+    await pressSettled(i, "\r");
+    await waitText(i, "Where should", "save scope after automatic image choice");
+
     // Save-scope chooser: brand-new endpoint → user default; choose project.
     expect(stripAnsi(i.lastFrame() ?? "")).toContain("Where should");
     i.stdin.write("\x1b[B");
@@ -358,7 +366,7 @@ void readFileSync;
 describe("onboarding overlay — user-level wizard semantics (#129)", () => {
   const profile0 = { name: "openai-compat", type: "openai-compat", baseUrl: "http://localhost:11434/v1", defaultModel: "qwen3" };
 
-  async function runWizard(home: string, cwd: string) {
+  async function runWizard(home: string, cwd: string, imageChoice = 0) {
     const done: (string | null)[] = [];
     const i = render(<Onboarding cwd={cwd} home={home} env={{}} tester={okTester} onDone={(ref) => done.push(ref)} />);
     await sleep(30);
@@ -378,8 +386,26 @@ describe("onboarding overlay — user-level wizard semantics (#129)", () => {
     i.stdin.write("\r"); // endpoint list (#295): first entry — Ollama
     await sleep(20);
     i.stdin.write("\r"); // accept the prefilled base URL
+    await waitText(i, "Image input for", "image capability choice");
+    for (let n = 0; n < imageChoice; n++) await pressSettled(i, "\x1b[B");
+    await pressSettled(i, "\r");
     await sleep(100);
     return { i, done };
+  }
+
+  for (const [choice, enabled] of [[1, true], [2, false]] as const) {
+    test(`custom wizard persists image input ${enabled} for the selected model`, async () => {
+      const home = tempHome();
+      const cwd = tempCwd();
+      const { i, done } = await runWizard(home, cwd, choice);
+      try {
+        await waitText(i, "Where should", "scope after explicit image choice");
+        await pressSettled(i, "\r");
+        await waitStep(i, () => done.length === 1, "custom image profile saved");
+        const config = JSON.parse(readFileSync(join(home, ".moh", "config"), "utf8"));
+        expect(config.endpoints[0].capabilities).toEqual({ imageModels: { qwen3: enabled } });
+      } finally { await unmountSettled(i); }
+    });
   }
 
   test("brand-new endpoint defaults to user scope on absolute first run", async () => {

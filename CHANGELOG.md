@@ -7,6 +7,26 @@ matching section here at tag time.
 
 ## [Unreleased]
 
+## [0.68.0] - 2026-11-19
+
+### Added
+
+- Custom OpenAI-compatible onboarding can declare image input per model in
+  both CLI and TUI. Settings shows effective image support and its source;
+  declarations remain scoped to the serving model across switches and fallbacks
+  (#1774).
+
+### Fixed
+
+- Preserve nested capability changes when comparing an onboarding profile
+  with an existing user endpoint, rather than silently reusing stale values.
+
+### Changed
+
+- Keep the validated November 14 model catalog inputs (510 rows, 25 catalogs)
+  while updating release metadata to 0.68.0. New upstream missing-data and
+  context-reduction findings require separate review before publication.
+
 ## [0.67.2] - 2026-11-14
 
 ### Fixed
