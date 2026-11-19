@@ -25,6 +25,14 @@ failed attempt is persisted to `~/.moh/provider-test-failures.log`
 (bounded, never carrying credentials), so a failure stays diagnosable
 after the wizard is gone.
 
+For a custom OpenAI-compatible model with unknown image support, choose
+**Automatic**, **Yes**, or **No** for image input. Automatic keeps an unknown
+model text-only; Yes and No save a declaration for that exact model id under
+`capabilities.imageModels`. The connection test checks text only. Settings'
+model picker shows effective image support and whether it comes from the
+catalog, a model declaration, an endpoint declaration, or is unknown. Change
+an existing declaration in config or run the provider wizard again.
+
 The wizard asks **API key or subscription** where moh offers both methods
 (Anthropic, OpenAI, GitHub Copilot, OpenRouter, xAI, Kimi). OAuth tokens are
 stored in `~/.moh/config`, never in moh.json or logs. Authentication alone

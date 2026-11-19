@@ -845,3 +845,16 @@ describe("connection-test diagnostics (#1092)", () => {
     expect(JSON.parse(lines.at(-1)!)!.model).toBe(`m${PROVIDER_TEST_MAX_ENTRIES + 4}`);
   });
 });
+
+describe("custom model image input", () => {
+  for (const answer of ["auto", "yes", "no"]) {
+    test(`persists ${answer} without widening other model capabilities`, async () => {
+      const file = join(mkdtempSync(join(tmpdir(), "moh-image-config-")), "moh.json");
+      const { config } = await addProviderToFile(ioWith([...answers(), answer]), file, { tester: okTest() });
+      const profile = config.endpoints![0]!;
+      expect(profile.capabilities?.imageModels).toEqual(answer === "auto" ? undefined : { qwen3: answer === "yes" });
+      expect(profile.capabilities?.multimodal).toBeUndefined();
+      expect(JSON.parse(readFileSync(file, "utf8")).endpoints[0]).toEqual(profile);
+    });
+  }
+});

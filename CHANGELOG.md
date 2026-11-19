@@ -7,6 +7,12 @@ matching section here at tag time.
 
 ## [Unreleased]
 
+### Added
+
+- Custom OpenAI-compatible onboarding can declare image input per model in
+  both CLI and TUI. Settings shows effective image support and its source;
+  declarations remain scoped to the serving model across switches and fallbacks.
+
 ## [0.67.2] - 2026-11-14
 
 ### Fixed

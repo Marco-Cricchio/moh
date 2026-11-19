@@ -45,6 +45,8 @@ const capabilitiesSchema = z
     caching: z.boolean(),
     parallelToolCalls: z.boolean(),
     multimodal: z.boolean(),
+    /** Explicit image-input declarations keyed by exact model id. */
+    imageModels: z.record(z.string().min(1), z.boolean()).optional(),
     /** #256: endpoint-level thinking capability declaration (openai-compat
      * and as the base for per-model overrides on catalog-backed endpoints). */
     thinking: thinkingDeclarationSchema.optional(),

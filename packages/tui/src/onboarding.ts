@@ -1,3 +1,4 @@
+import { isDeepStrictEqual } from "node:util";
 /**
  * Hybrid provider onboarding logic (issue #33): env-var auto-detect +
  * one-step confirm, full wizard fallback. Pure seam — the Ink overlay
@@ -114,13 +115,9 @@ type WizardPlan =
   | { kind: "key-conflict"; existing: EndpointProfile }
   | { kind: "duplicate"; existing: EndpointProfile };
 
-function canonical(profile: EndpointProfile): string {
-  return JSON.stringify(profile, Object.keys(profile).sort());
-}
-
 /** Same endpoint config, field-order-insensitive. */
 function sameProfile(a: EndpointProfile, b: EndpointProfile): boolean {
-  return canonical(a) === canonical(b);
+  return isDeepStrictEqual(a, b);
 }
 
 function sameContent(a: EndpointProfile, b: EndpointProfile): boolean {

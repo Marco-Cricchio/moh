@@ -452,6 +452,7 @@ describe("merged provider endpoints (#129)", () => {
       type: "openai-compat",
       baseUrl: `http://localhost:${server.port}/v1`,
       defaultModel: "glm-5.3",
+      capabilities: { imageModels: { "glm-5.3": true } },
       apiKey: "key",
     });
     try {
@@ -467,8 +468,10 @@ describe("merged provider endpoints (#129)", () => {
       await settle(i, "glm-5.3-air", "the live model list fetched");
       const frame = stripAnsi(i.lastFrame() ?? "");
       expect(frame).toContain("glm-5.3-air");
+      expect(frame).toContain("Images: yes · model declaration");
       i.stdin.write("air");
       await settle(i, '+ use "air"', "free-text row for the typed model id");
+      expect(frameOf(i)).toContain("Images: unknown (text-only) · unknown");
       // The free-text row closes the filtered list: walk to it by label.
       for (let k = 0; k < 20 && !frameOf(i).includes('› + use "air"'); k++) {
         await press(i, "\x1b[B", 'walking down to the row `+ use "air"`');
