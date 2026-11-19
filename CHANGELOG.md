@@ -7,6 +7,8 @@ matching section here at tag time.
 
 ## [Unreleased]
 
+## [0.69.0] - 2026-11-19
+
 ### Added
 
 - Native WAV/MP3 audio and MP4 video mentions, preserved across session resume
@@ -30,6 +32,12 @@ matching section here at tag time.
 - Accept namespaced custom model ids in `/model`, with or without an explicit
   endpoint prefix, and keep their selected-model marker accurate.
 
+
+### Changed
+
+- Retain the validated model catalog while updating its release metadata to
+  0.69.0. Upstream missing-data and context-reduction findings remain under
+  review in #1775; no catalog prices or context limits are changed.
 
 ## [0.68.0] - 2026-11-19
 
