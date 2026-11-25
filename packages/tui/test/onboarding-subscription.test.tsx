@@ -8,9 +8,9 @@
  * Anthropic is offered again with its conditional warning; Google remains
  * API-key-only. The full existing OpenAI flow covers the shared login UI.
  */
-import { describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, test } from "bun:test";
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
-import { render } from "ink-testing-library";
+import { cleanup, render } from "ink-testing-library";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -18,7 +18,14 @@ import { tosWarningFor, readUserConfigFile, subscriptionModelCatalog, type AuthT
 import { getStoredToken } from "../../core/src/auth/store";
 import { Onboarding } from "../src/OnboardingOverlay";
 import { clipboardBackend } from "../src/clipboard";
-import { pressSettled, stripAnsi, unmountSettled, waitText, waitForCondition, waitForFrame } from "./helpers";
+import { pressSettled, stripAnsi, unmountSettled, waitText, waitForCondition, waitForFrame, effectsFlushed } from "./helpers";
+
+// #1773: a failing assertion skips an inline `unmount()`; unmount every view the
+// test left mounted so its Ink effects/timers cannot leak into later files.
+afterEach(async () => {
+  cleanup();
+  await effectsFlushed();
+});
 
 const tempHome = () => mkdtempSync(join(tmpdir(), "moh-sub-home-"));
 const tempCwd = () => mkdtempSync(join(tmpdir(), "moh-sub-"));

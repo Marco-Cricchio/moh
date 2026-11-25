@@ -9,14 +9,21 @@
  * inside one render window. The fix (functional cursor updates) must keep
  * every key, independent of render timing.
  */
-import { describe, expect, test } from "bun:test";
-import { render } from "ink-testing-library";
+import { afterEach, describe, expect, test } from "bun:test";
+import { cleanup, render } from "ink-testing-library";
 import { mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { subscriptionModelCatalog, type AuthToken, type AuthorizationIo } from "@moh/core";
 import { Onboarding } from "../src/OnboardingOverlay";
-import { pressSettled, waitText, stripAnsi, waitForCondition, waitForFrame } from "./helpers";
+import { pressSettled, waitText, stripAnsi, waitForCondition, waitForFrame, effectsFlushed } from "./helpers";
+
+// #1773: a failing assertion skips an inline `unmount()`; unmount every view the
+// test left mounted so its Ink effects/timers cannot leak into later files.
+afterEach(async () => {
+  cleanup();
+  await effectsFlushed();
+});
 
 const sleep = (ms: number) => Promise.resolve().then(() => new Promise((r) => setTimeout(r, ms)));
 const tempHome = () => mkdtempSync(join(tmpdir(), "moh-arrow-home-"));
