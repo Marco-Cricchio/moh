@@ -583,7 +583,11 @@ describe("AgentSession MCP integration", () => {
     expect(otherAsked).toEqual(["srv"]);
     expect(third.session.history().some((e) => e.type === "mcp_server_started")).toBe(false);
     await third.session.dispose();
-  });
+  // #1772: on macOS, `bun` started with a cwd under $TMPDIR (/var/folders/...)
+  // takes ~1.5-3 s to boot (a bare `cd $TMPDIR/x && bun script.ts` reproduces it;
+  // the same script is ~10 ms from any other cwd). This test starts the stdio
+  // fixture three times from a tmp cwd, so it needs more than the 5 s default.
+  }, 30_000);
 
   test("duplicate server names throw at session creation (startup validation error)", () => {
     const servers = [stdioServer("ok"), stdioServer("ok")];
