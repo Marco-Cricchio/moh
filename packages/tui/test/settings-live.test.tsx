@@ -10,12 +10,15 @@ import { loadUserConfig } from "../src/user-config";
 import { COMPOSER_READY, stripAnsi, waitForCondition, waitForFrame } from "./helpers";
 
 const tempHome = () => mkdtempSync(join(tmpdir(), "moh-settings-live-"));
+// #1778: never run against the checkout's own cwd — a local `.moh/`, `moh.json` or
+// project notices there change the frame (`jev: inactive`, extra rules) per machine.
+const tempCwd = () => mkdtempSync(join(tmpdir(), "moh-settings-live-cwd-"));
 
 describe("settings changes apply live (#196)", () => {
   test("toggling mode in the settings panel flips the session label immediately", async () => {
     const provider = MockProvider.demo();
     const home = tempHome();
-    const i = render(<App intro={false} cwd={process.cwd()} home={home} provider={provider} startInChat skipOnboarding />);
+    const i = render(<App intro={false} cwd={tempCwd()} home={home} provider={provider} startInChat skipOnboarding />);
     const frame = () => stripAnsi(i.lastFrame() ?? "");
     // #939: the identity gate mounts the tree — and its input handlers — a
     // beat after render(), so the first keystroke waits for the settled chat.
@@ -36,7 +39,7 @@ describe("settings changes apply live (#196)", () => {
   test("changing theme in the settings panel remounts with the new theme", async () => {
     const provider = MockProvider.demo();
     const home = tempHome();
-    const i = render(<App intro={false} cwd={process.cwd()} home={home} provider={provider} startInChat skipOnboarding />);
+    const i = render(<App intro={false} cwd={tempCwd()} home={home} provider={provider} startInChat skipOnboarding />);
     const frame = () => stripAnsi(i.lastFrame() ?? "");
     // A painted frame can precede useInput's passive effect. Flush the
     // input update before the next key, without sleeping or replaying it.
