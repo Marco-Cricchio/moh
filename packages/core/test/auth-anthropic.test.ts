@@ -338,21 +338,25 @@ describe("anthropic adapter beta header", () => {
 
 describe("oauth seam: code source tracking", () => {
   test("deliveredViaCallback flips on the automatic path, stays false on paste", async () => {
-    // Paste path
+    // Paste path: the browser delivers nothing, so the short callback budget
+    // is meant to elapse and the paste prompt answers.
     loginIoDouble(["pasted", ""]);
-    const server = await startLoopbackCallback({ state: generateState(), timeoutMs: 1000 });
+    const server = await startLoopbackCallback({ state: generateState(), timeoutMs: 50 });
     await raceForCode(loginIoDouble([""]), { authorizeUrl: "https://m/a", manualUrl: "https://m/cb", callback: server });
     expect(server.deliveredViaCallback).toBe(false);
 
-    // Callback path
+    // Callback path (#1781): a long budget so a loaded machine cannot expire
+    // the listener, and the callback is sent only once the browser has been
+    // opened (state), not after a fixed sleep.
     const state = generateState();
-    const server2 = await startLoopbackCallback({ state, timeoutMs: 1000 });
-    const raced = raceForCode(loginIoDouble([""]), {
+    const server2 = await startLoopbackCallback({ state, timeoutMs: 30_000 });
+    const io2 = loginIoDouble([""]);
+    const raced = raceForCode(io2, {
       authorizeUrl: "https://m/a",
       manualUrl: "https://m/cb",
       callback: server2,
     });
-    await Bun.sleep(10);
+    while (io2.openedUrls.length === 0) await Bun.sleep(5);
     expect(server2.deliveredViaCallback).toBe(false); // nothing delivered yet
     await fetch(`${server2.redirectUri}?code=c1&state=${encodeURIComponent(state)}`);
     await raced;
