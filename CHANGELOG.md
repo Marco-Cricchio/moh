@@ -7,6 +7,19 @@ matching section here at tag time.
 
 ## [Unreleased]
 
+## [0.69.1] - 2026-11-25
+
+### Changed
+
+- Test-suite stability only; no user-visible behaviour change. The MCP
+  trust-persistence test gets an explicit budget (slow `bun` start from a
+  `$TMPDIR` cwd, #1772), the auth callback test synchronizes on state instead
+  of a sleep (#1781), onboarding tests unmount every view after each test
+  (#1773), and `settings-live` runs against an isolated cwd (#1778).
+- Retain the validated model catalog while updating its release metadata to
+  0.69.1. Upstream missing-data and context-reduction findings remain under
+  review in #1775; no catalog prices or context limits are changed.
+
 ## [0.69.0] - 2026-11-19
 
 ### Added
