@@ -1,12 +1,19 @@
-import { describe, expect, test } from "bun:test";
-import { render } from "ink-testing-library";
+import { afterEach, describe, expect, test } from "bun:test";
+import { cleanup, render } from "ink-testing-library";
 import { existsSync, readFileSync, rmSync } from "node:fs";
 import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { BUILTIN_PROVIDER_TYPES, loadMohConfig } from "@moh/core";
 import { Onboarding } from "../src/OnboardingOverlay";
-import { pressSettled, stripAnsi, unmountSettled, waitStep, waitText } from "./helpers";
+import { pressSettled, stripAnsi, unmountSettled, waitStep, waitText, effectsFlushed } from "./helpers";
+
+// #1773: a failing assertion skips an inline `unmount()`; unmount every view the
+// test left mounted so its Ink effects/timers cannot leak into later files.
+afterEach(async () => {
+  cleanup();
+  await effectsFlushed();
+});
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const tempHome = () => mkdtempSync(join(tmpdir(), "moh-obt-home-"));
